@@ -23,7 +23,6 @@ import {
 } from "@/edge"
 import { isWeb } from "@/edition"
 import { Icon, type IconName } from "@/icons"
-import { useWaitingTills } from "@/joining"
 import {
   BAGS,
   bagName,
@@ -702,13 +701,10 @@ export type Where =
   | "void"
   | "redeem"
   | "setup"
-  /// What is plugged into this till — reachable before signing in, like setup.
+  /// What is plugged into this till — an Admin's, opened from the door.
   | "peripherals"
-  /// Finding the shop's node and asking it to let this till in.
+  /// Finding the shop's node and asking head office to let this till in.
   | "join"
-  /// The tills waiting to join, approved from here with a supervisor's finger
-  /// or PIN. Signed in only.
-  | "joins"
 
 /// Return mode (client, 23 Oct 2026): the sale screen itself. The pieces that
 /// came back are read by RFID and sit as amber rows; each replacement sits
@@ -961,13 +957,9 @@ export function Till({
   // Taking something back off the counter needs a second person: a unit
   // lifted out of the basket, or the whole basket abandoned.
   const approval = useApproval()
-  // Another till asking to join this shop's node. Asked only by a till that
-  // belongs to the node — one with its own credential there — because that is
-  // the till a supervisor's finger can approve from.
+  // This till's own configuration: its peripherals (the R3's check tag, the
+  // receipt printer) and how it reaches its node.
   const { config: shell } = useNodeConfig()
-  const waiting = useWaitingTills(
-    shell?.pairing_id !== null && shell?.pairing_id !== undefined,
-  )
   // The last three receipts of this person's shift, for the column under the
   // money, and which of them Ctrl+P / Print sends to the printer. Asked again
   // after every sale (the sale itself, and the outbox emptying when the node
@@ -2940,8 +2932,6 @@ export function Till({
         <SellHeader
           terminalId={terminalId}
           unsent={outbox.unsent}
-          waiting={waiting}
-          onWaiting={() => onGo("joins")}
           held={heldCount}
           hasUnits={units.length > 0}
           bagsOpen={bagPick}
@@ -3937,8 +3927,6 @@ export function Topbar({
   terminalId,
   actorId,
   unsent,
-  waiting,
-  onWaiting,
   onFinish,
   onLock,
   onDisplay,
@@ -3946,9 +3934,6 @@ export function Topbar({
   terminalId?: string
   actorId?: string
   unsent?: number
-  /// Tills waiting for a supervisor at this node. Shown only when some are.
-  waiting?: number | null
-  onWaiting?: () => void
   /// Finish the shift. The one way out: there is no sign-out button, because a
   /// person leaves a till by counting their drawer, not by walking away from it.
   onFinish?: () => void
@@ -3966,21 +3951,6 @@ export function Topbar({
     <header className="topbar">
       <Brand />
       <div className="top-right">
-        {/* Another till is asking to join: somebody is standing at it with
-            a code on the screen, waiting for a supervisor to notice. */}
-        {waiting !== undefined && waiting !== null && waiting > 0 && (
-          <button
-            className="top-tool"
-            onClick={onWaiting}
-            disabled={onWaiting === undefined}
-            title="Lihat kasir yang menunggu untuk mencocokkan kode dan menyetujui"
-          >
-            <Icon name="plug" />
-            <span className="badge warn">
-              {waiting} menunggu persetujuan
-            </span>
-          </button>
-        )}
         {unsent !== undefined && unsent > 0 && (
           <span className="badge warn">{unsent} belum terkirim</span>
         )}
@@ -4291,8 +4261,6 @@ function looksLikeCoupon(code: string): boolean {
 function SellHeader({
   terminalId,
   unsent,
-  waiting,
-  onWaiting,
   held,
   hasUnits,
   bagsOpen,
@@ -4306,9 +4274,6 @@ function SellHeader({
 }: {
   terminalId?: string
   unsent?: number
-  /// Tills waiting for a supervisor at this node. Shown only when some are.
-  waiting?: number | null
-  onWaiting?: () => void
   held: number
   hasUnits: boolean
   bagsOpen: boolean
@@ -4373,19 +4338,6 @@ function SellHeader({
       {/* The person always sits at the far right edge (owner, 23 Oct 2026:
           "profile selalu paling kanan"), whatever the key row's width. */}
       <span className="sp" />
-      {/* Another till is asking to join: somebody is standing at it with a code
-          on the screen, waiting for a supervisor to notice. */}
-      {waiting !== undefined && waiting !== null && waiting > 0 && (
-        <button
-          type="button"
-          className="t-flagbtn"
-          onClick={onWaiting}
-          disabled={onWaiting === undefined}
-          title="Lihat kasir yang menunggu untuk mencocokkan kode dan menyetujui"
-        >
-          {waiting} menunggu persetujuan
-        </button>
-      )}
       {unsent !== undefined && unsent > 0 && (
         <span className="t-flagbtn">{unsent} belum terkirim</span>
       )}

@@ -102,7 +102,7 @@
     <section class="card"><h2>Sync to head office</h2><div id="sync"></div></section>
     <section class="card"><h2>Machine</h2><div id="machine" style="display:flex;flex-direction:column;gap:10px"></div></section>
     <section class="card"><h2>Devices in the store</h2><div id="devices"></div></section>
-    <section class="card"><h2>Safe to restart?</h2><div id="safe"></div></section>
+    <section class="card"><h2>Cash drawers</h2><div id="safe"></div></section>
   </div>
 
   <div class="grid2">
@@ -113,10 +113,9 @@
         <button type="button" class="primary" id="btn-sync">Sync now</button>
         <button type="button" id="btn-diag">Run diagnosis</button>
         <button type="button" id="btn-backup">Back up now</button>
-        <button type="button" id="btn-restart">Restart server</button>
       </div>
       <div class="msg" id="action-msg" hidden role="status"></div>
-      <p class="note">A restart waits while a cash drawer is still open, unless forced. Every action is also recorded at head office.</p>
+      <p class="note">Restarting, updating and removing this server are done by head office. Every action is also recorded there.</p>
     </section>
   </div>
 
@@ -236,7 +235,6 @@ function render(data) {
   const t = s.till;
   fill("safe",
     row("Open cash drawers", t.open_shifts ? t.open_shifts + " (" + t.open_shift_terminals.join(", ") + ")" : "none", t.open_shifts ? "WARN" : "OK"),
-    el("p", { class: "note" }, t.open_shifts ? "A restart cuts the tills off for a few seconds. Wait for the drawers to close, or force it." : "Safe: no till is in the middle of a sale."),
   );
 
   const items = [];
@@ -366,23 +364,6 @@ $("btn-diag").addEventListener("click", async (event) => {
   } finally {
     event.currentTarget.disabled = false;
   }
-});
-
-async function restart(force) {
-  const r = await act("/console/restart", { force });
-  if (r.ok) { say(r.data.message, "INFO"); setTimeout(refresh, 3000); return; }
-  if (r.status === 409 && !force) {
-    say(r.data.error, "WARN");
-    const box = $("action-msg");
-    const again = el("button", { type: "button", class: "danger", style: "margin-top:8px;display:block" }, "Force restart now");
-    again.addEventListener("click", () => restart(true));
-    box.append(again);
-    return;
-  }
-  say(r.data.error || "Restart failed.", "BAD");
-}
-$("btn-restart").addEventListener("click", () => {
-  if (confirm("Restart the store server? Tills are cut off for a few seconds.")) restart(false);
 });
 
 refresh();

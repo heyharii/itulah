@@ -341,9 +341,21 @@ export const SHEET_PARAMS = {
   "new-stores": flag,
   /// Which tab a store's own page stands on. Not a sheet: in the URL so the
   /// "Add store" sheet can land somebody on the Server tab, and so a reload
-  /// stays where it was. Anything but these four words is dropped, and no
-  /// word means Overview.
-  "store-tab": oneOf(["overview", "tills", "server", "status"] as const),
+  /// stays where it was. Anything but these six words is dropped, and no
+  /// word means Overview. `tills` is the POS tab, named as it always was.
+  "store-tab": oneOf([
+    "overview",
+    "people",
+    "tills",
+    "devices",
+    "server",
+    "status",
+  ] as const),
+  /// One person of a store's team, over the store's People tab, by their
+  /// login's user id (not the employee id: a login with no employee behind it
+  /// is on the team too). Its own key rather than `user`, which opens the
+  /// Users & roles sheet for the same login from another screen.
+  person: id,
   /// The company's own description — name, legal form, head-office address,
   /// NPWP — over the home screen. A flag: there is one company.
   company: flag,

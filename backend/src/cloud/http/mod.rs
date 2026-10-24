@@ -546,6 +546,32 @@ pub fn router(state: AppState) -> Router {
     // Tills tab's read follows reach; the writes are Admin's, at the path and
     // in the handler.
     .route("/api/v1/stores/{unit}/pos", get(stores::pos))
+    // A finger recorded at the store's POS waits for head office's yes,
+    // on the store's People tab (24 Oct 2026).
+    .route("/api/v1/stores/{unit}/fingers", get(stores::fingers))
+    // One person at the store: shift, sales, POS used, activity, stop.
+    .route("/api/v1/stores/{unit}/people/{user_id}", get(stores::person))
+    .route(
+        "/api/v1/stores/{unit}/fingers/approve-all",
+        post(stores::approve_all_fingers),
+    )
+    .route(
+        "/api/v1/stores/{unit}/fingers/{submission_id}/approve",
+        post(stores::approve_finger),
+    )
+    .route(
+        "/api/v1/stores/{unit}/fingers/{submission_id}/refuse",
+        post(stores::refuse_finger),
+    )
+    // A new POS joins only with head office's yes (24 Oct 2026).
+    .route(
+        "/api/v1/stores/{unit}/pos/joins/{join_id}/approve",
+        post(stores::approve_pos),
+    )
+    .route(
+        "/api/v1/stores/{unit}/pos/joins/{join_id}/refuse",
+        post(stores::refuse_pos),
+    )
     .route("/api/v1/stores/{unit}/stop", post(stores::stop))
     .route("/api/v1/stores/{unit}/resume", post(stores::resume))
     .route("/api/v1/stores/{unit}/remove", post(stores::remove))
@@ -2459,6 +2485,12 @@ pub fn router(state: AppState) -> Router {
     .route(
         "/api/v1/sync/pos-fingers",
         post(terminal::sync_pos_fingers),
+    )
+    // The fingers a store head recorded at the POS, waiting for head
+    // office's yes (24 Oct 2026). The same key, never a session.
+    .route(
+        "/api/v1/sync/pos-fingers/submit",
+        post(terminal::submit_pos_fingers),
     )
     .route("/api/v1/attendance/punches", post(terminal::ingest_punches))
     // The second punch source, and the door it does NOT come through is

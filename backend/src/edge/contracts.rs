@@ -450,7 +450,7 @@ pub struct UnknownItemApprovalRequest {
     /// so the Kepala toko approving is somebody else
     /// (`till::verify_supervisor`).
     #[serde(default)]
-    #[cfg_attr(feature = "ts", ts(optional))]
+    #[cfg_attr(feature = "ts", ts(skip))]
     pub actor_id: String,
 }
 

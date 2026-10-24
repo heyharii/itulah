@@ -33,7 +33,7 @@ export function StoreServerNews() {
             label: "Open",
             onClick: () =>
               void navigate({
-                to: `/master/stores/${encodeURIComponent(unit)}` as LinkProps["to"],
+                to: `/stores/${encodeURIComponent(unit)}` as LinkProps["to"],
                 search: { "store-tab": "server" } as never,
               }),
           },

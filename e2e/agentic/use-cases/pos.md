@@ -104,7 +104,6 @@ Not covered (no engine / out of scope): Tauri desktop shell (fingerprint & PIN s
 | STORE-101 | maya | by SKU: row, Price source, Barcode | catalogue-node::STORE-101 | pass |
 | STORE-102 | maya | promotions running == node offers; campaigns / price changes / vouchers lists | catalogue-node::STORE-102 | pass |
 | STORE-103 | maya | Sync figures from the node, Send now | catalogue-node::STORE-103 | pass |
-| STORE-104 | maya | Till approvals empty state (joining is desktop-only) | catalogue-node::STORE-104 | pass |
 | STORE-105 | maya | Change password guards (mismatch, wrong current); password is never changed | catalogue-node::STORE-105 | pass |
 | STORE-106 | dian | Sign out → door (own login, so the shared session stays valid) | catalogue-node::STORE-106 | pass |
 | STORE-110 | maya | Discuss: message in "Store 01" reaches head office | office::STORE-110 | pass |

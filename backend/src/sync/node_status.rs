@@ -288,11 +288,16 @@ pub struct DeviceFacts {
     pub terminals_seen_recently: i64,
     pub rfid_active: i64,
     pub rfid_seen_recently: i64,
-    /// Tills waiting for a supervisor at the shop to let them join
-    /// (`edge_device_join`), which head office's store page shows. Absent
+    /// Tills waiting to join (`edge_device_join`), which head office's store
+    /// page shows and decides. Absent
     /// from a node that predates it, read as none.
     #[serde(default)]
     pub terminals_waiting: i64,
+    /// The same tills, one by one, for head office to approve or refuse
+    /// (`sync::device::COMMAND_DEVICE_JOIN_DECIDE`). Absent from a node that
+    /// predates it.
+    #[serde(default)]
+    pub joins_waiting: Vec<crate::sync::device::WaitingJoin>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]

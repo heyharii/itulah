@@ -287,6 +287,7 @@ fn is_public(path: &str) -> bool {
             // no session can ask for a fingerprint template.
             | "/api/v1/attendance/terminal-sync"
             | "/api/v1/sync/pos-fingers"
+            | "/api/v1/sync/pos-fingers/submit"
             | "/api/v1/attendance/punches"
             | "/metrics"
     )

@@ -317,6 +317,13 @@ pub(crate) const BENEFIT_FINGER_SCHEMA: &str = include_str!(concat!(
     "/migrations/sqlite/0088_an_employee_finger_opens_their_benefit.sql"
 ));
 
+/// A finger recorded at the store, waiting for head office (`0090`, owner
+/// 24 Oct 2026; `fingerprint::submit`). Creates only.
+pub(crate) const FINGER_SUBMISSION_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0090_a_finger_recorded_at_the_store_waits_for_head_office.sql"
+));
+
 /// What head office stopped on this node's POS (`0087`, postgres 0990): the
 /// store, and the people who may not sell. Creates only.
 pub(crate) const POS_STOP_SCHEMA: &str = include_str!(concat!(
@@ -1621,6 +1628,11 @@ impl SqliteEdge {
             .map_err(db)?;
         // Head office's stops on the POS (`0087`). Creates only.
         connection.execute_batch(POS_STOP_SCHEMA).map_err(db)?;
+        // Fingers recorded here, waiting for head office (`0090`). Creates
+        // only.
+        connection
+            .execute_batch(FINGER_SUBMISSION_SCHEMA)
+            .map_err(db)?;
         // RFID receipts outlive a key (`0082`): a rebuild, so only while 0004's
         // `UNIQUE(device_id, sequence)` — the one index a UNIQUE constraint
         // (origin 'u') makes on that table — is still there.
@@ -1689,6 +1701,22 @@ impl SqliteEdge {
         // open; the till's new columns and the session's reason are ALTERs,
         // so each is probed by the column it adds.
         connection.execute_batch(DEVICE_JOIN_SCHEMA).map_err(db)?;
+        // Why head office's decision on a waiting till could not be carried
+        // out here (24 Oct 2026, `devices::apply_join_decision`): an ALTER,
+        // so probed first.
+        let a_join_says_why_not: i64 = connection
+            .prepare_cached(
+                "SELECT COUNT(*) FROM pragma_table_info('edge_device_join')
+                  WHERE name='head_office_error'",
+            )
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
+            .map_err(db)?;
+        if a_join_says_why_not == 0 {
+            connection
+                .execute_batch("ALTER TABLE edge_device_join ADD COLUMN head_office_error TEXT")
+                .map_err(db)?;
+        }
         let a_till_has_a_status: i64 = connection
             .prepare_cached(
                 "SELECT COUNT(*) FROM pragma_table_info('edge_terminal') WHERE name='status'",

@@ -585,6 +585,39 @@ pub async fn sync_pos_fingers(
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct PosFingerSubmitBody {
+    pub origin_id: String,
+    pub submissions: Vec<infrastructure::PosFingerSubmission>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PosFingerAnswers {
+    pub results: Vec<infrastructure::PosFingerAnswer>,
+}
+
+/// `POST /api/v1/sync/pos-fingers/submit`: the fingers a store head recorded
+/// at the POS, waiting for head office (owner, 24 Oct 2026). Sent with every
+/// ask for fingers until each is decided, so the answer is where each one
+/// stands. Authenticated like [`sync_pos_fingers`], by the server's own
+/// `x-sync-key`.
+pub async fn submit_pos_fingers(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<PosFingerSubmitBody>,
+) -> Result<Json<PosFingerAnswers>, AppError> {
+    node_unit(&state, &headers, &body.origin_id).await?;
+    if body.submissions.len() > 200 {
+        return Err(AppError::Validation(
+            "send at most 200 fingers at a time".to_owned(),
+        ));
+    }
+    let results =
+        infrastructure::take_pos_fingers(&state.db, &body.origin_id, body.submissions).await?;
+    Ok(Json(PosFingerAnswers { results }))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TemplateSyncBody {
     pub origin_id: String,
     /// Which station is asking. Checked against the registry, so a revoked

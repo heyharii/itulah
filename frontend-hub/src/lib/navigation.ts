@@ -8,6 +8,7 @@ import {
   Shirt,
   ShoppingCart,
   Store,
+  TrendingUp,
   Truck,
   Users,
   type LucideIcon,
@@ -289,6 +290,17 @@ export interface AppModule {
   /// Drawn desaturated and inert. Honest about what is not built yet, rather
   /// than a live tile that opens an empty screen.
   readonly soon?: boolean
+  /// The module's screens panel is a component of its own, not a list of its
+  /// rows: the Stores menu holds Add store, a search and every store down its
+  /// side (`screens/stores/stores-panel.tsx`).
+  ///
+  /// A flag and not the component, so this declaration — read by the router,
+  /// the palette and the rail — pulls in none of the panel's imports. The shell
+  /// keeps the map from a module's id to its component (`SIDEBARS` in
+  /// `components/shell/sub-sidebar.tsx`). A department holding such a module
+  /// has a panel however few rows it declares, and a rail press on a compact
+  /// desk floats it.
+  readonly sidebar?: boolean
   /// Routed and findable, but not a row in the sidebar.
   ///
   /// The module-level twin of `NavItem.hidden`, and for the same reason: the
@@ -490,11 +502,23 @@ const allDomains: readonly AppDomain[] = [
   {
     // `selling` stays the id — links and saved state name it — while the
     // label is the owner's word (2026-09-28). Sales leads now: its rows are
-    // the department's own, and Stores and Members sit under its More fold.
+    // the department's own, and Members sits under its More fold. Stores left
+    // it for a menu of its own on 2026-10-24, and took the shop icon with it.
     id: "selling",
     label: "Sales",
+    icon: TrendingUp,
+    modules: ["sales", "members"],
+  },
+  // The owner's own place to add a store, open it and watch it (owner,
+  // 2026-10-24: `store-opening-prototype.html`): Add store, a search and every
+  // store by where it stands down the panel, each managed on its own page.
+  // One module, so the department opens on All stores, and the panel is the
+  // module's own (`AppModule.sidebar`).
+  {
+    id: "stores",
+    label: "Stores",
     icon: Store,
-    modules: ["sales", "stores", "members"],
+    modules: ["stores"],
   },
   {
     id: "finance",

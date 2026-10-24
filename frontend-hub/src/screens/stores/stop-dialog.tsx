@@ -30,19 +30,27 @@ export interface StopFact {
 /// so the act is the only button and it is solid red; and what the act does is
 /// said as facts, label and value, instead of a sentence.
 ///
-/// `reason` asks why, in a box that holds the act back until it is filled.
-/// `code` asks the store's own code typed back, which holds it back until it
-/// matches (case and spaces aside); `blocked` holds it back for a fact the
-/// caller has already drawn in red.
+/// `reason` asks why, in a box that holds the act back until it is filled;
+/// `reasonOptional` asks it without holding anything back. `code` asks the
+/// store's own code typed back, which holds it back until it matches (case and
+/// spaces aside); `blocked` holds it back for a fact the caller has already
+/// drawn in red.
+///
+/// `tone="primary"` makes the act blue, for a question that is not a stop —
+/// approving a new POS into a seat — and `children` stands under the facts for
+/// the choice the act needs.
 export function StopDialog({
   open,
   onOpenChange,
   title,
   sub,
   facts,
+  children,
   reason = false,
+  reasonOptional = false,
   code,
   action,
+  tone = "destructive",
   blocked = false,
   pending = false,
   error,
@@ -55,12 +63,19 @@ export function StopDialog({
   /// "Can’t be undone", for what cannot be.
   sub?: React.ReactNode
   facts: readonly StopFact[]
+  /// What the act needs chosen, under the facts: a field, a select.
+  children?: React.ReactNode
   /// Ask why; handed to `onConfirm`.
   reason?: boolean
+  /// Ask why without requiring an answer.
+  reasonOptional?: boolean
   /// Ask this code typed back before the act is let through.
   code?: string
   /// The act's verb, the same one the button that asked says.
   action: string
+  /// `destructive` (red) for a stop or a removal, `primary` (blue) for the
+  /// rest.
+  tone?: "destructive" | "primary"
   blocked?: boolean
   pending?: boolean
   /// The write that failed, said here while the dialog is still open.
@@ -140,8 +155,10 @@ export function StopDialog({
         ))}
       </dl>
 
-      {reason && (
-        <Field label="Reason" required className="mt-5">
+      {children !== undefined && <div className="mt-5">{children}</div>}
+
+      {(reason || reasonOptional) && (
+        <Field label="Reason" required={reason} className="mt-5">
           <Textarea
             value={said}
             rows={2}
@@ -172,7 +189,7 @@ export function StopDialog({
       <div className="mt-6 flex justify-end max-md:[&>*]:h-11 max-md:[&>*]:flex-1">
         <Button
           type="submit"
-          variant="destructive"
+          variant={tone}
           pending={pending}
           disabled={!ready}
           className="min-w-40"

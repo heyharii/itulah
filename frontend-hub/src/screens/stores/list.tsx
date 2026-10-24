@@ -34,7 +34,10 @@ import {
 import { OpenStoresSheet } from "@/screens/setup/open-stores-sheet"
 
 /// Every store, whether it is still getting ready or already trading — the
-/// owner's own front door onto the whole estate.
+/// owner's own front door onto the whole estate. All stores, the first row of
+/// the Stores menu; on a desk the menu's panel lists the same stores down its
+/// side (`stores-panel.tsx`), and here is where a phone, a tablet and a folded
+/// panel reach them.
 ///
 /// The row reads left to right in the order a person checks it: is it ready
 /// (the ring), is it open (the pill), is its server up, are its tills on.
@@ -55,7 +58,7 @@ export function StoresList() {
       <Suspense
         fallback={
           <>
-            <PageHeader crumb="Stores" title="Stores" />
+            <PageHeader crumb="Stores" title="All stores" />
             <LoadingState>Reading the stores…</LoadingState>
           </>
         }
@@ -163,7 +166,7 @@ function StoreBook() {
     <>
       <PageHeader
         crumb="Stores"
-        title="Stores"
+        title="All stores"
         sub={
           canManage
             ? "Add a store, install its server, and watch every shop from one page."

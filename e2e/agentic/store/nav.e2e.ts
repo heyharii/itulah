@@ -22,7 +22,6 @@ const routes: [string, string, string][] = [
   ['STORE-24', '/reports', 'How it was paid'],
   ['STORE-25', '/news', 'New chat'],
   ['STORE-26', '/node/sync', 'Send now'],
-  ['STORE-27', '/node/tills', 'No tills waiting.'],
   ['STORE-28', '/node/password', 'Sign-in name'],
   ['STORE-29', '/hr/overview', 'Headcount'],
   ['STORE-30', '/hr/roster', 'Roster'],

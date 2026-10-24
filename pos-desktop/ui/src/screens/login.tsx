@@ -33,9 +33,11 @@ import { useEffect, useId, useState, type CSSProperties, type FormEvent } from "
 import { authMethods, me, pairTerminal, tillPeople, type StepUp, type TillPerson } from "@/api"
 import { isWeb } from "@/edition"
 import { Icon } from "@/icons"
-import { siteTitle, useWaitingTills } from "@/joining"
+import { siteTitle } from "@/joining"
 import { lastSignInProblem, NO_FINGER, useNodeConfig, useSession } from "@/session"
 import { useFingerWatch, useScanner } from "@/scanner"
+import { EnrolFingerScreen } from "@/screens/fingerprint-enrol"
+import { PeripheralsScreen } from "@/screens/peripherals"
 import { SIMULATED, SIM_FINGERS, SIM_HEAD, SIM_SECRET, titled } from "@/simulation"
 import { sound } from "@/sound"
 import { Sensor, type Read } from "@/sensor"
@@ -50,7 +52,12 @@ import { kasirLabel, Topbar } from "@/till"
 /// `onSignedIn` fires once the till is the right person's. While the head is
 /// signed in and choosing, the app keeps this screen up (`onHold`), since the
 /// session already has somebody in it who is not the one who will sell.
-type Door = "touch" | "head" | "headpw" | "behalf" | "welcome"
+///
+/// Two more doors open from her list, both with her session held: "Daftarkan
+/// sidik jari" (`fingers`, any Kepala toko — she records, head office approves)
+/// and "Perangkat kasir" (`devices`, an Admin's alone). The store only opens
+/// and closes its day (owner, 24 Oct 2026); head office does the rest.
+type Door = "touch" | "head" | "headpw" | "behalf" | "welcome" | "fingers" | "devices"
 
 const headRole = (role: string | undefined) =>
   (role ?? "ADMIN").toUpperCase() !== "CASHIER"
@@ -107,6 +114,8 @@ export function LoginScreen({
   const [people, setPeople] = useState<readonly TillPerson[]>([])
   const [pick, setPick] = useState(0)
   const [head, setHead] = useState<string | null>(null)
+  // Her role once signed in: only an ADMIN is offered "Perangkat kasir".
+  const [level, setLevel] = useState("")
   const [welcome, setWelcome] = useState<{ name: string; by: string | null } | null>(null)
   const [stepUp, setStepUp] = useState<StepUp | null>(null)
   const [now, setNow] = useState(() => new Date())
@@ -171,8 +180,12 @@ export function LoginScreen({
     }
     onHold(true)
     setHead(name)
+    setLevel((body.role ?? "").toUpperCase())
     const list = await tillPeople()
-    setPeople(list.ok ? (list.body?.items ?? []) : [])
+    // She is the last row, "saya sendiri"; the node lists her among the
+    // people she may open for too.
+    const self = body.username.toLowerCase()
+    setPeople(list.ok ? (list.body?.items ?? []).filter((one) => one.username.toLowerCase() !== self) : [])
     setPick(0)
     setHint(list.ok ? null : list.problem)
     setRead("idle")
@@ -333,7 +346,7 @@ export function LoginScreen({
   // Keys, for a counter with no mouse: Enter, Esc, ↑↓ and 1–9, K.
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
-      if (busy || door === "welcome") return
+      if (busy || door === "welcome" || door === "fingers" || door === "devices") return
       const inField = (event.target as HTMLElement | null)?.matches?.("input") ?? false
       if (event.key === "Escape" && door !== "touch") {
         event.preventDefault()
@@ -380,6 +393,15 @@ export function LoginScreen({
     { name: head ?? "", sub: "Kepala toko · saya sendiri" },
   ]
   const picked = rows[pick]?.name.split(" ")[0] ?? ""
+
+  // Her two other screens, full page; the door's own state (who she is, who
+  // she may open for) waits here and is exactly as she left it.
+  if (door === "fingers") {
+    return <EnrolFingerScreen onBack={() => go("behalf")} />
+  }
+  if (door === "devices" && level === "ADMIN" && !isWeb) {
+    return <PeripheralsScreen onBack={() => go("behalf")} />
+  }
 
   let card
   if (door === "welcome" && welcome !== null) {
@@ -439,6 +461,16 @@ export function LoginScreen({
           <span>{busy ? "Membuka…" : `Buka untuk ${picked}`}</span>
           <span className="kbd">Enter</span>
         </button>
+        <div className="f-tools">
+          <button className="pd-btn" type="button" disabled={busy} onClick={() => go("fingers")}>
+            Daftarkan sidik jari
+          </button>
+          {level === "ADMIN" && !isWeb && (
+            <button className="pd-btn" type="button" disabled={busy} onClick={() => go("devices")}>
+              Perangkat kasir
+            </button>
+          )}
+        </div>
       </div>
     )
   } else if (door === "headpw") {
@@ -549,14 +581,11 @@ export function SetupScreen({
   onDone,
   onPeripherals,
   onJoin,
-  onJoins,
 }: {
   onDone: () => void
+  /// An Admin's alone (`app.tsx` passes it only to one).
   onPeripherals?: () => void
   onJoin?: () => void
-  /// The tills waiting to join this shop. Only offered to somebody signed in:
-  /// the list is the node's, and approving needs a supervisor at this till.
-  onJoins?: () => void
 }) {
   const { ready, problem: shellProblem } = useSession()
   const { config, save } = useNodeConfig()
@@ -569,13 +598,6 @@ export function SetupScreen({
   const [pretend, setPretend] = useState("")
   const [problem, setProblem] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  // Tills asking to join, counted beside the button that lets them in. Asked
-  // only when that button is here — signed in, on a till the node knows.
-  const waiting = useWaitingTills(
-    onJoins !== undefined &&
-      config?.pairing_id !== null &&
-      config?.pairing_id !== undefined,
-  )
 
   // Seeded from the shell rather than left blank, so "change one thing" does
   // not mean "retype both" — and so what is on screen is what is in force.
@@ -720,9 +742,9 @@ export function SetupScreen({
           )}
 
           {/* Joining is how a till gets its standing now: it finds the node,
-              asks, and a supervisor says yes after comparing the code and the
-              number on both screens. The key is minted in the shell and never
-              reaches this page. */}
+              asks, and head office says yes in Central after comparing the code
+              and the number on both screens. The key is minted in the shell and
+              never reaches this page. */}
           {onJoin !== undefined && (
             <div className="kv">
               <span className="muted">Till on the store node</span>
@@ -739,24 +761,6 @@ export function SetupScreen({
                 <button className="btn" type="button" onClick={onJoin}>
                   <Icon name="plug" />
                   {config?.pairing_id != null ? "Join again" : "Join the node"}
-                </button>
-              </span>
-            </div>
-          )}
-
-          {/* A new till is let in from a till that already belongs: the
-              supervisor's finger or PIN is pressed here, on a machine the node
-              trusts to say whose it was. */}
-          {onJoins !== undefined && (
-            <div className="kv">
-              <span className="muted">New tills asking to join</span>
-              <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                {waiting !== null && waiting > 0 && (
-                  <span className="badge warn">{waiting} waiting</span>
-                )}
-                <button className="btn" type="button" onClick={onJoins}>
-                  <Icon name="list" />
-                  Waiting tills
                 </button>
               </span>
             </div>

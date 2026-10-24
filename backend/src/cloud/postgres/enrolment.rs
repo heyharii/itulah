@@ -97,7 +97,7 @@ fn template_key() -> Result<TemplateKey, AppError> {
 /// relabelled as another finger: the seal opens only under the identity it was
 /// sealed for. Moving bytes between rows in `psql` produces a row that fails to
 /// open rather than one that matches the wrong person.
-fn seal(
+pub(super) fn seal(
     plaintext: &[u8],
     employee_id: &str,
     finger: Finger,
@@ -403,7 +403,10 @@ pub struct EnrolmentRow {
     /// `null` when the device reported none. **Not zero** — zero is a claim the
     /// capture was worthless.
     pub quality: Option<i32>,
-    pub terminal_id: String,
+    /// The punch station that captured it, or `null` for a finger recorded
+    /// at a store's POS and approved by head office (postgres 0994).
+    pub terminal_id: Option<String>,
+    /// The station's name, or the store's for a finger from its POS.
     pub terminal_name: Option<String>,
     pub enrolled_by: String,
     pub enrolled_at: DateTime<Utc>,
@@ -417,9 +420,12 @@ pub async fn list_enrolments(
 ) -> Result<Vec<EnrolmentRow>, AppError> {
     let rows = sqlx::query(
         "SELECT f.employee_id, f.finger, f.format, f.quality, f.terminal_id,
-                t.name AS terminal_name, f.enrolled, f.revision
+                COALESCE(t.name, u.name || ' POS') AS terminal_name, f.enrolled, f.revision
            FROM fingerprint_template f
            LEFT JOIN attendance_terminal t ON t.id = f.terminal_id
+           LEFT JOIN sync_origin_credential o ON o.origin_id = f.origin_id
+           LEFT JOIN site s ON s.id = o.site_id
+           LEFT JOIN unit u ON u.id = s.unit_id
           WHERE f.employee_id = $1
           ORDER BY f.finger",
     )
@@ -595,28 +601,29 @@ pub async fn withdraw_fingerprint_template(
 ) -> Result<bool, AppError> {
     let authorized = serde_json::to_value(authorization)?;
     let mut tx = pool.begin().await?;
-    let terminal: Option<String> = sqlx::query_scalar(
+    let captured: Option<(Option<String>, Option<String>)> = sqlx::query_as(
         "DELETE FROM fingerprint_template
           WHERE employee_id = $1 AND finger = $2
-      RETURNING terminal_id",
+      RETURNING terminal_id, origin_id",
     )
     .bind(employee_id)
     .bind(finger.code())
     .fetch_optional(&mut *tx)
     .await?;
-    let Some(terminal) = terminal else {
+    let Some((terminal, origin)) = captured else {
         tx.rollback().await?;
         return Ok(false);
     };
     sqlx::query(
         "INSERT INTO fingerprint_enrolment_event
-            (employee_id, finger, kind, terminal_id, authorized)
-         VALUES ($1, $2, $3, $4, $5)",
+            (employee_id, finger, kind, terminal_id, origin_id, authorized)
+         VALUES ($1, $2, $3, $4, $5, $6)",
     )
     .bind(employee_id)
     .bind(finger.code())
     .bind(EnrolmentKind::Withdrawn.code())
     .bind(terminal)
+    .bind(origin)
     .bind(&authorized)
     .execute(&mut *tx)
     .await?;

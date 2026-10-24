@@ -319,6 +319,9 @@ function Department({
   // holding one row that repeats its own name. With More hidden, one whose
   // screens all sat under it is a link to its home too.
   const single = own.length <= 1 && !more
+  // …unless its module brings a panel of its own (Stores): on a compact desk
+  // a press on the rail still floats it.
+  const ownPanel = modules.some((module) => module.sidebar === true)
   const Icon = domain.icon
   // The department you are in can be folded shut and opened again: pressing
   // its row while it is open folds it instead of navigating to its home. The
@@ -339,7 +342,11 @@ function Department({
         lit={open}
         folded={folded}
         openDepartment={open}
-        onPick={pick !== null && !single ? () => pick(domain) : undefined}
+        onPick={
+          pick !== null && (!single || ownPanel)
+            ? () => pick(domain)
+            : undefined
+        }
         // Not on the department you are in: its count is on the screens in
         // the panel beside it (owner, 14 Oct).
         badge={folded && !open ? <DomainCount domain={domain} dot /> : undefined}

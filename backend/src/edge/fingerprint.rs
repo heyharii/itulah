@@ -1019,7 +1019,7 @@ pub fn unspend_benefit_grant(
 // answer: a finger HR enrolled arrives, one withdrawn — or of somebody who
 // left, or was moved off this server — is retired and its template wiped.
 // A finger enrolled here before (`source = 'STORE'`) keeps working until its
-// owner leaves; a store head enrols no more (`http::enrol_fingerprint`).
+// owner leaves; a store head's recording waits for head office ([`submit`]).
 
 /// One finger as head office hands it down.
 #[derive(Debug, Clone, Deserialize)]
@@ -1039,8 +1039,10 @@ struct HeadOfficeFingers {
     fingers: Vec<HeadOfficeFinger>,
 }
 
-/// How often this server asks head office for its fingers.
-const HEAD_OFFICE_FINGERS_EVERY: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+/// How often this server asks head office for its fingers, and sends the
+/// ones recorded here. A minute: a store head waiting for head office's yes
+/// should not wait five more for it to arrive.
+const HEAD_OFFICE_FINGERS_EVERY: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// The finger as the POS screen says it.
 fn finger_words(code: &str) -> String {
@@ -1114,6 +1116,15 @@ pub fn replace_from_head_office(
                 ],
             )
             .map_err(db)?;
+        // The same finger approved here by the store head: head office's
+        // copy is the one that follows the person now.
+        tx.execute(
+            "UPDATE edge_fingerprint
+                SET active=0, retired_at=?2, template_base64='', updated_at=?2
+              WHERE finger_id=?1 AND active=1",
+            params![store_finger_id(&username, &finger.finger), now],
+        )
+        .map_err(db)?;
         kept.insert(finger_id);
     }
     let held: Vec<String> = tx
@@ -1147,6 +1158,476 @@ pub fn replace_from_head_office(
     Ok((taken, retired))
 }
 
+// ── a finger recorded at the store waits for head office ─────────────────
+//
+// Owner, 24 Oct 2026: every finger recorded at a store waits for head office.
+// The store head records her own at the POS after signing in with her
+// password, then the people head office added. A recording sits in
+// `edge_finger_submission` (`0090`), never in `edge_fingerprint`, so nothing
+// can match it before head office says yes; it is sent with the next ask for
+// fingers, and an approved one comes back as head office's own.
+
+/// The ten fingers, in head office's words (`fingerprint_template.finger`).
+pub const FINGER_CODES: [&str; 10] = [
+    "LEFT_THUMB",
+    "LEFT_INDEX",
+    "LEFT_MIDDLE",
+    "LEFT_RING",
+    "LEFT_LITTLE",
+    "RIGHT_THUMB",
+    "RIGHT_INDEX",
+    "RIGHT_MIDDLE",
+    "RIGHT_RING",
+    "RIGHT_LITTLE",
+];
+
+/// `POST /api/v1/auth/fingerprints/submissions`, from the store head's POS.
+#[derive(Debug, Deserialize)]
+pub struct SubmitFingerRequest {
+    pub username: String,
+    /// `RIGHT_INDEX`, `LEFT_THUMB`, ... — one of [`FINGER_CODES`].
+    pub finger: String,
+    /// The merged template the scanner produced from three presses.
+    pub template_base64: String,
+    pub reader_kind: String,
+    #[serde(default)]
+    pub quality: Option<u8>,
+}
+
+/// A recorded finger, as the POS shows it.
+#[derive(Debug, Clone, Serialize)]
+pub struct FingerSubmission {
+    pub submission_id: String,
+    pub username: String,
+    pub finger: String,
+    /// "Telunjuk kanan".
+    pub label: String,
+    /// `PENDING` until head office decides; `REFUSED` with its reason.
+    pub status: String,
+    pub reason: Option<String>,
+    pub recorded_by: String,
+    pub recorded_at: String,
+}
+
+/// Record a finger for head office to approve. Recording the same finger of
+/// the same person again replaces what was waiting or was refused.
+///
+/// A finger already enrolled to somebody else here is refused by its exact
+/// template; the POS matches the new capture against everybody's fingers
+/// first, which is the check that catches the same finger pressed twice.
+pub fn submit(
+    connection: &Connection,
+    request: SubmitFingerRequest,
+    recorded_by: &str,
+) -> Result<FingerSubmission, EdgeError> {
+    let username =
+        security::normalize_username(&request.username).map_err(EdgeError::Validation)?;
+    let finger = request.finger.trim().to_ascii_uppercase();
+    if !FINGER_CODES.contains(&finger.as_str()) {
+        return Err(EdgeError::Validation(format!(
+            "{finger} is not a finger; say RIGHT_INDEX, LEFT_THUMB and so on"
+        )));
+    }
+    let template = request.template_base64.trim();
+    if template.is_empty() {
+        return Err(EdgeError::Validation("no fingerprint template".into()));
+    }
+    let reader_kind = request.reader_kind.trim();
+    if reader_kind.is_empty() {
+        return Err(EdgeError::Validation(
+            "say which reader produced this template; a later SDK may not match it".into(),
+        ));
+    }
+    if request.quality.is_some_and(|quality| quality > 100) {
+        return Err(EdgeError::Validation("quality is 0 to 100".into()));
+    }
+    let here: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM edge_user WHERE username=?1 AND active=1)",
+            params![username],
+            |row| row.get(0),
+        )
+        .map_err(db)?;
+    if !here {
+        return Err(EdgeError::Validation(
+            "Orang ini tidak terdaftar di toko ini. Kantor pusat yang menambahkan karyawan.".into(),
+        ));
+    }
+    let owner: Option<String> = connection
+        .query_row(
+            "SELECT COALESCE(NULLIF(trim(u.display_name), ''), f.username)
+               FROM edge_fingerprint f
+               LEFT JOIN edge_user u ON u.username = f.username
+              WHERE f.active = 1 AND f.template_base64 = ?1 AND f.username <> ?2
+             UNION ALL
+             SELECT COALESCE(NULLIF(trim(u.display_name), ''), s.username)
+               FROM edge_finger_submission s
+               LEFT JOIN edge_user u ON u.username = s.username
+              WHERE s.status = 'PENDING' AND s.template_base64 = ?1 AND s.username <> ?2
+             LIMIT 1",
+            params![template, username],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(db)?;
+    if let Some(owner) = owner {
+        return Err(EdgeError::Conflict(format!(
+            "Jari ini sudah terdaftar atas nama {owner}."
+        )));
+    }
+    let recorded_by = security::normalize_username(recorded_by).unwrap_or_else(|_| {
+        // Authentication off on this node: nobody to name.
+        recorded_by.trim().to_string()
+    });
+    connection
+        .execute(
+            "DELETE FROM edge_finger_submission
+              WHERE username=?1 AND finger=?2 AND status IN ('PENDING', 'REFUSED')",
+            params![username, finger],
+        )
+        .map_err(db)?;
+    let submission_id = Uuid::new_v4().to_string();
+    let now = Utc::now().to_rfc3339();
+    connection
+        .execute(
+            "INSERT INTO edge_finger_submission
+               (submission_id,username,finger,template_base64,reader_kind,quality,
+                recorded_by,recorded_at)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+            params![
+                submission_id,
+                username,
+                finger,
+                template,
+                reader_kind,
+                request.quality.map(i64::from),
+                recorded_by,
+                now
+            ],
+        )
+        .map_err(db)?;
+    // Somebody else's finger, recorded by the store head, is the head's to
+    // approve, and she just did (owner, 24 Oct 2026: "both bisa ho bisa
+    // kepala toko"): it opens this store's POS now, and head office takes it
+    // as approved by her and can still withdraw it. Her own waits for head
+    // office. One row per person and finger, which head office's copy
+    // retires when it arrives (`replace_from_head_office`).
+    let approved_here = username != recorded_by;
+    if approved_here {
+        connection
+            .execute(
+                "INSERT INTO edge_fingerprint
+                   (finger_id,username,label,template_base64,reader_kind,
+                    enrolled_at,enrolled_by,active,updated_at,source)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,1,?6,'STORE')
+                 ON CONFLICT(finger_id) DO UPDATE SET
+                    template_base64 = excluded.template_base64,
+                    reader_kind = excluded.reader_kind,
+                    enrolled_at = excluded.enrolled_at,
+                    enrolled_by = excluded.enrolled_by,
+                    active = 1, retired_at = NULL,
+                    updated_at = excluded.updated_at",
+                params![
+                    store_finger_id(&username, &finger),
+                    username,
+                    finger_words(&finger),
+                    template,
+                    reader_kind,
+                    now,
+                    recorded_by
+                ],
+            )
+            .map_err(db)?;
+    }
+    Ok(FingerSubmission {
+        submission_id,
+        username,
+        label: finger_words(&finger),
+        finger,
+        status: if approved_here { "APPROVED" } else { "PENDING" }.into(),
+        reason: None,
+        recorded_by,
+        recorded_at: now,
+    })
+}
+
+/// The row a finger approved by the store head opens the POS from until
+/// head office's copy of it arrives.
+fn store_finger_id(username: &str, finger: &str) -> String {
+    format!("st-{username}-{finger}")
+}
+
+/// A finger that opens the POS here, for the store head's list.
+#[derive(Debug, Clone, Serialize)]
+pub struct TeamFinger {
+    pub finger_id: String,
+    /// `RIGHT_INDEX` for one head office sent; `None` for one enrolled here
+    /// before, which names its finger only in words.
+    pub finger: Option<String>,
+    pub label: String,
+}
+
+/// One person who signs in here, with their fingers.
+#[derive(Debug, Clone, Serialize)]
+pub struct TeamMember {
+    pub username: String,
+    pub display_name: String,
+    /// `CASHIER`, `SUPERVISOR` or `ADMIN`.
+    pub role: String,
+    pub fingers: Vec<TeamFinger>,
+    /// Waiting for head office, or refused by it.
+    pub submissions: Vec<FingerSubmission>,
+}
+
+/// Everybody who signs in here, store heads first, each with the fingers
+/// that open the POS and the ones waiting for head office.
+pub fn team(connection: &Connection) -> Result<Vec<TeamMember>, EdgeError> {
+    let mut people: Vec<TeamMember> = connection
+        .prepare(
+            "SELECT username, COALESCE(NULLIF(trim(display_name), ''), username), role
+               FROM edge_user WHERE active = 1
+              ORDER BY CASE role WHEN 'SUPERVISOR' THEN 0 WHEN 'CASHIER' THEN 1 ELSE 2 END,
+                       2",
+        )
+        .map_err(db)?
+        .query_map([], |row| {
+            Ok(TeamMember {
+                username: row.get(0)?,
+                display_name: row.get(1)?,
+                role: row.get(2)?,
+                fingers: Vec::new(),
+                submissions: Vec::new(),
+            })
+        })
+        .map_err(db)?
+        .collect::<Result<_, _>>()
+        .map_err(db)?;
+    let fingers: Vec<(String, String, String)> = connection
+        .prepare(
+            "SELECT username, finger_id, label FROM edge_fingerprint
+              WHERE active = 1 ORDER BY enrolled_at",
+        )
+        .map_err(db)?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .map_err(db)?
+        .collect::<Result<_, _>>()
+        .map_err(db)?;
+    let submissions: Vec<FingerSubmission> = connection
+        .prepare(
+            "SELECT submission_id, username, finger, status, reason, recorded_by, recorded_at
+               FROM edge_finger_submission
+              WHERE status = 'REFUSED' OR (status = 'PENDING' AND username = recorded_by)
+              ORDER BY recorded_at",
+        )
+        .map_err(db)?
+        .query_map([], |row| {
+            let finger: String = row.get(2)?;
+            Ok(FingerSubmission {
+                submission_id: row.get(0)?,
+                username: row.get(1)?,
+                label: finger_words(&finger),
+                finger,
+                status: row.get(3)?,
+                reason: row.get(4)?,
+                recorded_by: row.get(5)?,
+                recorded_at: row.get(6)?,
+            })
+        })
+        .map_err(db)?
+        .collect::<Result<_, _>>()
+        .map_err(db)?;
+    for person in &mut people {
+        let from_head_office = format!("ho-{}-", person.username);
+        let from_here = format!("st-{}-", person.username);
+        person.fingers = fingers
+            .iter()
+            .filter(|(username, _, _)| *username == person.username)
+            .map(|(_, finger_id, label)| TeamFinger {
+                finger: finger_id
+                    .strip_prefix(&from_head_office)
+                    .or_else(|| finger_id.strip_prefix(&from_here))
+                    .filter(|code| FINGER_CODES.contains(code))
+                    .map(str::to_owned),
+                finger_id: finger_id.clone(),
+                label: label.clone(),
+            })
+            .collect();
+        person.submissions = submissions
+            .iter()
+            .filter(|submission| submission.username == person.username)
+            .cloned()
+            .collect();
+    }
+    Ok(people)
+}
+
+/// A waiting finger as it is sent to head office.
+#[derive(Debug, Serialize)]
+struct OutgoingFinger {
+    submission_id: String,
+    username: String,
+    finger: String,
+    template_base64: String,
+    reader_kind: String,
+    quality: Option<i64>,
+    recorded_by: String,
+    recorded_at: String,
+    /// Somebody else's finger, which the store head approved by recording it.
+    approved_by_head: bool,
+}
+
+/// Head office's word on one finger sent to it.
+#[derive(Debug, Deserialize)]
+pub struct SubmissionAnswer {
+    pub submission_id: String,
+    /// `PENDING`, `APPROVED` or `REFUSED`.
+    pub status: String,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SubmissionAnswers {
+    results: Vec<SubmissionAnswer>,
+}
+
+fn waiting_fingers(connection: &Connection) -> Result<Vec<OutgoingFinger>, EdgeError> {
+    connection
+        .prepare(
+            "SELECT submission_id, username, finger, template_base64, reader_kind, quality,
+                    recorded_by, recorded_at, username <> recorded_by
+               FROM edge_finger_submission WHERE status = 'PENDING'
+              ORDER BY recorded_at",
+        )
+        .map_err(db)?
+        .query_map([], |row| {
+            Ok(OutgoingFinger {
+                submission_id: row.get(0)?,
+                username: row.get(1)?,
+                finger: row.get(2)?,
+                template_base64: row.get(3)?,
+                reader_kind: row.get(4)?,
+                quality: row.get(5)?,
+                recorded_by: row.get(6)?,
+                recorded_at: row.get(7)?,
+                approved_by_head: row.get(8)?,
+            })
+        })
+        .map_err(db)?
+        .collect::<Result<_, _>>()
+        .map_err(db)
+}
+
+/// Take head office's answers. A decided finger loses its template here:
+/// approved, it comes back with head office's fingers; refused, it is a
+/// biometric held for nothing. A refused one stays listed with its reason
+/// until it is recorded again. Returns how many were decided.
+pub fn take_answers(
+    connection: &Connection,
+    answers: &[SubmissionAnswer],
+) -> Result<usize, EdgeError> {
+    let now = Utc::now().to_rfc3339();
+    let mut decided = 0;
+    for answer in answers {
+        decided += match answer.status.as_str() {
+            "APPROVED" => connection
+                .execute(
+                    "DELETE FROM edge_finger_submission
+                      WHERE submission_id=?1 AND status='PENDING'",
+                    params![answer.submission_id],
+                )
+                .map_err(db)?,
+            "REFUSED" => connection
+                .execute(
+                    "UPDATE edge_finger_submission
+                        SET status='REFUSED', reason=?2, decided_at=?3, template_base64=''
+                      WHERE submission_id=?1 AND status='PENDING'",
+                    params![
+                        answer.submission_id,
+                        answer
+                            .reason
+                            .as_deref()
+                            .map(|reason| reason.chars().take(300).collect::<String>()),
+                        now
+                    ],
+                )
+                .map_err(db)?,
+            _ => 0,
+        };
+    }
+    Ok(decided)
+}
+
+/// Send what waits to head office, and take its answers. Quiet when nothing
+/// waits, and when head office is an older build that does not take them.
+async fn send_waiting_fingers(
+    client: &reqwest::Client,
+    connection: &std::sync::Arc<std::sync::Mutex<Connection>>,
+    base: &str,
+    key: &str,
+    origin: &str,
+) {
+    let read = connection.clone();
+    let waiting = tokio::task::spawn_blocking(move || {
+        let guard = read
+            .lock()
+            .map_err(|_| EdgeError::Persistence("edge connection is poisoned".into()))?;
+        waiting_fingers(&guard)
+    })
+    .await;
+    let waiting = match waiting {
+        Ok(Ok(waiting)) if !waiting.is_empty() => waiting,
+        Ok(Ok(_)) => return,
+        Ok(Err(error)) => {
+            tracing::warn!(%error, "waiting fingers not read");
+            return;
+        }
+        Err(error) => {
+            tracing::warn!(%error, "finger task failed");
+            return;
+        }
+    };
+    let answer = client
+        .post(format!("{base}/api/v1/sync/pos-fingers/submit"))
+        .header("x-sync-key", key)
+        .json(&serde_json::json!({ "origin_id": origin, "submissions": waiting }))
+        .send()
+        .await;
+    let answers = match answer {
+        Ok(response) if response.status().is_success() => {
+            match response.json::<SubmissionAnswers>().await {
+                Ok(answers) => answers.results,
+                Err(error) => {
+                    tracing::warn!(%error, "head office's answer on fingers did not read");
+                    return;
+                }
+            }
+        }
+        Ok(response) => {
+            tracing::debug!(status = %response.status(), "fingers not taken by head office");
+            return;
+        }
+        Err(error) => {
+            tracing::debug!(%error, "head office not reached with fingers");
+            return;
+        }
+    };
+    let write = connection.clone();
+    match tokio::task::spawn_blocking(move || {
+        let guard = write
+            .lock()
+            .map_err(|_| EdgeError::Persistence("edge connection is poisoned".into()))?;
+        take_answers(&guard, &answers)
+    })
+    .await
+    {
+        Ok(Ok(decided)) if decided > 0 => tracing::info!(decided, "head office decided fingers"),
+        Ok(Ok(_)) => {}
+        Ok(Err(error)) => tracing::warn!(%error, "head office's answer on fingers not kept"),
+        Err(error) => tracing::warn!(%error, "finger task failed"),
+    }
+}
+
 /// Ask head office for this server's fingers now and then, and take them.
 /// A server with no head office, or one that does not answer, keeps what it
 /// has: a till must not lose its fingers to a dropped line.
@@ -1171,6 +1652,9 @@ pub fn spawn_head_office_pull(
         loop {
             if let Some((base, key)) = sync.cloud().map(|(base, key)| (base, key.to_owned())) {
                 let origin = std::env::var("INVENTORY_NODE_ID").unwrap_or_default();
+                // Recorded fingers first, so one head office approved in the
+                // meantime comes back in the same round.
+                send_waiting_fingers(&client, &connection, &base, &key, &origin).await;
                 let answer = client
                     .post(format!("{base}/api/v1/sync/pos-fingers"))
                     .header("x-sync-key", key)
@@ -1325,5 +1809,153 @@ mod tests {
     fn a_finger_is_said_in_the_tills_words() {
         assert_eq!(finger_words("RIGHT_INDEX"), "Telunjuk kanan");
         assert_eq!(finger_words("LEFT_THUMB"), "Jempol kiri");
+    }
+
+    fn record(
+        shop: &SqliteEdge,
+        username: &str,
+        template: &str,
+        by: &str,
+    ) -> Result<FingerSubmission, EdgeError> {
+        let connection = shop.connection();
+        let guard = connection
+            .lock()
+            .unwrap_or_else(|error| panic!("lock: {error}"));
+        submit(
+            &guard,
+            SubmitFingerRequest {
+                username: username.into(),
+                finger: "right_index".into(),
+                template_base64: template.into(),
+                reader_kind: "ZKFINGER_V10".into(),
+                quality: Some(80),
+            },
+            by,
+        )
+    }
+
+    #[test]
+    fn a_recorded_finger_waits_and_opens_nothing_until_head_office_answers() {
+        let shop = shop();
+        let waiting =
+            record(&shop, "siti", "U0lUSQ==", "siti").unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(waiting.finger, "RIGHT_INDEX");
+        assert_eq!(waiting.status, "PENDING");
+        // Not among the fingers a till matches against.
+        assert!(held(&shop).iter().all(|(id, _, _)| !id.contains("siti")));
+
+        // Recorded again: still one waiting, the newer one.
+        let again =
+            record(&shop, "siti", "U0lUSTI=", "siti").unwrap_or_else(|error| panic!("{error}"));
+        let connection = shop.connection();
+        let guard = connection
+            .lock()
+            .unwrap_or_else(|error| panic!("lock: {error}"));
+        let sent = waiting_fingers(&guard).unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0].submission_id, again.submission_id);
+
+        let decided = take_answers(
+            &guard,
+            &[SubmissionAnswer {
+                submission_id: again.submission_id.clone(),
+                status: "REFUSED".into(),
+                reason: Some("Blurred".into()),
+            }],
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(decided, 1);
+        assert!(waiting_fingers(&guard)
+            .unwrap_or_else(|error| panic!("{error}"))
+            .is_empty());
+        let siti = team(&guard)
+            .unwrap_or_else(|error| panic!("{error}"))
+            .into_iter()
+            .find(|person| person.username == "siti")
+            .unwrap_or_else(|| panic!("siti is on the team"));
+        assert_eq!(siti.submissions.len(), 1);
+        assert_eq!(siti.submissions[0].status, "REFUSED");
+        assert_eq!(siti.submissions[0].reason.as_deref(), Some("Blurred"));
+        let wiped: String = guard
+            .query_row(
+                "SELECT template_base64 FROM edge_finger_submission WHERE submission_id=?1",
+                params![again.submission_id],
+                |row| row.get(0),
+            )
+            .unwrap_or_else(|error| panic!("{error}"));
+        assert!(wiped.is_empty());
+    }
+
+    #[test]
+    fn a_finger_already_somebody_elses_or_nobody_here_is_refused() {
+        let shop = shop();
+        // Budi's finger, enrolled here.
+        match record(&shop, "siti", "TE9DQUw=", "kepala") {
+            Err(EdgeError::Conflict(message)) => assert!(message.contains("budi")),
+            other => panic!("expected a conflict, got {other:?}"),
+        }
+        match record(&shop, "lama", "TEFNQQ==", "kepala") {
+            Err(EdgeError::Validation(_)) => {}
+            other => panic!("a leaver is nobody here, got {other:?}"),
+        }
+        let approved =
+            record(&shop, "siti", "U0lUSQ==", "siti").unwrap_or_else(|error| panic!("{error}"));
+        let connection = shop.connection();
+        let guard = connection
+            .lock()
+            .unwrap_or_else(|error| panic!("lock: {error}"));
+        take_answers(
+            &guard,
+            &[SubmissionAnswer {
+                submission_id: approved.submission_id,
+                status: "APPROVED".into(),
+                reason: None,
+            }],
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+        assert!(waiting_fingers(&guard)
+            .unwrap_or_else(|error| panic!("{error}"))
+            .is_empty());
+    }
+
+    #[test]
+    fn a_finger_the_head_records_for_her_team_opens_the_pos_at_once() {
+        let shop = shop();
+        let approved =
+            record(&shop, "siti", "U0lUSQ==", "kepala").unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(approved.status, "APPROVED");
+        assert!(held(&shop)
+            .iter()
+            .any(|(id, active, _)| id == "st-siti-RIGHT_INDEX" && *active == 1));
+        {
+            let connection = shop.connection();
+            let guard = connection
+                .lock()
+                .unwrap_or_else(|error| panic!("lock: {error}"));
+            // Still sent to head office, as the head's approval.
+            let sent = waiting_fingers(&guard).unwrap_or_else(|error| panic!("{error}"));
+            assert_eq!(sent.len(), 1);
+            assert!(sent[0].approved_by_head);
+            // Not a wait on her list: a finger.
+            let siti = team(&guard)
+                .unwrap_or_else(|error| panic!("{error}"))
+                .into_iter()
+                .find(|person| person.username == "siti")
+                .unwrap_or_else(|| panic!("siti is on the team"));
+            assert!(siti.submissions.is_empty());
+            assert_eq!(siti.fingers.len(), 1);
+            assert_eq!(siti.fingers[0].finger.as_deref(), Some("RIGHT_INDEX"));
+        }
+        // Head office's copy arrives and takes over from the store's.
+        replace(&shop, &[from_hr("siti")]);
+        let rows = held(&shop);
+        assert!(rows
+            .iter()
+            .any(|(id, active, _)| id == "ho-siti-RIGHT_INDEX" && *active == 1));
+        assert!(rows
+            .iter()
+            .any(|(id, active, template)| id == "st-siti-RIGHT_INDEX"
+                && *active == 0
+                && template.is_empty()));
     }
 }

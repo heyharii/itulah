@@ -1,25 +1,23 @@
 //! The devices enrolled to this node: a till joining, a printer recorded, and
 //! every one of them reported to head office.
 //!
-//! # A till joins by asking, and a supervisor says yes
+//! # A till joins by asking, and head office says yes
 //!
 //! The till mints its own secret, sends only the SHA-256 of it, and shows the
-//! short code and six-digit number it gets back ([`begin_join`]). A supervisor
-//! at the shop sees the same code and number in the list of waiting tills
-//! ([`pending_joins`]) and approves the one standing in front of them
-//! ([`approve_join`]). The till learns it has been let in by asking with a
-//! proof only the key's holder can make ([`join_status`]), and from then on
-//! signs every request exactly as a till paired the old way does
-//! (`edge/fingerprint.rs`, [`TerminalProof`]) — the node keeps the digest and
-//! nothing else, as it always has.
+//! short code and six-digit number it gets back ([`begin_join`]). The node
+//! reports every waiting till in its heartbeat ([`waiting_joins`]); head
+//! office sees the same code and number on the store's POS tab in the hub and
+//! approves or refuses it, into a free seat, with a signed
+//! `device.join.decide.v1` ([`apply_join_decision`]). The till learns it has
+//! been let in by asking with a proof only the key's holder can make
+//! ([`join_status`]), and from then on signs every request exactly as a till
+//! paired the old way does (`edge/fingerprint.rs`, [`TerminalProof`]) — the
+//! node keeps the digest and nothing else, as it always has.
 //!
-//! **Who may say yes.** A supervisor's finger or PIN pressed at a till that
-//! has already joined, which leaves a one-shot authorisation
-//! (`edge_supervisor_grant`) the approval spends — the "one tap and a finger"
-//! the owner asked for. A shop's *first* till has no till to press a finger on,
-//! so a signed-in supervisor session approves it alone; after that, a
-//! supervisor session without a finger is refused. An Admin session is always
-//! enough, as it was for the old pairing route, which stays.
+//! **Who may say yes.** Head office (owner, 24 Oct 2026: the store opens and
+//! closes its day and sets nothing up). An Admin signed in at the shop is head
+//! office there and may still approve or refuse ([`approve_join`],
+//! [`refuse_join`]); a supervisor may not, with a finger or without one.
 //!
 //! The till is labelled "Kasir N", the lowest number no live till at this node
 //! is using, unless the approver names it or it replaces a till — then it takes
@@ -459,8 +457,8 @@ pub fn pending_joins(connection: &Connection) -> Result<Vec<PendingJoin>, EdgeEr
     Ok(items)
 }
 
-/// The approver's choices. All optional: an empty body approves the till
-/// under the next free "Kasir N".
+/// An Admin's choices at the shop. All optional: an empty body approves the
+/// till under the next free "Kasir N".
 #[derive(Debug, Default, Deserialize)]
 pub struct ApproveJoinRequest {
     #[serde(default)]
@@ -469,9 +467,9 @@ pub struct ApproveJoinRequest {
     /// transaction and its row kept; the new till takes its label.
     #[serde(default)]
     pub replaces_terminal_id: Option<String>,
-    /// A supervisor's one-shot authorisation, from a finger or a PIN pressed
-    /// at a till that has already joined (`POST /api/v1/auth/fingerprints/claim`
-    /// or `/api/v1/auth/pin/claim` with purpose `SUPERVISOR`). Spent here.
+    /// A supervisor's finger or PIN, from before head office decided (24 Oct
+    /// 2026). Still read, so an older POS's body is not refused for carrying
+    /// it, and never spent: a supervisor no longer lets a till in.
     #[serde(default)]
     pub authorization: Option<String>,
 }
@@ -498,11 +496,51 @@ pub fn approve_join(
     request: ApproveJoinRequest,
     session: Option<(&str, Role)>,
 ) -> Result<ApprovedTill, EdgeError> {
+    // Head office lets a POS in (owner, 24 Oct 2026). An Admin signed in here
+    // is head office at the shop; nobody else at the shop says yes, by finger
+    // or otherwise. A grant in the body is left unspent.
+    let approver = match session {
+        // Authentication is off on this node: nobody to ask.
+        None => "api".to_string(),
+        Some((username, role)) if role >= Role::Admin => username.to_string(),
+        Some(_) => {
+            return Err(EdgeError::Forbidden(
+                "POS baru disetujui kantor pusat, di halaman toko di Central.".into(),
+            ));
+        }
+    };
     let now = Utc::now();
     let tx = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(db)?;
     expire_stale_joins(&tx, now)?;
+    let approved = admit(
+        &tx,
+        join_id,
+        request.label.as_deref(),
+        request.replaces_terminal_id.as_deref(),
+        &approver,
+        "SESSION",
+        now,
+    )?;
+    tx.commit().map_err(db)?;
+    Ok(approved)
+}
+
+/// Let the waiting till `join_id` in, inside the caller's transaction: the
+/// till it replaces revoked, its name chosen, its row written. Shared by an
+/// Admin at the shop ([`approve_join`]) and head office's decision
+/// ([`apply_join_decision`]).
+fn admit(
+    tx: &Connection,
+    join_id: &str,
+    label: Option<&str>,
+    replaces_terminal_id: Option<&str>,
+    approver: &str,
+    via: &str,
+    now: DateTime<Utc>,
+) -> Result<ApprovedTill, EdgeError> {
+    let approver = approver.to_string();
     let row: Option<(String, String, String, Option<String>)> = tx
         .query_row(
             "SELECT code, key_sha256, machine_json, outcome FROM edge_device_join WHERE join_id=?1",
@@ -522,45 +560,8 @@ pub fn approve_join(
     }
     let shown_code = wire::display_join_code(&code);
 
-    // Who says yes, and how they proved it.
-    let active_tills: i64 = tx
-        .query_row(
-            "SELECT count(*) FROM edge_terminal WHERE active=1",
-            [],
-            |row| row.get(0),
-        )
-        .map_err(db)?;
-    let grant = request
-        .authorization
-        .as_deref()
-        .map(str::trim)
-        .filter(|token| !token.is_empty());
-    let (approver, via) = match (grant, session) {
-        (Some(token), _) => (fingerprint::spend_grant(&tx, token)?, "GRANT"),
-        // Authentication is off on this node: nobody to ask.
-        (None, None) => ("api".to_string(), "SESSION"),
-        (None, Some((username, role))) if role >= Role::Admin => (username.to_string(), "SESSION"),
-        (None, Some((username, role))) if role >= Role::Supervisor && active_tills == 0 => {
-            (username.to_string(), "SESSION")
-        }
-        (None, Some((_, role))) if role >= Role::Supervisor => {
-            return Err(EdgeError::Forbidden(
-                "confirm with a supervisor's finger (or PIN) at a till that has already \
-                 joined this shop, then approve with that authorisation"
-                    .into(),
-            ));
-        }
-        (None, Some(_)) => {
-            return Err(EdgeError::Forbidden(
-                "only a supervisor can let a till join this shop".into(),
-            ));
-        }
-    };
-
     // The till it replaces, revoked first so its label is free to inherit.
-    let replaced = match request
-        .replaces_terminal_id
-        .as_deref()
+    let replaced = match replaces_terminal_id
         .map(str::trim)
         .filter(|id| !id.is_empty())
     {
@@ -605,12 +606,7 @@ pub fn approve_join(
         None => None,
     };
 
-    let label = match request
-        .label
-        .as_deref()
-        .map(str::trim)
-        .filter(|label| !label.is_empty())
-    {
+    let label = match label.map(str::trim).filter(|label| !label.is_empty()) {
         Some(label) if label.chars().count() > 64 => {
             return Err(EdgeError::Validation(
                 "a till's label is at most 64 characters".into(),
@@ -683,7 +679,6 @@ pub fn approve_join(
         Some(format!("joined with code {shown_code}").as_str()),
         now,
     )?;
-    tx.commit().map_err(db)?;
     Ok(ApprovedTill {
         join_id: join_id.to_string(),
         terminal_id,
@@ -763,6 +758,141 @@ pub fn refuse_join(connection: &Connection, join_id: &str, actor: &str) -> Resul
         ));
     }
     Ok(())
+}
+
+/// The tills waiting to join, for head office: what the heartbeat carries
+/// (`DeviceFacts::joins_waiting`), oldest first.
+pub fn waiting_joins(connection: &Connection) -> Result<Vec<wire::WaitingJoin>, EdgeError> {
+    let now = stamp(Utc::now());
+    let mut statement = connection
+        .prepare(
+            "SELECT join_id, code, verification, machine_json, issued_at, expires_at,
+                    head_office_error
+               FROM edge_device_join
+              WHERE outcome IS NULL AND expires_at > ?1
+              ORDER BY issued_at",
+        )
+        .map_err(db)?;
+    let rows = statement
+        .query_map(params![now], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, Option<String>>(6)?,
+            ))
+        })
+        .map_err(db)?;
+    let mut items = Vec::new();
+    for row in rows {
+        let (join_id, code, verification, machine, issued_at, expires_at, error) =
+            row.map_err(db)?;
+        let Ok(join_id) = Uuid::parse_str(&join_id) else {
+            continue;
+        };
+        items.push(wire::WaitingJoin {
+            join_id,
+            code: wire::display_join_code(&code),
+            verification,
+            machine: serde_json::from_str(&machine).unwrap_or_default(),
+            issued_at: parse_stamp(&issued_at)?,
+            expires_at: parse_stamp(&expires_at)?,
+            head_office_error: error,
+        });
+    }
+    Ok(items)
+}
+
+/// Head office's yes or no to a waiting till, inside the command's
+/// transaction.
+///
+/// A decision this node cannot carry out — the till it was to replace has a
+/// drawer open, the request was decided or ran out meanwhile — is written on
+/// the request (`head_office_error`, reported back in the heartbeat) and the
+/// command is done with: a refusal here would stall every command behind it,
+/// and the till keeps waiting for head office to decide again.
+pub fn apply_join_decision(
+    connection: &Connection,
+    command: &wire::JoinDecisionCommand,
+) -> Result<(), EdgeError> {
+    let now = Utc::now();
+    expire_stale_joins(connection, now)?;
+    let join_id = command.join_id.to_string();
+    let decided_by = command.decided_by.trim();
+    let outcome: Option<Option<String>> = connection
+        .query_row(
+            "SELECT outcome FROM edge_device_join WHERE join_id=?1",
+            params![join_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(db)?;
+    match outcome {
+        None => {
+            tracing::warn!(join = %join_id, "head office decided a till this node never saw");
+            return Ok(());
+        }
+        Some(Some(outcome)) => {
+            tracing::info!(join = %join_id, %outcome, "head office decided a till already decided");
+            return Ok(());
+        }
+        Some(None) => {}
+    }
+    if !command.approve {
+        connection
+            .execute(
+                "UPDATE edge_device_join
+                    SET outcome='REJECTED', decided_by=?2, decided_via='SESSION', decided_at=?3,
+                        head_office_error=NULL
+                  WHERE join_id=?1 AND outcome IS NULL",
+                params![join_id, decided_by, stamp(now)],
+            )
+            .map_err(db)?;
+        return Ok(());
+    }
+    // Savepointed, so a decision that cannot be carried out leaves nothing
+    // half-written: the till it was to replace stays as it was.
+    connection
+        .execute_batch("SAVEPOINT head_office_admits")
+        .map_err(db)?;
+    match admit(
+        connection,
+        &join_id,
+        None,
+        command.replaces_terminal_id.as_deref(),
+        decided_by,
+        "SESSION",
+        now,
+    ) {
+        Ok(_) => {
+            connection
+                .execute_batch("RELEASE head_office_admits")
+                .map_err(db)?;
+            Ok(())
+        }
+        Err(
+            EdgeError::Conflict(reason)
+            | EdgeError::Validation(reason)
+            | EdgeError::NotFound(reason),
+        ) => {
+            connection
+                .execute_batch("ROLLBACK TO head_office_admits; RELEASE head_office_admits")
+                .map_err(db)?;
+            tracing::warn!(join = %join_id, %reason, "head office's approval not carried out");
+            connection
+                .execute(
+                    "UPDATE edge_device_join SET head_office_error=?2
+                      WHERE join_id=?1 AND outcome IS NULL",
+                    params![join_id, reason.chars().take(500).collect::<String>()],
+                )
+                .map_err(db)?;
+            Ok(())
+        }
+        Err(other) => Err(other),
+    }
 }
 
 // ════════════════════════════════════════════════════════════════════════════

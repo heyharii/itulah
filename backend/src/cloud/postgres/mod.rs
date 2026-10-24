@@ -251,8 +251,10 @@ mod unmatched_sales;
 /// Head office stops a till, a cashier or a whole store on the POS, and
 /// removes a store that closed for good (0990). See the module.
 mod pos_access;
+mod pos_joins;
 /// Opening a store: its readiness checks, head office's decision, and
 /// installing its server from the store's page. See the module.
+mod store_fingers;
 mod stores;
 mod supplier_banks;
 mod supplier_contacts;
@@ -447,6 +449,8 @@ pub use store_money::*;
 pub use store_reject_return::*;
 pub use unmatched_sales::*;
 pub use pos_access::*;
+pub use pos_joins::*;
+pub use store_fingers::*;
 pub use stores::*;
 pub use supplier_banks::*;
 pub use supplier_contacts::*;

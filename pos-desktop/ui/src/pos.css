@@ -61,6 +61,8 @@ kbd{font-size:15px;line-height:22px;font-family:inherit;padding:0 6px;border-rad
 .btn.ghost:hover:not(:disabled){background:#edf2f9;color:#315991;border-color:transparent}
 .btn.danger{color:var(--red);background:#fff5f5;border-color:#f2dede}
 .btn.danger:hover:not(:disabled){background:#fdeaea;border-color:#e9cccc}
+.btn.red{background:var(--red);border-color:var(--red);color:#fff;box-shadow:none}
+.btn.red:hover:not(:disabled){background:#b30012;border-color:#b30012}
 .btn.lg{min-height:48px;font-size:14px;padding:0 18px}
 .icon-btn{display:inline-grid;place-items:center;width:34px;height:34px;border-radius:7px;color:#7b8795}
 .icon-btn:hover:not(:disabled){background:#edf2f9;color:#315991}
@@ -361,7 +363,7 @@ dialog::backdrop{background:#eef2f7b5;backdrop-filter:blur(2px)}
 .receipt-line strong{color:var(--ink);font-weight:600}
 .divider{height:1px;background:var(--line);margin:4px 0}
 .steps{display:flex;gap:8px;flex-wrap:wrap}
-.steps span{font-size:12px;padding:7px 10px;background:#f4f5f7;border-radius:6px;color:#717b89}
+.steps span{font-size:15px;padding:7px 10px;background:#f4f5f7;border-radius:6px;color:#717b89}
 .steps span.active{background:var(--pale);color:var(--blue)}
 .slip{max-width:330px;margin:0 auto;font-family:ui-monospace,SFMono-Regular,monospace;font-size:12px;line-height:1.8}
 
@@ -753,6 +755,8 @@ body[data-device=tablet] .action-bar kbd,body[data-device=tablet] .pay-cta kbd,b
   .pdoor .m-rise{animation:posFade 220ms var(--ease-out) both}
   .pdoor .fp.no,.pdoor .fp.idle::after,.pdoor .fp.reading .fp-beam,.pdoor .live{animation:none}
   .pdoor .fp.reading .fp-ink path{animation-duration:200ms;animation-delay:0ms}
+  .pdoor .fp.staged .fp-ink path{transition:opacity 200ms ease;transition-delay:0ms}
+  .pdoor .fp-ring-fill{transition:opacity 200ms ease}
   .pdoor .w-orb.run .w-blue,.pdoor .w-orb.run .w-check{animation:none;opacity:0}
   .pdoor .w-orb.run .w-av{animation:posFade 220ms var(--ease-out) both}
   .pdoor :active{scale:none!important}
@@ -808,6 +812,19 @@ body[data-device=tablet] .action-bar kbd,body[data-device=tablet] .pay-cta kbd,b
 .pdoor .fp.no .fp-ink path{stroke:var(--bad)}
 .pdoor .fp.no{animation:pd-shake 400ms var(--ease-out)}
 @keyframes pd-shake{0%,100%{transform:translateX(0)}18%{transform:translateX(-9px)}38%{transform:translateX(8px)}58%{transform:translateX(-5px)}78%{transform:translateX(2px)}}
+/* Enrolling (`sensor.tsx` with progress): a ring of one arc per press fills
+   as each is taken, the ridges come in a share at a time, a ripple runs out
+   on every press. Transitions, so a press taken mid-draw retargets. */
+.pdoor .fp-ripple{position:absolute;inset:0;border-radius:50%;box-shadow:0 0 0 2px var(--accent);opacity:0;pointer-events:none;z-index:0}
+.pdoor .fp-ring{position:absolute;inset:-16px;width:calc(100% + 32px);height:calc(100% + 32px);pointer-events:none;z-index:0;overflow:visible}
+.pdoor .fp-ring circle{fill:none;stroke-width:2.2;stroke-linecap:round}
+.pdoor .fp-ring-track{stroke:var(--hairline-2)}
+.pdoor .fp-ring-fill{stroke:var(--accent);stroke-dashoffset:var(--len);opacity:0;transition:stroke-dashoffset 520ms var(--ease-out),opacity 120ms ease}
+.pdoor .fp-ring-fill.on{stroke-dashoffset:0;opacity:1}
+.pdoor .fp.done .fp-ring-fill{stroke:var(--ok-fg)}
+.pdoor .fp.staged .fp-ink path{transition:stroke-dashoffset 560ms var(--ease-out),opacity 160ms ease;transition-delay:calc(var(--o) * 55ms)}
+.pdoor .fp.staged .fp-ink path.on{stroke-dashoffset:0;opacity:1}
+.pdoor .fp.staged.reading .fp-ink path{animation:none}
 .pdoor .fp.sm{margin-top:20px;width:120px;height:120px}
 .pdoor .fp.sm .fp-glyph{width:72px;height:72px}
 .pdoor .fp.sm .fp-check{width:48px;height:48px}
@@ -870,7 +887,12 @@ body[data-device=tablet] .action-bar kbd,body[data-device=tablet] .pay-cta kbd,b
 .pdoor .bh-t{min-width:0;display:flex;flex-direction:column;line-height:20px}
 .pdoor .bh-t b{font-weight:600}
 .pdoor .bh-t span{color:var(--body)}
+.pdoor .bh-list{min-height:0;overflow-y:auto}
+.pdoor .bh-row{flex:none}
 .pdoor .bh-list+.f-open{margin-top:auto}
+.pdoor .f-open{flex:none}
+.pdoor .f-tools{flex:none;margin-top:10px;display:flex;gap:8px}
+.pdoor .f-tools .pd-btn{height:44px;font-size:15px}
 @media (hover:hover) and (pointer:fine){.pdoor .bh-row:not(.on):hover{background:var(--segment-track)}}
 
 /* password: the Kepala toko's only */

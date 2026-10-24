@@ -1,5 +1,5 @@
 import { useCallback } from "react"
-import { useRouterState, type LinkProps } from "@tanstack/react-router"
+import type { LinkProps } from "@tanstack/react-router"
 
 import type { Tone } from "@/lib/format"
 import type { ServerState, StoreStatus } from "@/lib/queries/stores"
@@ -170,18 +170,15 @@ export function Section({
 
 /// The path of one store's page, from wherever the link sits.
 ///
-/// The Stores screens are filed twice: Master › Stores, where a shop is added
-/// and its server installed (owner, 2026-10-11), and Sales › Stores, where
-/// shops are watched trading. A link keeps the department it is clicked in, so
-/// the sidebar does not change under somebody opening a store; anything outside
-/// Sales — Locations, the setup list, the manager links — lands in Master.
+/// Always the Stores menu's (`/stores/$unit`) since 2026-10-24: the owner made
+/// Stores a menu of its own, and a link to a store from Locations, the setup
+/// list or a manager link lands where the store is managed. Master › Stores
+/// (`/master/stores/$unit`) still answers with the same page for a link that
+/// names it, but nothing builds one any more.
 export function useStorePath(): (unitId: string) => LinkProps["to"] {
-  const inSales = useRouterState({
-    select: (state) => state.location.pathname.startsWith("/stores"),
-  })
-  const base = inSales ? "/stores" : "/master/stores"
   return useCallback(
-    (unitId: string) => `${base}/${encodeURIComponent(unitId)}` as LinkProps["to"],
-    [base]
+    (unitId: string) =>
+      `/stores/${encodeURIComponent(unitId)}` as LinkProps["to"],
+    []
   )
 }

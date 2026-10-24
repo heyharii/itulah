@@ -4,26 +4,32 @@ import { useParams } from "@tanstack/react-router"
 import { PageContent } from "@/components/shell/app-shell"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { Banner } from "@/components/ui/states"
+import { Banner, EmptyState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { moment } from "@/lib/format"
 import { useNameOfLogin } from "@/lib/queries/hr-employees"
 import { storeDetail, storesKeys } from "@/lib/queries/stores"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
+import { OpenStoresSheet } from "@/screens/setup/open-stores-sheet"
+import { DevicesTab } from "@/screens/stores/devices-tab"
 import { OverviewTab } from "@/screens/stores/overview-tab"
+import { PeopleTab } from "@/screens/stores/people-tab"
 import { ServerTab } from "@/screens/stores/server-tab"
 import { storeStatusLabel, storeStatusTone } from "@/screens/stores/shared"
 import { StatusTab } from "@/screens/stores/status-tab"
 import { StoreStopActions } from "@/screens/stores/store-stop"
 import { TillsTab } from "@/screens/stores/tills-tab"
 
-/// One store, one page, in four tabs: Overview's facts, checklist and the
-/// Open store button; the Tills — each till and each person at them, for head
-/// office to stop or remove; the Server's install code, first data and
-/// machine; and the Status page — every component of the store with ninety
-/// days of bars. The team, payments, stock and facilities each have a screen
-/// of their own elsewhere in the hub, and the checklist links to them.
+/// One store, one page, in six tabs: Overview's facts, checklist and the
+/// Open store button; the People — the fingers recorded at the store's POS
+/// waiting for head office, and the team that signs in there; the POS — each
+/// POS and each person at them, for head office to stop or remove, and each
+/// new POS asking to join, to approve or refuse; the Devices — the shop's
+/// printers and readers; the Server's install code, first data and machine;
+/// and the Status page — every component of the store with ninety days of
+/// bars. The payments, stock and facilities each have a screen of their own
+/// elsewhere in the hub, and the checklist links to them.
 ///
 /// Head office's Stop store (and, once stopped, Remove and Resume) stand in the
 /// head, and a stopped or removed store says by whom, when and why in a band
@@ -32,10 +38,11 @@ import { TillsTab } from "@/screens/stores/tills-tab"
 /// `unit` is a real path parameter, `/stores/$unit` — the one route in this
 /// app that is not addressed as a sheet over a list. Every OTHER record here
 /// opens as a sheet on the screen that lists it (see `lib/sheets.ts`), but a
-/// store has three tabs' worth of its own screens rather than one record
+/// store has six tabs' worth of its own screens rather than one record
 /// panel, and a sheet that wide would not be a sheet any more. The tab lives
 /// in the URL (`?store-tab=server`), so the "Add store" sheet can land
-/// somebody straight on it.
+/// somebody straight on it. The Stores menu's panel opens every store at this
+/// path (`stores-panel.tsx`).
 export function StoreDetail() {
   // `strict: false`: this route is built generically in `routes.tsx` from
   // `lib/navigation.ts` rather than declared as a named, typed route the way
@@ -47,10 +54,15 @@ export function StoreDetail() {
   const tabParam = useSheet("store-tab")
   const tab = tabParam.value ?? "overview"
   const nameOf = useNameOfLogin()
+  // Every ten seconds, like every live table: the People and POS tabs wear the
+  // count of what waits for head office, and the Add store sheet is raised
+  // from the panel on whichever page is open.
   const detail = useQuery({
     queryKey: storesKeys.detail(unit),
     queryFn: ({ signal }) => storeDetail(unit, signal),
+    refetchInterval: 10_000,
   })
+  const adding = useSheet("new-stores")
 
   return (
     <PageContent>
@@ -100,7 +112,13 @@ export function StoreDetail() {
                 </>
               ),
             },
-            { value: "tills", label: "POS" },
+            {
+              value: "people",
+              label: "People",
+              alert: data.store.fingers_waiting,
+            },
+            { value: "tills", label: "POS", alert: data.store.tills.waiting },
+            { value: "devices", label: "Devices" },
             { value: "server", label: "Server" },
             { value: "status", label: "Status" },
           ]
@@ -137,7 +155,18 @@ export function StoreDetail() {
                   onOpenTab={(next) => tabParam.replace(next)}
                 />
               )}
+              {tab === "people" && <PeopleTab store={data.store} />}
               {tab === "tills" && <TillsTab store={data.store} />}
+              {tab === "devices" &&
+                (store.site_id === null ? (
+                  <EmptyState>This store has no shop site yet.</EmptyState>
+                ) : (
+                  <DevicesTab
+                    unit={store.unit_id}
+                    siteId={store.site_id}
+                    tills={store.tills}
+                  />
+                ))}
               {tab === "server" && (
                 <ServerTab store={data.store} canManage={data.can_manage} />
               )}
@@ -146,6 +175,8 @@ export function StoreDetail() {
           )
         },
       })}
+
+      <OpenStoresSheet open={adding.isOpen} onClose={adding.close} />
     </PageContent>
   )
 }

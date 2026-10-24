@@ -27,19 +27,22 @@ import { TillSeatsValue } from "@/screens/stores/till-seats"
 import { FleetStoreStrip } from "@/screens/system/fleet-shared"
 
 /// Where a store page's tabs can be switched to from inside a tab.
-export type StoreTab = "overview" | "server" | "status"
+export type StoreTab = "overview" | "people" | "tills" | "server" | "status"
 
 /// Who answers for each line of the checklist, and where it is dealt with.
-/// `tab` stays on this page; `people`, `payments` and `stock` are other
-/// departments' screens. A line with no `go` is done at the store itself.
+/// `server` and `tills` are tabs of this page; `people`, `payments` and `stock`
+/// are other departments' screens. A line with no `go` is done at the store
+/// itself.
 const CHECKS: Readonly<
   Record<
     string,
-    { owner: string; go?: "server" | "people" | "payments" | "stock" }
+    { owner: string; go?: "server" | "tills" | "people" | "payments" | "stock" }
   >
 > = {
   server: { owner: "Admin", go: "server" },
-  tills: { owner: "Store" },
+  // A new POS asks to join at the store and head office approves it on the
+  // POS tab (owner, 2026-10-24).
+  tills: { owner: "Admin", go: "tills" },
   team: { owner: "HR", go: "people" },
   payments: { owner: "Finance", go: "payments" },
   first_stock: { owner: "MD", go: "stock" },
@@ -230,7 +233,7 @@ function CheckRow({
       ) : (
         <span />
       )}
-      {rule?.go === "server" ? (
+      {rule?.go === "server" || rule?.go === "tills" ? (
         <ChevronRight className="size-4 text-line-ico" />
       ) : rule?.go ? (
         <ArrowUpRight className="size-4 text-line-ico" />
@@ -247,6 +250,16 @@ function CheckRow({
           type="button"
           className={ROW_LINK}
           onClick={() => onOpenTab("server")}
+        >
+          {body}
+        </button>
+      )
+    case "tills":
+      return (
+        <button
+          type="button"
+          className={ROW_LINK}
+          onClick={() => onOpenTab("tills")}
         >
           {body}
         </button>

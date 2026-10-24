@@ -338,7 +338,7 @@ async function signInWithFinger(
   )
   if (fingers.length === 0) {
     return only === undefined
-      ? "Belum ada sidik jari terdaftar di toko ini. Daftarkan dulu di Perangkat kasir → Sidik jari."
+      ? "Belum ada sidik jari terdaftar di toko ini. Kepala toko mendaftarkannya lewat Daftarkan sidik jari, lalu kantor pusat menyetujui."
       : "Sidik jari Anda belum terdaftar di toko ini. Minta kepala toko mendaftarkannya."
   }
 

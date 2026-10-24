@@ -130,6 +130,11 @@ pub struct StorePosCashier {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct StorePos {
     pub tills: Vec<StorePosTill>,
+    /// New POS asking to join, for head office to approve into a free seat
+    /// or refuse (`pos_joins`).
+    pub waiting: Vec<super::StorePosWaiting>,
+    /// The store's POS seats (`site.till_count`), head office's number.
+    pub seats: i32,
     pub cashiers: Vec<StorePosCashier>,
     /// Whether the caller may stop, resume and remove here — an Admin at
     /// head office.
@@ -672,8 +677,22 @@ pub async fn store_pos(
     })
     .collect::<Result<Vec<_>, AppError>>()?;
 
+    let seats: i32 = sqlx::query_scalar(
+        "SELECT COALESCE(s.till_count, 0) FROM site s
+          WHERE s.unit_id = $1
+          ORDER BY (s.kind = 'STORE') DESC, s.id
+          LIMIT 1",
+    )
+    .bind(unit_id)
+    .fetch_optional(pool)
+    .await?
+    .unwrap_or(0);
+    let waiting = super::waiting_pos(pool, unit_id).await?;
+
     Ok(StorePos {
         tills,
+        waiting,
+        seats,
         cashiers,
         can_manage,
     })

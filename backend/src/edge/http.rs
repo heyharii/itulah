@@ -767,6 +767,8 @@ fn common_router() -> Router<EdgeState> {
             post(retire_fingerprint),
         )
         .route("/api/v1/auth/fingerprints/roster", get(fingerprint_roster))
+        .route("/api/v1/auth/fingerprints/submissions", post(submit_finger))
+        .route("/api/v1/auth/fingerprints/team", get(finger_team))
         .route("/api/v1/auth/fingerprints/claim", post(fingerprint_claim))
         // An employee's finger opens their benefit balance (client, 24 Oct
         // 2026): signed by the terminal like a claim, answered with a grant
@@ -5580,45 +5582,77 @@ async fn pair_terminal(
     })?))
 }
 
-/// Record a finger against a user.
+/// Record a finger against a user, at once.
 ///
-/// An enrolment is an authorisation to open a till, and a shop where a cashier
-/// can enrol their own supervisor's finger is a shop with no supervisor. So a
-/// cashier never enrols. An admin enrols anybody. A store head (`SUPERVISOR`)
-/// enrols at the till itself (Till devices → Fingerprint), and only a cashier
-/// or her own finger: a cashier's finger opens nothing she cannot already open
-/// for that cashier ("Buka kasir atas nama"), while another supervisor's finger
-/// would be a second supervisor's approvals in her hand.
+/// An Admin's — head office at the shop, when HR could not. Every other finger
+/// is HR's at head office, or recorded by the store head and approved by head
+/// office ([`submit_finger`]); it arrives here with the rest of head office's
+/// (`fingerprint::spawn_head_office_pull`).
 async fn enrol_fingerprint(
     State(state): State<EdgeState>,
     principal: Option<Extension<EdgePrincipal>>,
     Json(request): Json<crate::edge::fingerprint::EnrolRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let principal = require_permission(&state, principal, EdgePermission::DeviceAdmin)?;
-    let head_only = principal
-        .as_ref()
-        .is_some_and(|who| who.role < crate::edge::domain::Role::Admin);
-    let actor = principal.map(|who| who.username).unwrap_or_default();
+    let actor = require_permission(&state, principal, EdgePermission::DeviceAdmin)?
+        .map(|who| who.username)
+        .unwrap_or_default();
     let connection = state.auth.connection();
     let enrolled = run_blocking(move || {
         let guard = connection
             .lock()
             .map_err(|_| EdgeError::Persistence("edge connection is poisoned".into()))?;
-        // HR enrols a person's fingers when it registers them, and they
-        // arrive here from head office (owner, 24 Oct 2026;
-        // `fingerprint::spawn_head_office_pull`). An admin — IT at the shop —
-        // may still enrol one here when HR could not.
-        if head_only {
-            return Err(EdgeError::Forbidden(
-                "Sidik jari didaftarkan HR saat mendaftarkan karyawan.".into(),
-            ));
-        }
         crate::edge::fingerprint::enrol(&guard, request, &actor)
     })
     .await?;
     Ok(Json(serde_json::to_value(enrolled).map_err(|error| {
         ApiError(EdgeError::Persistence(error.to_string()))
     })?))
+}
+
+/// The store head records a finger at the POS — her own after signing in
+/// with her password, then the people head office added — and it waits for
+/// head office (owner, 24 Oct 2026). It opens nothing until head office
+/// approves it and it comes back (`fingerprint::submit`).
+async fn submit_finger(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(request): Json<crate::edge::fingerprint::SubmitFingerRequest>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    let actor = require_permission(&state, principal, EdgePermission::FingerRecord)?
+        .map(|who| who.username)
+        .unwrap_or_else(|| "api".into());
+    let connection = state.auth.connection();
+    let submitted = run_blocking(move || {
+        let guard = connection
+            .lock()
+            .map_err(|_| EdgeError::Persistence("edge connection is poisoned".into()))?;
+        crate::edge::fingerprint::submit(&guard, request, &actor)
+    })
+    .await?;
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::to_value(submitted).map_err(|error| {
+            ApiError(EdgeError::Persistence(error.to_string()))
+        })?),
+    ))
+}
+
+/// The people who sign in here, each with the fingers that open the POS and
+/// the ones waiting for head office: the store head's "Daftarkan sidik jari".
+async fn finger_team(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::FingerRecord)?;
+    let connection = state.auth.connection();
+    let team = run_blocking(move || {
+        let guard = connection
+            .lock()
+            .map_err(|_| EdgeError::Persistence("edge connection is poisoned".into()))?;
+        crate::edge::fingerprint::team(&guard)
+    })
+    .await?;
+    Ok(Json(json!({ "items": team })))
 }
 
 async fn retire_fingerprint(

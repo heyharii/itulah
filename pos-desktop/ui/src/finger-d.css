@@ -1,0 +1,63 @@
+/* Daftarkan sidik jari (`screens/fingerprint-enrol.tsx`): the Kepala toko
+   records a finger, head office approves it. The door's own tokens and
+   look (`.pdoor` in pos.css), on a wider white card; every action a solid
+   button — blue, red for Batal. Nothing below 15px. */
+.pdoor .fd-card{position:relative;display:flex;flex-direction:column;width:620px;max-width:calc(100vw - 32px);max-height:calc(100vh - 48px);padding:28px 32px 28px;border-radius:var(--r-sheet);background:#fff;box-shadow:var(--shadow-page)}
+.pdoor .fd-head{flex:none;display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:18px}
+.pdoor .fd-head h1{margin:0;font-size:22px;line-height:28px;font-weight:600;letter-spacing:-.4px;min-width:0;overflow-wrap:anywhere}
+.pdoor .fd-body{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding:2px}
+
+.pdoor .fd-btn{flex:none;display:inline-flex;align-items:center;justify-content:center;height:40px;padding:0 18px;border-radius:var(--r-inner);background:var(--accent);color:#fff;font-size:15px;font-weight:600;white-space:nowrap;transition:scale 160ms var(--ease-out),opacity 150ms ease,background-color 150ms ease}
+.pdoor .fd-btn.red{background:var(--bad)}
+.pdoor .fd-btn:active:not(:disabled){scale:.97}
+.pdoor .fd-btn:disabled{opacity:.45}
+@media (hover:hover) and (pointer:fine){.pdoor .fd-btn:hover:not(:disabled){background:#1f4fc0}.pdoor .fd-btn.red:hover:not(:disabled){background:#b30012}}
+
+/* the team: one row each, the state in chips */
+.pdoor .fd-list{display:flex;flex-direction:column;gap:8px}
+.pdoor .fd-row{display:flex;align-items:flex-start;gap:14px;width:100%;padding:14px 16px 14px 14px;border-radius:var(--r-inner);background:var(--soft-2);text-align:left;transition:scale 120ms var(--ease-out),background-color 150ms ease}
+.pdoor .fd-row:active:not(:disabled){scale:.99}
+.pdoor .fd-row:disabled{opacity:.7}
+@media (hover:hover) and (pointer:fine){.pdoor .fd-row:hover:not(:disabled){background:var(--segment-track)}}
+.pdoor .fd-who{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;line-height:22px}
+.pdoor .fd-who b{display:flex;align-items:center;gap:8px;font-size:16px;font-weight:600}
+.pdoor .fd-you{display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:6px;background:var(--accent-bg);color:var(--accent);font-size:15px;font-weight:600}
+.pdoor .fd-sub{color:var(--body)}
+.pdoor .fd-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.pdoor .fd-chip{display:inline-flex;align-items:center;min-height:26px;padding:2px 9px;border-radius:6px;background:#e8eaf0;color:#424245;font-size:15px;line-height:20px}
+.pdoor .fd-chip.ok{background:#e7f6ea;color:#1d7a32}
+.pdoor .fd-chip.warn{background:#fdf4e6;color:#885610}
+.pdoor .fd-chip.bad{background:#fdecee;color:var(--bad-fg)}
+
+.pdoor .fd-note{padding:12px 14px;border-radius:var(--r-inner);background:#e7f6ea;color:#1d7a32;font-weight:500}
+.pdoor .fd-scanner{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 14px;border-radius:var(--r-inner);background:#fdf4e6;color:#885610}
+.pdoor .fd-lead{color:var(--body)}
+
+/* a finger: left and right hand, five to a row */
+.pdoor .fd-hands{display:flex;flex-direction:column;gap:18px}
+.pdoor .fd-hand{display:flex;flex-direction:column;gap:8px}
+.pdoor .fd-side{font-weight:600}
+.pdoor .fd-fingers{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+.pdoor .fd-finger{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:68px;padding:8px 4px;border-radius:var(--r-inner);background:var(--soft-2);text-align:center;transition:scale 120ms var(--ease-out),background-color 150ms ease}
+.pdoor .fd-finger b{font-weight:600}
+.pdoor .fd-finger span{min-height:20px;color:var(--body)}
+.pdoor .fd-finger:active:not(:disabled){scale:.97}
+.pdoor .fd-finger.on{background:#e7f6ea;color:#1d7a32}
+.pdoor .fd-finger.on span{color:#1d7a32}
+.pdoor .fd-finger.wait{background:#fdf4e6;color:#885610}
+.pdoor .fd-finger.wait span{color:#885610}
+.pdoor .fd-finger.bad{background:#fdecee;color:var(--bad-fg)}
+.pdoor .fd-finger.bad span{color:var(--bad-fg)}
+.pdoor .fd-finger:disabled{cursor:default}
+@media (hover:hover) and (pointer:fine){.pdoor .fd-finger:not(.on):not(.wait):not(.bad):hover{background:var(--segment-track)}}
+
+/* the three presses */
+.pdoor .fd-capture{display:flex;flex-direction:column;align-items:center;padding:8px 0 4px}
+.pdoor .fd-which{font-size:17px;line-height:24px;font-weight:600}
+.pdoor .fd-capture .fp{margin-top:20px}
+.pdoor .fd-prog{display:flex;gap:6px;margin-top:22px}
+.pdoor .fd-prog i{width:28px;height:8px;border-radius:4px;background:var(--hairline-2);transition:background-color 200ms ease}
+.pdoor .fd-prog i.on{background:var(--accent)}
+.pdoor .fd-count{margin-top:10px;font-size:17px;line-height:24px;font-weight:600}
+.pdoor .fd-say{margin-top:4px;min-height:22px;color:var(--body);text-align:center}
+.pdoor .fd-fail{margin:22px 0 16px;max-width:440px;text-align:center}

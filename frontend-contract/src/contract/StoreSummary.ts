@@ -34,4 +34,9 @@ site_id: string | null, site_code: string | null, city: string | null,
 /**
  * IANA name.
  */
-timezone: string | null, pic: StorePic | null, readiness: StoreReadiness, server: StoreServer, tills: StoreTills, };
+timezone: string | null, pic: StorePic | null, readiness: StoreReadiness, server: StoreServer, tills: StoreTills, 
+/**
+ * Fingers recorded at the store's POS, waiting for head office's
+ * approval on its People tab.
+ */
+fingers_waiting: number, };

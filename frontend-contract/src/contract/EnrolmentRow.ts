@@ -12,4 +12,13 @@ export type EnrolmentRow = { employee_id: string, finger: string, format: string
  * `null` when the device reported none. **Not zero** — zero is a claim the
  * capture was worthless.
  */
-quality: number | null, terminal_id: string, terminal_name: string | null, enrolled_by: string, enrolled_at: string, revision: number, };
+quality: number | null, 
+/**
+ * The punch station that captured it, or `null` for a finger recorded
+ * at a store's POS and approved by head office (postgres 0994).
+ */
+terminal_id: string | null, 
+/**
+ * The station's name, or the store's for a finger from its POS.
+ */
+terminal_name: string | null, enrolled_by: string, enrolled_at: string, revision: number, };

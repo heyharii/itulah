@@ -1,39 +1,30 @@
-/// A till joins its shop's node.
+/// A POS joins its shop's node.
 ///
 /// # What a person sees
 ///
-/// 1. **Find the server** — the till listens on the LAN for a few seconds and lists
-///    every node that answered *and* confirmed who it is. An address can
+/// 1. **Find the server** — the POS listens on the LAN for a few seconds and
+///    lists every node that answered *and* confirmed who it is. An address can
 ///    always be typed instead, and is checked the same way.
-/// 2. **Ask to join** — the till asks, and shows a six-character code and
-///    a six-digit number.
-/// 3. **Supervisor approves** — a supervisor opens *Kasir menunggu* on a till that has
-///    already joined, finds this code, checks the number matches this screen,
-///    and approves with a finger or a PIN. This screen asks the node every few
-///    seconds whether that has happened.
-/// 4. **Joined** — the till is "Kasir N" at this shop.
+/// 2. **Ask to join** — the POS asks, and shows a six-character code and a
+///    six-digit number.
+/// 3. **Head office approves** — in Central, on the store's page: head office
+///    finds this code, checks the number matches this screen, and approves.
+///    The store decides nothing here (owner, 24 Oct 2026: the store only opens
+///    and closes its day). A request waits up to 24 hours; this screen asks the
+///    node every few seconds whether head office has answered.
+/// 4. **Joined** — the POS is "Kasir N" at this shop.
 ///
 /// # Why the number matters more than the code
 ///
-/// The code is a handle, shown on both screens so the supervisor picks the
-/// right row. The number is what makes approving safe: the node derives it
-/// from the code *and* the digest of the key this till minted, so a request
-/// made by some other machine on the shop's wifi shows a different number.
-/// The copy on screen says to compare it, in those words.
-///
-/// # A supervisor at this till
-///
-/// A shop's first till has no joined till to press a finger on. So a
-/// supervisor may sign in here instead, on the node being joined, and approve
-/// on the spot — the node accepts that for the first till, or from an Admin.
-/// It is also where a replacement is named: "this till replaces Kasir 2" keeps
-/// the name, and the old till is revoked.
+/// The code is a handle, shown on both screens so head office picks the right
+/// row. The number is what makes approving safe: the node derives it from the
+/// code *and* the digest of the key this POS minted, so a request made by some
+/// other machine on the shop's wifi shows a different number.
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 
 import { Icon } from "@/icons"
 import {
-  approveHere,
   beginJoin,
   cancelJoin,
   currentJoin,
@@ -43,12 +34,8 @@ import {
   refusedBecause,
   siteTitle,
   spaced,
-  supervisorLeave,
-  supervisorSignIn,
-  timeLeft,
   type FoundNode,
   type JoinView,
-  type SupervisorHere,
 } from "@/joining"
 import { refreshFromShell, useNodeConfig } from "@/session"
 import { Topbar } from "@/till"
@@ -61,22 +48,15 @@ type Stage =
   | { readonly kind: "approved"; readonly view: JoinView }
   | { readonly kind: "refused"; readonly view: JoinView }
 
-/// Often enough that a supervisor who just pressed their finger sees this
-/// screen change before they have turned round; rarely enough that five
-/// waiting tills are not a load on anybody's node.
+/// Often enough that this screen changes soon after head office has answered;
+/// rarely enough that five waiting POS are not a load on anybody's node.
 const POLL_MS = 3000
 
-export function JoinScreen({
-  onDone,
-  onPeripherals,
-}: {
-  onDone: () => void
-  onPeripherals: () => void
-}) {
+export function JoinScreen({ onDone }: { onDone: () => void }) {
   const [stage, setStage] = useState<Stage>({ kind: "loading" })
 
   // A request left waiting when the app closed is picked up where it was:
-  // same code, same number, same row in the supervisor's list.
+  // same code, same number, same row in head office's list.
   useEffect(() => {
     let alive = true
     void (async () => {
@@ -100,37 +80,36 @@ export function JoinScreen({
         <div className="page-inner" style={{ maxWidth: 620 }}>
           <div className="page-head">
             <div>
-              <h1>Join this till to the store server</h1>
-              <p>A supervisor approves this till with their PIN.</p>
+              <h1>Gabungkan POS ini ke server toko</h1>
             </div>
             {/* Leaving while waiting keeps the request: it is picked up again,
                 same code, the next time this screen opens. */}
             {(stage.kind === "find" ||
               stage.kind === "loading" ||
               stage.kind === "waiting") && (
-              <button className="btn ghost" type="button" onClick={onDone}>
+              <button className="btn primary" type="button" onClick={onDone}>
                 <Icon name="back" />
-                Back
+                Kembali
               </button>
             )}
           </div>
 
           <div className="steps">
             <span className={stage.kind === "find" || stage.kind === "loading" ? "active" : ""}>
-              1 · Find the server
+              1 · Cari server
             </span>
             <span className={stage.kind === "confirm" ? "active" : ""}>
-              2 · Ask to join
+              2 · Minta bergabung
             </span>
             <span className={stage.kind === "waiting" ? "active" : ""}>
-              3 · Supervisor approves
+              3 · Menunggu kantor pusat
             </span>
             <span className={stage.kind === "approved" ? "active" : ""}>
-              4 · Joined
+              4 · Tergabung
             </span>
           </div>
 
-          {stage.kind === "loading" && <p className="muted">Checking…</p>}
+          {stage.kind === "loading" && <p className="muted">Memeriksa…</p>}
 
           {stage.kind === "find" && (
             <FindNode onPick={(node) => setStage({ kind: "confirm", node })} />
@@ -154,11 +133,7 @@ export function JoinScreen({
           )}
 
           {stage.kind === "approved" && (
-            <Approved
-              view={stage.view}
-              onPeripherals={onPeripherals}
-              onDone={onDone}
-            />
+            <Approved view={stage.view} onDone={onDone} />
           )}
 
           {stage.kind === "refused" && (
@@ -220,28 +195,28 @@ function FindNode({ onPick }: { onPick: (node: FoundNode) => void }) {
   return (
     <>
       <div className="block-head" style={{ marginBottom: 0 }}>
-        <span className="label">Servers on this network</span>
+        <span className="label">Server di jaringan ini</span>
         <button
-          className="btn ghost"
+          className="btn primary"
           type="button"
           disabled={found === null}
           onClick={() => void search()}
         >
           <Icon name="search" />
-          {found === null ? "Looking…" : "Look again"}
+          {found === null ? "Mencari…" : "Cari lagi"}
         </button>
       </div>
 
       {found === null && (
-        <div className="notice">Looking on this network…</div>
+        <div className="notice">Mencari di jaringan ini…</div>
       )}
 
       {found !== null && confirmed.length === 0 && (
         <div className="notice warn">
           {problem ??
-            "No store server answered on this network. The store router may " +
-              "be blocking network announcements (multicast), or the server is " +
-              "on another network. Type its address below."}
+            "Tidak ada server toko yang menjawab di jaringan ini. Router toko " +
+              "mungkin memblokir pengumuman jaringan (multicast), atau server " +
+              "ada di jaringan lain. Ketik alamatnya di bawah."}
         </div>
       )}
 
@@ -266,13 +241,13 @@ function FindNode({ onPick }: { onPick: (node: FoundNode) => void }) {
                 <span className="grow">
                   <strong>{siteTitle(identity)}</strong>
                   <small className="num">
-                    {identity.origin_id} · {node.host} · version {identity.version}
+                    {identity.origin_id} · {node.host} · versi {identity.version}
                   </small>
                 </span>
                 {current ? (
-                  <span className="badge plain">This till's server</span>
+                  <span className="badge plain">Server POS ini</span>
                 ) : (
-                  <span className="badge ok">Confirmed</span>
+                  <span className="badge ok">Terkonfirmasi</span>
                 )}
               </button>
             )
@@ -287,7 +262,7 @@ function FindNode({ onPick }: { onPick: (node: FoundNode) => void }) {
               <span className="grow">
                 <h3>
                   {node.advertised_site ?? node.host}{" "}
-                  <span className="badge warn">Not confirmed</span>
+                  <span className="badge warn">Belum terkonfirmasi</span>
                 </h3>
                 <p>{node.problem}</p>
               </span>
@@ -298,7 +273,7 @@ function FindNode({ onPick }: { onPick: (node: FoundNode) => void }) {
 
       <form className="rows" onSubmit={(event) => void check(event)}>
         <label className="field">
-          Or type the server address
+          Atau ketik alamat server
           <input
             value={typed}
             onChange={(event) => setTyped(event.target.value)}
@@ -310,8 +285,8 @@ function FindNode({ onPick }: { onPick: (node: FoundNode) => void }) {
         </label>
         {typedProblem !== null && <p className="error">{typedProblem}</p>}
         <div>
-          <button className="btn" type="submit" disabled={checking || typed.trim() === ""}>
-            {checking ? "Checking…" : "Check address"}
+          <button className="btn primary" type="submit" disabled={checking || typed.trim() === ""}>
+            {checking ? "Memeriksa…" : "Periksa alamat"}
           </button>
         </div>
       </form>
@@ -365,24 +340,25 @@ function ConfirmNode({
       </div>
 
       <div className="notice">
-        This till will ask to join this store server. This screen then shows a{" "}
-        <strong>code</strong> and a <strong>verification number</strong>. A
-        supervisor approves this till with their PIN.
+        Kantor pusat menyetujui POS ini di Central. Layar ini menampilkan{" "}
+        <strong>kode</strong> dan <strong>nomor verifikasi</strong> untuk
+        dicocokkan.
       </div>
 
       {alreadyPaired && (
         <div className="notice warn">
-          This till is already set up as <strong>{config?.terminal_id}</strong>.
-          Once approved, its old credentials are replaced. To keep the name, ask
-          the supervisor to approve it as the <strong>replacement for {config?.terminal_id}</strong>.
+          POS ini sudah terpasang sebagai <strong>{config?.terminal_id}</strong>.
+          Setelah disetujui, kredensial lamanya diganti. Agar namanya tetap,
+          minta kantor pusat menyetujuinya sebagai{" "}
+          <strong>pengganti {config?.terminal_id}</strong>.
         </div>
       )}
 
       {problem !== null && <p className="error">{problem}</p>}
 
       <div className="action-bar" style={{ padding: 0, border: 0, background: "none" }}>
-        <button className="btn" type="button" onClick={onBack} disabled={busy}>
-          Back
+        <button className="btn primary" type="button" onClick={onBack} disabled={busy}>
+          Kembali
         </button>
         <button
           className="btn primary"
@@ -391,14 +367,14 @@ function ConfirmNode({
           onClick={() => void ask()}
           disabled={busy}
         >
-          {busy ? "Asking…" : "Ask to join"}
+          {busy ? "Meminta…" : "Minta bergabung"}
         </button>
       </div>
     </>
   )
 }
 
-// ── 3. waiting for a yes ────────────────────────────────────────────────
+// ── 3. waiting for head office ──────────────────────────────────────────
 
 function Waiting({
   first,
@@ -412,9 +388,7 @@ function Waiting({
   onCancelled: () => void
 }) {
   const [view, setView] = useState(first)
-  const [now, setNow] = useState(() => Date.now())
   const [unanswered, setUnanswered] = useState<string | null>(null)
-  const [here, setHere] = useState(false)
   const asking = useRef(false)
   // Read through a ref so the poll is set up once, not again every time the
   // parent hands down a fresh arrow function.
@@ -422,7 +396,7 @@ function Waiting({
   outcome.current = { onApproved, onRefused }
 
   // One poll at a time: a node slow to answer must not collect a queue of
-  // questions from the till waiting on it.
+  // questions from the POS waiting on it.
   useEffect(() => {
     let alive = true
     let over = false
@@ -460,64 +434,41 @@ function Waiting({
     }
   }, [])
 
-  useEffect(() => {
-    const tick = window.setInterval(() => setNow(Date.now()), 1000)
-    return () => window.clearInterval(tick)
-  }, [])
-
-  const left = timeLeft(view.expires_at, now)
-
   return (
     <>
       <div
         className="overlay-card"
         style={{ width: "100%", alignItems: "stretch", boxShadow: "var(--shadow)" }}
       >
+        <h3 style={{ textAlign: "center" }}>Menunggu persetujuan kantor pusat</h3>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
           <div>
-            <span className="label">Till code</span>
+            <span className="label">Kode POS</span>
             <div className="join-code num">{view.code}</div>
           </div>
           <div>
-            <span className="label">Verification number</span>
+            <span className="label">Nomor verifikasi</span>
             <div className="join-number num">{spaced(view.verification)}</div>
           </div>
         </div>
-        <p className="muted" style={{ fontSize: 12.5, textAlign: "left" }}>
+        <p className="muted" style={{ fontSize: 15, textAlign: "left" }}>
+          Kantor pusat menyetujui POS ini di Central.
+        </p>
+        <p className="muted num" style={{ fontSize: 15, textAlign: "left" }}>
           {view.node !== null ? siteTitle(view.node) : view.base_url}
           {view.node !== null && <> · {view.node.origin_id}</>}
-          {left !== null ? <> · {left} left</> : <> · expired</>}
         </p>
       </div>
 
-      <div className="notice">
-        A supervisor approves this till with their PIN. Code{" "}
-        <strong className="num">{view.code}</strong>, number{" "}
-        <strong className="num">{spaced(view.verification)}</strong>: the
-        supervisor must see the same number on their screen. A different number
-        means the request came from another computer, so do not approve it.
-      </div>
-
-      <p className={unanswered === null ? "muted" : "error"} style={{ fontSize: 12 }}>
-        {unanswered === null
-          ? "Waiting for a supervisor… this screen changes by itself once approved."
-          : `The server has not answered, trying again. ${unanswered}`}
-      </p>
-
-      {here ? (
-        <ApproveHere view={view} onClose={() => setHere(false)} />
-      ) : (
-        <div>
-          <button className="btn" type="button" onClick={() => setHere(true)}>
-            <Icon name="user" />
-            Is the supervisor at this till?
-          </button>
-        </div>
+      {unanswered !== null && (
+        <p className="error" style={{ fontSize: 15 }}>
+          Server belum menjawab, mencoba lagi. {unanswered}
+        </p>
       )}
 
       <div>
         <button
-          className="btn ghost"
+          className="btn red"
           type="button"
           onClick={() => {
             void (async () => {
@@ -526,259 +477,43 @@ function Waiting({
             })()
           }}
         >
-          Cancel request
+          Batalkan permintaan
         </button>
       </div>
     </>
   )
 }
 
-/// A supervisor signs in here, on the node being joined, and approves.
-///
-/// The password goes to the shell and on to the node; this component drops it
-/// the moment the node has answered, whichever way. The node's session is held
-/// by the shell, not here, and signed out as soon as they approve or leave.
-function ApproveHere({ view, onClose }: { view: JoinView; onClose: () => void }) {
-  const { config } = useNodeConfig()
-  const [username, setUsername] = useState("")
-  const [password, setPassword] = useState("")
-  const [signedIn, setSignedIn] = useState<SupervisorHere | null>(null)
-  const [mode, setMode] = useState<"new" | "replace">("new")
-  const [replaces, setReplaces] = useState("")
-  const [label, setLabel] = useState("")
-  const [busy, setBusy] = useState(false)
-  const [problem, setProblem] = useState<string | null>(null)
-  const [done, setDone] = useState<string | null>(null)
-
-  async function signIn(event: FormEvent) {
-    event.preventDefault()
-    setBusy(true)
-    setProblem(null)
-    const typed = password
-    setPassword("")
-    const answer = await supervisorSignIn(username, typed)
-    setBusy(false)
-    if (!answer.ok) {
-      setProblem(answer.problem)
-      return
-    }
-    setSignedIn(answer.value)
-    // This till may be the one it replaces: a till re-joining the node it was
-    // already paired with offers its own old row first.
-    const own = answer.value.tills.find((till) => till.device_id === config?.pairing_id)
-    if (own !== undefined) {
-      setMode("replace")
-      setReplaces(own.device_id)
-    }
-  }
-
-  async function approve() {
-    setBusy(true)
-    setProblem(null)
-    const answer = await approveHere(
-      mode === "replace" ? replaces : null,
-      mode === "new" && label.trim() !== "" ? label.trim() : null,
-    )
-    setBusy(false)
-    if (!answer.ok) {
-      setProblem(answer.problem)
-      return
-    }
-    setDone(
-      `Approved by ${answer.value.approved_by} as ${answer.value.label}. ` +
-        "Waiting for the server to confirm…",
-    )
-  }
-
-  async function leave() {
-    await supervisorLeave()
-    onClose()
-  }
-
-  if (done !== null) {
-    return <div className="notice">{done}</div>
-  }
-
-  return (
-    <div className="stat" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <div className="block-head" style={{ marginBottom: 0 }}>
-        <strong style={{ fontSize: 14 }}>Approve at this till</strong>
-        <button className="icon-btn" type="button" onClick={() => void leave()} aria-label="Close">
-          <Icon name="x" />
-        </button>
-      </div>
-
-      {signedIn === null ? (
-        <form className="rows" onSubmit={(event) => void signIn(event)}>
-          <p className="muted" style={{ fontSize: 12 }}>
-            Works for the first till in this store, or with an Admin account.
-            Later tills are approved with a supervisor's PIN at a till that has
-            already joined. Signing in here signs that account out of its other
-            devices on {siteTitle(view.node)}.
-          </p>
-          <label className="field">
-            Supervisor username
-            <input
-              value={username}
-              onChange={(event) => setUsername(event.target.value)}
-              autoComplete="off"
-              spellCheck={false}
-              autoFocus
-            />
-          </label>
-          <label className="field">
-            Password
-            <input
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              autoComplete="off"
-            />
-          </label>
-          {problem !== null && <p className="error">{problem}</p>}
-          <div>
-            <button
-              className="btn primary"
-              type="submit"
-              disabled={busy || username.trim() === "" || password === ""}
-            >
-              {busy ? "Checking…" : "Sign in"}
-            </button>
-          </div>
-        </form>
-      ) : (
-        <>
-          <p className="muted" style={{ fontSize: 12 }}>
-            Signed in as <strong>{signedIn.username}</strong>. Check first:
-            code <strong className="num">{view.code}</strong>, number{" "}
-            <strong className="num">{spaced(view.verification)}</strong>.
-          </p>
-          <div className="segmented" role="radiogroup" aria-label="This till is">
-            <button
-              type="button"
-              role="radio"
-              aria-checked={mode === "new"}
-              aria-pressed={mode === "new"}
-              onClick={() => setMode("new")}
-            >
-              New till
-            </button>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={mode === "replace"}
-              aria-pressed={mode === "replace"}
-              disabled={signedIn.tills.length === 0}
-              onClick={() => setMode("replace")}
-            >
-              Replaces an old till
-            </button>
-          </div>
-          {mode === "new" ? (
-            <label className="field">
-              Till name
-              <input
-                value={label}
-                onChange={(event) => setLabel(event.target.value)}
-                placeholder="Leave empty for the next number (Kasir N)"
-                autoComplete="off"
-              />
-            </label>
-          ) : (
-            <label className="field">
-              Till to replace: this till takes its name and the old till is revoked
-              <select value={replaces} onChange={(event) => setReplaces(event.target.value)}>
-                <option value="">Choose a till…</option>
-                {signedIn.tills.map((till) => (
-                  <option key={till.device_id} value={till.device_id}>
-                    {till.label}
-                    {till.status !== "ACTIVE" ? ` (${till.status.toLowerCase()})` : ""}
-                    {till.device_id === config?.pairing_id ? " (this till before)" : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          {signedIn.problem !== null && (
-            <p className="muted" style={{ fontSize: 12 }}>
-              The list of tills could not be read: {signedIn.problem}
-            </p>
-          )}
-          {problem !== null && <p className="error">{problem}</p>}
-          <div style={{ display: "flex", gap: 10 }}>
-            <button className="btn" type="button" onClick={() => void leave()} disabled={busy}>
-              Cancel
-            </button>
-            <button
-              className="btn primary"
-              type="button"
-              style={{ flex: 1 }}
-              disabled={busy || (mode === "replace" && replaces === "")}
-              onClick={() => void approve()}
-            >
-              {busy ? "Approving…" : "Approve this till"}
-            </button>
-          </div>
-        </>
-      )}
-    </div>
-  )
-}
-
 // ── 4. the answer ───────────────────────────────────────────────────────
 
-function Approved({
-  view,
-  onPeripherals,
-  onDone,
-}: {
-  view: JoinView
-  onPeripherals: () => void
-  onDone: () => void
-}) {
-  // The shell changed this till's config on its own when it heard "yes": a
-  // new name, a credential, perhaps a new node and no session. The window's
-  // copy is brought up to date on the way out of this screen rather than on
+function Approved({ view, onDone }: { view: JoinView; onDone: () => void }) {
+  // The shell changed this POS's config on its own when it heard "yes": a new
+  // name, a credential, perhaps a new node and no session. The window's copy
+  // is brought up to date on the way out of this screen rather than on
   // arrival, so the session re-reading itself cannot pull this screen away
   // before anybody has read which Kasir this is.
-  const leave = (next: () => void) => {
-    void refreshFromShell().then(next)
+  const leave = () => {
+    void refreshFromShell().then(onDone)
   }
   return (
     <div className="overlay-card" style={{ width: "100%", boxShadow: "var(--shadow)" }}>
       <span className="seal">
         <Icon name="check" />
       </span>
-      <h3>This till has joined</h3>
+      <h3>POS ini sudah tergabung</h3>
       <div className="join-code">{view.label}</div>
-      <p className="muted num" style={{ fontSize: 12.5 }}>
+      <p className="muted num" style={{ fontSize: 15 }}>
         {siteTitle(view.node)} · {view.base_url}
       </p>
-      <div className="notice" style={{ width: "100%", textAlign: "left" }}>
-        This name is printed on receipts and used for cash shifts. Devices
-        connected to this till are reported to the server now; check them
-        under <strong>Till devices</strong>.
-      </div>
-      <div style={{ display: "flex", gap: 10, width: "100%" }}>
-        <button
-          className="btn"
-          type="button"
-          style={{ flex: 1 }}
-          onClick={() => leave(onPeripherals)}
-        >
-          <Icon name="plug" />
-          Till devices
-        </button>
-        <button
-          className="btn primary"
-          type="button"
-          style={{ flex: 1 }}
-          onClick={() => leave(onDone)}
-          autoFocus
-        >
-          Done
-        </button>
-      </div>
+      <button
+        className="btn primary"
+        type="button"
+        style={{ width: "100%" }}
+        onClick={leave}
+        autoFocus
+      >
+        Selesai
+      </button>
     </div>
   )
 }
@@ -799,18 +534,14 @@ function Refused({
       <span className="seal warn">
         <Icon name="alert" />
       </span>
-      <h3>Not joined</h3>
-      <p className="muted" style={{ fontSize: 13 }}>
+      <h3>Belum tergabung</h3>
+      <p className="muted" style={{ fontSize: 15 }}>
         {refusedBecause(view.reason)}
-      </p>
-      <p className="muted" style={{ fontSize: 12 }}>
-        The key made for this request has been thrown away. A new request uses
-        a new key and a new code.
       </p>
       {problem !== null && <p className="error">{problem}</p>}
       <div style={{ display: "flex", gap: 10, width: "100%" }}>
-        <button className="btn" type="button" style={{ flex: 1 }} onClick={onFind} disabled={busy}>
-          Choose another server
+        <button className="btn primary" type="button" style={{ flex: 1 }} onClick={onFind} disabled={busy}>
+          Pilih server lain
         </button>
         <button
           className="btn primary"
@@ -831,7 +562,7 @@ function Refused({
             })()
           }}
         >
-          {busy ? "Asking…" : "Ask again"}
+          {busy ? "Meminta…" : "Minta lagi"}
         </button>
       </div>
     </div>

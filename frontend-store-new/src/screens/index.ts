@@ -89,6 +89,4 @@ export const screens: ScreenLoaders = {
     import("@/screens/sync").then((module) => ({ default: module.SyncScreen })),
   "/node/password": () =>
     import("@/screens/password").then((module) => ({ default: module.Password })),
-  "/node/tills": () =>
-    import("@/screens/till-approvals").then((module) => ({ default: module.TillApprovals })),
 }

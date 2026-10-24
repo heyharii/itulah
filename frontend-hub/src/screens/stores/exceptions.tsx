@@ -25,6 +25,7 @@ import { SHOW_MISSING } from "@/lib/features"
 import { useLayout } from "@/lib/layout"
 import { useSheet } from "@/lib/sheets"
 import { useSections } from "@/lib/session"
+import { OpenStoresSheet } from "@/screens/setup/open-stores-sheet"
 import { ExceptionRow } from "@/screens/stores/exceptions-shared"
 
 /// The Stores › Exceptions list (0646-0648): everything wrong in a store's
@@ -43,6 +44,8 @@ export function StoreExceptions() {
   // A phone keeps the Thresholds at the foot of the list.
   const phone = useLayout() === "phone"
   const settings = useSheet("exceptions-settings")
+  // The Stores menu's panel raises Add store on whichever page is open.
+  const adding = useSheet("new-stores")
   const { bypass } = useSections()
 
   // The head and the thresholds stand at once; the list waits for the
@@ -76,6 +79,7 @@ export function StoreExceptions() {
       )}
 
       <ExceptionSettingsSheet open={settings.isOpen} onClose={settings.close} />
+      <OpenStoresSheet open={adding.isOpen} onClose={adding.close} />
     </PageContent>
   )
 }

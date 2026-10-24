@@ -63,11 +63,6 @@ test('STORE-103 This node › Sync: the figures are the node\'s; Send now asks i
   await expect(screen.getByRole('button', 'Send now').first()).toBeVisible({ timeout: 20_000 });
 });
 
-test('STORE-104 This node › Till approvals: no new till is waiting (joining is done from the desktop till, out of scope here)', { session: 'maya-store', tags: ['pos'] }, async ({ app, screen }) => {
-  await app.open('/node/tills');
-  await expect(screen.getByText('No tills waiting.', { exact: true })).toBeVisible({ timeout: 20_000 });
-});
-
 test('STORE-105 Change password: the two new ones must match; a wrong current password changes nothing (the real password is never changed here)', { session: 'maya-store', tags: ['pos'] }, async ({ app, screen }) => {
   await app.open('/node/password');
   await expect(screen.getByText('Sign-in name', { exact: true })).toBeVisible({ timeout: 20_000 });

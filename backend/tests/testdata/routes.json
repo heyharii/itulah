@@ -299,6 +299,8 @@ cloud	GET	/api/v1/stores/{unit}	Cashier	-
 cloud	GET	/api/v1/stores/{unit}/actions	Cashier	-
 cloud	GET	/api/v1/stores/{unit}/actions/history	Cashier	-
 cloud	GET	/api/v1/stores/{unit}/exceptions	Cashier	-
+cloud	GET	/api/v1/stores/{unit}/fingers	Cashier	-
+cloud	GET	/api/v1/stores/{unit}/people/{user_id}	Cashier	-
 cloud	GET	/api/v1/stores/{unit}/pos	Cashier	-
 cloud	GET	/api/v1/supplier-items	Supervisor	-
 cloud	GET	/api/v1/supplier-items/{id}	Supervisor	-
@@ -644,7 +646,12 @@ cloud	POST	/api/v1/sourcing-basket/{supplier_item_id}/remove	Supervisor	supplier
 cloud	POST	/api/v1/stores/{unit}/actions/{key}	Supervisor	unit
 cloud	POST	/api/v1/stores/{unit}/cashiers/{user_id}/resume	Admin	unit
 cloud	POST	/api/v1/stores/{unit}/cashiers/{user_id}/stop	Admin	unit
+cloud	POST	/api/v1/stores/{unit}/fingers/approve-all	Admin	unit
+cloud	POST	/api/v1/stores/{unit}/fingers/{submission_id}/approve	Admin	unit
+cloud	POST	/api/v1/stores/{unit}/fingers/{submission_id}/refuse	Admin	unit
 cloud	POST	/api/v1/stores/{unit}/open	Admin	unit
+cloud	POST	/api/v1/stores/{unit}/pos/joins/{join_id}/approve	Admin	unit
+cloud	POST	/api/v1/stores/{unit}/pos/joins/{join_id}/refuse	Admin	unit
 cloud	POST	/api/v1/stores/{unit}/remove	Admin	unit
 cloud	POST	/api/v1/stores/{unit}/resume	Admin	unit
 cloud	POST	/api/v1/stores/{unit}/server/disconnect	Admin	unit
@@ -679,6 +686,7 @@ cloud	POST	/api/v1/sync/origins/{origin_id}/bootstrap	Admin	-
 cloud	POST	/api/v1/sync/points/redeem-requests/lookup	Supervisor	-
 cloud	POST	/api/v1/sync/points/redeem-requests/{request_id}/confirm	Supervisor	-
 cloud	POST	/api/v1/sync/pos-fingers	Supervisor	-
+cloud	POST	/api/v1/sync/pos-fingers/submit	Supervisor	-
 cloud	POST	/api/v1/sync/trigger	Admin	-
 cloud	POST	/api/v1/sync/vouchers/{code}/authorize	Supervisor	-
 cloud	POST	/api/v1/sync/vouchers/{code}/commit	Supervisor	-
@@ -848,6 +856,7 @@ store	PUT	/api/v1/store/central/{*path}	-	-
 edge-common	GET	/api/v1/attendance/book	-	-
 edge-common	GET	/api/v1/attendance/today	-	-
 edge-common	GET	/api/v1/auth/fingerprints/roster	-	-
+edge-common	GET	/api/v1/auth/fingerprints/team	-	-
 edge-common	GET	/api/v1/auth/me	-	-
 edge-common	GET	/api/v1/auth/methods	-	-
 edge-common	GET	/api/v1/catalog/campaign-image	-	-
@@ -873,6 +882,7 @@ edge-common	POST	/api/v1/attendance/punches	-	-
 edge-common	POST	/api/v1/auth/change-password	-	-
 edge-common	POST	/api/v1/auth/fingerprints	-	-
 edge-common	POST	/api/v1/auth/fingerprints/claim	-	-
+edge-common	POST	/api/v1/auth/fingerprints/submissions	-	-
 edge-common	POST	/api/v1/auth/fingerprints/{finger_id}/retire	-	-
 edge-common	POST	/api/v1/auth/login	-	-
 edge-common	POST	/api/v1/auth/logout	-	-

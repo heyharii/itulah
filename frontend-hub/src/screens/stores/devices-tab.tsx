@@ -1,11 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import { useMemo } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { Input } from "@/components/ui/field"
 import { Pill } from "@/components/ui/pill"
-import { Banner, EmptyState, Problem } from "@/components/ui/states"
+import { EmptyState, Problem } from "@/components/ui/states"
 import { ago } from "@/lib/format"
 import { useFleetStatusOf, type FleetComponent } from "@/lib/queries/fleet"
 import {
@@ -14,17 +13,11 @@ import {
   type DeviceKind,
   type RegistryDevice,
 } from "@/lib/queries/system"
-import {
-  setTillSeats,
-  storesKeys,
-  testPrint,
-  type StoreTills,
-} from "@/lib/queries/stores"
+import { testPrint, type StoreTills } from "@/lib/queries/stores"
 import { queryState } from "@/lib/query-state"
 import { cn } from "@/lib/utils"
 import { DeviceActionsMenu } from "@/screens/stores/actions"
 import { FLEET_PILL_TONE, FleetDot } from "@/screens/system/fleet-shared"
-import { saying } from "@/screens/system/units"
 
 const KIND_LABEL: Record<DeviceKind, string> = {
   TILL: "POS",
@@ -43,28 +36,25 @@ function recentlySeen(iso: string): boolean {
 }
 
 /// The device register, filtered to this store's site, with a test print per
-/// till or printer and how many tills are still waiting for a supervisor at
-/// the store to approve them — the mock's Devices tab.
+/// POS or printer and how many POS are waiting for head office to approve
+/// them — the mock's Devices tab.
 ///
-/// Approving a waiting till happens at the store, in its own Tills screen
-/// (CONTEXT.md: a till joins by discovering the node and a supervisor's
-/// approval) — head office only watches the count here. What head office does
-/// decide is how many seats the counter has (`SeatsCard`).
+/// Approving a new POS is done on the POS tab (owner, 2026-10-24: it asks to
+/// join at the store, and head office decides) — the count is only a mention
+/// here. How many seats the counter has is changed on the Overview.
 export function DevicesTab({
   unit,
   siteId,
   tills,
-  canManage,
 }: {
   unit: string
   siteId: string
   tills: StoreTills
-  canManage: boolean
 }) {
   const devices = useQuery({
     queryKey: systemKeys.devices(),
     queryFn: ({ signal }) => listDevices(signal),
-    refetchInterval: 30_000,
+    refetchInterval: 10_000,
   })
   const rows = useMemo(
     () => (devices.data ?? []).filter((device) => device.site_id === siteId),
@@ -94,13 +84,10 @@ export function DevicesTab({
         </span>
         {tills.waiting > 0 && (
           <span className="text-warn-fg">
-            {tills.waiting} POS waiting for
-            a supervisor at the store
+            {tills.waiting} POS waiting for head office
           </span>
         )}
       </Card>
-
-      <SeatsCard unit={unit} seats={tills.seats} canManage={canManage} />
 
       <Card className="overflow-hidden">
         {queryState(devices, {
@@ -126,72 +113,6 @@ export function DevicesTab({
         })}
       </Card>
     </div>
-  )
-}
-
-/// How many till seats the store has — Till 1 to Till N. Head office decides
-/// it; an Admin edits it here, anyone else reads it. Fewer seats never ends a
-/// shift (the server keeps a drawer open at a removed seat listed until it is
-/// closed), so there is nothing to confirm.
-function SeatsCard({
-  unit,
-  seats,
-  canManage,
-}: {
-  unit: string
-  seats: number
-  canManage: boolean
-}) {
-  const client = useQueryClient()
-  const [draft, setDraft] = useState(String(seats))
-  const count = Number(draft)
-  const valid = Number.isInteger(count) && count >= 1 && count <= 50
-
-  const save = useMutation({
-    mutationFn: () => setTillSeats(unit, count),
-    onSuccess: (detail) => {
-      client.setQueryData(storesKeys.detail(unit), detail)
-      void client.invalidateQueries({ queryKey: storesKeys.list() })
-      setDraft(String(detail.store.tills.seats))
-    },
-  })
-
-  return (
-    <Card className="flex flex-col gap-3 px-4 py-3 text-[0.9375rem] text-body">
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="flex-1">
-          POS seats: <b className="text-ink">{seats}</b> — POS 1
-          {seats > 1 ? ` to POS ${seats}` : ""}
-        </span>
-        {canManage && (
-          <>
-            <Input
-              type="number"
-              min={1}
-              max={50}
-              inputMode="numeric"
-              aria-label="Number of POS seats"
-              className="w-20"
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-            />
-            <Button
-              variant="primary"
-              pending={save.isPending}
-              disabled={!valid || count === seats}
-              onClick={() => save.mutate()}
-            >
-              {save.isPending ? "Submitting…" : "Submit"}
-            </Button>
-          </>
-        )}
-      </div>
-      <p className="text-meta text-mute">
-        Each seat is one drawer. People pick a seat at the POS; machines
-        don&rsquo;t add seats.
-      </p>
-      {save.isError && <Banner tone="bad">{saying(save.error)}</Banner>}
-    </Card>
   )
 }
 

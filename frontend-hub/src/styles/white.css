@@ -1692,6 +1692,11 @@ html[data-look="white"] .shell-panel .bg-accent-bg {
   html[data-look="white"] .shell-panel button:hover {
     background: #f2f4f7;
   }
+  /* a solid button in the panel (Stores › Add store) keeps its fill under
+     the pointer */
+  html[data-look="white"] .shell-panel .btn-primary:hover {
+    background: var(--cta-hover);
+  }
 }
 html[data-look="white"] .shell-rail .bg-rail-3 {
   box-shadow: 0 0 0 1px rgb(16 24 40 / 7%), 0 1px 2px rgb(16 24 40 / 8%);

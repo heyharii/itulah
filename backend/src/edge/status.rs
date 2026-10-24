@@ -42,7 +42,7 @@ const DC_CAPABILITIES: [&str; 8] = [
     crate::sync::node_ops::NODE_ACTIONS_CAPABILITY,
 ];
 
-const STORE_CAPABILITIES: [&str; 12] = [
+const STORE_CAPABILITIES: [&str; 13] = [
     "inventory.pools.owned",
     "inventory.movements.read",
     crate::sync::workflow::STORE_INBOUND_CAPABILITY,
@@ -57,6 +57,8 @@ const STORE_CAPABILITIES: [&str; 12] = [
     crate::sync::unmatched::UNMATCHED_SALE_TAKE_CAPABILITY,
     // Prepare for removal, and an uninstaller that waits for it.
     crate::sync::node_ops::NODE_REMOVAL_CAPABILITY,
+    // Head office lets a waiting till in, or refuses it.
+    crate::sync::device::JOIN_DECIDE_CAPABILITY,
 ];
 
 pub const fn node_capabilities(role: crate::edge::EdgeRole) -> &'static [&'static str] {
@@ -466,6 +468,7 @@ impl StatusSource {
                 "SELECT count(*) FROM edge_device_join WHERE outcome IS NULL AND expires_at > ?1",
                 Some(&Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true)),
             ),
+            joins_waiting: crate::edge::devices::waiting_joins(&connection).unwrap_or_default(),
         }
     }
 

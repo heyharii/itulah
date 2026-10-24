@@ -5,22 +5,28 @@ import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { Field, Select } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { Status } from "@/components/ui/pill"
 import { RefreshStrip } from "@/components/ui/refresh-stamp"
 import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
 import { Banner, EmptyState } from "@/components/ui/states"
-import { EMPTY, ago, moment, time } from "@/lib/format"
+import { EMPTY, ago, moment, recentMoment, time } from "@/lib/format"
 import { useNameOfLogin } from "@/lib/queries/hr-employees"
 import {
-  resumeCashier,
+  approvePosJoin,
+  posName,
+  refreshPerson,
+  refusePosJoin,
   stopCashier,
   storePos,
   storesKeys,
+  useResumePerson,
   type PosStopNote,
   type StorePos,
   type StorePosCashier,
   type StorePosTill,
+  type StorePosWaiting,
   type StoreSummary,
 } from "@/lib/queries/stores"
 import {
@@ -44,12 +50,15 @@ type Asking =
   | { readonly kind: "remove-till"; readonly till: StorePosTill }
   | { readonly kind: "stop-person"; readonly cashier: StorePosCashier }
 
-/// The store's tills and the people who sign in at them — the page's Tills tab.
+/// The store's POS and the people who sign in at them — the page's POS tab.
 ///
-/// Head office stops a till (one PC), stops one person at every store, and
-/// removes a till for good. Stopping or removing the whole store is on the
-/// page's head (`StoreStopActions`); once the store is stopped or removed the
-/// rows here only read, because the store's own state already says it all.
+/// A new POS asks to join at the store and waits here for head office, which
+/// approves it into a free seat — or into the seat of a POS it replaces — or
+/// refuses it (owner, 2026-10-24). Head office stops a POS (one PC), stops one
+/// person at every store, and removes a POS for good. Stopping or removing the
+/// whole store is on the page's head (`StoreStopActions`); once the store is
+/// stopped or removed the rows here only read, because the store's own state
+/// already says it all.
 /// What the node carries out arrives on its next sync, so a row whose ask is
 /// still on its way says "Stopping…", "Resuming…" or "Removing…".
 export function TillsTab({ store }: { store: StoreSummary }) {
@@ -57,6 +66,7 @@ export function TillsTab({ store }: { store: StoreSummary }) {
   const pos = useQuery({
     queryKey: storesKeys.pos(unit),
     queryFn: ({ signal }) => storePos(unit, signal),
+    refetchInterval: 10_000,
   })
 
   return (
@@ -85,6 +95,11 @@ function TillsPage({ store, pos }: { store: StoreSummary; pos: StorePos }) {
     setOpen(true)
   }
 
+  // The new POS being replaced into a seat, asked in its own dialog.
+  const [replacing, setReplacing] = useState<StorePosWaiting | null>(null)
+  const [replaceOpen, setReplaceOpen] = useState(false)
+  const [replaceKey, setReplaceKey] = useState(0)
+
   const stopped = store.status === "STOPPED"
   const removed = store.status === "CLOSED"
   // Nothing is switched from here once the store itself is stopped or removed.
@@ -100,10 +115,17 @@ function TillsPage({ store, pos }: { store: StoreSummary; pos: StorePos }) {
       setDeviceStatus(till.device_id, { status: "ACTIVE" }),
     onSuccess: refresh,
   })
-  const resumePerson = useMutation({
-    mutationFn: (cashier: StorePosCashier) =>
-      resumeCashier(unit, cashier.user_id),
-    onSuccess: (answer) => client.setQueryData(storesKeys.pos(unit), answer),
+  const resumePerson = useResumePerson(unit)
+
+  const settleJoin = useSettleJoin(unit)
+  const approveJoin = useMutation({
+    mutationFn: (join: StorePosWaiting) =>
+      approvePosJoin(unit, join.join_id, {}),
+    onSuccess: settleJoin,
+  })
+  const refuseJoin = useMutation({
+    mutationFn: (join: StorePosWaiting) => refusePosJoin(unit, join.join_id),
+    onSuccess: settleJoin,
   })
 
   const live = pos.tills.filter((till) => till.status !== "REVOKED")
@@ -150,8 +172,59 @@ function TillsPage({ store, pos }: { store: StoreSummary; pos: StorePos }) {
 
   return (
     <>
+      {pos.waiting.length > 0 && (
+        <Section
+          title={
+            <>
+              New POS asking to join{" "}
+              <span className="font-normal text-mute tabular-nums">
+                {pos.waiting.length}
+              </span>
+            </>
+          }
+        >
+          <Card className="overflow-clip px-4 pt-3.5 pb-1">
+            <MiniTable
+              head={[
+                { label: "Code", align: "left" },
+                { label: "Verification", align: "left" },
+                { label: "Machine", align: "left" },
+                { label: "Asked", align: "left" },
+                { label: "", align: "right" },
+              ]}
+            >
+              {pos.waiting.map((join) => (
+                <JoinRow
+                  key={join.join_id}
+                  join={join}
+                  canManage={canManage}
+                  seats={pos.seats}
+                  live={live.length}
+                  busy={approveJoin.isPending || refuseJoin.isPending}
+                  approving={
+                    approveJoin.isPending &&
+                    approveJoin.variables?.join_id === join.join_id
+                  }
+                  refusing={
+                    refuseJoin.isPending &&
+                    refuseJoin.variables?.join_id === join.join_id
+                  }
+                  onApprove={() => approveJoin.mutate(join)}
+                  onRefuse={() => refuseJoin.mutate(join)}
+                  onReplace={() => {
+                    setReplacing(join)
+                    setReplaceKey((count) => count + 1)
+                    setReplaceOpen(true)
+                  }}
+                />
+              ))}
+            </MiniTable>
+          </Card>
+        </Section>
+      )}
+
       <KpiStrip className="mb-0 md:grid-cols-4 xl:grid-cols-4">
-        <Kpi label="POS" value={String(live.length)} />
+        <Kpi label="Seats used" value={`${live.length} of ${pos.seats}`} />
         <Kpi label="Online" value={String(online)} />
         <Kpi label="POS stopped" value={redWhenAny(tillsStopped)} />
         <Kpi label="Cashiers stopped" value={redWhenAny(peopleStopped)} />
@@ -162,6 +235,12 @@ function TillsPage({ store, pos }: { store: StoreSummary; pos: StorePos }) {
       )}
       {resumePerson.isError && (
         <Banner tone="bad">{saying(resumePerson.error)}</Banner>
+      )}
+      {approveJoin.isError && (
+        <Banner tone="bad">{saying(approveJoin.error)}</Banner>
+      )}
+      {refuseJoin.isError && (
+        <Banner tone="bad">{saying(refuseJoin.error)}</Banner>
       )}
 
       <div className="flex flex-col gap-3">
@@ -213,10 +292,10 @@ function TillsPage({ store, pos }: { store: StoreSummary; pos: StorePos }) {
                     nameOf={nameOf}
                     resuming={
                       resumePerson.isPending &&
-                      resumePerson.variables?.user_id === cashier.user_id
+                      resumePerson.variables === cashier.user_id
                     }
                     onStop={() => ask({ kind: "stop-person", cashier })}
-                    onResume={() => resumePerson.mutate(cashier)}
+                    onResume={() => resumePerson.mutate(cashier.user_id)}
                   />
                 ))}
               </MiniTable>
@@ -235,7 +314,236 @@ function TillsPage({ store, pos }: { store: StoreSummary; pos: StorePos }) {
           onOpenChange={setOpen}
         />
       )}
+
+      {replacing !== null && (
+        <ReplacePosDialog
+          key={replaceKey}
+          join={replacing}
+          tills={live}
+          unit={unit}
+          open={replaceOpen}
+          onOpenChange={setReplaceOpen}
+        />
+      )}
     </>
+  )
+}
+
+/// Each answer to a join is the POS tab as it stands after; the store's own
+/// counts (the blue number in the menu, the red one on the tab) are read again.
+function useSettleJoin(unit: string) {
+  const client = useQueryClient()
+  return (answer: StorePos) => {
+    client.setQueryData(storesKeys.pos(unit), answer)
+    void client.invalidateQueries({ queryKey: storesKeys.detail(unit) })
+    void client.invalidateQueries({ queryKey: storesKeys.list() })
+  }
+}
+
+/// The six digits the POS shows beside its code, in threes: `481 205`.
+function verificationOf(digits: string): string {
+  return /^\d{6}$/.test(digits)
+    ? `${digits.slice(0, 3)} ${digits.slice(3)}`
+    : digits
+}
+
+/// One new POS asking to join: the code and the six digits it shows on its own
+/// screen, so the person at head office can tell it from another, then the
+/// machine and when it asked.
+///
+/// Where the answer goes: with a free seat Approve takes it; with every seat
+/// taken Approve is held back, and Replace a POS approves it into the seat of
+/// one of the live POS, which is removed as this one joins. A decision is on its
+/// way to the store's server until the server carries it out; if the server
+/// could not — the POS it was to replace has a drawer open, say — the row says
+/// why and can be decided again.
+function JoinRow({
+  join,
+  canManage,
+  seats,
+  live,
+  busy,
+  approving,
+  refusing,
+  onApprove,
+  onRefuse,
+  onReplace,
+}: {
+  join: StorePosWaiting
+  canManage: boolean
+  seats: number
+  /// POS in the store's seats now: not removed.
+  live: number
+  busy: boolean
+  approving: boolean
+  refusing: boolean
+  onApprove: () => void
+  onRefuse: () => void
+  onReplace: () => void
+}) {
+  const full = live >= seats
+  const decided = join.decision !== null && join.error === null
+
+  let action: React.ReactNode = null
+  if (!join.decidable) {
+    action = <span className="text-mute">Update the store’s server first</span>
+  } else if (decided && join.decision !== null) {
+    action = (
+      <span className="text-mute">
+        {join.decision.approve
+          ? "Approved — on its way to the store’s server"
+          : "Refused — on its way"}
+      </span>
+    )
+  } else if (canManage) {
+    action = (
+      <>
+        {join.error !== null && (
+          <span className="mb-1.5 block text-bad-fg">{join.error}</span>
+        )}
+        <span className="inline-flex flex-wrap justify-end gap-1.5 whitespace-nowrap">
+          <Button
+            variant="destructive"
+            size="sm"
+            pending={refusing}
+            disabled={busy}
+            onClick={onRefuse}
+          >
+            Refuse
+          </Button>
+          {full && live > 0 && (
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={busy}
+              onClick={onReplace}
+            >
+              Replace a POS
+            </Button>
+          )}
+          <Button
+            variant="primary"
+            size="sm"
+            pending={approving}
+            disabled={busy || full}
+            onClick={onApprove}
+          >
+            Approve
+          </Button>
+        </span>
+        {full && (
+          <span className="mt-1.5 block text-mute">
+            {seats === 0 ? "The store has no POS seats" : "Every seat is taken"}
+          </span>
+        )}
+      </>
+    )
+  }
+
+  const detail = [
+    join.os,
+    join.version === null ? null : `Central POS ${join.version}`,
+  ]
+    .filter((part): part is string => part !== null && part !== "")
+    .join(" · ")
+
+  return (
+    <MiniRow>
+      <MiniCell className="font-medium text-ink">{join.code}</MiniCell>
+      <MiniCell className="tabular-nums">
+        {verificationOf(join.verification)}
+      </MiniCell>
+      <MiniCell>
+        {join.machine ?? EMPTY}
+        {detail !== "" && <span className="block text-mute">{detail}</span>}
+      </MiniCell>
+      <MiniCell>{recentMoment(join.asked_at)}</MiniCell>
+      <MiniCell align="right">{action}</MiniCell>
+    </MiniRow>
+  )
+}
+
+/// Approve a new POS into the seat of one that is there: the live POS are
+/// asked once, and the one chosen is removed as the new one joins, which takes
+/// its seat and name. The store's server may still refuse — a drawer open at
+/// the POS to replace — and the join then says so on its row.
+function ReplacePosDialog({
+  join,
+  tills,
+  unit,
+  open,
+  onOpenChange,
+}: {
+  join: StorePosWaiting
+  tills: readonly StorePosTill[]
+  unit: string
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const settle = useSettleJoin(unit)
+  const [picked, setPicked] = useState("")
+  const approve = useMutation({
+    mutationFn: () =>
+      approvePosJoin(unit, join.join_id, { replaces_device_id: picked }),
+    onSuccess: (answer) => {
+      settle(answer)
+      onOpenChange(false)
+    },
+  })
+  const chosen = tills.find((till) => till.device_id === picked)
+  return (
+    <StopDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Replace a POS"
+      tone="primary"
+      facts={[
+        {
+          term: "New POS",
+          value:
+            join.machine === null
+              ? join.code
+              : `${join.code} · ${join.machine}`,
+        },
+        {
+          term: "Replaces",
+          value:
+            chosen === undefined
+              ? EMPTY
+              : `${tillName(chosen)} · ${chosen.machine ?? EMPTY}`,
+        },
+        {
+          term: "Then",
+          value:
+            chosen === undefined
+              ? EMPTY
+              : `${tillName(chosen)} is removed and the new POS takes its seat`,
+        },
+      ]}
+      blocked={picked === ""}
+      action="Replace POS"
+      pending={approve.isPending}
+      error={approve.error}
+      onConfirm={() => approve.mutate()}
+    >
+      <Field label="POS to replace" required>
+        <Select
+          value={picked}
+          onChange={setPicked}
+          aria-label="POS to replace"
+          required
+        >
+          <option value="">Choose a POS</option>
+          {tills.map((till) => (
+            <option key={till.device_id} value={till.device_id}>
+              {`${tillName(till)} · ${till.machine ?? EMPTY}${
+                till.open_shift === null ? "" : " · shift open"
+              }`}
+            </option>
+          ))}
+        </Select>
+      </Field>
+    </StopDialog>
   )
 }
 
@@ -248,9 +556,9 @@ function redWhenAny(figure: number): React.ReactNode {
   )
 }
 
-/// `Kasir 3`, as the node names it, is `Till 3` in the hub.
+/// A till's name as the hub says it: `POS 3`.
 function tillName(till: StorePosTill): string {
-  return till.label.replace(/^Kasir\b/i, "POS")
+  return posName(till.label)
 }
 
 /// The line under a status: why, by whom and when, in grey.
@@ -454,8 +762,8 @@ function AskDialog({
     case "stop-person":
       return (
         <StopPersonDialog
-          cashier={asking.cashier}
-          tills={pos.tills}
+          person={asking.cashier}
+          shift={openShiftOf(asking.cashier, pos.tills)}
           unit={unit}
           open={open}
           onOpenChange={onOpenChange}
@@ -565,30 +873,13 @@ function RemoveTillDialog({
   )
 }
 
-function StopPersonDialog({
-  cashier,
-  tills,
-  unit,
-  open,
-  onOpenChange,
-}: {
-  cashier: StorePosCashier
+/// The drawer this cashier has open at one of the store's tills, said for the
+/// stop dialog: the shift names the person by full name, or by login when the
+/// hub has none.
+function openShiftOf(
+  cashier: StorePosCashier,
   tills: readonly StorePosTill[]
-  unit: string
-  open: boolean
-  onOpenChange: (open: boolean) => void
-}) {
-  const client = useQueryClient()
-  const stop = useMutation({
-    mutationFn: (reason: string) =>
-      stopCashier(unit, cashier.user_id, { reason }),
-    onSuccess: (answer) => {
-      client.setQueryData(storesKeys.pos(unit), answer)
-      onOpenChange(false)
-    },
-  })
-  // The drawer this person has open at one of the store's tills, if any: the
-  // shift names the person by full name, or by login when the hub has none.
+): string {
   const seat = tills.find(
     (till) =>
       till.status !== "REVOKED" &&
@@ -596,25 +887,57 @@ function StopPersonDialog({
       (till.open_shift.name === cashier.name ||
         till.open_shift.name === cashier.username)
   )
-  const shift = seat?.open_shift ?? null
+  return seat === undefined || seat.open_shift === null
+    ? "None open"
+    : `${tillName(seat)} · ${time(seat.open_shift.opened_at)} · closing only`
+}
+
+/// Stop one person on the POS at every store: asked from the Cashiers table
+/// here and from a person's sheet on the People tab. `action` is the word on
+/// the button that asked.
+export function StopPersonDialog({
+  person,
+  shift,
+  action = "Stop POS",
+  unit,
+  open,
+  onOpenChange,
+}: {
+  person: {
+    readonly user_id: string
+    readonly name: string
+    readonly role: string
+  }
+  /// The drawer they have open now, said: `None open`, or the POS, the time
+  /// and `closing only`.
+  shift: string
+  action?: string
+  unit: string
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const client = useQueryClient()
+  const stop = useMutation({
+    mutationFn: (reason: string) =>
+      stopCashier(unit, person.user_id, { reason }),
+    onSuccess: (answer) => {
+      client.setQueryData(storesKeys.pos(unit), answer)
+      refreshPerson(client, unit, person.user_id)
+      onOpenChange(false)
+    },
+  })
   return (
     <StopDialog
       open={open}
       onOpenChange={onOpenChange}
-      title={`Stop POS for ${cashier.name}?`}
+      title={`Stop POS for ${person.name}?`}
       facts={[
-        { term: "Role", value: cashier.role },
+        { term: "Role", value: person.role },
         { term: "POS", value: "Every store" },
-        {
-          term: "Shift",
-          value:
-            seat === undefined || shift === null
-              ? "None open"
-              : `${tillName(seat)} · ${time(shift.opened_at)} · closing only`,
-        },
+        { term: "Shift", value: shift },
       ]}
       reason
-      action="Stop POS"
+      action={action}
       pending={stop.isPending}
       error={stop.error}
       onConfirm={(reason) => stop.mutate(reason)}

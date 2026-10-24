@@ -5903,6 +5903,12 @@ fn validate_issued_command(command_type: &str, payload: &Value) -> Result<(), Ap
             crate::sync::device::parse_device_test_print_command(payload)
                 .map_err(AppError::Validation)?;
         }
+        crate::sync::device::COMMAND_DEVICE_JOIN_DECIDE => {
+            // Head office's yes or no to a waiting till: unreadable, it would
+            // block the node's stream and the till would wait for nothing.
+            crate::sync::device::parse_join_decision_command(payload)
+                .map_err(AppError::Validation)?;
+        }
         // Every command type this build issues has an arm above, so a type that
         // reaches here is one nobody taught the issuing desk to read: a typo, or
         // a constant added without its validation. Refused by name rather than
@@ -6374,7 +6380,7 @@ pub async fn issue_command(
 /// What a machine is asked to do once — restart, back up, diagnose, sync,
 /// install a build, print a test page, get ready to leave — as against what
 /// it holds (prices, the catalogue, who may sell, deliveries on the way).
-const ONE_SHOT_COMMANDS: [&str; 8] = [
+const ONE_SHOT_COMMANDS: [&str; 9] = [
     crate::sync::node_ops::NODE_RESTART,
     crate::sync::node_ops::NODE_BACKUP,
     crate::sync::node_ops::NODE_DIAGNOSE,
@@ -6383,6 +6389,7 @@ const ONE_SHOT_COMMANDS: [&str; 8] = [
     crate::sync::node_ops::NODE_RESNAPSHOT,
     crate::sync::node_ops::NODE_PREPARE_REMOVAL,
     crate::sync::device::COMMAND_DEVICE_TEST_PRINT,
+    crate::sync::device::COMMAND_DEVICE_JOIN_DECIDE,
 ];
 
 /// A replacement machine takes over a store's server (24 Oct 2026): its
@@ -6415,6 +6422,33 @@ pub(super) async fn hand_over_to_replacement(
     .await?
     .rows_affected();
     super::store_actions::close_for_replacement(connection, origin_id).await?;
+    // The tills and printers the old machine held were enrolled in its own
+    // database, which the new machine does not have: they went with it, and
+    // each joins the new machine again, with head office's approval. Left
+    // ACTIVE on the register they would go on holding the store's POS seats
+    // (24 Oct 2026, the C014 replacement).
+    sqlx::query(
+        "WITH old AS (
+             SELECT device_id, status FROM device
+              WHERE origin_id = $1 AND kind IN ('TILL', 'PRINTER') AND status <> 'REVOKED'
+                FOR UPDATE
+         ), gone AS (
+             UPDATE device d
+                SET status = 'REVOKED', requested_status = NULL, requested_by = NULL,
+                    requested_at = NULL, requested_reason = NULL, requested_command_id = NULL,
+                    updated_at = now()
+               FROM old
+              WHERE d.device_id = old.device_id
+          RETURNING d.device_id, old.status AS was
+         )
+         INSERT INTO device_status_event (device_id, source, from_status, to_status, actor, reason)
+         SELECT device_id, 'HUB', was, 'REVOKED', 'system',
+                'the store server it joined was replaced; it joins the new one again'
+           FROM gone",
+    )
+    .bind(origin_id)
+    .execute(&mut *connection)
+    .await?;
     Ok(recalled)
 }
 

@@ -146,7 +146,10 @@ export const masterNav: AppModule = {
       label: "Organisation",
       chip: true,
       items: [
-        { path: "/master/stores", label: "Stores", icon: Store },
+        // Out of the menu since Stores became a department of its own
+        // (owner, 2026-10-24); the path still answers, for the links that
+        // name it.
+        { path: "/master/stores", label: "Stores", icon: Store, hidden: true },
         {
           path: "/master/stores/$unit",
           label: "Store",

@@ -203,6 +203,9 @@ pub struct StoreSummary {
     pub readiness: StoreReadiness,
     pub server: StoreServer,
     pub tills: StoreTills,
+    /// Fingers recorded at the store's POS, waiting for head office's
+    /// approval on its People tab.
+    pub fingers_waiting: i64,
 }
 
 /// Head office stopped a store's tills (0990): when, who, and why.
@@ -330,6 +333,8 @@ struct StoreFacts {
     heartbeat_at: Option<DateTime<Utc>>,
     has_node: bool,
     tills_waiting: i64,
+    /// Fingers recorded at the store's POS, waiting for head office.
+    fingers_waiting: i64,
     pending_enrolment: Option<Uuid>,
     pending_claimed: bool,
     /// What the machine that claimed the pending code said about itself.
@@ -423,6 +428,10 @@ const STORE_FACTS: &str = "
            COALESCE(CASE WHEN jsonb_typeof(hb.status -> 'devices' -> 'terminals_waiting') = 'number'
                          THEN (hb.status -> 'devices' ->> 'terminals_waiting')::bigint END, 0)
                AS tills_waiting,
+           (SELECT count(*) FROM fingerprint_submission f
+              JOIN sync_origin_credential fo ON fo.origin_id = f.origin_id
+              JOIN site fs ON fs.id = fo.site_id
+             WHERE fs.unit_id = st.unit_id AND f.status = 'PENDING') AS fingers_waiting,
            pending.enrolment_id AS pending_enrolment_id,
            pending.claimed_at IS NOT NULL AS pending_claimed,
            pending.machine AS pending_machine,
@@ -610,6 +619,7 @@ async fn store_facts(
                 heartbeat_at: row.try_get("heartbeat_at")?,
                 has_node: row.try_get("has_node")?,
                 tills_waiting: row.try_get("tills_waiting")?,
+                fingers_waiting: row.try_get("fingers_waiting")?,
                 pending_enrolment: row.try_get("pending_enrolment_id")?,
                 pending_claimed: row.try_get("pending_claimed")?,
                 pending_machine: row.try_get("pending_machine")?,
@@ -1001,7 +1011,7 @@ fn judge_tills(facts: &StoreFacts, now: DateTime<Utc>) -> Judged {
     }];
     if facts.tills_waiting > 0 {
         parts.push(format!(
-            "{} waiting for a supervisor at the store",
+            "{} waiting for head office's approval",
             facts.tills_waiting
         ));
     }
@@ -1203,6 +1213,7 @@ fn summary_of(facts: &StoreFacts, judged: &[Judged], now: DateTime<Utc>) -> Stor
             waiting: facts.tills_waiting,
             seats: facts.till_seats,
         },
+        fingers_waiting: facts.fingers_waiting,
     }
 }
 
@@ -1704,6 +1715,7 @@ mod tests {
             heartbeat_at: None,
             has_node: false,
             tills_waiting: 0,
+            fingers_waiting: 0,
             pending_enrolment: None,
             pending_claimed: false,
             pending_machine: None,

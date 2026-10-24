@@ -40,7 +40,6 @@ import {
   Megaphone,
   TicketPercent,
   TrendingDown,
-  UserCheck,
   type LucideIcon,
 } from "lucide-react"
 
@@ -407,7 +406,6 @@ export const nodeModule: AppModule = {
     {
       items: [
         { path: "/node/sync", label: "Sync", icon: RefreshCw },
-        { path: "/node/tills", label: "POS approvals", icon: UserCheck },
         { path: "/node/password", label: "Change password", icon: KeyRound },
       ],
     },

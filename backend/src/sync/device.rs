@@ -421,15 +421,17 @@ pub struct TestPrintResult {
 // ---- A till joining its node ---------------------------------------------------
 
 /// Characters in a join code. Six Crockford characters are 30 bits — plenty
-/// for a handle that lives fifteen minutes and is not a secret.
+/// for a handle that lives a day and is not a secret.
 pub const JOIN_CODE_LENGTH: usize = 6;
 
-/// How long a till waits for a supervisor before it has to ask again.
-pub const JOIN_TTL_MINUTES: i64 = 15;
+/// How long a till waits for head office before it has to ask again. A day:
+/// head office decides in the hub (owner, 24 Oct 2026), and a POS installed
+/// in the evening is let in the next morning without being set up twice.
+pub const JOIN_TTL_MINUTES: i64 = 24 * 60;
 
 /// How many undecided requests a node holds at once. Anybody on the shop's
 /// wifi can ask to join; this is what stops that becoming a list nobody can
-/// read. A shop never installs five tills in the same quarter of an hour.
+/// read. A shop never installs five tills in one day.
 pub const MAX_OPEN_JOINS: i64 = 5;
 
 /// What a new till's label starts with: "Kasir 1", "Kasir 2", …
@@ -542,6 +544,79 @@ pub enum JoinStatus {
     /// Refused, withdrawn, or nobody came in time. The till forgets the key
     /// it minted and asks again.
     Refused { reason: String },
+}
+
+// ---- Head office lets a till in ------------------------------------------------
+
+/// A till waiting to join, as the node's heartbeat tells head office
+/// (`DeviceFacts::joins_waiting`). The same facts the till shows on its own
+/// screen: nothing here is a secret.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WaitingJoin {
+    pub join_id: Uuid,
+    /// In its display form, as the till prints it.
+    pub code: String,
+    pub verification: String,
+    #[serde(default)]
+    pub machine: MachineFacts,
+    pub issued_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+    /// Why head office's last decision on it could not be carried out here —
+    /// the till it was to replace has a drawer open, say. The till keeps
+    /// waiting.
+    #[serde(default)]
+    pub head_office_error: Option<String>,
+}
+
+/// Head office's yes or no to a till waiting at a node (owner, 24 Oct 2026:
+/// the store sets nothing up; a new POS joins only with head office's
+/// approval, into a free seat). Rides the signed command channel like
+/// [`COMMAND_DEVICE_STATUS_SET`].
+///
+/// **Only sent to a node whose heartbeat advertises
+/// [`JOIN_DECIDE_CAPABILITY`]**: an older build blocks its whole command
+/// stream on a type it does not know.
+pub const COMMAND_DEVICE_JOIN_DECIDE: &str = "device.join.decide.v1";
+
+/// What a node's heartbeat carries once its build takes
+/// [`COMMAND_DEVICE_JOIN_DECIDE`].
+pub const JOIN_DECIDE_CAPABILITY: &str = "device.join.decide.v1";
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct JoinDecisionCommand {
+    pub join_id: Uuid,
+    pub approve: bool,
+    /// The till this one takes over from; it is revoked as the new one joins
+    /// and the new one takes its name.
+    #[serde(default)]
+    pub replaces_terminal_id: Option<String>,
+    pub decided_by: String,
+    pub decided_at: DateTime<Utc>,
+}
+
+pub fn parse_join_decision_command(payload: &Value) -> Result<JoinDecisionCommand, String> {
+    let command: JoinDecisionCommand = serde_json::from_value(payload.clone())
+        .map_err(|error| format!("invalid {COMMAND_DEVICE_JOIN_DECIDE}: {error}"))?;
+    if command.decided_by.trim().is_empty() {
+        return Err(format!(
+            "{COMMAND_DEVICE_JOIN_DECIDE} names nobody who decided"
+        ));
+    }
+    if command
+        .replaces_terminal_id
+        .as_deref()
+        .is_some_and(|id| id.trim().is_empty())
+    {
+        return Err(format!(
+            "{COMMAND_DEVICE_JOIN_DECIDE} replaces a till with no id"
+        ));
+    }
+    if !command.approve && command.replaces_terminal_id.is_some() {
+        return Err(format!(
+            "{COMMAND_DEVICE_JOIN_DECIDE}: a refusal replaces nothing"
+        ));
+    }
+    Ok(command)
 }
 
 // ---- Who a node is, to anybody on its LAN ----------------------------------------

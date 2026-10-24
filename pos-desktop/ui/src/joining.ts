@@ -6,9 +6,6 @@
 /// window. What comes back is the code, the number and the outcome — nothing
 /// that could be used to sign.
 
-import { useEffect, useState } from "react"
-
-import { pendingJoins } from "@/api"
 import { shellCall } from "@/session"
 
 /// `NodeIdentity` in `backend/src/sync/device.rs`: who a node says it is.
@@ -52,28 +49,8 @@ export type JoinView = {
   readonly label: string | null
   /// `REJECTED`, `EXPIRED` or `UNKNOWN`.
   readonly reason: string | null
-  /// Who is signed in at this till to approve it, if anybody.
+  /// Who approved it, once head office has (the store never does).
   readonly approver: string | null
-}
-
-/// A till already at the node, as the replacement choice lists it.
-export type TillRow = {
-  readonly device_id: string
-  readonly label: string
-  readonly status: string
-  readonly last_seen_at: string | null
-}
-
-export type SupervisorHere = {
-  readonly username: string
-  readonly tills: readonly TillRow[]
-  readonly problem: string | null
-}
-
-export type ApprovedHere = {
-  readonly label: string
-  readonly approved_by: string
-  readonly replaced_terminal_id: string | null
 }
 
 /// Listen on the LAN for about three seconds.
@@ -101,17 +78,6 @@ export const pollJoin = () => shellCall<JoinView>("join_poll")
 
 export const cancelJoin = () => shellCall<null>("join_cancel")
 
-export const supervisorSignIn = (username: string, password: string) =>
-  shellCall<SupervisorHere>("join_supervisor_sign_in", { username, password })
-
-export const approveHere = (
-  replacesTerminalId: string | null,
-  label: string | null,
-) =>
-  shellCall<ApprovedHere>("join_approve_here", { replacesTerminalId, label })
-
-export const supervisorLeave = () => shellCall<null>("join_supervisor_leave")
-
 /// Which shop a node is, as a person at the counter reads it: "C004-TOKO ·
 /// Bumiayu". The site id only while the node has not heard from head office —
 /// an id is a label, and nobody standing at a till recognises one.
@@ -132,38 +98,6 @@ export function siteTitle(
   return words.length > 0 ? words.join(" · ") : site.site_id
 }
 
-/// How often a joined till asks whether another till is waiting for a
-/// supervisor. A new till is somebody standing at a counter; a quarter of a
-/// minute is as long as they should wait for anybody to notice.
-const WAITING_POLL_MS = 15_000
-
-/// How many tills are waiting for a supervisor at this till's node — asked
-/// while `asking`: signed in, on a till that belongs to the node. Null until
-/// the node has answered, and whenever it would not; the badge that reads this
-/// shows nothing then rather than a guess.
-export function useWaitingTills(asking: boolean): number | null {
-  const [waiting, setWaiting] = useState<number | null>(null)
-  useEffect(() => {
-    if (!asking) {
-      setWaiting(null)
-      return
-    }
-    let alive = true
-    const ask = async () => {
-      const reply = await pendingJoins()
-      if (!alive) return
-      setWaiting(reply.ok ? (reply.body?.items ?? []).length : null)
-    }
-    void ask()
-    const every = window.setInterval(() => void ask(), WAITING_POLL_MS)
-    return () => {
-      alive = false
-      window.clearInterval(every)
-    }
-  }, [asking])
-  return waiting
-}
-
 /// "482913" → "482 913": read aloud across a counter in two breaths.
 export function spaced(digits: string | null): string {
   if (digits === null) return ""
@@ -174,23 +108,14 @@ export function spaced(digits: string | null): string {
 export function refusedBecause(reason: string | null): string {
   switch (reason) {
     case "REJECTED":
-      return "A supervisor refused this till."
+      return "Kantor pusat menolak POS ini."
     case "EXPIRED":
-      return "Nobody approved within 15 minutes, so the request expired."
+      return "Kantor pusat belum menyetujui dalam 24 jam, jadi permintaan ini kedaluwarsa."
     case "UNKNOWN":
-      return "The store server no longer knows this request; it may have been restored from a backup."
+      return "Server toko tidak lagi mengenal permintaan ini; mungkin dipulihkan dari cadangan."
     default:
       return reason === null
-        ? "This till was not approved."
-        : `This till was not approved (${reason.toLowerCase()}).`
+        ? "POS ini tidak disetujui."
+        : `POS ini tidak disetujui (${reason.toLowerCase()}).`
   }
-}
-
-/// Minutes and seconds until `expiresAt`, or null once it has passed.
-export function timeLeft(expiresAt: string | null, now: number): string | null {
-  if (expiresAt === null) return null
-  const until = Date.parse(expiresAt) - now
-  if (!Number.isFinite(until) || until <= 0) return null
-  const seconds = Math.floor(until / 1000)
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`
 }

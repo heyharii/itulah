@@ -331,6 +331,151 @@ pub async fn pos(
     ))
 }
 
+/// `GET /api/v1/stores/{unit}/fingers`: the store's People tab — the
+/// fingers its POS recorded, waiting for head office, and everybody who
+/// signs in there with their approved fingers.
+pub async fn fingers(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(unit): Path<String>,
+) -> Result<Json<infrastructure::StoreFingers>, AppError> {
+    let unit = unit.trim();
+    if !reach_of(&state, &principal).await?.covers(unit) {
+        return Err(AppError::Forbidden(format!(
+            "{} may read only the store they are posted to",
+            principal.username
+        )));
+    }
+    Ok(Json(
+        infrastructure::store_fingers(&state.db, unit, may_manage(&principal)).await?,
+    ))
+}
+
+/// `GET /api/v1/stores/{unit}/people/{user_id}`: one person at the store —
+/// their shift now, sales today, the POS they worked at, recent activity,
+/// fingers, and head office's stop.
+pub async fn person(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path((unit, user_id)): Path<(String, uuid::Uuid)>,
+) -> Result<Json<infrastructure::StorePersonActivity>, AppError> {
+    let unit = unit.trim();
+    if !reach_of(&state, &principal).await?.covers(unit) {
+        return Err(AppError::Forbidden(format!(
+            "{} may read only the store they are posted to",
+            principal.username
+        )));
+    }
+    Ok(Json(
+        infrastructure::store_person_activity(&state.db, unit, user_id, may_manage(&principal))
+            .await?,
+    ))
+}
+
+/// `POST /api/v1/stores/{unit}/fingers/{submission_id}/approve`: the finger
+/// becomes the person's, at every POS they sign in at. Answers the tab.
+pub async fn approve_finger(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path((unit, submission_id)): Path<(String, uuid::Uuid)>,
+) -> Result<Json<infrastructure::StoreFingers>, AppError> {
+    require_admin(&principal, "approve a finger recorded at a store")?;
+    let unit = unit.trim();
+    infrastructure::decide_store_finger(
+        &state.db,
+        unit,
+        submission_id,
+        true,
+        None,
+        &principal.username,
+    )
+    .await?;
+    Ok(Json(
+        infrastructure::store_fingers(&state.db, unit, true).await?,
+    ))
+}
+
+/// `POST /api/v1/stores/{unit}/fingers/{submission_id}/refuse`, with
+/// `{reason?}`: the finger is dropped, and the store's POS shows why.
+pub async fn refuse_finger(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path((unit, submission_id)): Path<(String, uuid::Uuid)>,
+    body: Option<Json<infrastructure::RefuseFingerRequest>>,
+) -> Result<Json<infrastructure::StoreFingers>, AppError> {
+    require_admin(&principal, "refuse a finger recorded at a store")?;
+    let unit = unit.trim();
+    let reason = body.and_then(|Json(body)| body.reason);
+    infrastructure::decide_store_finger(
+        &state.db,
+        unit,
+        submission_id,
+        false,
+        reason.as_deref(),
+        &principal.username,
+    )
+    .await?;
+    Ok(Json(
+        infrastructure::store_fingers(&state.db, unit, true).await?,
+    ))
+}
+
+/// `POST /api/v1/stores/{unit}/fingers/approve-all`: every finger waiting at
+/// the store.
+pub async fn approve_all_fingers(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(unit): Path<String>,
+) -> Result<Json<infrastructure::StoreFingers>, AppError> {
+    require_admin(&principal, "approve the fingers recorded at a store")?;
+    let unit = unit.trim();
+    infrastructure::approve_all_store_fingers(&state.db, unit, &principal.username).await?;
+    Ok(Json(
+        infrastructure::store_fingers(&state.db, unit, true).await?,
+    ))
+}
+
+/// `POST /api/v1/stores/{unit}/pos/joins/{join_id}/approve`, with
+/// `{replaces_device_id?}`: let a POS waiting at the store in, into a free
+/// seat or in place of one (`postgres::pos_joins`). Answers the POS tab.
+pub async fn approve_pos(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path((unit, join_id)): Path<(String, uuid::Uuid)>,
+    Json(request): Json<infrastructure::ApprovePosRequest>,
+) -> Result<Json<infrastructure::StorePos>, AppError> {
+    require_admin(&principal, "let a new POS into a store")?;
+    let unit = unit.trim();
+    infrastructure::decide_pos_join(
+        &state.db,
+        unit,
+        join_id,
+        true,
+        request.replaces_device_id.as_deref(),
+        &principal.username,
+    )
+    .await?;
+    Ok(Json(
+        infrastructure::store_pos(&state.db, unit, true).await?,
+    ))
+}
+
+/// `POST /api/v1/stores/{unit}/pos/joins/{join_id}/refuse`: the POS is told
+/// no, and forgets the key it made.
+pub async fn refuse_pos(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path((unit, join_id)): Path<(String, uuid::Uuid)>,
+) -> Result<Json<infrastructure::StorePos>, AppError> {
+    require_admin(&principal, "refuse a new POS")?;
+    let unit = unit.trim();
+    infrastructure::decide_pos_join(&state.db, unit, join_id, false, None, &principal.username)
+        .await?;
+    Ok(Json(
+        infrastructure::store_pos(&state.db, unit, true).await?,
+    ))
+}
+
 /// `POST /api/v1/stores/{unit}/stop`, with `{reason}`: the store's tills
 /// stop selling and open no shift. Answers the store's page.
 pub async fn stop(

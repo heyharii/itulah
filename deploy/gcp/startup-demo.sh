@@ -155,6 +155,10 @@ GOOGLE_CLOUD_PROJECT=$(meta project/project-id)
 # forms answer "not configured" and simply offer no suggestions.
 TYPESAFE_API_KEY=${TYPESAFE_API_KEY:-}
 JEV_MODEL=${JEV_MODEL:-jev-1.14.0}
+# Seals fingerprint templates at rest (HR's enrolments, a store head's
+# recordings waiting for approval). From the shared secret; without it the
+# cloud refuses to store a finger rather than keep one in the clear.
+ATTENDANCE_TEMPLATE_KEY=${ATTENDANCE_TEMPLATE_KEY:-}
 $(if [ -n "${GCS_HMAC_ACCESS_ID:-}" ]; then cat <<E3
 STORAGE_ENDPOINT=https://storage.googleapis.com
 R2_BUCKET=itulah-media-21f41328

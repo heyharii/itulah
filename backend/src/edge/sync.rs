@@ -3506,6 +3506,14 @@ fn apply_command_effect(tx: &Transaction<'_>, command: &PushedCommand) -> Result
             crate::edge::devices::apply_test_print_command(tx, &ask)
                 .map_err(|error| err(error.to_string()))
         }
+        // Head office let a waiting till in, or refused it. Only ever sent to
+        // a node whose heartbeat advertises the join-decide capability.
+        crate::sync::device::COMMAND_DEVICE_JOIN_DECIDE => {
+            let decision =
+                crate::sync::device::parse_join_decision_command(&command.payload).map_err(err)?;
+            crate::edge::devices::apply_join_decision(tx, &decision)
+                .map_err(|error| err(error.to_string()))
+        }
         // Head office acting on this server: queued now, carried out after
         // this transaction commits (`edge/ops.rs`).
         crate::sync::node_ops::NODE_UPDATE => {

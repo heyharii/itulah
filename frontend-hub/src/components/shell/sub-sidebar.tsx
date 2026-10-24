@@ -1,5 +1,6 @@
 import { useRouterState } from "@tanstack/react-router"
 import { ChevronLeft } from "lucide-react"
+import type { ComponentType } from "react"
 
 import { DepartmentScreens } from "@/components/shell/nav-column"
 import {
@@ -13,13 +14,25 @@ import {
 } from "@/lib/navigation"
 import { useSections } from "@/lib/session"
 import { homeNav } from "@/screens/home/nav"
+import { StoresSidebar } from "@/screens/stores/stores-panel"
+
+/// The modules whose panel is a component of their own (`AppModule.sidebar`),
+/// by module id. Kept here rather than on the module so the navigation
+/// registry — read by the router, the palette and the rail — does not import
+/// the panel's screens.
+const SIDEBARS: Readonly<Record<string, ComponentType>> = {
+  stores: StoresSidebar,
+}
 
 /// What the light panel beside the rail is currently holding: one
-/// department's label and the modules whose rows it draws.
+/// department's label and the modules whose rows it draws — or, for a
+/// department with a module that brings its own panel, that panel.
 interface NavPanel {
   id: string
   label: string
   modules: readonly AppModule[]
+  /// The module's own panel, drawn instead of its rows.
+  sidebar?: ComponentType
 }
 
 /// The screens panel's subject for the screen on show, or `null` when the
@@ -65,6 +78,16 @@ export function panelForDomain(
   const modules = modulesOfDomain(domain).filter(
     (module) => !module.hidden && moduleAllowed(module, sections, bypass)
   )
+  // A module with a panel of its own has one however few rows it declares:
+  // the Stores menu is one row, All stores, and everything else is the panel.
+  const sidebar = modules.find((module) => module.sidebar === true)
+  if (sidebar !== undefined && SIDEBARS[sidebar.id] !== undefined)
+    return {
+      id: domain.id,
+      label: domain.label,
+      modules,
+      sidebar: SIDEBARS[sidebar.id],
+    }
   // Counted WITHOUT the audience hooks — the same compromise the one column's
   // `Department` makes: each module's `useAudience` is a hook, called by its
   // own row element in the panel, never inside this loop.
@@ -95,6 +118,7 @@ export function SubSidebar({
   const current = useSubSidebar()
   const panel = given === undefined ? current : given
   if (!panel) return null
+  const Own = panel.sidebar
   return (
     <nav
       aria-label={panel.label}
@@ -123,11 +147,15 @@ export function SubSidebar({
         key={panel.id}
         className="nav-swap flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto p-2.5"
       >
-        <DepartmentScreens
-          modules={panel.modules}
-          pathname={pathname}
-          tone="panel"
-        />
+        {Own !== undefined ? (
+          <Own />
+        ) : (
+          <DepartmentScreens
+            modules={panel.modules}
+            pathname={pathname}
+            tone="panel"
+          />
+        )}
       </div>
       {/* No clock at the panel's foot (owner, 20 Oct 2026): the page head's
           Time button is where the business time is moved. */}

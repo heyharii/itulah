@@ -6,7 +6,6 @@ import { useIdleLock, LockScreen } from "@/lock"
 import { pump, useUnacknowledged } from "@/outbox"
 import { CustomerScreen } from "@/screens/customer"
 import { JoinScreen } from "@/screens/join"
-import { WaitingTillsScreen } from "@/screens/joins"
 import { LoginScreen, SetupScreen } from "@/screens/login"
 import { PeripheralsScreen } from "@/screens/peripherals"
 import { RedeemScreen } from "@/screens/redeem"
@@ -200,35 +199,26 @@ function Counter() {
 
   // Pointing this terminal at a node is allowed before signing in: a till that
   // could not be repointed until it had signed in would be unrecoverable the
-  // moment it was pointed at the wrong shop. The same goes for what is plugged
-  // into it — the person installing a counter is rarely a person with an
-  // account at that shop yet.
+  // moment it was pointed at the wrong shop.
   //
   // Joining is the first thing a new till does, and it needs nobody signed in:
-  // the till asks, and a supervisor answers from a till that already belongs.
+  // the till asks, and head office answers in Central — the store never
+  // approves a POS (owner, 24 Oct 2026). What is plugged into the till is an
+  // Admin's, so it is not here: it opens from the door once an Admin is in
+  // (`LoginScreen`, "Perangkat kasir").
   if (session.me === null) {
     if (where === "setup") {
       return (
         <SetupScreen
           onDone={() => setWhere("sale")}
-          // Peripherals and joining are shell-only — see `edition.ts` — so a
-          // web till never gets a way to reach either screen in the first
-          // place.
-          onPeripherals={isWeb ? undefined : () => setWhere("peripherals")}
+          // Joining is shell-only — see `edition.ts` — so a web till never
+          // gets a way to reach it in the first place.
           onJoin={isWeb ? undefined : () => setWhere("join")}
         />
       )
     }
-    if (where === "peripherals") {
-      return <PeripheralsScreen onBack={() => setWhere("setup")} />
-    }
     if (where === "join") {
-      return (
-        <JoinScreen
-          onDone={() => setWhere("sale")}
-          onPeripherals={() => setWhere("peripherals")}
-        />
-      )
+      return <JoinScreen onDone={() => setWhere("sale")} />
     }
   }
 
@@ -246,6 +236,8 @@ function Counter() {
   }
 
   const actorId = session.me.username
+  // The devices on this till are an Admin's alone, not a supervisor's.
+  const isAdmin = (session.me.role ?? "").toUpperCase() === "ADMIN"
 
   const gate = (
     <ShiftGate
@@ -267,19 +259,13 @@ function Counter() {
     where === "setup" ? (
       <SetupScreen
         onDone={() => setWhere("sale")}
-        onPeripherals={isWeb ? undefined : () => setWhere("peripherals")}
+        onPeripherals={isWeb || !isAdmin ? undefined : () => setWhere("peripherals")}
         onJoin={isWeb ? undefined : () => setWhere("join")}
-        onJoins={isWeb ? undefined : () => setWhere("joins")}
       />
-    ) : where === "peripherals" ? (
+    ) : where === "peripherals" && isAdmin && !isWeb ? (
       <PeripheralsScreen onBack={() => setWhere("setup")} />
-    ) : where === "joins" ? (
-      <WaitingTillsScreen onBack={() => setWhere("setup")} />
     ) : where === "join" ? (
-      <JoinScreen
-        onDone={() => setWhere("sale")}
-        onPeripherals={() => setWhere("peripherals")}
-      />
+      <JoinScreen onDone={() => setWhere("sale")} />
     ) : where === "sale" || where === "payment" ? null : where === "shift" || where === "finish" ? (
       <ShiftScreen
         actorId={actorId}
