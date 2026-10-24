@@ -23,6 +23,7 @@ pub mod domain;
 pub mod enrolment;
 pub mod escpos;
 pub mod fingerprint;
+pub mod sign_ins;
 /// Goods flows at this node: what head office's flows said about its site,
 /// and the Gudang's return inspection.
 pub mod flows;

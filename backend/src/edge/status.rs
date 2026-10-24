@@ -149,6 +149,11 @@ impl StatusSource {
                 .ok()
                 .and_then(|guard| crate::edge::ops::recent_reports(&guard)),
             app_address: self.app_address(&env("INVENTORY_NODE_ID")),
+            sign_ins: self
+                .connection
+                .lock()
+                .ok()
+                .map(|connection| crate::edge::sign_ins::recent(&connection)),
         }
     }
 

@@ -75,6 +75,7 @@ fn status() -> NodeStatus {
         link_outages: None,
         action_results: None,
         app_address: None,
+        sign_ins: None,
     }
 }
 

@@ -4592,6 +4592,32 @@ where
         .map_err(ApiError)
 }
 
+/// Write a sign-in down for head office (`edge::sign_ins`), off the async
+/// thread. Never fails the sign-in it records.
+async fn note_sign_in(
+    state: &EdgeState,
+    username: String,
+    method: &'static str,
+    terminal: Option<String>,
+    by: Option<String>,
+) {
+    let connection = state.auth.connection();
+    let _ = run_blocking(move || {
+        let guard = connection
+            .lock()
+            .map_err(|_| EdgeError::Persistence("edge connection is poisoned".into()))?;
+        crate::edge::sign_ins::record(
+            &guard,
+            &username,
+            method,
+            terminal.as_deref(),
+            by.as_deref(),
+        );
+        Ok(())
+    })
+    .await;
+}
+
 struct ApiError(EdgeError);
 
 impl From<serde_json::Error> for ApiError {
@@ -4669,13 +4695,21 @@ async fn login(
     let issued = run_blocking(move || auth.login(&request.username, &request.password)).await?;
     // Checked after the password, so the refusal tells a stranger nothing.
     if let Err(refused) =
-        refuse_closed_at_till(&state, &issued.principal.username, terminal).await
+        refuse_closed_at_till(&state, &issued.principal.username, terminal.clone()).await
     {
         let auth = state.auth.clone();
         let session_id = issued.principal.session_id;
         let _ = run_blocking(move || auth.logout(session_id)).await;
         return Err(refused);
     }
+    note_sign_in(
+        &state,
+        issued.principal.username.clone(),
+        crate::edge::sign_ins::PASSWORD,
+        terminal,
+        None,
+    )
+    .await;
     let max_age = state.auth.config().session_ttl_minutes * 60;
     // Both cookies are formatted before the body takes ownership of the token.
     let session_cookie = security::set_cookie(
@@ -5021,7 +5055,16 @@ async fn open_on_behalf(
     )
     .await?;
     let auth = state.auth.clone();
+    let terminal = request.terminal_id.clone();
     let issued = run_blocking(move || auth.open_on_behalf(&head, &request.username)).await?;
+    note_sign_in(
+        &state,
+        issued.principal.username.clone(),
+        crate::edge::sign_ins::ON_BEHALF,
+        terminal,
+        Some(opened_by.clone()),
+    )
+    .await;
     tracing::info!(
         opened_by = %opened_by,
         cashier = %issued.principal.username,
@@ -5743,10 +5786,18 @@ async fn fingerprint_claim(
         })?));
     }
 
-    refuse_closed_at_till(&state, &accepted.username, claim_terminal).await?;
+    refuse_closed_at_till(&state, &accepted.username, claim_terminal.clone()).await?;
     let auth = state.auth.clone();
     let username = accepted.username.clone();
     let issued = run_blocking(move || auth.issue_for_fingerprint(&username)).await?;
+    note_sign_in(
+        &state,
+        accepted.username.clone(),
+        crate::edge::sign_ins::FINGER,
+        claim_terminal,
+        None,
+    )
+    .await;
     Ok(Json(serde_json::json!({
         "username": accepted.username,
         "purpose": accepted.purpose,
@@ -6270,7 +6321,15 @@ async fn pin_claim(
         })?));
     }
 
-    refuse_closed_at_till(&state, &accepted.username, pin_terminal).await?;
+    refuse_closed_at_till(&state, &accepted.username, pin_terminal.clone()).await?;
+    note_sign_in(
+        &state,
+        accepted.username.clone(),
+        crate::edge::sign_ins::PIN,
+        pin_terminal,
+        None,
+    )
+    .await;
     let auth = state.auth.clone();
     let who = accepted.username.clone();
     // The same session a password login issues. One kind of session, so

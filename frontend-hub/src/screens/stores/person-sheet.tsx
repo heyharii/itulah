@@ -275,6 +275,21 @@ function fingersSaid(person: StorePersonActivity): string {
 function eventSaid(event: StorePersonEvent): string {
   const at = event.pos === null ? null : posName(event.pos)
   switch (event.kind) {
+    case "SIGNED_IN": {
+      const how =
+        event.method === "FINGER"
+          ? "by finger"
+          : event.method === "PIN"
+            ? "by PIN"
+            : event.method === "PASSWORD"
+              ? "by password"
+              : event.method === "ON_BEHALF"
+                ? event.by === null
+                  ? "opened by the store head"
+                  : `opened by ${event.by}`
+                : null
+      return ["Signed in", how, at].filter(present).join(" · ")
+    }
     case "SHIFT_OPENED":
       return ["Opened a shift", at].filter(present).join(" · ")
     case "SHIFT_CLOSED": {

@@ -355,7 +355,16 @@ pub async fn store_fingers(
                       WHERE s.unit_id = $1 AND c.closed_by = u.username
                      UNION ALL
                      SELECT max(e.occurred_at) FROM edge_sale e JOIN site s ON s.id = e.site_id
-                      WHERE s.unit_id = $1 AND e.actor_id = u.username) x) AS last_active_at,
+                      WHERE s.unit_id = $1 AND e.actor_id = u.username
+                     UNION ALL
+                     SELECT max((si ->> 'at')::timestamptz)
+                       FROM node_heartbeat h
+                       JOIN sync_origin_credential o ON o.origin_id = h.origin_id
+                       JOIN site s ON s.id = o.site_id
+                      CROSS JOIN LATERAL jsonb_array_elements(
+                            CASE WHEN jsonb_typeof(h.status -> 'sign_ins') = 'array'
+                                 THEN h.status -> 'sign_ins' ELSE '[]'::jsonb END) si
+                      WHERE s.unit_id = $1 AND lower(si ->> 'username') = lower(u.username)) x) AS last_active_at,
                 u.till_stopped_at IS NOT NULL AS stopped
            FROM people p
            JOIN app_user u ON u.id = p.user_id AND u.active
@@ -587,14 +596,37 @@ pub struct StorePersonDevice {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct StorePersonEvent {
     pub at: DateTime<Utc>,
-    /// `SHIFT_OPENED`, `SHIFT_CLOSED` or `SALES` (one line per day).
+    /// `SIGNED_IN`, `SHIFT_OPENED`, `SHIFT_CLOSED` or `SALES` (one line per
+    /// day).
     pub kind: String,
     pub pos: Option<String>,
     /// How many sales, for `SALES`.
     pub count: Option<i64>,
     /// Their total, for `SALES`; the drawer's difference, for `SHIFT_CLOSED`.
     pub amount_minor: Option<i64>,
+    /// How they signed in, for `SIGNED_IN`: `PASSWORD`, `FINGER`, `PIN` or
+    /// `ON_BEHALF`.
+    pub method: Option<String>,
+    /// For `ON_BEHALF`, the store head who opened the POS for them, by
+    /// full name.
+    pub by: Option<String>,
 }
+
+/// The sign-ins the store's servers reported in their latest heartbeats
+/// (`NodeStatus::sign_ins`, two days), one row each: `$1` the unit.
+const SIGN_INS: &str =
+    "SELECT (x ->> 'at')::timestamptz AS at, lower(x ->> 'username') AS username,
+                               x ->> 'method' AS method, x ->> 'by' AS by,
+                               CASE WHEN x ->> 'terminal' ~ '^KASIR-[0-9]+$'
+                                    THEN 'Kasir ' || substring(x ->> 'terminal' FROM 7)
+                                    ELSE x ->> 'terminal' END AS pos
+                          FROM node_heartbeat h
+                          JOIN sync_origin_credential o ON o.origin_id = h.origin_id
+                          JOIN site s ON s.id = o.site_id
+                         CROSS JOIN LATERAL jsonb_array_elements(
+                               CASE WHEN jsonb_typeof(h.status -> 'sign_ins') = 'array'
+                                    THEN h.status -> 'sign_ins' ELSE '[]'::jsonb END) x
+                         WHERE s.unit_id = $1";
 
 /// `GET /api/v1/stores/{unit}/people/{user_id}`: one person at the store.
 #[derive(Clone, Debug, Serialize)]
@@ -701,7 +733,16 @@ pub async fn store_person_activity(
                       WHERE s.unit_id = $1 AND c.closed_by = $2
                      UNION ALL
                      SELECT max(e2.occurred_at) FROM edge_sale e2 JOIN site s ON s.id = e2.site_id
-                      WHERE s.unit_id = $1 AND e2.actor_id = $2) x) AS last_active_at
+                      WHERE s.unit_id = $1 AND e2.actor_id = $2
+                     UNION ALL
+                     SELECT max((si ->> 'at')::timestamptz)
+                       FROM node_heartbeat h
+                       JOIN sync_origin_credential o ON o.origin_id = h.origin_id
+                       JOIN site s ON s.id = o.site_id
+                      CROSS JOIN LATERAL jsonb_array_elements(
+                            CASE WHEN jsonb_typeof(h.status -> 'sign_ins') = 'array'
+                                 THEN h.status -> 'sign_ins' ELSE '[]'::jsonb END) si
+                      WHERE s.unit_id = $1 AND lower(si ->> 'username') = lower($2)) x) AS last_active_at
            FROM edge_sale e JOIN site s ON s.id = e.site_id
           WHERE s.unit_id = $1 AND e.actor_id = $2
             AND (e.occurred_at AT TIME ZONE unit_business_timezone($1))::date
@@ -733,23 +774,31 @@ pub async fn store_person_activity(
     .collect::<Result<Vec<_>, AppError>>()?;
 
     let recent = sqlx::query(&format!(
-        "SELECT at, kind, pos, count, amount_minor FROM (
+        "SELECT at, kind, pos, count, amount_minor, method, by FROM (
              SELECT c.opened_at AS at, 'SHIFT_OPENED' AS kind, {POS_NAME} AS pos,
-                    NULL::bigint AS count, NULL::bigint AS amount_minor
+                    NULL::bigint AS count, NULL::bigint AS amount_minor,
+                    NULL::text AS method, NULL::text AS by
                FROM cash_shift c JOIN site s ON s.id = c.site_id
               WHERE s.unit_id = $1 AND c.opened_by = $2
                 AND c.opened_at > now() - interval '14 days'
              UNION ALL
-             SELECT c.closed_at, 'SHIFT_CLOSED', {POS_NAME}, NULL, c.variance_minor
+             SELECT c.closed_at, 'SHIFT_CLOSED', {POS_NAME}, NULL, c.variance_minor, NULL, NULL
                FROM cash_shift c JOIN site s ON s.id = c.site_id
               WHERE s.unit_id = $1 AND c.closed_by = $2
                 AND c.closed_at > now() - interval '14 days'
              UNION ALL
-             SELECT max(e.occurred_at), 'SALES', NULL, count(*)::bigint, sum(e.total_minor)::bigint
+             SELECT max(e.occurred_at), 'SALES', NULL, count(*)::bigint, sum(e.total_minor)::bigint,
+                    NULL, NULL
                FROM edge_sale e JOIN site s ON s.id = e.site_id
               WHERE s.unit_id = $1 AND e.actor_id = $2
                 AND e.occurred_at > now() - interval '14 days'
               GROUP BY (e.occurred_at AT TIME ZONE unit_business_timezone($1))::date
+             UNION ALL
+             SELECT i.at, 'SIGNED_IN', i.pos, NULL, NULL, i.method,
+                    COALESCE((SELECT NULLIF(btrim(b.display_name), '') FROM app_user b
+                               WHERE lower(b.username) = lower(i.by)), i.by)
+               FROM ({SIGN_INS}) i
+              WHERE i.username = lower($2)
          ) lines
          ORDER BY at DESC LIMIT 30"
     ))
@@ -765,6 +814,8 @@ pub async fn store_person_activity(
             pos: row.try_get("pos")?,
             count: row.try_get("count")?,
             amount_minor: row.try_get("amount_minor")?,
+            method: row.try_get("method")?,
+            by: row.try_get("by")?,
         })
     })
     .collect::<Result<Vec<_>, AppError>>()?;

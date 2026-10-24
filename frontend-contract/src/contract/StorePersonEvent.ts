@@ -5,7 +5,8 @@
  */
 export type StorePersonEvent = { at: string, 
 /**
- * `SHIFT_OPENED`, `SHIFT_CLOSED` or `SALES` (one line per day).
+ * `SIGNED_IN`, `SHIFT_OPENED`, `SHIFT_CLOSED` or `SALES` (one line per
+ * day).
  */
 kind: string, pos: string | null, 
 /**
@@ -15,4 +16,14 @@ count: number | null,
 /**
  * Their total, for `SALES`; the drawer's difference, for `SHIFT_CLOSED`.
  */
-amount_minor: number | null, };
+amount_minor: number | null, 
+/**
+ * How they signed in, for `SIGNED_IN`: `PASSWORD`, `FINGER`, `PIN` or
+ * `ON_BEHALF`.
+ */
+method: string | null, 
+/**
+ * For `ON_BEHALF`, the store head who opened the POS for them, by
+ * full name.
+ */
+by: string | null, };

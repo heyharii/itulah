@@ -155,6 +155,27 @@ pub struct NodeStatus {
     /// listens on this machine only or does not advertise itself.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub app_address: Option<String>,
+    /// Who signed in at the store's POS in the last two days, newest first:
+    /// head office's view of each person's activity (24 Oct 2026). `None`
+    /// from a server that predates it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sign_ins: Option<Vec<SignInFact>>,
+}
+
+/// One sign-in at the store's POS.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SignInFact {
+    pub username: String,
+    pub at: DateTime<Utc>,
+    /// `PASSWORD`, `FINGER`, `PIN` or `ON_BEHALF` (the store head opened
+    /// the POS for them).
+    pub method: String,
+    /// The POS seat it happened at (`KASIR-1`), when the POS said.
+    #[serde(default)]
+    pub terminal: Option<String>,
+    /// For `ON_BEHALF`, the store head who opened it.
+    #[serde(default)]
+    pub by: Option<String>,
 }
 
 /// One spell without head office while the server stayed up.
@@ -683,6 +704,7 @@ mod tests {
             link_outages: None,
             action_results: None,
             app_address: None,
+            sign_ins: None,
         }
     }
 

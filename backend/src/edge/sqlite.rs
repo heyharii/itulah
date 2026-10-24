@@ -324,6 +324,13 @@ pub(crate) const FINGER_SUBMISSION_SCHEMA: &str = include_str!(concat!(
     "/migrations/sqlite/0090_a_finger_recorded_at_the_store_waits_for_head_office.sql"
 ));
 
+/// Who signed in at the POS, when and how (`0091`, 24 Oct 2026;
+/// `edge::sign_ins`). Creates only.
+pub(crate) const SIGN_IN_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0091_a_sign_in_at_the_pos_is_written_down.sql"
+));
+
 /// What head office stopped on this node's POS (`0087`, postgres 0990): the
 /// store, and the people who may not sell. Creates only.
 pub(crate) const POS_STOP_SCHEMA: &str = include_str!(concat!(
@@ -1628,6 +1635,8 @@ impl SqliteEdge {
             .map_err(db)?;
         // Head office's stops on the POS (`0087`). Creates only.
         connection.execute_batch(POS_STOP_SCHEMA).map_err(db)?;
+        // Sign-ins at the POS (`0091`). Creates only.
+        connection.execute_batch(SIGN_IN_SCHEMA).map_err(db)?;
         // Fingers recorded here, waiting for head office (`0090`). Creates
         // only.
         connection
