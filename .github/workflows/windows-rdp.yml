@@ -100,6 +100,15 @@ jobs:
         with:
           name: rdp-host
           path: rdp/host.txt
+      - name: Open Central POS on the desktop
+        shell: pwsh
+        run: |
+          # In the desktop session RDP lands in, so whoever connects sees it.
+          $exe = 'C:\Program Files\Central POS\pos-desktop.exe'
+          $action = New-ScheduledTaskAction -Execute $exe
+          $principal = New-ScheduledTaskPrincipal -UserId runneradmin -LogonType Interactive
+          Register-ScheduledTask -TaskName CentralPOS -Action $action -Principal $principal -Force | Out-Null
+          Start-ScheduledTask -TaskName CentralPOS
       - name: Stay up
         shell: pwsh
         run: |
