@@ -567,9 +567,11 @@ mod tests {
         let parsed: Vec<(String, String)> = dotenvy::from_read_iter(env.as_bytes())
             .collect::<Result<_, _>>()
             .unwrap_or_else(|error| panic!("node.env must parse: {error}"));
-        assert!(parsed
-            .iter()
-            .any(|(k, v)| k == "SYNC_UPLOAD_KEY" && v == &"k".repeat(64)));
+        // On Windows the key is sealed with DPAPI (`secret.rs`); either way it
+        // must read back as the key itself.
+        let key = "k".repeat(64);
+        assert!(parsed.iter().any(|(k, v)| k == "SYNC_UPLOAD_KEY"
+            && crate::edge::secret::unseal(v).ok().as_deref() == Some(key.as_str())));
     }
 
     #[test]
