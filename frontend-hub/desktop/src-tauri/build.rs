@@ -8,6 +8,9 @@ fn main() {
             "print",
             "print_html",
             "install_update_now",
+            "scanner_status",
+            "capture_finger",
+            "cancel_capture",
         ]),
     ))
     .expect("failed to run tauri-build");

@@ -570,6 +570,7 @@ dependencies = [
 name = "central-desktop"
 version = "0.1.5"
 dependencies = [
+ "libloading",
  "percent-encoding",
  "serde_json",
  "tauri",

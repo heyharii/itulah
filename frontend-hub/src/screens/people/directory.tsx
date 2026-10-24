@@ -103,6 +103,7 @@ import { Quiet } from "@/screens/people/parts"
 import { ChecklistPanel } from "@/screens/people/checklist"
 import { ClaimBalances } from "@/screens/people/claim-benefits"
 import { DisciplinePanel } from "@/screens/people/discipline"
+import { FingerprintsPanel } from "@/screens/people/fingerprints"
 import { LeaveMoves } from "@/screens/people/leave-extras"
 import { LoansPanel } from "@/screens/people/loans"
 import { PayPanel } from "@/screens/people/pay"
@@ -765,6 +766,7 @@ export function Directory() {
 
 const TABS = [
   { value: "record", label: "Record" },
+  { value: "fingerprints", label: "Fingerprints" },
   { value: "leave", label: "Leave" },
   { value: "claims", label: "Claims" },
   { value: "contracts", label: "Contracts" },
@@ -1009,6 +1011,14 @@ function employeeSections(
           )}
         </div>
       </div>
+    ),
+    fingerprints: (
+      <FingerprintsPanel
+        employeeId={person.employee_id}
+        name={listed?.full_name ?? person.employee_code}
+        employer={employer}
+        leaver={person.status === "TERMINATED"}
+      />
     ),
     leave: <LeaveTab employeeId={person.employee_id} />,
     claims: <ClaimsTab employeeId={person.employee_id} />,

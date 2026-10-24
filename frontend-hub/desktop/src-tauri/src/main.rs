@@ -6,9 +6,12 @@
 // What the shell adds is what a browser tab cannot do: a tray icon, starting
 // at login, native notifications from the notification stream (a webview has
 // no Web Push) that open what they are about when clicked, updating itself,
-// and — on macOS, where WKWebView ignores them — printing and downloads.
+// and — on macOS, where WKWebView ignores them — printing and downloads. On
+// HR's PC it also drives the fingerprint scanner HR enrols fingers with.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+mod fingerprint;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -88,6 +91,14 @@ fn bridge_script() -> String {
           body: String(body ?? ""),
           url: url == null ? null : String(url),
         }).catch(() => {}),
+      // The fingerprint scanner (`fingerprint.rs`). `capture` answers after
+      // three presses and announces each on this window as a
+      // `central-fingerprint` event.
+      scanner: Object.freeze({
+        status: () => invoke("scanner_status"),
+        capture: () => invoke("capture_finger"),
+        cancel: () => invoke("cancel_capture").catch(() => {}),
+      }),
     }),
   })
 "#,
@@ -645,7 +656,10 @@ fn main() {
             notify,
             print,
             print_html,
-            install_update_now
+            install_update_now,
+            fingerprint::scanner_status,
+            fingerprint::capture_finger,
+            fingerprint::cancel_capture
         ])
         .setup(|app| {
             // Nothing was running to quit.
@@ -663,7 +677,10 @@ fn main() {
                     .permission("allow-notify")
                     .permission("allow-print")
                     .permission("allow-print-html")
-                    .permission("allow-install-update-now"),
+                    .permission("allow-install-update-now")
+                    .permission("allow-scanner-status")
+                    .permission("allow-capture-finger")
+                    .permission("allow-cancel-capture"),
             )?;
             // Notifications report their click here, on any thread; the
             // window is touched on the main one.

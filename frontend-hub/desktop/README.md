@@ -39,8 +39,16 @@ What the shell adds:
   exports land in Downloads. Windows (WebView2) does all three natively.
 - **Links** to other sites open in the browser; hub links with
   `target="_blank"` open in another Central window.
+- **Fingerprint enrolment** on HR's PC (Windows): People › an employee ›
+  Fingerprints › Enrol finger reaches the ZKTeco scanner through
+  `window.itulahDesktop.scanner` (`src-tauri/src/fingerprint.rs`,
+  `src/lib/desktop-scanner.ts`): three presses merged into one template, each
+  press announced as a `central-fingerprint` event. IT installs the vendor's
+  ZKFinger driver on that PC (the installer the POS ships under
+  `pos-desktop/src-tauri/fingerprint-native/`); Central does not carry it.
 
-The hub is remote, so it can call only `notify`, `print` and `print_html`,
+The hub is remote, so it can call only `notify`, `print`, `print_html`,
+`install_update_now`, `scanner_status`, `capture_finger` and `cancel_capture`,
 granted to its own origin at run time (`build.rs` lists them).
 
 ## Releasing

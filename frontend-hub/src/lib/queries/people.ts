@@ -2331,6 +2331,55 @@ export function withdrawFinger(
   )
 }
 
+/// The ten fingers by the server's names (`domain::attendance::Finger`),
+/// paired hand by hand so a two-column picker reads left hand, right hand.
+export const FINGERS = [
+  "LEFT_THUMB",
+  "RIGHT_THUMB",
+  "LEFT_INDEX",
+  "RIGHT_INDEX",
+  "LEFT_MIDDLE",
+  "RIGHT_MIDDLE",
+  "LEFT_RING",
+  "RIGHT_RING",
+  "LEFT_LITTLE",
+  "RIGHT_LITTLE",
+] as const
+
+export type Finger = (typeof FINGERS)[number]
+
+/// `RIGHT_INDEX` as a person reads it: "Right index".
+export function fingerLabel(finger: string): string {
+  const words = finger.toLowerCase().replaceAll("_", " ")
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
+/// Enrol a finger, or replace what was enrolled for it. `terminalId` is the
+/// station that captured it — HR's desk at head office enrols anybody — and
+/// `templateHex` the vendor template the scanner merged from three presses.
+/// It goes up once and no route ever hands it back.
+export function enrolFinger(
+  employeeId: string,
+  body: {
+    finger: Finger
+    terminalId: string
+    templateHex: string
+    quality: number | null
+    reason: string
+  }
+): Promise<EnrolmentView> {
+  return node.post<EnrolmentView>(
+    `/api/v1/employees/${encodeURIComponent(employeeId)}/fingerprints`,
+    {
+      finger: body.finger,
+      terminal_id: body.terminalId,
+      template_hex: body.templateHex,
+      quality: body.quality,
+      reason: body.reason,
+    }
+  )
+}
+
 /// Push a unit's roster and its people down to that unit's station, so a
 /// terminal with the line down still greets by name and knows the shift.
 export function publishEmployeeBook(unitId: string): Promise<BookPublished> {
