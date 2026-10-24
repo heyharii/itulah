@@ -664,6 +664,11 @@ svg.lucide.inl { width: 15px; height: 15px; vertical-align: -2px; }
 .paybar .grow { flex: 1; font-size: 18px; }
 .offbar { display: flex; align-items: center; gap: 10px; padding: 10px 18px; background: #fdf3ea; color: var(--warn-fg); flex-wrap: wrap; }
 .offbar .grow { flex: 1; }
+.tiles2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+.tile2 { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 16px; background: #fff; border: 1px solid var(--hairline); border-radius: 12px; text-align: left; transition: transform 160ms var(--ease-out); }
+.tile2:active:not(:disabled) { transform: scale(.98); }
+.tile2:disabled { opacity: .5; cursor: default; }
+.tile2 svg { color: var(--accent); }
 .verfoot { padding: 6px 12px; font-size: 14px; color: var(--mute); border-top: 1px solid var(--hairline); background: #fff; }
 @media (max-width: 767px) { .fgrid { grid-template-columns: repeat(3, minmax(0, 1fr)); } .hacts { justify-content: flex-start; } .phead { flex-wrap: wrap; } }
 
@@ -1164,7 +1169,7 @@ const PARTS = [["new", "New store"], ["store", "Store management"], ["people", "
 const JOURNEYS = {
   new: ["Add store", "Install server", "Hub confirms", "Store app", "POS", "Open store"],
   store: ["Open", "Stop store", "Resume", "Replace server", "Remove store"],
-  people: ["Add employee", "Joins", "Fingerprint at HR", "Sign in at POS", "Stop POS access", "Leaves"],
+  people: ["Add employee", "Joins", "Head's first finger", "HO approves", "Head enrols team", "Sign in at POS", "Stop POS access", "Leaves"],
   devices: ["POS list", "New POS", "Stop POS", "Remove POS", "Update", "Server down"],
 }
 const FINGERS = [["LEFT_THUMB", "Left thumb"], ["LEFT_INDEX", "Left index"], ["LEFT_MIDDLE", "Left middle"], ["LEFT_RING", "Left ring"], ["LEFT_LITTLE", "Left little"],
@@ -1180,7 +1185,8 @@ function partsFresh() {
   return {
     part: "new", stepAt: { store: 1, people: 1, devices: 1 },
     mg: { status: "open", reason: "", stoppedAt: "", menu: false, dlg: null, sheet: null, released: false, uninstalled: false, prep: null },
-    pp: { page: "list", sheet: null, dlg: null, form: { name: "Andi Saputra", role: "Cashier" }, added: false, joined: false, fingers: [], pick: "RIGHT_INDEX", press: 0, synced: false, access: "allowed", reason: "", leave: null, door: "door" },
+    pp: { page: "list", person: "andi", sheet: null, dlg: null, form: { name: "Andi Saputra", role: "Cashier" }, added: false, joined: false,
+      fp: { dewi: null, andi: null, wira: null }, pick: "RIGHT_INDEX", press: 0, who: "dewi", dup: false, access: "allowed", reason: "", leave: null, when: "today", pos: "door" },
     dv: { seats: 2, list: [{ n: "Kasir 1", m: "POS-DESKTOP-1", st: "active", v: "1.4.2" }, { n: "Kasir 2", m: "POS-DESKTOP-2", st: "active", v: "1.4.2" }],
       ask: false, dlg: null, target: 1, reason: "", unsent: 0, rel: { out: false, morning: false }, down: false, off: 0, sent: false, page: "store" },
   }
@@ -1279,7 +1285,9 @@ function posTab() {
   const row = (d, i) => `<div class="prow3"><span class="ic">${ic("monitor")}</span><span class="two" style="flex:1"><span class="a">${d.n}</span><span class="b">${d.m} · Central POS ${d.v}${d.st === "active" ? " · online" : ""}</span></span>
     <span class="badge-s ${d.st === "active" ? "ok" : d.st === "stopped" ? "bad" : ""}">${d.st === "active" ? "Active" : d.st === "stopped" ? "Stopped" : "Removed"}</span>
     ${d.st === "active" ? `<button class="btn red sm" data-dv="stop" data-i="${i}">Stop</button>` : d.st === "stopped" ? `<button class="btn primary sm" data-dv="resume" data-i="${i}">Resume</button><button class="btn red sm" data-dv="remove" data-i="${i}">Remove</button>` : ""}</div>`
-  const waiting = dv.ask ? `<div class="prow3"><span class="ic">${ic("monitor-smartphone")}</span><span class="two" style="flex:1"><span class="a">New POS · POS-DESKTOP-3</span><span class="b">Asked to join 14:20 · approved at the store by a supervisor</span></span><span class="badge-s warn">Waiting</span></div>` : ""
+  const free = dv.seats - dv.list.filter((d) => d.st === "active").length
+  const waiting = dv.ask ? `<div class="prow3"><span class="ic">${ic("monitor-smartphone")}</span><span class="two" style="flex:1"><span class="a">New POS · POS-DESKTOP-3</span><span class="b">Asked to join 14:20 · code 7QK-2M9 · number 481 205${free > 0 ? "" : ` · no free seat (${dv.seats} of ${dv.seats} used)`}</span></span>
+    <button class="btn red sm" data-dv="refuse3">Refuse</button><button class="btn primary sm" data-dv="approve3" ${free > 0 ? "" : "disabled"}>Approve</button></div>` : ""
   return `<div class="col"><div class="card"><div class="sectionh">POS<span>${dv.list.filter((d) => d.st === "active").length} active · ${dv.seats} seats</span></div>${dv.list.map(row).join("")}${waiting}
     <div class="openbar"><span class="grow">POS seats: ${dv.seats} — Kasir 1 to Kasir ${dv.seats}</span><button class="btn primary sm" data-dv="seats">Change</button></div></div></div>`
 }
@@ -1311,35 +1319,72 @@ function dvDialogs() {
 }
 
 /* ── Central: People ─────────────────────────────────────────────────── */
+const PEOPLE = {
+  dewi: { name: "Dewi Lestari", role: "Store manager", login: "dewi.lestari", pos: "Kepala toko" },
+  andi: { name: "Andi Saputra", role: "Cashier", login: "andi.saputra", pos: "Kasir" },
+  wira: { name: "Wira Pratama", role: "Cashier", login: "wira.pratama", pos: "Kasir" },
+}
+/* Every finger recorded at a store waits for head office (owner, 24 Oct
+   2026): the first store head records her own after signing in with her own
+   password, everybody after her is recorded by the store head. Once head
+   office approves, the finger is the person's everywhere — every POS of their
+   store, attendance, the next store they move to. */
+const fpWord = (f) => !f ? ["No fingerprint", ""] : f.st === "pending" ? ["Waiting for approval", "warn"] : ["Active", "ok"]
+function waitingFingers() {
+  return Object.entries(S.pp.fp).filter(([, f]) => f && f.st === "pending")
+}
+function approvalsCard() {
+  const rows = waitingFingers()
+  if (!rows.length) return ""
+  return `<div class="card" style="margin-bottom:14px"><div class="sectionh">Fingerprints waiting for approval<span>${rows.length}</span></div>
+    ${rows.map(([who, f]) => `<div class="prow3"><span class="ic">${ic("fingerprint")}</span><span class="two" style="flex:1"><span class="a">${PEOPLE[who].name} · ${fingerName(f.k)}</span><span class="b">Recorded at Kasir 1 Purwokerto, ${f.at} · ${f.by === who ? "by herself, signed in with her own password" : "by " + PEOPLE[f.by].name}</span></span>
+      <button class="btn red sm" data-pp="refusefp" data-who="${who}">Refuse</button><button class="btn primary sm" data-pp="approvefp" data-who="${who}">Approve</button></div>`).join("")}
+    ${rows.length > 1 ? `<div class="openbar"><span class="grow"></span><button class="btn primary sm" data-pp="approveall">Approve all</button></div>` : ""}</div>`
+}
 function peopleList() {
   const pp = S.pp
-  const rows = [...TEAM, ...(pp.added ? [[pp.form.name, pp.form.role, pp.form.role === "Cashier" ? "Kasir" : pp.form.role, pp.fingers.length]] : [])]
+  const rows = [["dewi", true], ["wira", true], ...(pp.added ? [["andi", pp.joined]] : [])]
   return `<div class="phead"><div><div class="crumb">People</div><h1>Employees</h1></div><button class="btn primary" data-pp="add">${ic("user-plus")}Add employee</button></div>
-    <div class="card"><ul class="slist">${rows.map(([n, role, , f], i) => {
-      const me = i >= TEAM.length, gone = me && pp.leave === "done", stopped = me && pp.access === "stopped"
-      return `<li class="srow ${me && S.hub.fresh ? "fresh" : ""}" ${me ? "data-pp=\"open\"" : ""}><span class="avatar">${n.split(" ").map((x) => x[0]).join("")}</span><span class="m"><b>${n}</b><span class="sub">${role} · Purwokerto${me && !pp.joined ? " · invited" : ""}</span></span>
-        <span class="tl" style="width:auto">${ic("fingerprint")} ${f}</span><span class="badge-s ${gone ? "" : stopped ? "bad" : me && !pp.joined ? "warn" : "ok"}">${gone ? "Left" : stopped ? "POS stopped" : me && !pp.joined ? "Invited" : "Active"}</span></li>`
+    ${approvalsCard()}
+    <div class="card"><ul class="slist">${rows.map(([who, joined]) => {
+      const p = PEOPLE[who], f = pp.fp[who]
+      const gone = who === "andi" && pp.leave === "done", stopped = who === "andi" && pp.access === "stopped"
+      const [fw, ft] = gone ? ["Removed", ""] : fpWord(f)
+      return `<li class="srow ${who === "andi" && S.hub.fresh ? "fresh" : ""}" data-pp="open" data-who="${who}"><span class="avatar">${p.name.split(" ").map((x) => x[0]).join("")}</span><span class="m"><b>${p.name}</b><span class="sub">${p.role} · Purwokerto${joined ? "" : " · invited"}</span></span>
+        <span class="tl" style="width:auto"><span class="sdot ${ft}"></span> ${fw}</span><span class="badge-s ${gone ? "" : stopped ? "bad" : joined ? "ok" : "warn"}">${gone ? "Left" : stopped ? "POS stopped" : joined ? "Active" : "Invited"}</span></li>`
     }).join("")}</ul></div>`
 }
 function personPage() {
-  const pp = S.pp, f = pp.form, gone = pp.leave === "done"
-  const fingers = pp.fingers.length ? pp.fingers.map((k) => `<div class="prow3"><span class="ic">${ic("fingerprint")}</span><span class="two" style="flex:1"><span class="a">${fingerName(k)}</span><span class="b">Enrolled 10 Oct 2026, 14:32 by Sari (HR) · at Head office HR desk</span></span>${gone ? "" : `<button class="btn red sm" data-pp="withdraw" data-k="${k}">Withdraw</button>`}</div>`).join("")
-    : `<div style="padding:14px 16px;color:var(--mute)">${gone ? "Removed when the employment ended" : "None yet"}</div>`
-  return `<div class="phead"><div><div class="crumb"><span class="lnk" data-pp="list">Employees</span></div><h1>${esc(f.name)}</h1><div class="s">${f.role} · Purwokerto</div></div>
-      <div class="hacts"><span class="badge-s ${gone ? "" : pp.access === "stopped" ? "bad" : pp.joined ? "ok" : "warn"}">${gone ? "Left" : pp.access === "stopped" ? "POS stopped" : pp.joined ? "Active" : "Invited"}</span>
-      ${gone ? "" : pp.leave ? "" : `<button class="btn red" data-pp="leave">${ic("log-out")}Separation</button>`}</div></div>
+  const pp = S.pp, who = pp.person, p = PEOPLE[who], f = pp.fp[who]
+  const gone = who === "andi" && pp.leave === "done"
+  const stopped = who === "andi" && pp.access === "stopped"
+  const fpRow = f ? `<div class="prow3"><span class="ic">${ic("fingerprint")}</span><span class="two" style="flex:1"><span class="a">${fingerName(f.k)}</span><span class="b">Recorded ${f.at === "HR desk" ? "at Head office HR desk" : `at Kasir 1 Purwokerto, ${f.at}`}${f.by ? ` · ${f.by === who ? "by herself" : "by " + PEOPLE[f.by].name}` : ""}${f.st === "active" ? " · works at every POS of Purwokerto and for attendance" : ""}</span></span>
+      <span class="badge-s ${fpWord(f)[1]}">${fpWord(f)[0]}</span>${f.st === "pending" ? `<button class="btn red sm" data-pp="refusefp" data-who="${who}">Refuse</button><button class="btn primary sm" data-pp="approvefp" data-who="${who}">Approve</button>` : gone ? "" : `<button class="btn red sm" data-pp="withdraw" data-who="${who}">Withdraw</button>`}</div>`
+    : `<div style="padding:14px 16px;color:var(--mute)">${gone ? "Removed when the employment ended" : who === "dewi" ? "None yet · she records her first one at the store's POS after signing in with her password" : "None yet · the store head records it at the store's POS"}</div>`
+  return `<div class="phead"><div><div class="crumb"><span class="lnk" data-pp="list">Employees</span></div><h1>${p.name}</h1><div class="s">${p.role} · Purwokerto</div></div>
+      <div class="hacts"><span class="badge-s ${gone ? "" : stopped ? "bad" : "ok"}">${gone ? "Left" : stopped ? "POS stopped" : "Active"}</span>
+      ${who === "andi" && !gone && !pp.leave ? `<button class="btn red" data-pp="leave">${ic("log-out")}Separation</button>` : ""}</div></div>
     <div class="col">
-      <div class="card"><div class="factsgrid"><div><div class="l">Login</div><div class="v mono">${pp.joined ? "andi.saputra" : "—"}</div></div><div><div class="l">Job role</div><div class="v">${f.role}</div></div><div><div class="l">Posted to</div><div class="v">Purwokerto</div></div>
-        <div><div class="l">Signs in at</div><div class="v">${gone ? "Nowhere" : "Purwokerto server"}</div></div><div><div class="l">POS access</div><div class="v">${gone ? "Closed" : pp.access === "stopped" ? "Stopped · " + esc(pp.reason) : "Allowed"}</div></div><div><div class="l">Leaving</div><div class="v">${pp.leave === "dated" ? "31 Oct 2026 · login closes that morning" : gone ? "24 Oct 2026 · login closed" : "—"}</div></div></div>
-        ${gone ? "" : `<div class="openbar"><span class="grow">${pp.access === "stopped" ? "Stopped by Rina Kusuma · " + esc(pp.reason) : "POS access follows the posting"}</span>${pp.access === "stopped" ? `<button class="btn primary sm" data-pp="resume">Resume POS access</button>` : `<button class="btn red sm" data-pp="stop" ${pp.joined ? "" : "disabled"}>Stop POS access</button>`}</div>`}</div>
-      <div class="card"><div class="sectionh">Fingerprints<span>${pp.fingers.length ? (pp.synced ? "on Purwokerto's server" : "reaching Purwokerto's server…") : ""}</span></div>${fingers}
-        ${gone ? "" : `<div class="openbar"><span class="grow">Scanner: ZK SLK20R · Head office HR desk</span><button class="btn primary sm" data-pp="enrol" ${pp.joined ? "" : "disabled"}>${ic("fingerprint")}Enrol finger</button></div>`}</div>
+      <div class="card"><div class="factsgrid"><div><div class="l">Login</div><div class="v mono">${p.login}</div></div><div><div class="l">Job role</div><div class="v">${p.role}</div></div><div><div class="l">Posted to</div><div class="v">Purwokerto</div></div>
+        <div><div class="l">Signs in at</div><div class="v">${gone ? "Nowhere" : "Purwokerto server"}</div></div><div><div class="l">POS access</div><div class="v">${gone ? "Closed" : stopped ? "Stopped · " + esc(pp.reason) : "Allowed"}</div></div><div><div class="l">Leaving</div><div class="v">${who === "andi" && pp.leave === "dated" ? "31 Oct 2026 · login closes that morning" : gone ? "24 Oct 2026 · login closed" : "—"}</div></div></div>
+        ${who === "andi" && !gone ? `<div class="openbar"><span class="grow">${stopped ? "Stopped by Rina Kusuma · " + esc(pp.reason) : "POS access follows the posting"}</span>${stopped ? `<button class="btn primary sm" data-pp="resume">Resume POS access</button>` : `<button class="btn red sm" data-pp="stop" ${pp.joined ? "" : "disabled"}>Stop POS access</button>`}</div>` : ""}</div>
+      <div class="card"><div class="sectionh">Fingerprint<span>${f && f.st === "active" ? "on Purwokerto's server" : ""}</span></div>${fpRow}
+        ${gone || f ? "" : `<div class="openbar"><span class="grow">Or at Head office HR desk, when they come in</span><button class="btn primary sm" data-pp="enrol" ${who !== "andi" || pp.joined ? "" : "disabled"}>${ic("fingerprint")}Enrol at HR desk</button></div>`}</div>
     </div>`
 }
 function changesPage() {
   const pp = S.pp
   return `<div class="phead"><div><div class="crumb">People</div><h1>Changes</h1></div></div>
-    <div class="card">${pp.leave ? `<div class="prow3"><span class="two" style="flex:1"><span class="a">Separation · ${esc(pp.form.name)}</span><span class="b">Effective ${pp.leave === "dated" ? "31 Oct 2026" : "24 Oct 2026"} · approved by Rina Kusuma</span></span><span class="badge-s ok">Approved</span></div>` : `<div style="padding:14px 16px;color:var(--mute)">No change waiting</div>`}</div>`
+    <div class="card">${pp.leave ? `<div class="prow3"><span class="two" style="flex:1"><span class="a">Separation · Andi Saputra</span><span class="b">Effective ${pp.leave === "dated" ? "31 Oct 2026" : "24 Oct 2026"} · approved by Rina Kusuma</span></span><span class="badge-s ok">Approved</span></div>` : `<div style="padding:14px 16px;color:var(--mute)">No change waiting</div>`}</div>`
+}
+function capturePanel(kind) {
+  const pp = S.pp, busy = pp.press > 0 && pp.press < 3
+  const hand = (side) => `<div class="hand"><span class="hl">${side === "LEFT" ? (kind === "pos" ? "Kiri" : "Left") : (kind === "pos" ? "Kanan" : "Right")}</span><div class="fgrid">${["THUMB", "INDEX", "MIDDLE", "RING", "LITTLE"].map((d) => { const k = side + "_" + d; const w = kind === "pos" ? { THUMB: "Jempol", INDEX: "Telunjuk", MIDDLE: "Tengah", RING: "Manis", LITTLE: "Kelingking" }[d] : d[0] + d.slice(1).toLowerCase(); return `<button class="chip ${pp.pick === k ? "on" : ""}" data-finger="${k}" ${busy ? "disabled" : ""}>${w}</button>` }).join("")}</div></div>`
+  const said = kind === "pos"
+    ? (pp.dup ? "Jari ini sudah terdaftar atas nama Dewi Lestari" : pp.press === 0 ? "Tempel jari di scanner" : pp.press < 3 ? `Angkat, lalu tempel lagi · ${pp.press} dari 3` : "Terekam")
+    : (pp.press === 0 ? `Press ${fingerName(pp.pick).toLowerCase()} on the scanner` : pp.press < 3 ? `Lift, then press again · ${pp.press} of 3` : "Captured")
+  return `${hand("LEFT")}${hand("RIGHT")}<div class="fcap"><span class="fp ${busy ? "live" : ""}">${ic("fingerprint")}</span><span class="two"><span class="a" ${pp.dup ? 'style="color:var(--bad-fg)"' : ""}>${said}</span>
+    <span class="presses">${[1, 2, 3].map((n) => `<i class="${n <= pp.press ? "on" : ""}"></i>`).join("")}</span></span></div>`
 }
 function ppOverlays() {
   const pp = S.pp
@@ -1350,17 +1395,11 @@ function ppOverlays() {
   if (pp.sheet === "added") return sheet("ppadded", `${esc(pp.form.name)} added`, "Purwokerto · Cashier", `<div class="added"><div><span class="lab">Send this link to ${esc(pp.form.name)}</span><div class="linkrow"><span class="u">https://central.sinarbusana.id/join/q8Rt-4kWm-andi</span>
       <button class="btn soft sm" data-copy="https://central.sinarbusana.id/join/q8Rt-4kWm-andi">${ic("copy")}Copy</button></div><span class="hint" style="font-size:14px">They choose their own username and password · expires in 72 h</span></div></div>`,
     `<span class="grow"></span><button class="btn primary" data-pp="joingo">They joined (prototype)</button>`)
-  if (pp.dlg === "enrol") {
-    const busy = pp.press > 0 && pp.press < 3
-    const hand = (side) => `<div class="hand"><span class="hl">${side === "LEFT" ? "Left" : "Right"}</span><div class="fgrid">${["THUMB", "INDEX", "MIDDLE", "RING", "LITTLE"].map((d) => { const k = side + "_" + d; return `<button class="chip ${pp.pick === k ? "on" : ""} ${pp.fingers.includes(k) ? "has" : ""}" data-finger="${k}" ${busy ? "disabled" : ""}>${d[0] + d.slice(1).toLowerCase()}</button>` }).join("")}</div></div>`
-    return dlg("ppenrol", "Enrol a finger", `${hand("LEFT")}${hand("RIGHT")}
-      <div class="fcap"><span class="fp ${busy ? "live" : ""}">${ic("fingerprint")}</span><span class="two"><span class="a">${pp.press === 0 ? `Press ${fingerName(pp.pick).toLowerCase()} on the scanner` : pp.press < 3 ? `Lift, then press again · ${pp.press} of 3` : "Captured"}</span>
-      <span class="presses">${[1, 2, 3].map((n) => `<i class="${n <= pp.press ? "on" : ""}"></i>`).join("")}</span></span></div>`,
-      `<button class="btn primary" data-pp="press">${pp.press === 0 ? "Scanner: press (prototype)" : pp.press < 3 ? "Press again" : "Save"}</button>`)
-  }
+  if (pp.dlg === "enrol") return dlg("ppenrol", `Enrol at HR desk · ${PEOPLE[pp.person].name}`, capturePanel("hub"),
+    `<button class="btn primary" data-pp="press">${pp.press === 0 ? "Scanner: press (prototype)" : pp.press < 3 ? "Press again" : "Save"}</button>`)
   if (pp.dlg === "stop") return dlg("ppstop", `Stop ${esc(pp.form.name)}'s POS access?`, `<span>They sign in at no POS, by password or finger, until it is resumed.</span><label class="fld"><span>Reason <i>*</i></span><input id="ppreason" value="${esc(pp.reason)}" placeholder="Investigasi selisih kas"></label>`,
     `<button class="btn red" data-pp="stopgo">Stop POS access</button>`)
-  if (pp.dlg === "leave") return dlg("ppleave", `Separation · ${esc(pp.form.name)}`, `<span>The login, and every POS of the posting, closes on the day it takes effect. Fingerprints are deleted with the employment.</span>
+  if (pp.dlg === "leave") return dlg("ppleave", `Separation · ${esc(pp.form.name)}`, `<span>The login, and every POS of the posting, closes on the day it takes effect. The fingerprint is deleted with the employment.</span>
       <div class="chips"><button class="chip ${pp.when !== "dated" ? "on" : ""}" data-when="today">Today</button><button class="chip ${pp.when === "dated" ? "on" : ""}" data-when="dated">31 Oct 2026</button></div>`,
     `<button class="btn red" data-pp="leavego">Approve separation</button>`)
   return ""
@@ -1382,15 +1421,7 @@ function partPos() {
     if (mg.uninstalled === "gone") return posWin(name, doorCard(`<span class="mark lg"></span><span class="k">${name}</span><span class="hint">Server toko belum terpasang lagi</span><span class="hint">Mencari server toko di jaringan ini…</span>`))
     return posWin(name, doorCard(`<span class="mark lg"></span><span class="k">${name}</span><span class="hint">Purwokerto · C014</span><span class="badge-s ok">Buka</span><button class="btn primary posbtn" style="width:100%">${ic("fingerprint")}Tempel jari untuk masuk</button>`))
   }
-  if (S.part === "people") {
-    const pp = S.pp
-    if (pp.door === "in") return posWin("Kasir 1", `<div class="sale"><div class="saleh"><b>Andi Saputra</b><span class="hint">Kasir 1 · shift dibuka 14:41 · modal Rp 300.000</span><span class="grow"></span><button class="btn soft sm" data-pos-out>Keluar</button></div>
-      <div class="salebody"><div class="hint">Scan barang untuk mulai</div></div></div>`)
-    const why = pp.door === "refused" ? (pp.leave === "done" ? "Sidik jari tidak dikenali" : pp.access === "stopped" ? "Akses POS Anda dihentikan kantor pusat." : !pp.synced ? "Sidik jari tidak dikenali" : "") : ""
-    return posWin("Kasir 1", doorCard(`<span class="mark lg"></span><span class="k">Kasir 1</span><span class="hint">Purwokerto · C014</span>
-      <button class="btn primary posbtn" style="width:100%" data-pos-finger>${ic("fingerprint")}Tempel jari (prototype: ${esc(pp.form.name.split(" ")[0])})</button>
-      ${why ? `<span class="err" style="text-align:center">${why}</span>` : ""}<span class="hint">Kepala toko bisa membuka atas nama kasir</span>`))
-  }
+  if (S.part === "people") return peoplePos()
   /* devices */
   const dv = S.dv, d = dv.list[i] || dv.list[0]
   const ver = dv.rel.morning ? "1.5.0" : d.v
@@ -1409,7 +1440,57 @@ function partPos() {
       <div style="padding:0 18px 18px"><button class="btn soft" data-dv-up>${ic("wifi")}Server toko kembali (prototype)</button></div></div>`, `<div class="verfoot">Central POS ${ver}</div>`)
   }
   return posWin(d.n, doorCard(`<span class="mark lg"></span><span class="k">${d.n}</span><span class="hint">Purwokerto · C014</span><span class="badge-s ok">Buka</span><button class="btn primary posbtn" style="width:100%">${ic("fingerprint")}Tempel jari untuk masuk</button>
-    ${dv.rel.out && !dv.rel.morning ? `<span class="hint">Pembaruan 1.5.0 dipasang malam ini, 01:00–05:00</span>` : dv.rel.morning ? `<span class="hint">Diperbarui ke 1.5.0 pukul 02:14</span>` : ""}`, dv.ask && i === 0 ? newPosAsk() : ""), `<div class="verfoot">Central POS ${ver}</div>`)
+    ${dv.rel.out && !dv.rel.morning ? `<span class="hint">Pembaruan 1.5.0 dipasang malam ini, 01:00–05:00</span>` : dv.rel.morning ? `<span class="hint">Diperbarui ke 1.5.0 pukul 02:14</span>` : ""}`), `<div class="verfoot">Central POS ${ver}</div>`)
+}
+/* Kasir 1 at Purwokerto, for people: the first store head records her own
+   finger after her password, then records her team's; head office approves. */
+function peoplePos() {
+  const pp = S.pp, dewi = pp.fp.dewi, andi = pp.fp.andi
+  const anyActive = Object.values(pp.fp).some((f) => f && f.st === "active")
+  const top = (who, sub, right = "") => `<div class="saleh"><b>${PEOPLE[who].name}</b><span class="hint">${sub}</span><span class="grow"></span>${right}<button class="btn soft sm" data-pos="door">Keluar</button></div>`
+  if (pp.pos === "pw") return posWin("Kasir 1", doorCard(`<span class="mark lg"></span><span class="k">Masuk</span><span class="hint">Kepala toko · username dan password Anda sendiri</span>
+      <label class="hint" style="width:100%;text-align:left">Username<input class="inp" value="dewi.lestari" readonly></label>
+      <label class="hint" style="width:100%;text-align:left">Password<input class="inp" type="password" value="Rahasia01" readonly></label>
+      <button class="btn primary posbtn" style="width:100%" data-pos="pwgo">Masuk</button>`))
+  if (pp.pos === "selfenrol" || pp.pos === "teamcap") {
+    const who = pp.pos === "selfenrol" ? "dewi" : pp.who
+    return posWin("Kasir 1", `<div class="sale">${top("dewi", "Kepala toko · masuk dengan password")}
+      <div class="salebody" style="max-width:560px;margin:0 auto;width:100%">
+        <b style="font-size:18px">${who === "dewi" ? "Daftarkan sidik jari Anda" : `Sidik jari ${PEOPLE[who].name}`}</b>
+        <span class="hint">${who === "dewi" ? "Belum ada sidik jari aktif di toko ini. Jari Anda aktif setelah kantor pusat menyetujui." : `${PEOPLE[who].name} menempelkan jarinya sendiri. Aktif setelah kantor pusat menyetujui.`}</span>
+        ${capturePanel("pos")}
+        <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn primary posbtn" data-pos="press">${pp.press === 0 ? "Scanner: tempel (prototype)" : pp.press < 3 ? "Tempel lagi" : "Kirim ke kantor pusat"}</button>
+          ${who !== "dewi" && pp.press === 0 ? `<button class="btn soft posbtn" data-pos="dup">Coba jari Dewi (prototype)</button>` : ""}</div></div></div>`)
+  }
+  if (pp.pos === "in") {
+    const pending = dewi && dewi.st === "pending"
+    return posWin("Kasir 1", `<div class="sale">${top("dewi", pending ? "Kepala toko · masuk dengan password" : "Kepala toko · masuk dengan sidik jari")}
+      ${pending ? `<div class="offbar">${ic("clock-3")}<span>Sidik jari Anda menunggu persetujuan kantor pusat. Sementara itu masuk dengan password.</span></div>` : ""}
+      <div class="salebody" style="max-width:560px;margin:0 auto;width:100%"><div class="tiles2">
+        <button class="tile2">${ic("play")}<b>Buka shift</b><span class="hint">Modal awal</span></button>
+        <button class="tile2" data-pos="team" ${pending ? "disabled" : ""}>${ic("fingerprint")}<b>Daftar sidik jari karyawan</b><span class="hint">${pending ? "Setelah jari Anda disetujui" : "Orang yang ditambahkan kantor pusat"}</span></button>
+        <button class="tile2">${ic("user-round")}<b>Buka kasir atas nama</b><span class="hint">Untuk kasir yang belum aktif jarinya</span></button></div></div></div>`)
+  }
+  if (pp.pos === "team") {
+    const people = [...(pp.added ? [["andi", pp.joined ? andi : "none"]] : []), ["wira", pp.fp.wira]]
+    return posWin("Kasir 1", `<div class="sale">${top("dewi", "Kepala toko · Daftar sidik jari karyawan")}
+      <div class="salebody" style="max-width:640px;margin:0 auto;width:100%"><div class="card">
+        ${people.map(([who, f]) => {
+          const name = PEOPLE[who].name
+          if (f === "none") return `<div class="prow3"><span class="two" style="flex:1"><span class="a">${name}</span><span class="b">Belum bergabung</span></span></div>`
+          const word = !f ? "Belum ada sidik jari" : f.st === "pending" ? "Menunggu persetujuan kantor pusat" : "Aktif"
+          return `<div class="prow3"><span class="avatar">${name.split(" ").map((x) => x[0]).join("")}</span><span class="two" style="flex:1"><span class="a">${name}</span><span class="b">Kasir · ${word}</span></span>${!f ? `<button class="btn primary sm" data-pos="teamgo" data-who="${who}">Daftarkan</button>` : ""}</div>`
+        }).join("")}</div><span class="hint">Hanya orang yang ditambahkan kantor pusat ke Purwokerto.</span></div></div>`)
+  }
+  if (pp.pos === "andi") return posWin("Kasir 1", `<div class="sale">${top("andi", "Kasir 1 · shift dibuka 14:41 · modal Rp 300.000")}<div class="salebody"><div class="hint">Scan barang untuk mulai</div></div></div>`)
+  /* the door */
+  const why = pp.pos === "refused" ? (pp.leave === "done" ? "Sidik jari tidak dikenali" : pp.access === "stopped" ? "Akses POS Anda dihentikan kantor pusat." : "Sidik jari tidak dikenali") : ""
+  return posWin("Kasir 1", doorCard(`<span class="mark lg"></span><span class="k">Kasir 1</span><span class="hint">Purwokerto · C014</span>
+    ${anyActive ? `<button class="btn primary posbtn" style="width:100%" data-pos="fdewi">${ic("fingerprint")}Tempel jari (prototype: Dewi)</button>
+      ${pp.added ? `<button class="btn primary posbtn" style="width:100%" data-pos="fandi">${ic("fingerprint")}Tempel jari (prototype: Andi)</button>` : ""}`
+      : `<span class="hint">Belum ada sidik jari aktif di toko ini</span>`}
+    ${why ? `<span class="err" style="text-align:center">${why}</span>` : ""}
+    <button class="btn soft posbtn" style="width:100%" data-pos="pw">Kepala toko: masuk dengan password</button>`))
 }
 function newPosAsk() {
   /* Kasir 3 asking to join: approved at Kasir 1 by a supervisor's finger */
@@ -1434,19 +1515,19 @@ function partJump(n) {
   if (part === "people") {
     S.hub.page = "people"
     if (n === 1) { pp.sheet = "add" }
-    if (n >= 2) { pp.added = true; pp.page = "person" }
+    if (n >= 2) { pp.added = true }
     if (n === 2) { pp.sheet = "added" }
-    if (n >= 3) { pp.joined = true }
-    if (n === 3) { pp.dlg = "enrol" }
-    if (n >= 4) { pp.fingers = ["RIGHT_INDEX"]; pp.synced = true }
-    if (n >= 5) { pp.access = "stopped"; pp.reason = "Investigasi selisih kas"; pp.door = "refused" }
-    if (n >= 6) { pp.access = "allowed"; pp.leave = "done"; pp.fingers = []; pp.door = "refused" }
-    if (n === 6) pp.page = "person"
-    S.screen = n === 4 ? "till" : "hub"
+    if (n >= 3) { pp.joined = true; pp.pos = "door" }
+    if (n >= 4) { pp.fp.dewi = { k: "RIGHT_INDEX", st: "pending", at: "13:58", by: "dewi" }; pp.pos = "in" }
+    if (n >= 5) { pp.fp.dewi.st = "active"; pp.pos = "team" }
+    if (n >= 6) { pp.fp.andi = { k: "RIGHT_INDEX", st: "active", at: "14:06", by: "dewi" }; pp.pos = "door" }
+    if (n >= 7) { pp.access = "stopped"; pp.reason = "Investigasi selisih kas"; pp.pos = "door" }
+    if (n >= 8) { pp.access = "allowed"; pp.leave = "done"; pp.fp.andi = null; pp.page = "person"; pp.person = "andi" }
+    S.screen = n === 3 || n === 5 || n === 6 || n === 7 ? "till" : "hub"
   }
   if (part === "devices") {
     S.hub.tab = "pos"
-    if (n === 2) { dv.ask = true; S.screen = "till"; S.tv = 0 }
+    if (n === 2) { dv.ask = true; S.screen = "hub" }
     if (n >= 3) { dv.list[1].st = "stopped"; dv.reason = "Laci rusak"; dv.unsent = 2; S.tv = 1 }
     if (n >= 4) { dv.list[1].st = "removed"; dv.unsent = 0; dv.sent = true }
     if (n === 5) { S.hub.page = "updates" }
@@ -1489,35 +1570,51 @@ function partClick(e) {
   if (t("[data-mg-menu]")) { mg.menu = !mg.menu; render(); return true }
   if ((el = t("[data-mg-act]"))) { mg.menu = false; toast(`${el.dataset.mgAct}: asked. It shows in Activity when the server answers`); return true }
   if ((el = t("[data-pp]"))) {
-    const a = el.dataset.pp
+    const a = el.dataset.pp, who = el.dataset.who
     if (a === "add") pp.sheet = "add"
-    else if (a === "addgo") { pp.form.name = ($("#ppname") || {}).value || pp.form.name; pp.added = true; pp.sheet = "added"; S.hub.fresh = true; bump("people", 2) }
-    else if (a === "joingo") { pp.joined = true; pp.sheet = null; pp.page = "person"; bump("people", 3); toast(`${pp.form.name} joined · andi.saputra`) }
-    else if (a === "open") pp.page = "person"
+    else if (a === "addgo") { pp.form.name = ($("#ppname") || {}).value || pp.form.name; PEOPLE.andi.name = pp.form.name; pp.added = true; pp.sheet = "added"; S.hub.fresh = true; bump("people", 2) }
+    else if (a === "joingo") { pp.joined = true; pp.sheet = null; bump("people", 3); toast(`${pp.form.name} joined · andi.saputra`) }
+    else if (a === "open") { pp.page = "person"; pp.person = who }
     else if (a === "list") pp.page = "list"
-    else if (a === "enrol") { pp.dlg = "enrol"; pp.press = 0 }
+    else if (a === "enrol") { pp.dlg = "enrol"; pp.press = 0; pp.pick = "RIGHT_INDEX" }
     else if (a === "press") {
       if (pp.press < 3) { pp.press++; render(); return true }
-      if (!pp.fingers.includes(pp.pick)) pp.fingers.push(pp.pick)
-      pp.dlg = null; pp.press = 0; pp.synced = false; bump("people", 4)
-      toast(`${fingerName(pp.pick)} enrolled`)
-      later(1800, () => { S.pp.synced = true; ping("till"); render() })
+      pp.fp[pp.person] = { k: pp.pick, st: "active", at: "HR desk", by: null }
+      pp.dlg = null; pp.press = 0; toast(`${fingerName(pp.pick)} enrolled at HR desk`)
     }
-    else if (a === "withdraw") { pp.fingers = pp.fingers.filter((k) => k !== el.dataset.k); toast("Withdrawn. Purwokerto's POS forgets it within 5 minutes") }
+    else if (a === "approvefp") { pp.fp[who].st = "active"; bump("people", who === "dewi" ? 4 : 6); ping("till"); toast(`${PEOPLE[who].name}'s fingerprint approved. It works at every POS of Purwokerto`) }
+    else if (a === "approveall") { waitingFingers().forEach(([w]) => { pp.fp[w].st = "active" }); ping("till"); toast("Approved") }
+    else if (a === "refusefp") { pp.fp[who] = null; toast(`${PEOPLE[who].name}'s fingerprint refused and deleted`) }
+    else if (a === "withdraw") { pp.fp[who] = null; toast("Withdrawn. Purwokerto's POS forgets it within 5 minutes") }
     else if (a === "stop") pp.dlg = "stop"
-    else if (a === "stopgo") { pp.reason = ($("#ppreason") || {}).value || "Investigasi selisih kas"; pp.access = "stopped"; pp.dlg = null; pp.door = "door"; bump("people", 5); ping("till"); toast(`${pp.form.name}'s POS access stopped`) }
-    else if (a === "resume") { pp.access = "allowed"; pp.door = "door"; toast("POS access resumed") }
+    else if (a === "stopgo") { pp.reason = ($("#ppreason") || {}).value || "Investigasi selisih kas"; pp.access = "stopped"; pp.dlg = null; pp.pos = "door"; bump("people", 7); ping("till"); toast(`${pp.form.name}'s POS access stopped`) }
+    else if (a === "resume") { pp.access = "allowed"; pp.pos = "door"; toast("POS access resumed") }
     else if (a === "leave") { pp.dlg = "leave"; pp.when = "today" }
-    else if (a === "leavego") { pp.dlg = null; bump("people", 6); if (pp.when === "dated") { pp.leave = "dated"; toast("Approved. The login closes on 31 Oct 2026") } else { pp.leave = "done"; pp.fingers = []; pp.access = "allowed"; pp.door = "door"; ping("till"); toast("Approved. Login closed; fingerprints deleted") } }
+    else if (a === "leavego") { pp.dlg = null; bump("people", 8); if (pp.when === "dated") { pp.leave = "dated"; toast("Approved. The login closes on 31 Oct 2026") } else { pp.leave = "done"; pp.fp.andi = null; pp.access = "allowed"; pp.pos = "door"; ping("till"); toast("Approved. Login closed; fingerprint deleted") } }
     render(); return true
   }
-  if ((el = t("[data-finger]"))) { pp.pick = el.dataset.finger; pp.press = 0; render(); return true }
+  if ((el = t("[data-finger]"))) { pp.pick = el.dataset.finger; pp.press = 0; pp.dup = false; render(); return true }
   if ((el = t("[data-when]"))) { pp.when = el.dataset.when; render(); return true }
-  if (t("[data-pos-finger]")) {
-    const ok = pp.synced && pp.fingers.length && pp.access === "allowed" && pp.leave !== "done"
-    pp.door = ok ? "in" : "refused"; render(); return true
+  if ((el = t("[data-pos]"))) {
+    const a = el.dataset.pos
+    if (a === "door") pp.pos = "door"
+    else if (a === "pw") pp.pos = "pw"
+    else if (a === "pwgo") { pp.pos = pp.fp.dewi ? "in" : "selfenrol"; pp.press = 0; pp.pick = "RIGHT_INDEX" }
+    else if (a === "team") pp.pos = "team"
+    else if (a === "teamgo") { pp.pos = "teamcap"; pp.who = el.dataset.who; pp.press = 0; pp.pick = "RIGHT_INDEX"; pp.dup = false }
+    else if (a === "dup") { pp.dup = true }
+    else if (a === "press") {
+      pp.dup = false
+      if (pp.press < 3) { pp.press++; render(); return true }
+      const who = pp.pos === "selfenrol" ? "dewi" : pp.who
+      pp.fp[who] = { k: pp.pick, st: "pending", at: who === "dewi" ? "13:58" : "14:06", by: "dewi" }
+      pp.press = 0; pp.pos = who === "dewi" ? "in" : "team"; ping("hub"); bump("people", who === "dewi" ? 4 : 5)
+      toast(who === "dewi" ? "Terkirim. Menunggu persetujuan kantor pusat" : "Terkirim. Menunggu persetujuan kantor pusat")
+    }
+    else if (a === "fdewi") pp.pos = pp.fp.dewi && pp.fp.dewi.st === "active" ? "in" : "refused"
+    else if (a === "fandi") pp.pos = pp.fp.andi && pp.fp.andi.st === "active" && pp.access === "allowed" && pp.leave !== "done" ? "andi" : "refused"
+    render(); return true
   }
-  if (t("[data-pos-out]")) { pp.door = "door"; render(); return true }
   if ((el = t("[data-dv]"))) {
     const a = el.dataset.dv, i = Number(el.dataset.i)
     if (a === "stop") { dv.target = i; dv.dlg = "stop" }
@@ -1527,7 +1624,8 @@ function partClick(e) {
     else if (a === "removego") { dv.list[dv.target].st = "removed"; dv.dlg = null; bump("devices", 4); ping("till"); toast(`${dv.list[dv.target].n} removed`) }
     else if (a === "sendnow") { dv.unsent = 0; dv.sent = true }
     else if (a === "seats") dv.dlg = "seats"
-    else if (a === "approve3") { dv.list.push({ n: "Kasir 3", m: "POS-DESKTOP-3", st: "active", v: "1.4.2" }); dv.ask = false; toast("Kasir 3 joined") }
+    else if (a === "approve3") { dv.list.push({ n: "Kasir 3", m: "POS-DESKTOP-3", st: "active", v: "1.4.2" }); dv.ask = false; toast("Approved. Kasir 3 joined Purwokerto") }
+    else if (a === "refuse3") { dv.ask = false; toast("Refused. POS-DESKTOP-3 cannot join") }
     else if (a === "rollout") dv.dlg = "rollout"
     else if (a === "rolloutgo") { dv.rel.out = true; dv.dlg = null; bump("devices", 5); toast("1.5.0 goes to Purwokerto tonight") }
     else if (a === "morning") { dv.rel.morning = true; dv.list.forEach((d) => { if (d.st === "active") d.v = "1.5.0" }); ping("till") }
