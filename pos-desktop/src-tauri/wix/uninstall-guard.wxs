@@ -9,6 +9,12 @@
   "Uninstall POS". An upgrade removes the old version too, and is never
   refused (UPGRADINGPRODUCTCODE).
 
+  A second value, `Unsent`, is how many sales the till rang that the store
+  server has not taken (src/uninstall.rs, `till_unsent`): the app keeps it
+  current whenever its outbox changes and removes it at none. While it is
+  there, uninstalling is refused whether or not the till is held — a removed
+  till is refused until its sales are sent, and the message says how many.
+
   Linked through `bundle.windows.wix.componentGroupRefs` (the empty group
   below): WiX only takes in a fragment something references.
 -->
@@ -18,6 +24,10 @@
       <RegistrySearch Id="CentralPosHeld" Root="HKCU" Key="Software\Central POS" Name="Held" Type="raw" />
     </Property>
     <Condition Message="Kasir ini masih aktif. Hanya kantor pusat yang bisa menghapusnya."><![CDATA[NOT (REMOVE~="ALL") OR UPGRADINGPRODUCTCODE OR NOT CENTRAL_POS_HELD]]></Condition>
+    <Property Id="CENTRAL_POS_UNSENT">
+      <RegistrySearch Id="CentralPosUnsent" Root="HKCU" Key="Software\Central POS" Name="Unsent" Type="raw" />
+    </Property>
+    <Condition Message="Kasir ini masih menyimpan [CENTRAL_POS_UNSENT] penjualan yang belum sampai ke server toko. Sambungkan ke jaringan toko, buka Central POS, lalu tunggu sampai semuanya terkirim."><![CDATA[NOT (REMOVE~="ALL") OR UPGRADINGPRODUCTCODE OR NOT CENTRAL_POS_UNSENT]]></Condition>
     <ComponentGroup Id="CentralPosUninstallGuard" />
   </Fragment>
 </Wix>

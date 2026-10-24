@@ -108,6 +108,7 @@ fn a_sale_queues_its_money_alongside_its_stock_movement() {
             tenders: cash(50_000),
             coupon_authorizations: Vec::new(),
             untagged: Vec::new(),
+            taken_at: None,
         })
         .unwrap_or_else(|e| panic!("sale: {e}"));
 
@@ -147,6 +148,7 @@ fn an_idempotent_replay_of_a_sale_queues_no_second_money_fact() {
         tenders: cash(15_000),
         coupon_authorizations: Vec::new(),
         untagged: Vec::new(),
+        taken_at: None,
     };
     let first = edge
         .complete_sale(request.clone())
@@ -340,6 +342,7 @@ fn a_basket_paid_half_on_a_card_records_both_halves() {
             ],
             coupon_authorizations: Vec::new(),
             untagged: Vec::new(),
+            taken_at: None,
         })
         .unwrap_or_else(|e| panic!("split sale: {e}"));
 
@@ -415,6 +418,7 @@ fn a_card_cannot_be_charged_above_the_basket() {
         }],
         coupon_authorizations: Vec::new(),
         untagged: Vec::new(),
+        taken_at: None,
     });
     assert!(
         refusal.is_err(),
@@ -444,6 +448,7 @@ fn a_reference_that_looks_like_a_card_number_is_refused() {
         }],
         coupon_authorizations: Vec::new(),
         untagged: Vec::new(),
+        taken_at: None,
     });
     assert!(
         refusal.is_err(),
@@ -615,6 +620,7 @@ fn an_unknown_coupon_code_is_refused_at_quote_and_sale() {
         tenders: cash(12_000),
         coupon_authorizations: Vec::new(),
         untagged: Vec::new(),
+        taken_at: None,
     });
     assert!(
         sale_refused.is_err(),

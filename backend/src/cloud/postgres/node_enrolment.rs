@@ -216,6 +216,27 @@ pub async fn issue_node_enrolment(
         .map_err(|error| AppError::Validation(error.to_string()))?;
     let origin_id = site_id.clone();
     let node_role = role.to_string();
+    // A shop's server that is connected is not handed over to whoever types
+    // a code (24 Oct 2026): approval lets the claiming machine in as the next
+    // generation and the running one is quietly shut out. A new PC takes a
+    // store's place only after the old one is let go — the store page's
+    // Disconnect, or Replace server — which revokes its key and issues the
+    // code in the same step.
+    if role == EdgeRole::Store {
+        let connected: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM sync_origin_credential
+                             WHERE origin_id = $1 AND revoked_at IS NULL)",
+        )
+        .bind(&origin_id)
+        .fetch_one(pool)
+        .await?;
+        if connected {
+            return Err(AppError::Conflict(format!(
+                "{site_id} already has a connected server. Disconnect it first (the store's \
+                 page → Server → Replace server), then the new PC gets its code."
+            )));
+        }
+    }
 
     let code = enrolment::random_code();
     let enrolment_id = Uuid::new_v4();

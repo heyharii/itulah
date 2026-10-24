@@ -158,6 +158,7 @@ pub fn run() {
             printer::local_printers,
             open_customer_display,
             uninstall::till_hold,
+            uninstall::till_unsent,
             uninstall::open_uninstall,
         ])
         .run(tauri::generate_context!())

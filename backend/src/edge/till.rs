@@ -1067,11 +1067,8 @@ pub fn record_cash_movement(
     };
     check_movement_count(&kind, request)?;
     require_open(tx, shift_id)?;
-    require_holder(
-        &holder_of(tx, shift_id)?,
-        request.actor_id.trim(),
-        request.supervising,
-    )?;
+    let holder = holder_of(tx, shift_id)?;
+    require_holder(&holder, request.actor_id.trim(), request.supervising)?;
     if kind == "FLOAT_RETURN" {
         check_float_left(tx, shift_id, -amount_minor)?;
     }
@@ -1085,7 +1082,12 @@ pub fn record_cash_movement(
         "PAYOUT" | "CORRECTION" | "PICKUP" | "DROP" | "FLOAT_RETURN"
     ) {
         Some(
-            verify_supervisor(tx, request.supervisor.as_ref()).map_err(|error| match error {
+            verify_supervisor(
+                tx,
+                request.supervisor.as_ref(),
+                &[request.actor_id.as_str(), holder.as_str()],
+            )
+            .map_err(|error| match error {
                 EdgeError::Validation(_) => {
                     EdgeError::Validation(format!("a {kind} needs a supervisor"))
                 }
@@ -1665,7 +1667,32 @@ pub struct Supervisor {
     pub authorization: Option<String>,
 }
 
+/// Who said yes to `asking`'s request: a supervisor who proved themselves
+/// (below), who is none of `asking` — the person asking, and for drawer money
+/// the drawer's holder — and whom head office has not stopped (24 Oct 2026).
+/// Two names on everything a supervisor signs: a supervisor ringing at a
+/// counter who could approve their own void, payout or cancelled basket was
+/// one person holding both keys. Every approval on this node comes through
+/// here, so none can leave the second name out.
 pub fn verify_supervisor(
+    connection: &Transaction<'_>,
+    supervisor: Option<&Supervisor>,
+    asking: &[&str],
+) -> Result<String, EdgeError> {
+    let approver = verify_supervisor_alone(connection, supervisor)?;
+    let own = asking.iter().any(|who| {
+        crate::security::normalize_username(who.trim()).is_ok_and(|who| who == approver)
+    });
+    if own {
+        return Err(EdgeError::Forbidden(
+            "Supervisor tidak menyetujui permintaannya sendiri; minta supervisor lain.".into(),
+        ));
+    }
+    crate::edge::pos_stop::refuse_approving(connection, &approver)?;
+    Ok(approver)
+}
+
+fn verify_supervisor_alone(
     connection: &Transaction<'_>,
     supervisor: Option<&Supervisor>,
 ) -> Result<String, EdgeError> {
@@ -1799,7 +1826,8 @@ pub fn record_approval(
     if request.actor_id.trim().is_empty() {
         return Err(EdgeError::Validation("actor_id is required".into()));
     }
-    let approved_by = verify_supervisor(tx, Some(&request.supervisor))?;
+    let approved_by =
+        verify_supervisor(tx, Some(&request.supervisor), &[request.actor_id.as_str()])?;
     let approval_id = Uuid::new_v4().to_string();
     let recorded_at = stamp(now);
     tx.prepare_cached(
@@ -2631,7 +2659,8 @@ pub fn drop_held(
     now: DateTime<Utc>,
 ) -> Result<HeldSale, EdgeError> {
     let held = open_held(tx, id, now)?;
-    let approved_by = verify_supervisor(tx, Some(&request.supervisor))?;
+    let approved_by =
+        verify_supervisor(tx, Some(&request.supervisor), &[request.actor_id.as_str()])?;
     close_held(tx, id, "DROPPED", &approved_by, now)?;
     Ok(held)
 }

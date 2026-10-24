@@ -43,6 +43,10 @@ pub mod jobs {
     pub const PERIOD_NUDGE: &str = "nudge.period_close";
     /// A week that starts soon with somebody unplanned.
     pub const ROSTER_NUDGE: &str = "nudge.roster_gap";
+    /// The login of somebody who left or was suspended, closed on the day
+    /// that takes effect — once per employment event, keyed
+    /// `{employee}:{event}`, so a login an Admin opens again stays open.
+    pub const LOGIN_CLOSE: &str = "people.login.close_on_leaving";
 }
 
 /// The notification kinds the nudges raise.

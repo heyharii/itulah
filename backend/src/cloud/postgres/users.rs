@@ -888,6 +888,13 @@ pub async fn set_user_role(
     // rung, from a screen that predates job roles, gives that rung's default
     // role. The last owner is kept by the database either way.
     let role_code = known_role_code(pool, request.role_code.as_deref()).await?;
+    let was_owner = row.get::<String, _>("role_code") == OWNER_ROLE;
+    owner_only(
+        pool,
+        actor_username,
+        was_owner || role_code.as_deref() == Some(OWNER_ROLE),
+    )
+    .await?;
     if role_code.is_none() && request.role.is_none() {
         return Err(AppError::Validation("name the job role (role_code)".into()));
     }
@@ -956,7 +963,7 @@ pub async fn set_user_active(
 ) -> Result<Value, AppError> {
     // An admin cannot deactivate their own account: the node must always
     // retain at least one usable administrator.
-    let row = sqlx::query("SELECT username FROM app_user WHERE id=$1")
+    let row = sqlx::query("SELECT username,role_code FROM app_user WHERE id=$1")
         .bind(user_id)
         .fetch_optional(pool)
         .await?
@@ -967,6 +974,12 @@ pub async fn set_user_active(
             "cannot deactivate your own account".into(),
         ));
     }
+    owner_only(
+        pool,
+        actor_username,
+        row.get::<String, _>("role_code") == OWNER_ROLE,
+    )
+    .await?;
     let mut tx = pool.begin().await?;
     sqlx::query(
         "UPDATE app_user SET active=$2,auth_version=auth_version+1,updated_at=now() WHERE id=$1",
@@ -1041,6 +1054,36 @@ pub async fn change_password(
     Ok(json!({ "username": username, "changed": true }))
 }
 
+/// The job role that owns the company (0633).
+pub const OWNER_ROLE: &str = "OWNER";
+
+/// Only an Owner acts on an Owner (24 Oct 2026): sets their password, suspends
+/// them, moves them to another role, or makes somebody an Owner — invited, or
+/// promoted. An Admin could do all four before, which made the Owner whoever
+/// last reset the Owner's password. `touches_owner` says whether the act is
+/// one of those; a clock or a sync acting by itself names no account
+/// (`system:…`) and is held by the rule that started it.
+pub async fn owner_only(
+    pool: &PgPool,
+    actor_username: &str,
+    touches_owner: bool,
+) -> Result<(), AppError> {
+    if !touches_owner {
+        return Ok(());
+    }
+    let actor: Option<String> =
+        sqlx::query_scalar("SELECT role_code FROM app_user WHERE username = $1")
+            .bind(actor_username)
+            .fetch_optional(pool)
+            .await?;
+    match actor.as_deref() {
+        None | Some(OWNER_ROLE) => Ok(()),
+        Some(_) => Err(AppError::Forbidden(
+            "only an Owner may change an Owner's account, or make somebody an Owner".into(),
+        )),
+    }
+}
+
 /// An administrator sets a new password for somebody who cannot supply the old
 /// one. This is the only way out of a forgotten password: usernames are never
 /// released and there is no delete, so without it a forgotten password retires
@@ -1056,12 +1099,18 @@ pub async fn admin_reset_password(
     request: ResetPasswordRequest,
     actor_username: &str,
 ) -> Result<Value, AppError> {
-    let row = sqlx::query("SELECT username,active FROM app_user WHERE id=$1")
+    let row = sqlx::query("SELECT username,active,role_code FROM app_user WHERE id=$1")
         .bind(user_id)
         .fetch_optional(pool)
         .await?
         .ok_or_else(|| AppError::NotFound("user".into()))?;
     let username: String = row.get("username");
+    owner_only(
+        pool,
+        actor_username,
+        row.get::<String, _>("role_code") == OWNER_ROLE,
+    )
+    .await?;
     let new_hash = hash_password(&request.new_password).await?;
     let mut tx = pool.begin().await?;
     sqlx::query(

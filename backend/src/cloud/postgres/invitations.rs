@@ -296,6 +296,19 @@ pub async fn invite_tx(
             "there is no job role {role_code}"
         )));
     };
+    // Only an Owner makes an Owner (`users::owner_only`).
+    if role_code == super::OWNER_ROLE {
+        let by: Option<String> =
+            sqlx::query_scalar("SELECT role_code FROM app_user WHERE username = $1")
+                .bind(actor)
+                .fetch_optional(&mut **tx)
+                .await?;
+        if by.as_deref().is_some_and(|code| code != super::OWNER_ROLE) {
+            return Err(AppError::Forbidden(
+                "only an Owner may invite somebody as an Owner".into(),
+            ));
+        }
+    }
     let unit_id = person.unit_id.trim().to_owned();
     let status: Option<String> = sqlx::query_scalar("SELECT status FROM unit WHERE id = $1")
         .bind(&unit_id)

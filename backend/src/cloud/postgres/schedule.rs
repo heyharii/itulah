@@ -299,6 +299,7 @@ pub async fn run_all(pool: &PgPool, on: NaiveDate) -> Vec<SchedulerJobResult> {
         schedule::jobs::CONTRACT_NUDGE,
         schedule::jobs::PERIOD_NUDGE,
         schedule::jobs::ROSTER_NUDGE,
+        schedule::jobs::LOGIN_CLOSE,
     ] {
         let result = match job {
             schedule::jobs::LEAVE_ACCRUAL => run_leave_accrual(pool, on).await,
@@ -307,6 +308,7 @@ pub async fn run_all(pool: &PgPool, on: NaiveDate) -> Vec<SchedulerJobResult> {
             schedule::jobs::CONTRACT_NUDGE => run_contract_nudges(pool, on).await,
             schedule::jobs::PERIOD_NUDGE => run_period_nudges(pool, on).await,
             schedule::jobs::ROSTER_NUDGE => run_roster_gap_nudges(pool, on).await,
+            schedule::jobs::LOGIN_CLOSE => run_login_close(pool, on).await,
             other => Err(AppError::Configuration(format!(
                 "scheduler has no work for job {other}"
             ))),
@@ -324,6 +326,56 @@ pub async fn run_all(pool: &PgPool, on: NaiveDate) -> Vec<SchedulerJobResult> {
         });
     }
     results
+}
+
+/// The logins of people whose leaving or suspension has taken effect by `on`
+/// and is not yet handled, closed (`close_login_on_leaving`). Hourly with the
+/// rest, so a leaving dated for today closes its login that morning; not
+/// claimed per day, because each event is claimed by itself.
+async fn run_login_close(pool: &PgPool, on: NaiveDate) -> Result<SchedulerJobResult, AppError> {
+    let job = schedule::jobs::LOGIN_CLOSE;
+    let leavers: Vec<String> = sqlx::query_scalar(
+        "SELECT e.id FROM employee e
+           JOIN app_user u ON u.employee_id = e.id AND u.active
+          WHERE e.status IN ('TERMINATED', 'SUSPENDED')
+          ORDER BY e.id",
+    )
+    .fetch_all(pool)
+    .await?;
+    let mut closed = Vec::new();
+    for employee_id in leavers {
+        let Some(record) = infrastructure::load_employee(pool, &employee_id).await? else {
+            continue;
+        };
+        // The event that made them leave is their last: the status moves
+        // only by appending one.
+        let history = record.employee.history();
+        let Some(last) = history.last() else {
+            continue;
+        };
+        if last.effective_on() > on {
+            continue;
+        }
+        if let Some(login) = infrastructure::close_login_on_leaving(
+            pool,
+            &employee_id,
+            history.len() - 1,
+            "system:hr-scheduler",
+        )
+        .await?
+        {
+            closed.push(login);
+        }
+    }
+    Ok(SchedulerJobResult {
+        job: job.to_owned(),
+        status: if closed.is_empty() { "SKIPPED" } else { "RAN" }.to_owned(),
+        detail: if closed.is_empty() {
+            json!({ "reason": "no leaving took effect that was not handled" })
+        } else {
+            json!({ "closed": closed })
+        },
+    })
 }
 
 /// The shared shape of one claimed job: claim the period, do the work, stamp

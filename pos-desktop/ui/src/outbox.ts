@@ -55,7 +55,9 @@ import {
 /// about *when*, and it belongs to the screen that knows whether a cashier is
 /// standing at the counter — the same division `api.ts` draws when it refuses
 /// to retry. `till.tsx` flushes whenever it comes back to rest on the sale
-/// screen. This file decides what happens once it is woken.
+/// screen, and `app.tsx` ticks `pump` on whatever screen is up, the stopped
+/// door included: a sale already rung is owed to the store whichever screen the
+/// till is showing. This file decides what happens once it is woken.
 
 const STORAGE_KEY = "pos.outbox.v1"
 
@@ -364,6 +366,17 @@ function snapshot(): OutboxView {
   return view
 }
 
+/// How many sales the node has not acknowledged, owed and refused together —
+/// the number the Windows uninstaller is told (`app.tsx`). A number rather than
+/// the view, so a reader renders when the count moves and not on every pass.
+export function useUnacknowledged(): number {
+  return useSyncExternalStore(subscribe, unacknowledged, unacknowledged)
+}
+
+function unacknowledged(): number {
+  return view.unsent + view.refused
+}
+
 // ── writing a sale down ─────────────────────────────────────────────────
 
 /// Commit a sale. Returns the entry, already on disk.
@@ -483,6 +496,10 @@ function wire(entry: OutboxEntry): SaleRequest {
     charges: entry.charges,
     // Left out when there is none, as the quote does.
     ...(entry.untagged.length > 0 ? { untagged: entry.untagged } : {}),
+    // When it was rung, so a stop that came while it waited here does not
+    // refuse it. An entry from before this was kept says the epoch, which
+    // the node does not believe and reads as now.
+    taken_at: entry.takenAt,
   }
 }
 
@@ -583,6 +600,16 @@ export async function flush(): Promise<FlushOutcome> {
     else stuck.push(entry)
   }
   return { sent, problem: stuck.length === 0 ? null : reason(stuck) }
+}
+
+/// One tick of the app's timer: send what is owed, unless nothing is or a pass
+/// is already on its way. `app.tsx` calls it every few seconds on whatever
+/// screen is up. Skipping a tick while a pass waits keeps a node that answers
+/// slowly from collecting a line of passes behind it, and `flush` still queues
+/// behind any pass that starts in between, so two never run at once.
+export function pump(): void {
+  if (passes > 0 || !queue.some(isOwed)) return
+  void flush()
 }
 
 /// Why something is still owed, in the words most likely to be about the sale

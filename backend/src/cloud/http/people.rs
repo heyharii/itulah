@@ -1031,6 +1031,18 @@ async fn apply_change(state: &AppState, proposal: &mut ChangeProposal) -> Result
             infrastructure::save_employee(&state.db, &record.employee).await?;
             infrastructure::create_task_set(&state.db, &employee_id, LifecycleKind::Separation)
                 .await?;
+            // The login, and with it every till of their posting, closes on
+            // the day the leaving takes effect: now, when that day has come
+            // (head office's day), else the HR scheduler closes it that
+            // morning (`schedule::run_login_close`).
+            let today = crate::reporting::local_today_at(
+                infrastructure::sites::business_utc_offset_minutes(&state.db, None, Utc::now())
+                    .await?,
+            );
+            if effective <= today {
+                let event = record.employee.history().len().saturating_sub(1);
+                super::employment::close_login(state, &decider, &employee_id, event).await?;
+            }
         }
     }
     Ok(())

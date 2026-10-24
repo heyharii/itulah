@@ -9,6 +9,14 @@
 //! (`REVOKED`), the window lets go ([`till_hold`] with `false`) and offers
 //! "Uninstall POS", which opens that same Apps list ([`open_uninstall`]).
 //!
+//! A second value, `Unsent`, is how many sales the till rang that the store
+//! server has not taken ([`till_unsent`]): the window writes it on every change
+//! to its outbox, and the installer refuses to uninstall while it is there —
+//! those sales exist nowhere else. It is independent of `Held`: a removed till
+//! has let go of `Held` and is still refused until its sales are sent. An
+//! upgrade is never refused, and the outbox is the window's own storage, which
+//! an upgrade keeps.
+//!
 //! What it does not stop: an administrator who deletes the folder, or one
 //! who uninstalls from another Windows account (the value is the signed-in
 //! user's). It stops the counter's own user, which is who the client meant.
@@ -19,6 +27,14 @@
 #[tauri::command]
 pub async fn till_hold(held: bool) -> Result<(), String> {
     crate::edge::off_the_window(move || hold(held)).await
+}
+
+/// Say how many sales this till has rung that the store server has not taken
+/// (`Unsent`); none removes the value. Idempotent, and the window sends it in
+/// order, so the last word is the latest count.
+#[tauri::command]
+pub async fn till_unsent(count: u32) -> Result<(), String> {
+    crate::edge::off_the_window(move || unsent(count)).await
 }
 
 /// Open Windows' Apps list, where "Central POS" is uninstalled.
@@ -64,6 +80,37 @@ fn hold(held: bool) -> Result<(), String> {
 #[cfg(not(target_os = "windows"))]
 fn hold(held: bool) -> Result<(), String> {
     let _ = held;
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn unsent(count: u32) -> Result<(), String> {
+    if count > 0 {
+        // Present only while one or more are owed: the installer asks whether
+        // the value is there, as it does for `Held`.
+        let count = count.to_string();
+        let status = quiet("reg.exe")
+            .args(["add", KEY, "/v", "Unsent", "/t", "REG_SZ", "/d", count.as_str(), "/f"])
+            .status()
+            .map_err(|error| format!("could not record the unsent sales: {error}"))?;
+        if !status.success() {
+            return Err(format!(
+                "could not record the unsent sales: reg.exe ended with {status}"
+            ));
+        }
+    } else {
+        // Absent already is nothing owed already: reg.exe's complaint is not one.
+        let _ = quiet("reg.exe")
+            .args(["delete", KEY, "/v", "Unsent", "/f"])
+            .status()
+            .map_err(|error| format!("could not clear the unsent sales: {error}"))?;
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn unsent(count: u32) -> Result<(), String> {
+    let _ = count;
     Ok(())
 }
 

@@ -1340,6 +1340,59 @@ pub struct BoundAccount {
     pub active: bool,
 }
 
+/// Close the login of somebody whose leaving — or suspension — is the event
+/// at `event_index` of their employment history, once per event
+/// (`schedule::jobs::LOGIN_CLOSE`, 24 Oct 2026). Every way out comes here: the
+/// direct transition, an approved Separation in People › Changes (which used
+/// to skip it and leave the person signing in at head office and at every
+/// till of their posting, by password and by finger), and the HR scheduler on
+/// the day a dated leaving takes effect. Closing the account and sending the
+/// stores their new policies is what takes the person off every till.
+///
+/// Handled once: an event already handled changes nothing, so a login an
+/// Admin opens again afterwards (System › Accounts) stays open. The actor's
+/// own account is left alone, as `set_user_active` requires. Returns the
+/// login it closed, if it closed one. Nothing is marked handled when closing
+/// fails, so the scheduler tries again within the hour.
+pub async fn close_login_on_leaving(
+    pool: &PgPool,
+    employee_id: &str,
+    event_index: usize,
+    actor: &str,
+) -> Result<Option<String>, AppError> {
+    let job = crate::cloud::domain::schedule::jobs::LOGIN_CLOSE;
+    let key = format!("{employee_id}:{event_index}");
+    let handled: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM scheduled_job_run WHERE job = $1 AND run_key = $2)",
+    )
+    .bind(job)
+    .bind(&key)
+    .fetch_one(pool)
+    .await?;
+    if handled {
+        return Ok(None);
+    }
+    let mut closed = None;
+    if let Some(account) = bound_account(pool, employee_id).await? {
+        if account.active && account.username != actor {
+            super::set_user_active(pool, account.user_id, false, actor).await?;
+            super::publish_auth_policies_for_user(pool, account.user_id, actor).await?;
+            closed = Some(account.username);
+        }
+    }
+    sqlx::query(
+        "INSERT INTO scheduled_job_run (job, run_key, outcome, detail, finished_at)
+         VALUES ($1, $2, 'RAN', $3, now())
+         ON CONFLICT (job, run_key) DO NOTHING",
+    )
+    .bind(job)
+    .bind(&key)
+    .bind(serde_json::json!({ "closed": closed, "actor": actor }))
+    .execute(pool)
+    .await?;
+    Ok(closed)
+}
+
 /// The login bound to this record, for a screen.
 pub async fn load_account(
     pool: &PgPool,

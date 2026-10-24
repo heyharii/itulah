@@ -2941,9 +2941,11 @@ async fn relay_benefit_return(
 async fn approve_unknown_item(
     State(state): State<EdgeState>,
     principal: Option<Extension<EdgePrincipal>>,
-    Json(request): Json<crate::edge::UnknownItemApprovalRequest>,
+    Json(mut request): Json<crate::edge::UnknownItemApprovalRequest>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
-    require_permission(&state, principal, EdgePermission::StoreSale)?;
+    if let Some(principal) = require_permission(&state, principal, EdgePermission::StoreSale)? {
+        request.actor_id = principal.username;
+    }
     let approval = run_blocking(move || state.inventory.approve_unknown_item(request)).await?;
     Ok((StatusCode::CREATED, Json(serde_json::to_value(approval)?)))
 }

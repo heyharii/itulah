@@ -222,6 +222,21 @@ async fn a_new_code_retires_the_old_one_and_a_refusal_registers_nothing(pool: Pg
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn a_replacement_machine_starts_the_next_generation_and_locks_the_old_one_out(pool: PgPool) {
     for (key, expected_generation) in [(KEY_A, 1), (KEY_B, 2)] {
+        if expected_generation > 1 {
+            // A connected server is not handed over to whoever types a code:
+            // no code while it is connected, one once it is let go (the store
+            // page's Disconnect revokes its key the same way).
+            let refused =
+                cloud::issue_node_enrolment(&pool, issue_request("store-05"), "admin").await;
+            assert!(matches!(refused, Err(AppError::Conflict(_))), "{refused:?}");
+            sqlx::query(
+                "UPDATE sync_origin_credential SET revoked_at = now() WHERE origin_id = $1",
+            )
+            .bind("store-05")
+            .execute(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("disconnect: {error}"));
+        }
         let issued = cloud::issue_node_enrolment(&pool, issue_request("store-05"), "admin")
             .await
             .unwrap_or_else(|error| panic!("issue: {error}"));

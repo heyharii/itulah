@@ -4,4 +4,10 @@ import type { Supervisor } from "./Supervisor";
 /**
  * The Kepala toko approving one unknown item: its name and its price.
  */
-export type UnknownItemApprovalRequest = { name: string, unit_price_minor: number, supervisor: Supervisor, };
+export type UnknownItemApprovalRequest = { name: string, unit_price_minor: number, supervisor: Supervisor, 
+/**
+ * Who asks: the signed-in cashier, filled by the node from the session,
+ * so the Kepala toko approving is somebody else
+ * (`till::verify_supervisor`).
+ */
+actor_id?: string, };

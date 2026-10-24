@@ -390,7 +390,11 @@ pub(crate) fn approve_unknown(
             "an unknown item needs a price above nought".into(),
         ));
     }
-    let approved_by = crate::edge::till::verify_supervisor(tx, Some(&request.supervisor))?;
+    let approved_by = crate::edge::till::verify_supervisor(
+        tx,
+        Some(&request.supervisor),
+        &[request.actor_id.as_str()],
+    )?;
     let approved_by_name: String = tx
         .prepare_cached("SELECT display_name FROM edge_user WHERE username = ?1")
         .map_err(db)?

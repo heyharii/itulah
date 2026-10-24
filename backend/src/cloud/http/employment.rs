@@ -920,7 +920,14 @@ pub async fn transition(
         subject.employee.status(),
         EmploymentStatus::Terminated | EmploymentStatus::Suspended
     ) {
-        close_login(&state, &access.principal.username, &access.employee_id).await?;
+        let event = subject.employee.history().len().saturating_sub(1);
+        close_login(
+            &state,
+            &access.principal.username,
+            &access.employee_id,
+            event,
+        )
+        .await?;
     }
 
     // Re-read rather than serving `subject`: the view now carries the login, and
@@ -954,26 +961,31 @@ pub async fn transition(
 /// self-deactivation so a node always keeps one usable administrator, and an
 /// HR officer ending their own employment must not be the exception that
 /// empties the room.
-async fn close_login(state: &AppState, actor: &str, employee_id: &str) -> Result<(), AppError> {
-    let Some(account) = infrastructure::bound_account(&state.db, employee_id).await? else {
-        return Ok(());
-    };
-    if !account.active || account.username == actor {
-        return Ok(());
-    }
+///
+/// `event` is the place in the employment history of the leaving this
+/// answers: each is handled once (`close_login_on_leaving`), so the HR
+/// scheduler does not close again a login somebody opened since. An approved
+/// Separation in People › Changes comes here too (`people.rs`).
+pub(super) async fn close_login(
+    state: &AppState,
+    actor: &str,
+    employee_id: &str,
+    event: usize,
+) -> Result<(), AppError> {
     // Failure is reported, never swallowed. The employment change is already
     // committed, so a caller who saw a bare 500 would be left with a record
     // saying TERMINATED and a live credential, and no way to tell.
-    let closed = async {
-        infrastructure::set_user_active(&state.db, account.user_id, false, actor).await?;
-        infrastructure::publish_auth_policies_for_user(&state.db, account.user_id, actor).await
-    }
-    .await;
-    if let Err(error) = closed {
+    if let Err(error) =
+        infrastructure::close_login_on_leaving(&state.db, employee_id, event, actor).await
+    {
+        let login = infrastructure::bound_account(&state.db, employee_id)
+            .await
+            .ok()
+            .flatten()
+            .map_or_else(|| "of this person".to_owned(), |account| account.username);
         return Err(AppError::Configuration(format!(
-            "the employment change is recorded, but the login {} could not be closed: {error}. \
-             Suspend it in System > Accounts.",
-            account.username
+            "the employment change is recorded, but the login {login} could not be closed: \
+             {error}. Suspend it in System > Accounts.",
         )));
     }
     Ok(())

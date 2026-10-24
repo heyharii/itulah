@@ -601,6 +601,10 @@ export const sell = (body: {
   /// The pieces with no tag, one entry each (`UntaggedLine`). Sent on the
   /// quote too, so the figure on screen is the figure the sale settles.
   untagged?: readonly UntaggedLine[]
+  /// When the money changed hands, by this till's clock. A sale that waited
+  /// in the outbox — the line down, then head office stopping the till — is
+  /// judged by when it was rung, not when it arrived.
+  taken_at?: string
 }) => edge<SaleReply>("POST", "/api/v1/store/sales", body)
 
 /// A voucher as head office reports it, read-only — what F2 shows.

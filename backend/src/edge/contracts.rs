@@ -446,6 +446,12 @@ pub struct UnknownItemApprovalRequest {
     pub name: String,
     pub unit_price_minor: i64,
     pub supervisor: crate::edge::till::Supervisor,
+    /// Who asks: the signed-in cashier, filled by the node from the session,
+    /// so the Kepala toko approving is somebody else
+    /// (`till::verify_supervisor`).
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub actor_id: String,
 }
 
 /// The approval a sale's UNKNOWN line carries as `approval_id`.
@@ -634,6 +640,15 @@ pub struct SaleRequest {
     /// than refusing the sale.
     #[serde(default)]
     pub untagged: Vec<UntaggedLine>,
+    /// When the till rang it, by the till's clock (24 Oct 2026). A sale that
+    /// waited in a till's outbox reaches this node after it was rung — after
+    /// head office stopped the till, say — and is judged by when it was rung,
+    /// not when it arrived (`pos_stop::refuse_selling`). Absent from a till
+    /// that sends at once; one no till could mean is not believed
+    /// (`sqlite::rung_at`).
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub taken_at: Option<DateTime<Utc>>,
 }
 
 /// Quantity-only DC Pick. The server assigns this quantity to accepted

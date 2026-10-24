@@ -298,6 +298,18 @@ fn store_refusal(stop: &StopNote) -> EdgeError {
     })
 }
 
+/// A supervisor head office stopped says yes to nothing at a till
+/// (`till::verify_supervisor`): stopping a person takes away their counter,
+/// and their signature on somebody else's void with it.
+pub fn refuse_approving(connection: &Connection, approver: &str) -> Result<(), EdgeError> {
+    if person_stop(connection, approver).is_some() {
+        return Err(EdgeError::Conflict(
+            "Akses POS supervisor ini dihentikan kantor pusat; minta supervisor lain.".into(),
+        ));
+    }
+    Ok(())
+}
+
 fn person_refusal() -> EdgeError {
     EdgeError::Conflict("Akses POS Anda dihentikan kantor pusat.".into())
 }

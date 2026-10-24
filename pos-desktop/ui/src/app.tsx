@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 
 import { myShifts } from "@/api"
 import { isWeb } from "@/edition"
 import { useIdleLock, LockScreen } from "@/lock"
+import { pump, useUnacknowledged } from "@/outbox"
 import { CustomerScreen } from "@/screens/customer"
 import { JoinScreen } from "@/screens/join"
 import { WaitingTillsScreen } from "@/screens/joins"
@@ -13,7 +14,7 @@ import { ReturnScreen, VoidScreen } from "@/screens/returns"
 import { ShiftGate, ShiftScreen } from "@/screens/shift"
 import { isStopped, StoppedScreen, useStanding } from "@/screens/stopped"
 import { holdSeat, seatNow, type Seat } from "@/seat"
-import { useSession } from "@/session"
+import { shellCall, useSession } from "@/session"
 import { Till, type Where } from "@/till"
 
 /// The terminal, and the three decisions it makes before anything else.
@@ -84,6 +85,31 @@ function Counter() {
   useEffect(() => {
     if (!stopped) setClosing(false)
   }, [stopped])
+
+  // Sales already rung are sent whichever screen is up, the stopped door
+  // included: the money was taken, so the store is owed the record whatever
+  // head office has since stopped. The sale screen also flushes whenever it
+  // comes back to rest (`till.tsx`); this is the tick for every other screen.
+  useEffect(() => {
+    pump()
+    const timer = window.setInterval(pump, 15_000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  // What the Windows uninstaller is told: it refuses to remove a till that
+  // still holds sales the store server has not taken (`Unsent`,
+  // `wix/uninstall-guard.wxs`). Written on every change, one after another, so
+  // the last word is always the latest count.
+  const unacknowledged = useUnacknowledged()
+  const told = useRef<Promise<unknown>>(Promise.resolve())
+  useEffect(() => {
+    if (isWeb) return
+    // A write that failed must not stop the ones after it: the next change
+    // says the count again.
+    told.current = told.current
+      .then(() => shellCall<null>("till_unsent", { count: unacknowledged }))
+      .catch(() => undefined)
+  }, [unacknowledged])
 
   // Nobody signed in means nobody holds a seat — including when the session
   // ends some way other than the sign-out button, which would otherwise let the

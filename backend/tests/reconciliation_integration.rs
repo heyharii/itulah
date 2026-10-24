@@ -180,6 +180,7 @@ async fn a_trading_day_reaches_the_centre_and_reconciles(pool: PgPool) {
         tenders: cash(50_000),
         coupon_authorizations: Vec::new(),
         untagged: Vec::new(),
+        taken_at: None,
     })
     .unwrap_or_else(|e| panic!("sale: {e}"));
 

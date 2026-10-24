@@ -4231,6 +4231,22 @@ struct PricedLine {
 
 /// A tender's acquirer as it is stored and synced: trimmed, upper-cased,
 /// absent when blank. `validate_tenders` has already screened it.
+/// When a sale was rung, for the stop it is judged by and the drawer it
+/// belongs to: the till's word (`SaleRequest::taken_at`) for a sale that
+/// waited in its outbox, else the moment it reached this node. A word no till
+/// could mean is not believed — ahead of this node's clock by more than a
+/// clock drifts, or older than a till keeps an unsent sale — and a till
+/// slightly ahead is read as now.
+fn rung_at(request: &SaleRequest, received_at: DateTime<Utc>) -> DateTime<Utc> {
+    request
+        .taken_at
+        .filter(|taken| {
+            *taken <= received_at + chrono::Duration::minutes(2)
+                && received_at - *taken <= chrono::Duration::hours(72)
+        })
+        .map_or(received_at, |taken| taken.min(received_at))
+}
+
 fn tender_acquirer(tender: &crate::tender::SaleTender) -> Option<String> {
     tender
         .acquirer
@@ -4589,8 +4605,13 @@ impl SqliteEdge {
             self.append_command(tx, &request.idempotency_key, &command)?
         };
         // The drawer of the person who rang it, as it stood when they rang it
-        // (`till::shift_for_sale`), and so the day it trades for.
-        let shift_id = crate::edge::till::shift_for_sale(tx, &request.actor_id, occurred_at)?;
+        // (`till::shift_for_sale`), and so the day it trades for. When they
+        // rang it is the till's word for a sale that waited in its outbox.
+        let shift_id = crate::edge::till::shift_for_sale(
+            tx,
+            &request.actor_id,
+            rung_at(request, occurred_at),
+        )?;
         let business_date =
             crate::edge::till::business_date_for(tx, shift_id.as_deref(), occurred_at)?;
         tx.prepare_cached(// `pricing_trace_id` is written here, and it was not before: the
@@ -8699,7 +8720,12 @@ impl EdgeInventory for SqliteEdge {
             ));
         }
         Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
-        let request_json = Self::encode_idempotent_request(&request)?;
+        // When it was rung is not what makes it the same sale: a till that
+        // sent it before it said when, and sends it again now, is a replay.
+        let request_json = Self::encode_idempotent_request(&SaleRequest {
+            taken_at: None,
+            ..request.clone()
+        })?;
         let mut seen = HashSet::new();
         let epcs = request
             .epcs
@@ -9903,7 +9929,11 @@ impl EdgeInventory for SqliteEdge {
 
         // Who authorised it, before anything moves. A void nobody signed is a
         // void nobody can be asked about.
-        let approved_by = crate::edge::till::verify_supervisor(&tx, Some(&request.supervisor))?;
+        let approved_by = crate::edge::till::verify_supervisor(
+            &tx,
+            Some(&request.supervisor),
+            &[request.actor_id.as_str()],
+        )?;
 
         match crate::edge::till::sale_status(&tx, sale_id)?.as_str() {
             "COMPLETED" => {}
@@ -10069,7 +10099,11 @@ impl EdgeInventory for SqliteEdge {
             return Ok(response);
         }
 
-        let approved_by = crate::edge::till::verify_supervisor(&tx, Some(&request.supervisor))?;
+        let approved_by = crate::edge::till::verify_supervisor(
+            &tx,
+            Some(&request.supervisor),
+            &[request.actor_id.as_str()],
+        )?;
         match crate::edge::till::sale_status(&tx, &request.sale_id)?.as_str() {
             "COMPLETED" => {}
             other => {
@@ -10244,7 +10278,11 @@ impl EdgeInventory for SqliteEdge {
 
         // The Kepala toko's grant, spent inside this transaction like a
         // return's: refused here, nothing moves and the grant is not burnt.
-        let approved_by = crate::edge::till::verify_supervisor(&tx, Some(&request.supervisor))?;
+        let approved_by = crate::edge::till::verify_supervisor(
+            &tx,
+            Some(&request.supervisor),
+            &[request.actor_id.as_str()],
+        )?;
         let original_sale_id = request.sale_id.trim().to_string();
         match crate::edge::till::sale_status(&tx, &original_sale_id)?.as_str() {
             "COMPLETED" => {}
@@ -10342,6 +10380,7 @@ impl EdgeInventory for SqliteEdge {
             customer_id: None,
             coupon_authorizations: Vec::new(),
             untagged: Vec::new(),
+            taken_at: None,
         };
         let credit = ExchangeCredit {
             available_minor: returned_minor,
@@ -10530,6 +10569,34 @@ pub(super) fn db(error: rusqlite::Error) -> EdgeError {
 mod tests {
     use super::*;
     use crate::edge::{PickLine, ReceiveRequest, SiteId};
+
+    #[test]
+    fn a_sale_that_waited_in_an_outbox_is_judged_by_when_it_was_rung() {
+        let received = Utc::now();
+        let sale = |taken_at: Option<DateTime<Utc>>| SaleRequest {
+            epcs: Vec::new(),
+            tenders: Vec::new(),
+            actor_id: "kasir".into(),
+            idempotency_key: "k".into(),
+            coupon_codes: Vec::new(),
+            charges: Vec::new(),
+            customer_id: None,
+            coupon_authorizations: Vec::new(),
+            untagged: Vec::new(),
+            taken_at,
+        };
+        let rung = received - chrono::Duration::minutes(40);
+        assert_eq!(rung_at(&sale(Some(rung)), received), rung);
+        assert_eq!(rung_at(&sale(None), received), received);
+        // A till a little ahead is now; one far ahead, or a week back, is not
+        // believed.
+        let ahead = received + chrono::Duration::seconds(30);
+        assert_eq!(rung_at(&sale(Some(ahead)), received), received);
+        let far = received + chrono::Duration::hours(3);
+        assert_eq!(rung_at(&sale(Some(far)), received), received);
+        let stale = received - chrono::Duration::days(7);
+        assert_eq!(rung_at(&sale(Some(stale)), received), received);
+    }
 
     fn node(role: EdgeRole, site_id: &str) -> NodeContext {
         NodeContext::new(
@@ -10734,6 +10801,7 @@ mod tests {
                 idempotency_key: "store-sale-001".into(),
                 coupon_authorizations: Vec::new(),
                 untagged: Vec::new(),
+                taken_at: None,
             })
             .unwrap_or_else(|error| panic!("sale: {error}"));
         assert_eq!(sale.total_minor, 150_000);
@@ -10803,6 +10871,7 @@ mod tests {
                 idempotency_key: format!("{key}-sale"),
                 coupon_authorizations: Vec::new(),
                 untagged: Vec::new(),
+                taken_at: None,
             })
             .unwrap_or_else(|error| panic!("sale: {error}"));
         (store, sale.sale_id.to_string())
@@ -10933,6 +11002,7 @@ mod tests {
                 idempotency_key: "expected-sale-2".into(),
                 coupon_authorizations: Vec::new(),
                 untagged: Vec::new(),
+                taken_at: None,
             })
             .unwrap_or_else(|error| panic!("sale: {error}"));
 
@@ -10997,6 +11067,7 @@ mod tests {
                 idempotency_key: "card-sale".into(),
                 coupon_authorizations: Vec::new(),
                 untagged: Vec::new(),
+                taken_at: None,
             })
             .unwrap_or_else(|error| panic!("sale: {error}"));
         let report = store
@@ -11066,6 +11137,7 @@ mod tests {
             idempotency_key: "unauth-sale".into(),
             coupon_authorizations: Vec::new(),
             untagged: Vec::new(),
+            taken_at: None,
         });
         assert!(
             refused.is_err(),
@@ -11150,6 +11222,7 @@ mod tests {
                 idempotency_key: "voucher-sale".into(),
                 coupon_authorizations: Vec::new(),
                 untagged: Vec::new(),
+                taken_at: None,
             })
             .unwrap_or_else(|error| panic!("sale: {error}"));
         assert_eq!(sale.total_minor, 150_000);
@@ -11222,6 +11295,7 @@ mod tests {
             idempotency_key: key.into(),
             coupon_authorizations: Vec::new(),
             untagged: Vec::new(),
+            taken_at: None,
         })
     }
 
@@ -11752,6 +11826,7 @@ mod tests {
                 idempotency_key: "listing-sale".into(),
                 coupon_authorizations: Vec::new(),
                 untagged: Vec::new(),
+                taken_at: None,
             })
             .unwrap_or_else(|error| panic!("sale: {error}"));
 
@@ -11794,6 +11869,36 @@ mod tests {
             .find(|tender| tender.method == "CASH")
             .unwrap_or_else(|| panic!("the cash tender is listed"));
         assert!(cash.card_kind.is_none() && cash.acquirer.is_none());
+    }
+
+    /// Two names on a void (24 Oct 2026): a supervisor ringing at a counter
+    /// does not approve their own, and one head office stopped approves
+    /// nobody's.
+    #[test]
+    fn a_supervisor_does_not_approve_their_own_void() {
+        let (store, sale_id) = shop_with_one_sale("own-void");
+        seed_supervisor(&store, "budi", "rahasia-panjang");
+        let own = store.void_sale(
+            &sale_id,
+            crate::edge::till::VoidSaleRequest {
+                reason: "Salah scan".into(),
+                supervisor: supervisor("budi", "rahasia-panjang"),
+                actor_id: "budi".into(),
+                idempotency_key: "own-void-1".into(),
+            },
+        );
+        assert!(matches!(own, Err(EdgeError::Forbidden(_))), "{own:?}");
+        // Somebody else asking, the same supervisor approving: the void goes.
+        let theirs = store.void_sale(
+            &sale_id,
+            crate::edge::till::VoidSaleRequest {
+                reason: "Salah scan".into(),
+                supervisor: supervisor("budi", "rahasia-panjang"),
+                actor_id: "siti".into(),
+                idempotency_key: "own-void-2".into(),
+            },
+        );
+        assert!(theirs.is_ok(), "{theirs:?}");
     }
 
     /// A void is a reversal, not a delete: the sale keeps its total and the
@@ -15340,6 +15445,7 @@ mod charge_tests {
             idempotency_key: "fee-sale-short".into(),
             coupon_authorizations: Vec::new(),
             untagged: Vec::new(),
+            taken_at: None,
         });
         assert!(
             matches!(refused, Err(EdgeError::Validation(_))),
@@ -15371,6 +15477,7 @@ mod charge_tests {
                 idempotency_key: "fee-sale-1".into(),
                 coupon_authorizations: Vec::new(),
                 untagged: Vec::new(),
+                taken_at: None,
             })
             .unwrap_or_else(|error| panic!("sale: {error}"));
 
@@ -15430,6 +15537,7 @@ mod charge_tests {
                 idempotency_key: "fee-sale-none".into(),
                 coupon_authorizations: Vec::new(),
                 untagged: Vec::new(),
+                taken_at: None,
             })
             .unwrap_or_else(|error| panic!("sale: {error}"));
 

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react"
 import { tillStanding, type TillStanding } from "@/api"
 import { isWeb } from "@/edition"
 import { siteTitle } from "@/joining"
+import { useOutbox } from "@/outbox"
 import { Mark } from "@/screens/login"
 import { shellCall, useNodeConfig } from "@/session"
 import { kasirLabel } from "@/till"
@@ -28,6 +29,13 @@ import { kasirLabel } from "@/till"
 /// Removed: the till lets go of its hold on the installer (`till_hold`,
 /// `src-tauri/src/uninstall.rs`) and offers "Uninstall POS". Until then the
 /// installer refuses to remove a till that is still its store's.
+///
+/// Sales the till rang and the store server has not taken (`outbox.ts`) are
+/// still sent from here (`app.tsx` ticks the outbox on every screen), and the
+/// door says how many are left. "Uninstall POS" waits for none to be: those
+/// sales exist nowhere else, and the installer refuses a till that holds any
+/// (`till_unsent`). A sale the node refused counts too — it waits for a Kepala
+/// toko at the counter, which a stopped till does not have.
 
 const BULAN = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"]
 const two = (n: number) => String(n).padStart(2, "0")
@@ -129,6 +137,16 @@ export function StoppedScreen({
   // sign anybody in.
   const closeHere = !removed && store !== null && shift !== null
 
+  // What the store server has not taken, refused sales included. "All sent" is
+  // news once something was waiting, and where it unlocks the uninstall.
+  const outbox = useOutbox()
+  const owed = outbox.unsent + outbox.refused
+  const [waited, setWaited] = useState(false)
+  useEffect(() => {
+    if (owed > 0) setWaited(true)
+  }, [owed])
+  const canUninstall = removed && !isWeb && owed === 0
+
   const title = storeRemoved
     ? "Toko sudah dihapus"
     : tillRemoved
@@ -153,7 +171,7 @@ export function StoppedScreen({
       if (event.key !== "Enter") return
       event.preventDefault()
       if (closeHere) onCloseShift()
-      else if (removed && !isWeb) void uninstall()
+      else if (canUninstall) void uninstall()
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
@@ -171,6 +189,18 @@ export function StoppedScreen({
           <p className="d-hint">{at !== null ? `Kantor pusat · ${at}` : "Kantor pusat"}</p>
           {reason !== null && reason.trim() !== "" && <p className="st-why">{reason}</p>}
           <div className="st-foot">
+            {owed > 0 ? (
+              <>
+                {outbox.unsent > 0 && (
+                  <p>{outbox.unsent} penjualan belum terkirim ke server toko</p>
+                )}
+                {outbox.refused > 0 && (
+                  <p className="d-err">{outbox.refused} penjualan ditolak server toko</p>
+                )}
+              </>
+            ) : (
+              (waited || canUninstall) && <p>Semua penjualan sudah terkirim</p>
+            )}
             {closeHere && shift !== null && (
               <>
                 <p>Shift {shift.name} masih terbuka</p>
@@ -182,7 +212,7 @@ export function StoppedScreen({
             {!closeHere && !removed && shift !== null && (
               <p>Shift {shift.name} masih terbuka · tutup di kasir lain</p>
             )}
-            {removed && !isWeb && (
+            {canUninstall && (
               <>
                 {problem !== null && <p className="d-err">{problem}</p>}
                 <button className="pd-btn" type="button" onClick={() => void uninstall()}>

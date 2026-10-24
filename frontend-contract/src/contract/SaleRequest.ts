@@ -48,4 +48,13 @@ coupon_authorizations: Array<CouponAuthorization>,
  * The lines this shop's stock cannot give. A tag in `epcs` this shop does
  * not hold joins them on its own (`OTHER`) rather than refusing the sale.
  */
-untagged: Array<UntaggedLine>, };
+untagged: Array<UntaggedLine>, 
+/**
+ * When the till rang it, by the till's clock (24 Oct 2026). A sale that
+ * waited in a till's outbox reaches this node after it was rung — after
+ * head office stopped the till, say — and is judged by when it was rung,
+ * not when it arrived (`pos_stop::refuse_selling`). Absent from a till
+ * that sends at once; one no till could mean is not believed
+ * (`sqlite::rung_at`).
+ */
+taken_at?: string | null, };

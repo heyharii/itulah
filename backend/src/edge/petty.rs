@@ -498,7 +498,7 @@ pub fn record_top_up(
             "a top-up of nothing tops nothing up".into(),
         ));
     }
-    let approver = verify_supervisor(tx, Some(&request.supervisor))?;
+    let approver = verify_supervisor(tx, Some(&request.supervisor), &[request.actor_id.as_str()])?;
     let receiver =
         crate::security::normalize_username(&request.actor_id).map_err(EdgeError::Validation)?;
     // The same maker/checker rule the expense keeps, for the same reason: one
