@@ -65,6 +65,17 @@ svg.lucide { width: 18px; height: 18px; stroke-width: 1.75; flex-shrink: 0; }
 .dept nav a { height: 36px; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; border-radius: 8px; color: var(--text); text-decoration: none; font-size: 14px; }
 .dept nav a.on { background: var(--tint); color: var(--accent); font-weight: 500; }
 .dept nav a .n { color: var(--warn-fg); font-size: 14px; }
+.dept .addstore { margin: 2px 12px 10px; justify-content: center; }
+.dept .dsearch { margin: 0 12px 8px; position: relative; }
+.dept .dsearch input { width: 100%; height: 34px; border: 1px solid var(--edge); border-radius: 8px; padding: 0 10px 0 32px; font-size: 14px; background: #fff; outline: none; }
+.dept .dsearch input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37, 99, 235, .12); }
+.dept .dsearch svg { position: absolute; left: 10px; top: 8px; width: 16px; height: 16px; color: var(--mute); }
+.dept nav { overflow-y: auto; flex: 1; }
+.dept nav .grp { font-size: 14px; color: var(--mute); padding: 12px 10px 4px; }
+.dept nav a .sname { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.dept nav a .sname em { font-style: normal; font-family: var(--mono); font-size: 14px; color: var(--mute); }
+.dept nav a .cnt { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--accent); color: #fff; font-size: 14px; display: grid; place-items: center; line-height: 1; transform: scale(.85); }
+.dept nav a { cursor: pointer; }
 .dept .clock { margin-top: auto; border-top: 1px solid var(--hairline); height: 52px; display: flex; align-items: center; gap: 8px; padding: 0 16px; font-size: 14px; color: var(--text); }
 .content { overflow-y: auto; padding: 14px 32px 40px; }
 .page-title { font-size: 15px; font-weight: 600; margin: 0 0 8px; line-height: 22px; }
@@ -639,6 +650,9 @@ svg.lucide.inl { width: 15px; height: 15px; vertical-align: -2px; }
 .rstep .rn { font-weight: 500; }
 .prow3 { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--hairline); flex-wrap: wrap; }
 .prow3:last-of-type { border-bottom: 0; }
+.prow3.click { cursor: pointer; transition: background-color 150ms ease; }
+@media (hover: hover) and (pointer: fine) { .prow3.click:hover { background: var(--soft); } }
+.fpw { display: inline-flex; align-items: center; gap: 7px; font-size: 14px; color: var(--body); }
 .prow3 .ic { width: 36px; height: 36px; border-radius: 8px; background: var(--soft-2); display: grid; place-items: center; flex-shrink: 0; }
 .avatar { width: 34px; height: 34px; border-radius: 50%; background: var(--soft-2); display: grid; place-items: center; font-size: 14px; font-weight: 600; color: var(--text); flex-shrink: 0; }
 .srow .tl svg { width: 15px; height: 15px; vertical-align: -2px; color: var(--mute); }
@@ -850,15 +864,35 @@ const tillPing = (i) => i !== S.tv && ((i === 0 && S.tills[1].state === "waiting
 
 /* ═══ Central (hub) ═════════════════════════════════════════════════════ */
 const RAIL = ["shopping-cart", "shirt", "truck", "boxes", "megaphone", "store", "landmark", "users", "messages-square", "book-open"]
+/* The Stores menu (owner, 24 Oct 2026): Add store, then every store in the
+   sidebar by where it stands, each one managed on its own page. */
+function myStoreWord() {
+  const st = S.store
+  if (S.part !== "new") return { open: ["Open", "ok"], stopped: ["Stopped", "bad"], removed: ["Removed", ""] }[S.mg.status]
+  return st.opened ? ["Open", "ok"] : ["Getting ready", "warn"]
+}
+function storesNav() {
+  const st = S.store, [w, tone] = myStoreWord()
+  const waiting = waitingFingers().length + (S.dv.ask ? 1 : 0)
+  const me = st.added ? `<a class="${S.hub.page === "store" ? "on" : ""}" data-open-store><span class="sname"><span class="sdot ${tone}"></span>Purwokerto <em>C014</em></span>${waiting ? `<span class="cnt">${waiting}</span>` : ""}</a>` : ""
+  const other = ([name, code]) => `<a data-other-store><span class="sname"><span class="sdot ok"></span>${name} <em>${code}</em></span></a>`
+  const group = (label, items) => items ? `<div class="grp">${label}</div>${items}` : ""
+  return `<a class="${S.hub.page === "list" ? "on" : ""}" data-hub="list"><span class="sname">${ic("layout-list")}All stores</span><span class="n" style="color:var(--mute)">${OTHER_STORES.length + (st.added ? 1 : 0)}</span></a>
+    ${group("Getting ready", w === "Getting ready" ? me : "")}
+    ${group("Open", (w === "Open" ? me : "") + OTHER_STORES.map(other).join(""))}
+    ${group("Stopped", w === "Stopped" ? me : "")}
+    ${group("Removed", w === "Removed" ? me : "")}
+    ${S.part === "devices" ? group("Fleet", `<a class="${S.hub.page === "updates" ? "on" : ""}" data-pnav="updates"><span class="sname">${ic("rocket")}POS updates</span></a>`) : ""}`
+}
 function shell(body) {
-  const people = S.part === "people", here = people ? "users" : "store"
-  const nav = people
-    ? `<a class="${S.pp.page !== "changes" ? "on" : ""}" data-pnav="list">Employees</a><a class="${S.pp.page === "changes" ? "on" : ""}" data-pnav="changes">Changes</a>`
-    : `<a class="${S.hub.page === "list" || S.hub.page === "store" ? "on" : ""}" data-hub="list">Stores</a>${S.part === "devices" ? `<a class="${S.hub.page === "updates" ? "on" : ""}" data-pnav="updates">POS updates</a>` : ""}<a>Exceptions</a>`
+  const here = "store"
+  const nav = storesNav()
   return `<div class="shell">
     <aside class="rail"><div class="logo">C</div>${RAIL.map((n) => `<span class="ic ${n === here ? "on" : ""}">${ic(n)}</span>`).join("")}
       <span class="gap"></span><span class="ic">${ic("bell")}${S.notes.length ? `<span class="badge">${S.notes.length}</span>` : ""}</span><span class="ic">${ic("sliders-horizontal")}</span><span class="me">R</span></aside>
-    <aside class="dept"><div class="head">${people ? "People" : "Stores"}${ic("panel-left")}</div>
+    <aside class="dept"><div class="head">Stores${ic("panel-left")}</div>
+      <button class="btn primary addstore" data-hub-add>${ic("plus")}Add store</button>
+      <div class="dsearch">${ic("search")}<input placeholder="Search stores"></div>
       <nav>${nav}</nav>
       <div class="clock">${ic("clock-3")}Sat 10 Oct 2026 · 09:41</div></aside>
     <main class="content">${body}</main></div>`
@@ -870,19 +904,10 @@ function hubList() {
   const mine = st.added ? `<li class="srow ${S.hub.fresh ? "fresh" : ""}" data-open-store><span>${ringSvg(done, 5, st.opened)}</span><span class="m"><b>Purwokerto</b><span class="code">C014</span><span class="sub">Purwokerto · ${st.opened ? "open since 10 Oct 2026" : "getting ready"}</span></span>
     <span class="badge-s ${S.part !== "new" ? storeWord()[1] : st.opened ? "ok" : "warn"}">${S.part !== "new" ? storeWord()[0] : st.opened ? "Open" : "Getting ready"}</span><span class="srv"><span class="sdot ${serverWord()[1]} ${st.server === "waiting" ? "live" : ""}"></span>${serverWord()[0]}</span>
     <span class="tl">${S.tills.filter((t) => t.state === "ready").length}/2 POS ready</span></li>` : ""
-  return `<div class="phead"><div><div class="crumb">Sales</div><h1>Stores</h1><div class="s">Add a store, install its server, and watch every shop from one page.</div></div>
-      <button class="btn primary" data-hub-add>${ic("plus")}Add store</button></div>
+  return `<div class="phead"><div><div class="crumb">Stores</div><h1>All stores</h1></div></div>
     <div class="card"><ul class="slist">${mine}${OTHER_STORES.map(row).join("")}</ul></div>`
 }
-function storePage() {
-  const st = S.store, tab = S.hub.tab
-  const pending = checks().filter((c) => !c.ok).length
-  const TABS = [["overview", "Overview", pending], ["server", "Server"], ["status", "Status"]]
-  return `<div class="phead"><div><div class="crumb"><span class="lnk" data-hub="list">Stores</span></div><h1>Purwokerto</h1><div class="s">C014</div></div>
-      <span class="badge-s ${st.opened ? "ok" : "warn"}">${st.opened ? "Open" : "Getting ready"}</span></div>
-    <div class="subtabs">${TABS.map(([k, l, n]) => `<button class="${tab === k ? "on" : ""}" data-tab="${k}">${l}${n && !st.opened ? `<span class="n">${n}</span>` : ""}</button>`).join("")}</div>
-    ${tab === "server" ? serverTab() : tab === "status" ? statusTab() : overviewTab()}`
-}
+function storePage() { return mgStorePage() }
 function serverTab() {
   const st = S.store, m = MACHINE[S.machine], w = serverWord()
   const head = `<div class="statusline"><span class="sdot ${w[1]} ${st.server === "waiting" ? "live" : ""}"></span><b>${w[0]}</b>${st.server === "ready" ? `<span class="age">data up to 09:43</span>` : ""}<span class="grow"></span>
@@ -1218,14 +1243,43 @@ function partScreens() {
 /* ── Central: the store page after it opened ──────────────────────── */
 const storeWord = () => ({ open: ["Open", "ok"], stopped: ["Stopped", "bad"], removed: ["Removed", ""] })[S.mg.status]
 function mgStorePage() {
-  const mg = S.mg, tab = S.hub.tab, [w, tone] = storeWord()
-  const TABS = [["overview", "Overview"], ["pos", "POS"], ["server", "Server"], ["status", "Status"]]
-  const acts = mg.status === "open" ? `<button class="btn red" data-mg="stop">${ic("octagon-pause")}Stop store</button>`
+  const mg = S.mg, tab = S.hub.tab, [w, tone] = myStoreWord(), isNew = S.part === "new"
+  const waiting = waitingFingers().length
+  const TABS = [["overview", "Overview", isNew && !S.store.opened ? checks().filter((c) => !c.ok).length : 0], ["people", "People", waiting], ["pos", "POS", S.dv.ask ? 1 : 0], ["devices", "Devices", 0], ["server", "Server", 0], ["status", "Status", 0]]
+  const acts = isNew ? "" : mg.status === "open" ? `<button class="btn red" data-mg="stop">${ic("octagon-pause")}Stop store</button>`
     : mg.status === "stopped" ? `<button class="btn primary" data-mg="resume">${ic("play")}Resume store</button><button class="btn red" data-mg="remove">${ic("trash-2")}Remove store</button>` : ""
-  return `<div class="phead"><div><div class="crumb"><span class="lnk" data-hub="list">Stores</span></div><h1>Purwokerto</h1><div class="s">C014</div></div>
+  const body = tab === "people" ? storePeopleTab() : tab === "pos" ? posTab() : tab === "devices" ? devicesTab() : tab === "server" ? (isNew ? serverTab() : mgServerTab()) : tab === "status" ? statusTab() : (isNew ? overviewTab() : mgOverview())
+  return `<div class="phead"><div><div class="crumb"><span class="lnk" data-hub="list">All stores</span></div><h1>Purwokerto</h1><div class="s">C014</div></div>
       <div class="hacts"><span class="badge-s ${tone}">${w}</span>${acts}</div></div>
-    <div class="subtabs">${TABS.map(([k, l]) => `<button class="${tab === k ? "on" : ""}" data-tab="${k}">${l}</button>`).join("")}</div>
-    ${tab === "pos" ? posTab() : tab === "server" ? mgServerTab() : tab === "status" ? statusTab() : mgOverview()}`
+    <div class="subtabs">${TABS.map(([k, l, n]) => `<button class="${tab === k ? "on" : ""}" data-tab="${k}">${l}${n ? `<span class="n">${n}</span>` : ""}</button>`).join("")}</div>
+    ${body}`
+}
+/* the store's team: who works here, whose finger waits for head office */
+function storePeopleTab() {
+  const pp = S.pp
+  const who = S.part === "new" ? ["dewi", ...(pp.added ? ["andi"] : [])] : ["dewi", "wira", ...(pp.added ? ["andi"] : [])]
+  const row = (k) => {
+    const p = PEOPLE[k], f = pp.fp[k], gone = k === "andi" && pp.leave === "done", stopped = k === "andi" && pp.access === "stopped"
+    const invited = k === "andi" ? !pp.joined : k === "dewi" && S.part === "new" && !S.store.team
+    const [fw, ft] = gone ? ["Removed", ""] : fpWord(f)
+    return `<div class="prow3 click" data-pp="open" data-who="${k}"><span class="avatar">${p.name.split(" ").map((x) => x[0]).join("")}</span><span class="two" style="flex:1"><span class="a">${p.name}</span><span class="b">${p.role}${k === "dewi" ? " · PIC" : ""}${invited ? " · invited" : ""}</span></span>
+      <span class="fpw"><span class="sdot ${ft}"></span>${fw}</span><span class="badge-s ${gone ? "" : stopped ? "bad" : invited ? "warn" : "ok"}">${gone ? "Left" : stopped ? "POS stopped" : invited ? "Invited" : "Active"}</span></div>`
+  }
+  return `<div class="col">${approvalsCard()}
+    <div class="card"><div class="sectionh">Team<span>${who.length} people</span></div>${who.map(row).join("")}
+      <div class="openbar"><span class="grow">Fingerprints are recorded at the store's POS and approved here</span><button class="btn primary sm" data-pp="add">${ic("user-plus")}Add person</button></div></div></div>`
+}
+/* the shop's other machines */
+function devicesTab() {
+  const rows = [
+    ["printer", "Receipt printer", "EPSON TM-T82X · USB on Kasir 1", "Last test 09:52", true],
+    ["printer", "Receipt printer", "EPSON TM-T82X · USB on Kasir 2", "Last test 10:05", true],
+    ["fingerprint", "Fingerprint scanner", "ZK SLK20R · USB on Kasir 1", "Connected", false],
+    ["scan-line", "RFID reader", "Chainway R3 · USB on Kasir 1", "Connected", false],
+    ["credit-card", "EDC", "BCA · settles to Cash in Bank BCA 1234", "Debit · Credit · QRIS", false],
+  ]
+  return `<div class="col"><div class="card"><div class="sectionh">Devices<span>${rows.length}</span></div>
+    ${rows.map(([icon, a, b, c, print]) => `<div class="prow3"><span class="ic">${ic(icon)}</span><span class="two" style="flex:1"><span class="a">${a}</span><span class="b">${b} · ${c}</span></span>${print ? `<button class="btn primary sm" data-test-print>Test print</button>` : ""}</div>`).join("")}</div></div>`
 }
 function mgOverview() {
   const mg = S.mg
@@ -1282,6 +1336,10 @@ function mgDialogs() {
 /* ── Central: POS machines of the store ─────────────────────────────── */
 function posTab() {
   const dv = S.dv
+  if (S.part === "new") {
+    const word = { find: ["Not joined", ""], waiting: ["Waiting", "warn"], test: ["Testing", "info"], ready: ["Active", "ok"] }
+    return `<div class="col"><div class="card"><div class="sectionh">POS<span>2 seats</span></div>${S.tills.map((t, i) => `<div class="prow3"><span class="ic">${ic("monitor")}</span><span class="two" style="flex:1"><span class="a">Kasir ${i + 1}</span><span class="b">${t.state === "ready" ? `POS-DESKTOP-${i + 1} · Central POS 1.4.2 · online` : "Seat free"}</span></span><span class="badge-s ${word[t.state][1]}">${word[t.state][0]}</span></div>`).join("")}</div></div>`
+  }
   const row = (d, i) => `<div class="prow3"><span class="ic">${ic("monitor")}</span><span class="two" style="flex:1"><span class="a">${d.n}</span><span class="b">${d.m} · Central POS ${d.v}${d.st === "active" ? " · online" : ""}</span></span>
     <span class="badge-s ${d.st === "active" ? "ok" : d.st === "stopped" ? "bad" : ""}">${d.st === "active" ? "Active" : d.st === "stopped" ? "Stopped" : "Removed"}</span>
     ${d.st === "active" ? `<button class="btn red sm" data-dv="stop" data-i="${i}">Stop</button>` : d.st === "stopped" ? `<button class="btn primary sm" data-dv="resume" data-i="${i}">Resume</button><button class="btn red sm" data-dv="remove" data-i="${i}">Remove</button>` : ""}</div>`
@@ -1386,9 +1444,27 @@ function capturePanel(kind) {
   return `${hand("LEFT")}${hand("RIGHT")}<div class="fcap"><span class="fp ${busy ? "live" : ""}">${ic("fingerprint")}</span><span class="two"><span class="a" ${pp.dup ? 'style="color:var(--bad-fg)"' : ""}>${said}</span>
     <span class="presses">${[1, 2, 3].map((n) => `<i class="${n <= pp.press ? "on" : ""}"></i>`).join("")}</span></span></div>`
 }
+function personSheet() {
+  const pp = S.pp, who = pp.person, p = PEOPLE[who], f = pp.fp[who]
+  const gone = who === "andi" && pp.leave === "done", stopped = who === "andi" && pp.access === "stopped"
+  const fpRow = f ? `<div class="prow3"><span class="ic">${ic("fingerprint")}</span><span class="two" style="flex:1"><span class="a">${fingerName(f.k)}</span><span class="b">Recorded ${f.at === "HR desk" ? "at Head office HR desk" : `at Kasir 1 Purwokerto, ${f.at}`}${f.by ? ` · ${f.by === who ? "by herself" : "by " + PEOPLE[f.by].name}` : ""}${f.st === "active" ? " · every POS of Purwokerto and attendance" : ""}</span></span>
+      <span class="badge-s ${fpWord(f)[1]}">${fpWord(f)[0]}</span>${f.st === "pending" ? `<button class="btn red sm" data-pp="refusefp" data-who="${who}">Refuse</button><button class="btn primary sm" data-pp="approvefp" data-who="${who}">Approve</button>` : gone ? "" : `<button class="btn red sm" data-pp="withdraw" data-who="${who}">Withdraw</button>`}</div>`
+    : `<div style="padding:14px 16px;color:var(--mute)">${gone ? "Removed when the employment ended" : who === "dewi" ? "None yet · she records her first one at the store's POS after signing in with her password" : "None yet · the store head records it at the store's POS"}</div>`
+  return sheet("person", p.name, `${p.role} · Purwokerto`, `<div class="col" style="max-width:none">
+      <div class="card"><div class="factsgrid"><div><div class="l">Login</div><div class="v mono">${who === "andi" && !pp.joined ? "—" : p.login}</div></div><div><div class="l">Job role</div><div class="v">${p.role}</div></div><div><div class="l">Status</div><div class="v">${gone ? "Left" : stopped ? "POS stopped" : "Active"}</div></div>
+        <div><div class="l">Signs in at</div><div class="v">${gone ? "Nowhere" : "Purwokerto server"}</div></div><div><div class="l">POS access</div><div class="v">${gone ? "Closed" : stopped ? "Stopped · " + esc(pp.reason) : "Allowed"}</div></div><div><div class="l">Leaving</div><div class="v">${who === "andi" && pp.leave === "dated" ? "31 Oct 2026" : gone ? "24 Oct 2026 · login closed" : "—"}</div></div></div></div>
+      <div class="card"><div class="sectionh">Fingerprint<span></span></div>${fpRow}</div></div>`,
+    who === "andi" && !gone ? `${pp.leave ? "" : `<button class="btn red" data-pp="leave">${ic("log-out")}Separation</button>`}<span class="grow"></span>${stopped ? `<button class="btn primary" data-pp="resume">Resume POS access</button>` : `<button class="btn red" data-pp="stop" ${pp.joined ? "" : "disabled"}>Stop POS access</button>`}`
+      : `<span class="grow"></span><button class="btn primary" data-close>Done</button>`)
+}
 function ppOverlays() {
   const pp = S.pp
-  if (pp.sheet === "add") return sheet("ppadd", "Add employee", "Purwokerto", `<div class="addgrid">
+  if (pp.sheet === "person") return personSheet() + (pp.dlg ? ppDialogs() : "")
+  return ppDialogs()
+}
+function ppDialogs() {
+  const pp = S.pp
+  if (pp.sheet === "add") return sheet("ppadd", "Add person", "Purwokerto", `<div class="addgrid">
       <label class="fld"><span>Name</span><input id="ppname" value="${esc(pp.form.name)}"></label>
       <label class="fld"><span>Job role</span><input value="${esc(pp.form.role)}" readonly></label></div>`,
     `<span class="grow"></span><button class="btn primary" data-pp="addgo">Add and invite</button>`)
@@ -1513,7 +1589,7 @@ function partJump(n) {
     S.screen = n === 2 ? "till" : "hub"
   }
   if (part === "people") {
-    S.hub.page = "people"
+    S.hub.page = "store"; S.hub.tab = "people"
     if (n === 1) { pp.sheet = "add" }
     if (n >= 2) { pp.added = true }
     if (n === 2) { pp.sheet = "added" }
@@ -1522,8 +1598,9 @@ function partJump(n) {
     if (n >= 5) { pp.fp.dewi.st = "active"; pp.pos = "team" }
     if (n >= 6) { pp.fp.andi = { k: "RIGHT_INDEX", st: "active", at: "14:06", by: "dewi" }; pp.pos = "door" }
     if (n >= 7) { pp.access = "stopped"; pp.reason = "Investigasi selisih kas"; pp.pos = "door" }
-    if (n >= 8) { pp.access = "allowed"; pp.leave = "done"; pp.fp.andi = null; pp.page = "person"; pp.person = "andi" }
-    S.screen = n === 3 || n === 5 || n === 6 || n === 7 ? "till" : "hub"
+    if (n === 7) { pp.sheet = "person"; pp.person = "andi" }
+    if (n >= 8) { pp.access = "allowed"; pp.leave = "done"; pp.fp.andi = null; pp.sheet = "person"; pp.person = "andi" }
+    S.screen = n === 3 || n === 5 || n === 6 ? "till" : "hub"
   }
   if (part === "devices") {
     S.hub.tab = "pos"
@@ -1542,6 +1619,9 @@ function partJump(n) {
 function partClick(e) {
   const t = (s) => e.target.closest(s)
   let el
+  if (t("[data-other-store]")) { toast("Every store opens the same page; Purwokerto is the one in this prototype"); return true }
+  if (t("[data-test-print]")) { toast("Test page asked. It prints at the POS in a few seconds"); return true }
+  if (t("[data-hub-add]") && S.part !== "new") { clearTimers(); const m = S.machine; S = Object.assign(fresh(m), partsFresh()); shown = new Set(); S.hub.sheet = "add"; render(); return true }
   if ((el = t("[data-part]"))) {
     const part = el.dataset.part
     if (part === S.part) return true
@@ -1549,7 +1629,7 @@ function partClick(e) {
     S.part = part; partJump(1); return true
   }
   if ((el = t("[data-pjump]"))) { partJump(Number(el.dataset.pjump)); return true }
-  if (S.part === "new") return false
+  if (S.part === "new" && !t("[data-pp]")) return false
   const mg = S.mg, pp = S.pp, dv = S.dv
   if ((el = t("[data-mg]"))) {
     const a = el.dataset.mg
@@ -1574,7 +1654,7 @@ function partClick(e) {
     if (a === "add") pp.sheet = "add"
     else if (a === "addgo") { pp.form.name = ($("#ppname") || {}).value || pp.form.name; PEOPLE.andi.name = pp.form.name; pp.added = true; pp.sheet = "added"; S.hub.fresh = true; bump("people", 2) }
     else if (a === "joingo") { pp.joined = true; pp.sheet = null; bump("people", 3); toast(`${pp.form.name} joined · andi.saputra`) }
-    else if (a === "open") { pp.page = "person"; pp.person = who }
+    else if (a === "open") { pp.sheet = "person"; pp.person = who }
     else if (a === "list") pp.page = "list"
     else if (a === "enrol") { pp.dlg = "enrol"; pp.press = 0; pp.pick = "RIGHT_INDEX" }
     else if (a === "press") {
@@ -1588,6 +1668,7 @@ function partClick(e) {
     else if (a === "withdraw") { pp.fp[who] = null; toast("Withdrawn. Purwokerto's POS forgets it within 5 minutes") }
     else if (a === "stop") pp.dlg = "stop"
     else if (a === "stopgo") { pp.reason = ($("#ppreason") || {}).value || "Investigasi selisih kas"; pp.access = "stopped"; pp.dlg = null; pp.pos = "door"; bump("people", 7); ping("till"); toast(`${pp.form.name}'s POS access stopped`) }
+    else if (a === "add" && S.part === "new") { pp.sheet = "add" }
     else if (a === "resume") { pp.access = "allowed"; pp.pos = "door"; toast("POS access resumed") }
     else if (a === "leave") { pp.dlg = "leave"; pp.when = "today" }
     else if (a === "leavego") { pp.dlg = null; bump("people", 8); if (pp.when === "dated") { pp.leave = "dated"; toast("Approved. The login closes on 31 Oct 2026") } else { pp.leave = "done"; pp.fp.andi = null; pp.access = "allowed"; pp.pos = "door"; ping("till"); toast("Approved. Login closed; fingerprint deleted") } }
@@ -1640,9 +1721,9 @@ function partClick(e) {
 }
 
 function partOverlays() {
-  if (S.part === "store") return (S.mg.sheet === "replace" ? replaceSheet() : "") + mgDialogs()
+  if (S.part === "store") return (S.mg.sheet === "replace" ? replaceSheet() : "") + mgDialogs() + ppOverlays()
   if (S.part === "people") return ppOverlays()
-  return dvDialogs()
+  return dvDialogs() + ppOverlays()
 }
 
 /* ═══ render ═════════════════════════════════════════════════════════════ */
@@ -1655,10 +1736,9 @@ function render() {
   if (S.screen === "hub") {
     let page
     if (S.part === "new") page = S.hub.page === "store" && S.store.added ? storePage() : hubList()
-    else if (S.part === "people") page = S.pp.page === "person" ? personPage() : S.pp.page === "changes" ? changesPage() : peopleList()
     else if (S.hub.page === "updates") page = updatesPage()
     else page = S.hub.page === "store" ? mgStorePage() : hubList()
-    html = shell(page) + (S.part === "new" ? hubOverlays() : partOverlays())
+    html = shell(page) + (S.part === "new" ? hubOverlays() + ppOverlays() : partOverlays())
   }
   else if (S.screen === "pc") html = S.machine === "win" ? pcWin() : lxScreen()
   else if (S.screen === "phone") html = phoneScreen()
@@ -1771,7 +1851,7 @@ document.addEventListener("click", (e) => {
   if (t("[data-open-go]")) { S.store.opened = true; S.hub.dlg = null; ping("till"); toast("Purwokerto is open"); return }
   if ((el = t("[data-note-x]"))) { S.notes = S.notes.filter((n) => n.id !== Number(el.dataset.noteX)); render(); return }
   if (t("[data-note-open]")) { S.hub.page = "store"; S.hub.tab = "server"; S.hub.sheet = null; render(); return }
-  if (t("[data-close]")) { S.hub.sheet = null; S.hub.dlg = null; render(); return }
+  if (t("[data-close]")) { S.hub.sheet = null; S.hub.dlg = null; S.pp.sheet = null; S.pp.dlg = null; render(); return }
   /* store PC */
   if (t("[data-install]")) return install()
   if (t("[data-finish]")) { S.pc.page = "closed"; render(); return }
