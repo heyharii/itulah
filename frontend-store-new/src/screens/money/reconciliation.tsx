@@ -102,8 +102,8 @@ export function Reconciliation() {
                 <Card>
                   <EmptyState>
                     {day === isoDay(new Date())
-                      ? "No till opened today."
-                      : "No till opened this day."}
+                      ? "No POS opened today."
+                      : "No POS opened this day."}
                   </EmptyState>
                 </Card>
               ) : (

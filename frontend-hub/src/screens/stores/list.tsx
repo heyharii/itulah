@@ -340,7 +340,7 @@ function StoreCard({ store }: { store: StoreSummary }) {
         ) : (
           <CardFigure
             value={`${store.tills.online}/${store.tills.active}`}
-            caption="tills online"
+            caption="POS online"
             tone={store.tills.online === 0 ? "quiet" : undefined}
           />
         )

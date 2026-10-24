@@ -329,7 +329,7 @@ export function usePrintReceipt(): UseMutationResult<
         // Refused here rather than sent with a blank host, so the message names
         // the thing to fix instead of arriving as the node's validation error.
         throw new Error(
-          "This till has no receipt printer set. Add one under Shift → Printer.",
+          "This POS has no receipt printer set. Add one under Shift → Printer.",
         )
       }
       const request: PrintReceiptRequest = {

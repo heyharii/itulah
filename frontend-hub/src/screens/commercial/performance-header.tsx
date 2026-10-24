@@ -85,7 +85,7 @@ const METRICS: readonly Metric[] = [
   {
     id: "benefit",
     label: "Discount Given",
-    hint: "Money taken off tills by these offers.",
+    hint: "Money taken off at the POS by these offers.",
     icon: Tag,
     tint: "bg-bad-bg text-bad-fg",
     read: (one) => one.benefit_minor,
@@ -343,7 +343,7 @@ export function PerformanceHeader({ of }: { of: "campaigns" | "rules" }) {
                 hint={
                   now.overlapping
                     ? "The largest single offer, never a sum — the same shopper served by two offers would be counted twice."
-                    : "Shoppers the till could name. Anonymous baskets count in nobody."
+                    : "Shoppers the POS could name. Anonymous baskets count in nobody."
                 }
               />
               <Side

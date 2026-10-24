@@ -346,7 +346,7 @@ export const MONEY_FAMILIES: readonly {
   {
     id: "cards",
     label: "Cards",
-    note: "Taken at the till and not yet settled by the scheme.",
+    note: "Taken at the POS and not yet settled by the scheme.",
     keys: ["card_receivable_credit", "card_receivable_debit"],
   },
 ]

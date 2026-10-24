@@ -73,7 +73,7 @@ function CodeBoard({ offers }: { offers: StoreOffers }) {
 
   const gifts = (
     <Banner tone="info" className="mt-4">
-      Gift vouchers and credit notes are checked with head office at the till
+      Gift vouchers and credit notes are checked with head office at the POS
       and are not listed here.
     </Banner>
   )
@@ -83,7 +83,7 @@ function CodeBoard({ offers }: { offers: StoreOffers }) {
       <>
         <EmptyState>
           No offer at this shop needs a code. Every promotion active or due here
-          is applied by the till on its own.
+          is applied by the POS on its own.
         </EmptyState>
         {gifts}
       </>

@@ -289,7 +289,7 @@ export function LabOverview() {
         why:
           d.deposited === 0
             ? "Counted but never banked"
-            : (d.note ?? "Drawer does not match the till"),
+            : (d.note ?? "Drawer does not match the POS"),
         amount:
           d.deposited === 0
             ? d.counted_cash

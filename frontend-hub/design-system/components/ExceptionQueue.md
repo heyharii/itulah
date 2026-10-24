@@ -6,13 +6,13 @@ The ExceptionQueue is the list of things that need somebody, at the top of an ov
 
 | The job | Use |
 | --- | --- |
-| What is wrong, stuck or mismatched across the business: bills past due, a contract ending, a till left open, a server that stopped | `ExceptionQueue`, under the figures and above the lists |
+| What is wrong, stuck or mismatched across the business: bills past due, a contract ending, a POS left open, a server that stopped | `ExceptionQueue`, under the figures and above the lists |
 | Requests waiting for the signed-in person to decide | The screen's own queue of requests, not this |
 | One thing that went wrong on this page | A `Banner` |
 | A list of records to browse | `DataTable` |
 | A day with nothing wrong | Leave the queue out |
 
-Seven screens draw one: the Sales overview ("Tills left open"), Finance, People ("Needs attention") and the People directory ("Contracts running out"), System health and Nodes ("Servers needing a person"), and the Library ("In the drawer, but the bytes are gone").
+Seven screens draw one: the Sales overview ("POS left open"), Finance, People ("Needs attention") and the People directory ("Contracts running out"), System health and Nodes ("Servers needing a person"), and the Library ("In the drawer, but the bytes are gone").
 
 ## Anatomy
 
@@ -24,7 +24,7 @@ Seven screens draw one: the Sales overview ("Tills left open"), Finance, People 
 - **Amount**: the number that says how much it matters, at the right in 15px/600, tabular and never wrapped: "Rp 12.500.000", "2h", "9d". It always carries its unit.
 - **Severity**: a 21px capsule: High in `bad-fg`, Medium in `warn-fg`, Low in `body`.
 - **Chevron**: 15px in `faint`, the last thing in the row.
-- **Empty**: the head and one sentence in `body`, 16px under it: "Every till is square — nothing is sitting open." Worth writing for each screen. Where all clear is no news, draw nothing: an empty card is one people learn to scroll past.
+- **Empty**: the head and one sentence in `body`, 16px under it: "Every POS is square — nothing is sitting open." Worth writing for each screen. Where all clear is no news, draw nothing: an empty card is one people learn to scroll past.
 
 ## Sizes
 

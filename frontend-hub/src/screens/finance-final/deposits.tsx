@@ -547,7 +547,7 @@ const DEPOSIT_COLUMNS: ColumnDef<TableSetup, StoreDeposit>[] = [
   {
     id: "left",
     accessorFn: (row) => row.banked_on,
-    header: "Left the till",
+    header: "Left the POS",
     size: 140,
     enableSorting: false,
     meta: { card: "foot" },

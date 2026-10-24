@@ -100,7 +100,7 @@ export function Cash() {
           <PageHeader
             crumb="Finance · Reports"
             title="Cash"
-            sub="Tills, floats and petty cash — where the notes are, according to the books."
+            sub="POS, floats and petty cash — where the notes are, according to the books."
           />
           <LoadingState>
             Reading where the money sits, and when it was last counted…
@@ -174,7 +174,7 @@ function CashScreen() {
       <PageHeader
         crumb="Finance · Reports"
         title="Cash"
-        sub="Tills, floats and petty cash — where the notes are, according to the books."
+        sub="POS, floats and petty cash — where the notes are, according to the books."
       />
 
       <Toolbar>

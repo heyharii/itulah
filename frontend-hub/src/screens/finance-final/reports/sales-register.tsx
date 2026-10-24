@@ -283,7 +283,7 @@ export function SalesRegister() {
                 <code className="font-mono text-[0.9375rem]">
                   sale.customer_id
                 </code>{" "}
-                is on the record — the till fills it in when a member signs in —
+                is on the record — the POS fills it in when a member signs in —
                 but neither{" "}
                 <code className="font-mono text-[0.9375rem]">
                   GET /reports/sales/window
@@ -300,7 +300,7 @@ export function SalesRegister() {
                 exactly this posting and nothing writes one, so there is no
                 account for a receipt to have landed in — and that is the same
                 reason Profit &amp; Loss shows nothing under class 4 PENDAPATAN.
-                Until a sales posting exists, what the till took and what the
+                Until a sales posting exists, what the POS took and what the
                 books earned are two different questions with one answer between
                 them.
               </Note>

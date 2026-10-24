@@ -93,7 +93,7 @@ const STORE_COLUMNS = [
   )),
   field<StoreRow>(
     "tills",
-    "Tills Open",
+    "POS Open",
     (store) =>
       store.open_count > 0 ? (
         <span className="font-medium text-warn-fg">
@@ -118,8 +118,8 @@ const STORE_CARD: CardShape<StoreRow> = {
   }),
   foot: (store) =>
     store.open_count > 0
-      ? `${count(store.open_count)} ${store.open_count === 1 ? "till" : "tills"} open`
-      : "No till open",
+      ? `${count(store.open_count)} POS open`
+      : "No POS open",
 }
 
 export function Overview() {
@@ -219,7 +219,7 @@ function ShopFloor() {
   return (
     <>
       <KpiStrip>
-        <Kpi label="Tills open" value={count(open.length)} />
+        <Kpi label="POS open" value={count(open.length)} />
         <Kpi label="Owing on them" value={money(owing)} />
         <Kpi label="Stores trading" value={count(stores.length)} />
         <Kpi
@@ -231,9 +231,9 @@ function ShopFloor() {
       </KpiStrip>
 
       <ExceptionQueue
-        title="Tills left open"
+        title="POS left open"
         exceptions={exceptions}
-        empty="Every till is square — nothing is sitting open."
+        empty="Every POS is square — nothing is sitting open."
       />
 
       <div className="grid gap-3 xl:grid-cols-2">

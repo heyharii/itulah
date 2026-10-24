@@ -347,7 +347,7 @@ function WhatIsActuallyReceivable() {
       </b>{" "}
       There is no <code>GET /finance/receivables-aging</code>, and no
       customer-invoice document exists anywhere in the backend for one to age: a
-      till sale settles as it is rung up — the tenders are cash, card, QRIS,
+      POS sale settles as it is rung up — the tenders are cash, card, QRIS,
       voucher and other, and not one of them is &ldquo;on account&rdquo;. What
       this client is actually owed is not a debtor book. It is{" "}
       <b>money in flight</b>: card batches an acquirer has taken and not yet

@@ -90,7 +90,7 @@ import { saying, span } from "@/screens/system/units"
 /// rows here. They belong to one till and are shown on its sheet.
 
 const KIND_LABEL: Record<DeviceKind, string> = {
-  TILL: "Till",
+  TILL: "POS",
   HANDHELD: "Handheld",
   RFID_READER: "RFID reader",
   PRINTER: "Printer",
@@ -157,7 +157,7 @@ const columns: ColumnDef<TableSetup, RegistryDevice>[] = [
         kind: "option",
         label: "Kind",
         icon: (value) =>
-          value === "Till"
+          value === "POS"
             ? Store
             : value === "Handheld"
               ? Smartphone
@@ -285,7 +285,7 @@ export function Devices() {
       <PageHeader
         crumb="System"
         title="Devices"
-        sub="Every till, printer, EDC and reader enrolled to a store server, and the punch stations registered at each site."
+        sub="Every POS, printer, EDC and reader enrolled to a store server, and the punch stations registered at each site."
         actions={
           // On a phone the one thing this page makes is the round button over
           // the bottom bar.
@@ -390,7 +390,7 @@ function DevicesTab() {
             rows.length === 0 ? (
               <EmptyState>
                 No store server has reported a device yet, and no punch station
-                or EDC is registered. A till appears here once it has joined its
+                or EDC is registered. A POS appears here once it has joined its
                 shop's server and the server has sent its next heartbeat.
               </EmptyState>
             ) : (
@@ -1353,7 +1353,7 @@ function DeviceSheet({
           {device.switchable ? (
             <Section title="Switch it">
               <p className="mb-2.5 text-[0.9375rem] text-body">
-                A stopped till signs nobody in until you resume it. A removed
+                A stopped POS signs nobody in until you resume it. A removed
                 one never does again; a replacement takes its name.
               </p>
               <Field label="Why">

@@ -66,7 +66,7 @@ const columns: ColumnDef<TableSetup, CheckoutException>[] = [
   {
     id: "resolved_at",
     accessorFn: (row) => row.resolved_at,
-    header: "Closed at the Till",
+    header: "Closed at the POS",
     size: 170,
     cell: ({ row }) => moment(row.original.resolved_at),
   },
@@ -105,7 +105,7 @@ const columns: ColumnDef<TableSetup, CheckoutException>[] = [
   {
     id: "actor_id",
     accessorFn: (row) => row.actor_id,
-    header: "On the Till",
+    header: "On the POS",
     size: 130,
   },
   {
@@ -209,7 +209,7 @@ export function UnmatchedCharges() {
             rows.length === 0 ? (
               <EmptyState>
                 {openOnly
-                  ? "Nothing is owed. Every charge a till reported has been answered for."
+                  ? "Nothing is owed. Every charge a POS reported has been answered for."
                   : "No shop has ever reported taking money without writing a sale."}
               </EmptyState>
             ) : (
@@ -295,9 +295,9 @@ function ChargeSheet({
               {money(found.money_held_minor)}
             </Fact>
             <Fact term="Basket came to">{money(found.total_minor)}</Fact>
-            <Fact term="On the till">{found.actor_id}</Fact>
+            <Fact term="On the POS">{found.actor_id}</Fact>
             <Fact term="Started">{moment(found.opened_at)}</Fact>
-            <Fact term="Closed at the till">{moment(found.resolved_at)}</Fact>
+            <Fact term="Closed at the POS">{moment(found.resolved_at)}</Fact>
             <Fact term="Reached head office">{moment(found.received_at)}</Fact>
           </Facts>
 

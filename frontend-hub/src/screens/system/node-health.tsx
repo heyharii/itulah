@@ -156,7 +156,7 @@ export function NodeHealthSection({
             <Fact term="Waiting to send">
               {`${status.sync.pending_facts}${status.sync.oldest_pending_at ? ` · oldest ${ago(status.sync.oldest_pending_at)}` : ""}`}
             </Fact>
-            <Fact term="Tills">
+            <Fact term="POS">
               {`${status.devices.terminals_seen_recently} of ${status.devices.terminals_active} seen`}
             </Fact>
             <Fact term="Open drawers">

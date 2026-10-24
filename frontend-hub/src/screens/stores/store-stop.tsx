@@ -121,7 +121,7 @@ export function StoreStopActions({
         title={`Stop ${store.name}?`}
         facts={[
           {
-            term: "Tills",
+            term: "POS",
             value:
               facts === null
                 ? "—"
@@ -161,7 +161,7 @@ export function StoreStopActions({
                 ? "—"
                 : facts.shifts.length === 0
                   ? "None"
-                  : `${facts.shifts.length} · close them at the till first`,
+                  : `${facts.shifts.length} · close them at the POS first`,
             bad: facts !== null && facts.shifts.length > 0,
           },
           { term: "Sales", value: "Kept" },
@@ -169,7 +169,7 @@ export function StoreStopActions({
           { term: "Journals", value: "Kept" },
           { term: "Store server", value: "Keeps sending what it holds" },
           {
-            term: "Tills",
+            term: "POS",
             value: facts === null ? "—" : `${facts.tills} removed`,
           },
         ]}

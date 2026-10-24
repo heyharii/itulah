@@ -125,7 +125,7 @@ export function Sales() {
         <LoadingState>
           {site === ""
             ? "Asking every site what it took…"
-            : "Adding up the tills, one day at a time…"}
+            : "Adding up the POS, one day at a time…"}
         </LoadingState>
       ) : rows.length === 0 && !tooWide ? (
         <EmptyState>
@@ -153,7 +153,7 @@ export function Sales() {
             <NumberCard
               label="Net of tax"
               value={total.net}
-              note="The till's split — not what the ledger books"
+              note="The POS's split — not what the ledger books"
             />
             <NumberCard
               label="Output tax"
@@ -237,7 +237,7 @@ export function Sales() {
               <b>gross = tendered &minus; change</b>, and change is only ever
               cash. Refunds are not deducted from either: a return is its own
               movement on its own day, and netting it into a day&rsquo;s takings
-              would hide both. The till has no <i>transfer</i> tender; anything
+              would hide both. The POS has no <i>transfer</i> tender; anything
               that is not one of the four named kinds is recorded as{" "}
               <b>Other</b>, which is a closed list in{" "}
               <code className="font-mono text-[0.9375rem]">tender.rs</code> and
@@ -414,7 +414,7 @@ const TENDERS: readonly {
   {
     method: "OTHER",
     label: "Other",
-    settles: "Unsaid. Anything the till could not name one of the four",
+    settles: "Unsaid. Anything the POS could not name one of the four",
   },
 ]
 

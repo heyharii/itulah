@@ -224,7 +224,7 @@ export function EnrolCard({
             <Field
               label="Card number"
               required
-              hint="Exactly as printed. It is what the till writes onto a sale, so a number typed differently here is a different member."
+              hint="Exactly as printed. It is what the POS writes onto a sale, so a number typed differently here is a different member."
             >
               <Input
                 value={memberId}

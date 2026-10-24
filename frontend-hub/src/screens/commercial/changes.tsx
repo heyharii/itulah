@@ -933,7 +933,7 @@ function ChangeSheet({
               <MiniTable
                 head={[
                   "Store",
-                  { label: "Till status", align: "left" },
+                  { label: "POS status", align: "left" },
                   "Last update",
                 ]}
               >

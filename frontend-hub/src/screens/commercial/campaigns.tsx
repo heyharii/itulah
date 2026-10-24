@@ -1006,7 +1006,7 @@ function CampaignBook() {
       (fleet.data?.items ?? []).map((one) => [one.origin_id, one.label])
     )
     return (originId: string, siteId: string | null) =>
-      byOrigin.get(originId) ?? siteId ?? "Till not assigned to a store"
+      byOrigin.get(originId) ?? siteId ?? "POS not assigned to a store"
   }, [fleet.data])
 
   const lineOf = useCallback(
@@ -1427,7 +1427,7 @@ function CampaignBook() {
           setPausing(null)
         }}
       >
-        Promotions inside it stop at the tills.
+        Promotions inside it stop at the POS.
       </Dialog>
 
       <CampaignForm
@@ -1904,7 +1904,7 @@ function CampaignSheet({
               <ConfirmButton
                 label="End now"
                 title={`End ${line.row.campaign.name} now?`}
-                description="Every promotion inside it stops at the tills for good."
+                description="Every promotion inside it stops at the POS for good."
                 confirmLabel="End now"
                 tone="danger"
                 variant="danger"

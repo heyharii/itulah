@@ -73,7 +73,7 @@ function fetchPendingJoins(signal?: AbortSignal): Promise<PendingJoin[]> {
 
 /// What the till calls itself, or what it runs on when it has no name.
 const nameOf = (join: PendingJoin): string =>
-  join.machine?.hostname ?? join.machine?.os ?? "New till"
+  join.machine?.hostname ?? join.machine?.os ?? "New POS"
 
 export function TillApprovals() {
   const joins = useQuery({
@@ -92,7 +92,7 @@ export function TillApprovals() {
   if (joins.isPending) {
     return (
       <Screen>
-        <LoadingState>Reading the waiting tills…</LoadingState>
+        <LoadingState>Reading the waiting POS…</LoadingState>
       </Screen>
     )
   }
@@ -117,7 +117,7 @@ export function TillApprovals() {
       )}
 
       {rows.length === 0 ? (
-        <EmptyState>No tills waiting.</EmptyState>
+        <EmptyState>No POS waiting.</EmptyState>
       ) : (
         <>
           <KpiStrip>
@@ -212,7 +212,7 @@ function JoinSheet({
       void client.invalidateQueries({ queryKey: pendingJoinsKey() })
       onDone(
         `Joined as ${till.label}.${
-          till.replaced_terminal_id !== null ? " Replaces the old till." : ""
+          till.replaced_terminal_id !== null ? " Replaces the old POS." : ""
         }`,
       )
     },
@@ -226,7 +226,7 @@ function JoinSheet({
       ),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: pendingJoinsKey() })
-      onDone("Till rejected.")
+      onDone("POS rejected.")
     },
   })
 
@@ -288,7 +288,7 @@ function JoinSheet({
           <Input
             value={label}
             onChange={(event) => setLabel(event.target.value)}
-            placeholder="Till 2"
+            placeholder="POS 2"
           />
         </Field>
       </div>

@@ -101,7 +101,7 @@ export function OverviewTab({
           <Fact term="Timezone">{store.timezone ?? "—"}</Fact>
           <Fact term="PIC">{store.pic?.name ?? "Not appointed yet"}</Fact>
           <Fact term="Address">{address ?? "Not entered yet"}</Fact>
-          <Fact term="Till seats">
+          <Fact term="POS seats">
             <TillSeatsValue
               unit={store.unit_id}
               seats={store.tills.seats}
@@ -152,7 +152,7 @@ export function OverviewTab({
                 variant="primary"
                 disabled={!can_open}
                 title={`Open ${store.name}?`}
-                description="Tills can sell from the moment it is open."
+                description="POS can sell from the moment it is open."
                 confirmLabel="Open store"
                 reason={{
                   label: "Note (optional)",

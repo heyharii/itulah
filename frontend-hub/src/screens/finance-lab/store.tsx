@@ -55,7 +55,7 @@ export function SalesReconcile() {
       <PageHeader
         crumb="Sales"
         title="Reconcile"
-        sub="What the till rang, what the manager counted, and what reached the bank."
+        sub="What the POS rang, what the manager counted, and what reached the bank."
         actions={
           <div className="flex items-center gap-2">
             <Select value={unit} onChange={setUnit} className={FILTER_W}>
@@ -98,7 +98,7 @@ export function SalesReconcile() {
             deposited: d.deposited,
           }))}
           series={[
-            { key: "rung", label: "Rung at the till", tone: "accent" },
+            { key: "rung", label: "Rung at the POS", tone: "accent" },
             { key: "deposited", label: "Deposited", tone: "cap" },
           ]}
           labelOf={(b) =>
@@ -115,7 +115,7 @@ export function SalesReconcile() {
             head={[
               "Date",
               "Store",
-              ">Till Cash",
+              ">POS Cash",
               ">Card",
               ">Counted",
               ">Variance",
@@ -241,7 +241,7 @@ export function SalesReconcile() {
                 {chosen.note ??
                   (chosen.counted_cash === chosen.rung_cash &&
                   chosen.deposited >= chosen.counted_cash
-                    ? "They do not. The drawer matched the till and the whole of it reached the bank."
+                    ? "They do not. The drawer matched the POS and the whole of it reached the bank."
                     : "No note was left against this day.")}
               </p>
               <p className="mt-2 text-meta text-mute">

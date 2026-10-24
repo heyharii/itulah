@@ -247,7 +247,7 @@ function SalesByDay({
     return (
       <>
         <Toolbar>{picker}</Toolbar>
-        <EmptyState>This shop has no till yet.</EmptyState>
+        <EmptyState>This shop has no POS yet.</EmptyState>
       </>
     )
   return <SalesDays siteId={siteId} picker={picker} />
@@ -383,7 +383,7 @@ const TENDER_COLUMNS: ColumnDef<TableSetup, Tender>[] = [
   {
     id: "taken",
     accessorFn: (row) => row.amount_minor,
-    header: "Taken at the till",
+    header: "Taken at the POS",
     size: 190,
     enableSorting: false,
     meta: { align: "right", card: "metric" },

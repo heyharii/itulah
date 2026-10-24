@@ -689,7 +689,7 @@ export function CommercialOverview() {
                       >
                         {shop.site_id === null ? (
                           <span className="truncate text-text">
-                            {shop.label ?? "Till not assigned to a store"}
+                            {shop.label ?? "POS not assigned to a store"}
                           </span>
                         ) : (
                           <AppLink

@@ -296,7 +296,7 @@ function SalesReconciliationScreen() {
         <Note>Choose {DAY_LIMIT} days or fewer.</Note>
       ) : pending ? (
         <LoadingState>
-          Reading the till, the drawer, the bank and the books…
+          Reading the POS, the drawer, the bank and the books…
         </LoadingState>
       ) : (
         <div className="flex flex-col gap-5">
@@ -304,7 +304,7 @@ function SalesReconciliationScreen() {
             <Kpi
               label="Taken"
               value={money(takings.gross)}
-              delta={`${count(takings.sales)} sales, till`}
+              delta={`${count(takings.sales)} sales, POS`}
               tone="flat"
             />
             <div title="Tendered, less change and cash refunds">
@@ -948,7 +948,7 @@ function tenderRows(input: {
           standing: {
             tone: taken === 0 ? "neutral" : "warn",
             label: "Unsaid",
-            why: "The till has no transfer tender; whatever this was, it did not say",
+            why: "The POS has no transfer tender; whatever this was, it did not say",
           },
         }
     }
@@ -1077,7 +1077,7 @@ function differences(input: {
       ? null
       : takings.cashExpected - books.drawer.window_debit_minor
   rows.push({
-    name: "Cash the till took that the cash account never received",
+    name: "Cash the POS took that the cash account never received",
     amount: cashToBooks,
     standing:
       books.drawer === null
@@ -1090,12 +1090,12 @@ function differences(input: {
           ? {
               tone: "ok",
               label: "Agrees",
-              why: "Every rupiah the till took arrived in the ledger",
+              why: "Every rupiah the POS took arrived in the ledger",
             }
           : {
               tone: "bad",
               label: "Not explained",
-              why: "The cash account did not move by what the till says was taken. Nothing on this screen can say where it went",
+              why: "The cash account did not move by what the POS says was taken. Nothing on this screen can say where it went",
             },
   })
 
@@ -1104,7 +1104,7 @@ function differences(input: {
       ? null
       : (takings.byTender.CARD ?? 0) - books.card.window_debit_minor
   rows.push({
-    name: "Card the till took that the clearing account never received",
+    name: "Card the POS took that the clearing account never received",
     amount: cardToBooks,
     standing:
       books.card === null

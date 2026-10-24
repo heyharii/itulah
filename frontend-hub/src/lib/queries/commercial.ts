@@ -1491,7 +1491,7 @@ export class BookWrittenNotPublished extends Error {
     const said =
       cause instanceof Error ? cause.message : "the server could not be reached"
     super(
-      `Book v${book.version} “${book.name}” was written but not published: ${said} It is a draft, so nothing has changed at any till yet.`,
+      `Book v${book.version} “${book.name}” was written but not published: ${said} It is a draft, so nothing has changed at any POS yet.`,
       { cause }
     )
     this.name = "BookWrittenNotPublished"

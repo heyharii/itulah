@@ -80,7 +80,7 @@ export const BENEFIT_KIND_LABEL: Readonly<Record<string, string>> = {
   ADD: "Added",
   REMOVE: "Taken off",
   RESET: "Reset",
-  SPEND: "Spent at the till",
+  SPEND: "Spent at the POS",
   RETURN: "Returned",
 }
 

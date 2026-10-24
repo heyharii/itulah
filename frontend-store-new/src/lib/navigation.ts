@@ -407,7 +407,7 @@ export const nodeModule: AppModule = {
     {
       items: [
         { path: "/node/sync", label: "Sync", icon: RefreshCw },
-        { path: "/node/tills", label: "Till approvals", icon: UserCheck },
+        { path: "/node/tills", label: "POS approvals", icon: UserCheck },
         { path: "/node/password", label: "Change password", icon: KeyRound },
       ],
     },
@@ -522,7 +522,7 @@ export const homePath = modules[0].home
 
 /// What the bar and the tab title say for a path.
 export function titleForPath(pathname: string): string {
-  return screenForPath(pathname)?.label ?? "Till"
+  return screenForPath(pathname)?.label ?? "POS"
 }
 
 /// The HR screens, for the People module's own strip on a phone — where the

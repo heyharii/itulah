@@ -167,7 +167,7 @@ function ReplaceSteps({
 
   return (
     <ol className="flex flex-col divide-y divide-hairline">
-      <Step n={1} name="Close the tills" done={drawers === 0}>
+      <Step n={1} name="Close the POS" done={drawers === 0}>
         <Value>
           {!drawersKnown
             ? "—"

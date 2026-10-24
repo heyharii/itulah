@@ -423,7 +423,7 @@ export function Member() {
           <Banner tone="info" className="mb-[1.125rem]">
             Reading <span className="font-mono">{customerId}</span>. Points are
             what this member has <em>earned</em>, ever — not a balance:
-            redemption happens at a till and the centre cannot see it yet.
+            redemption happens at a POS and the centre cannot see it yet.
           </Banner>
 
           {/* All time, from the server — the chips below narrow the list and

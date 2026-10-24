@@ -320,7 +320,7 @@ export function termsOf(
     clauses: [
       appliesTo(rule, named),
       scopeOf(rule).customers.who === "MEMBERS" &&
-        "The shopper has to be identified at the till as a member.",
+        "The shopper has to be identified at the POS as a member.",
       conditions.effective_from !== null && conditions.effective_to !== null
         ? `It runs from ${day(conditions.effective_from)} to ${day(conditions.effective_to)}, both days included.`
         : conditions.effective_from !== null
@@ -345,7 +345,7 @@ export function termsOf(
           : `Those items have to come to ${money(spend)} between them — the rest of the basket does not count towards it.`),
       rule.coupon_code !== null &&
         rule.coupon_code !== "" &&
-        `The code ${rule.coupon_code} has to be presented at the till.`,
+        `The code ${rule.coupon_code} has to be presented at the POS.`,
       // Excluded unless the rule says otherwise — the engine's default, and
       // what "not valid on sale items" means.
       (rule.markdown_policy ?? "EXCLUDE") === "ALLOW"
@@ -380,7 +380,7 @@ function withOthers(rule: Rule): string {
     : "no other offer applies anywhere in the basket"
   return rule.stacking === "EXCLUSIVE"
     ? `If it applies, ${shuts}.`
-    : `It is never added to another offer: when the till uses it, ${shuts}, and it uses it only when that comes out better than the alternatives.`
+    : `It is never added to another offer: when the POS uses it, ${shuts}, and it uses it only when that comes out better than the alternatives.`
 }
 
 /// What a points rate is worth on an item a better rate already reached.

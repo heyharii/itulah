@@ -336,7 +336,7 @@ export function RepairComposer({
               value={title}
               onChange={(event) => setTitle(event.target.value)}
               placeholder={
-                noting ? "Moved to the stockroom" : "AC by the till is not cooling"
+                noting ? "Moved to the stockroom" : "AC by the POS is not cooling"
               }
             />
           </Field>

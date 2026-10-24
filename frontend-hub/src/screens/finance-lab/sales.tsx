@@ -111,7 +111,7 @@ export function SalesOverview() {
         <Flow
           steps={[
             {
-              label: "Till rings",
+              label: "POS rings",
               value: rp(TRADE.reduce((n, t) => n + t.cash + t.card, 0)),
               posts: "Dr Kas / Cr Penjualan · Dr HPP / Cr Persediaan",
               to: "/finance-lab/reports/profit-loss",
@@ -238,7 +238,7 @@ export function ReceivablesOverview() {
         <Flow
           steps={[
             {
-              label: "Taken at the till",
+              label: "Taken at the POS",
               value: rp(trade),
               posts: "Dr Piutang kartu / Cr Penjualan",
               to: "/finance-lab/sales/reconcile",

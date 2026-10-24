@@ -107,7 +107,7 @@ export const METRICS: readonly MetricKind[] = [
   {
     value: "DISCOUNT_GIVEN",
     label: "Discount given",
-    hint: "Money taken off tills. The one target that is a ceiling.",
+    hint: "Money taken off at the POS. The one target that is a ceiling.",
     unit: "money",
     direction: "AT_MOST",
     addsUp: true,

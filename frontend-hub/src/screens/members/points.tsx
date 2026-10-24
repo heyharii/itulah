@@ -267,7 +267,7 @@ function PointsBook() {
         <Banner tone="warn" className="mb-4">
           {count(drifted)} account{drifted === 1 ? " has" : "s have"} a cached
           balance that does not match their own entries. The entries are the
-          record and the cache is what a till reads, so those members are being
+          record and the cache is what a POS reads, so those members are being
           quoted a figure the ledger does not support. Nothing here repairs it —
           a fault this shape has a cause, and correcting the number would hide
           it.

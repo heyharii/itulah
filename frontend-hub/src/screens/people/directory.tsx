@@ -1909,7 +1909,7 @@ function AccountForm({
                 <>
                   <Field
                     label="Also signs in at"
-                    hint="Optional. A place's own node, for somebody who works a till."
+                    hint="Optional. A place's own node, for somebody who works a POS."
                   >
                     <Select
                       value={fresh.origin}
@@ -1963,7 +1963,7 @@ function AccountForm({
                         hint={
                           freshAtDc
                             ? "Not needed to sign in: the hub uses this login. Set one only for signing in while the DC cannot reach the centre."
-                            : "The till is a separate credential — it has to keep working when the shop is offline."
+                            : "The POS is a separate credential — it has to keep working when the shop is offline."
                         }
                       >
                         <Input
@@ -2009,7 +2009,7 @@ const HOW = [
   {
     value: "issue" as const,
     label: "Issue a new one",
-    note: "Create the credential, and the till grant that goes with their posting, in one act.",
+    note: "Create the credential, and the POS grant that goes with their posting, in one act.",
   },
 ]
 

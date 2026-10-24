@@ -70,7 +70,7 @@ export function TillSeatsValue({
           max={50}
           inputMode="numeric"
           autoFocus
-          aria-label="Number of till seats"
+          aria-label="Number of POS seats"
           className="w-20"
           value={draft}
           onChange={(event) => setDraft(event.target.value)}

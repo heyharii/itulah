@@ -27,7 +27,7 @@ import { FLEET_PILL_TONE, FleetDot } from "@/screens/system/fleet-shared"
 import { saying } from "@/screens/system/units"
 
 const KIND_LABEL: Record<DeviceKind, string> = {
-  TILL: "Till",
+  TILL: "POS",
   HANDHELD: "Handheld",
   RFID_READER: "RFID reader",
   PRINTER: "Printer",
@@ -90,11 +90,11 @@ export function DevicesTab({
     <div className="flex max-w-2xl flex-col gap-4">
       <Card className="flex flex-wrap items-center gap-4 px-4 py-3 text-[0.9375rem] text-body">
         <span>
-          <b className="text-ink">{tills.online}</b>/{tills.active} tills online
+          <b className="text-ink">{tills.online}</b>/{tills.active} POS online
         </span>
         {tills.waiting > 0 && (
           <span className="text-warn-fg">
-            {tills.waiting} {tills.waiting === 1 ? "till" : "tills"} waiting for
+            {tills.waiting} POS waiting for
             a supervisor at the store
           </span>
         )}
@@ -108,7 +108,7 @@ export function DevicesTab({
           render: () =>
             rows.length === 0 ? (
               <EmptyState>
-                No till, printer or reader has reported at this site&rsquo;s
+                No POS, printer or reader has reported at this site&rsquo;s
                 node yet.
               </EmptyState>
             ) : (
@@ -160,8 +160,8 @@ function SeatsCard({
     <Card className="flex flex-col gap-3 px-4 py-3 text-[0.9375rem] text-body">
       <div className="flex flex-wrap items-center gap-3">
         <span className="flex-1">
-          Till seats: <b className="text-ink">{seats}</b> — Till 1
-          {seats > 1 ? ` to Till ${seats}` : ""}
+          POS seats: <b className="text-ink">{seats}</b> — POS 1
+          {seats > 1 ? ` to POS ${seats}` : ""}
         </span>
         {canManage && (
           <>
@@ -170,7 +170,7 @@ function SeatsCard({
               min={1}
               max={50}
               inputMode="numeric"
-              aria-label="Number of till seats"
+              aria-label="Number of POS seats"
               className="w-20"
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
@@ -187,7 +187,7 @@ function SeatsCard({
         )}
       </div>
       <p className="text-meta text-mute">
-        Each seat is one drawer. People pick a seat at the till; machines
+        Each seat is one drawer. People pick a seat at the POS; machines
         don&rsquo;t add seats.
       </p>
       {save.isError && <Banner tone="bad">{saying(save.error)}</Banner>}

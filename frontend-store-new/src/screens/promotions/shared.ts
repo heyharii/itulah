@@ -62,7 +62,7 @@ export function hasPriceBook(offers: StoreOffers): boolean {
 /// two problems.
 export function provenance(offers: StoreOffers | undefined): string | null {
   if (offers === undefined || offers.publication_version === null) return null
-  return `From price book #${count(offers.publication_version)}, as this shop holds it — the same book the till prices from.`
+  return `From price book #${count(offers.publication_version)}, as this shop holds it — the same book the POS prices from.`
 }
 
 /// Every rule the shop holds, running first. The node already orders each half
@@ -232,7 +232,7 @@ export function describeEffect(effect: Effect): string {
           return "Earns points"
       }
     default:
-      return "A promotion this till cannot describe"
+      return "A promotion this POS cannot describe"
   }
 }
 

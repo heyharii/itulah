@@ -1944,7 +1944,7 @@ function Rollout({ events, standings }: Standings) {
         <MiniTable
           head={[
             "Store",
-            { label: "Till status", align: "left" },
+            { label: "POS status", align: "left" },
             { label: "Last update", align: "left" },
           ]}
         >

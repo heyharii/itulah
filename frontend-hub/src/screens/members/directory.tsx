@@ -737,7 +737,7 @@ function MemberBook() {
             {written.value !== undefined
               ? "Nobody matches that segment's conditions today. It is worked out on every read, so it empties and fills on its own."
               : segment.value === undefined
-                ? "Nobody has been enrolled yet. Cards are enrolled at a till, against a number the shopper is already holding."
+                ? "Nobody has been enrolled yet. Cards are enrolled at a POS, against a number the shopper is already holding."
                 : "No member is in that segment today. It is a statement about behaviour, so it empties and fills on its own."}
           </EmptyState>
         ) : (

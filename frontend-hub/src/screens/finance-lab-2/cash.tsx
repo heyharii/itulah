@@ -98,7 +98,7 @@ export function Cash() {
       <PageHeader
         crumb="Finance lab 2 · Cash &amp; Bank"
         title="Cash"
-        sub="Tills, floats and petty cash — where the notes are, according to the books."
+        sub="POS, floats and petty cash — where the notes are, according to the books."
       />
 
       <Toolbar className="mb-4">

@@ -63,7 +63,7 @@ export function TillsTab({ store }: { store: StoreSummary }) {
     <div className="flex max-w-5xl flex-col gap-6">
       <RefreshStrip queries={[pos]} />
       {queryState(pos, {
-        loading: "Reading the tills…",
+        loading: "Reading the POS…",
         render: (data) => <TillsPage store={store} pos={data} />,
       })}
     </div>
@@ -123,7 +123,7 @@ function TillsPage({ store, pos }: { store: StoreSummary; pos: StorePos }) {
   ).length
 
   const head = [
-    { label: "Till", align: "left" },
+    { label: "POS", align: "left" },
     { label: "Machine", align: "left" },
     { label: "Last seen", align: "left" },
     { label: "Shift", align: "left" },
@@ -151,9 +151,9 @@ function TillsPage({ store, pos }: { store: StoreSummary; pos: StorePos }) {
   return (
     <>
       <KpiStrip className="mb-0 md:grid-cols-4 xl:grid-cols-4">
-        <Kpi label="Tills" value={String(live.length)} />
+        <Kpi label="POS" value={String(live.length)} />
         <Kpi label="Online" value={String(online)} />
-        <Kpi label="Tills stopped" value={redWhenAny(tillsStopped)} />
+        <Kpi label="POS stopped" value={redWhenAny(tillsStopped)} />
         <Kpi label="Cashiers stopped" value={redWhenAny(peopleStopped)} />
       </KpiStrip>
 
@@ -165,10 +165,10 @@ function TillsPage({ store, pos }: { store: StoreSummary; pos: StorePos }) {
       )}
 
       <div className="flex flex-col gap-3">
-        <Section title="Tills">
+        <Section title="POS">
           <Card className="overflow-clip px-4 pt-3.5 pb-1">
             {live.length === 0 ? (
-              <EmptyState>No till at this store</EmptyState>
+              <EmptyState>No POS at this store</EmptyState>
             ) : (
               <MiniTable head={head}>{live.map(tillRow)}</MiniTable>
             )}
@@ -250,7 +250,7 @@ function redWhenAny(figure: number): React.ReactNode {
 
 /// `Kasir 3`, as the node names it, is `Till 3` in the hub.
 function tillName(till: StorePosTill): string {
-  return till.label.replace(/^Kasir\b/i, "Till")
+  return till.label.replace(/^Kasir\b/i, "POS")
 }
 
 /// The line under a status: why, by whom and when, in grey.
@@ -604,7 +604,7 @@ function StopPersonDialog({
       title={`Stop POS for ${cashier.name}?`}
       facts={[
         { term: "Role", value: cashier.role },
-        { term: "Tills", value: "Every store" },
+        { term: "POS", value: "Every store" },
         {
           term: "Shift",
           value:

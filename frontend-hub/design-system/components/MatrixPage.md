@@ -32,7 +32,7 @@ A slot may be empty. It is never moved or restyled.
 ### The grid, By store
 
 - Columns: a 48px tick, the article 312px, All stores 224px, then one 160px column per store. The first three are frozen (`sticky`, at 0, 48 and 360px); the All stores column carries a 1px `hairline-strong` rule on its right, where the frozen block ends.
-- Heading row: `band`, 15px at 500 in `mute`, 14px 12px inside, a `hairline` under it, stuck to the top. A store's name opens that store's shelf as a layer. A store whose till has not picked up the latest prices carries "Not updated yet" under its name in `warn-fg`, with a `warn` dot.
+- Heading row: `band`, 15px at 500 in `mute`, 14px 12px inside, a `hairline` under it, stuck to the top. A store's name opens that store's shelf as a layer. A store whose POS has not picked up the latest prices carries "Not updated yet" under its name in `warn-fg`, with a `warn` dot.
 - Cells: 14px all round, a `row-line` between rows, figures right-aligned and tabular, aligned to the top.
 - The article cell: a 24px chevron that opens its SKU lines, a 48px picture, then up to three lines in one face: the name at 500, "00000412 · Pria", the tags. The name opens the article.
 - A SKU line stands 100px in, its size and colour over its code ("M · Biru"), priced in the same columns.

@@ -63,7 +63,7 @@ export function Sales() {
   return (
     <PageContent>
       <PageHeader title="Sales" />
-      <Suspense fallback={<LoadingState>Adding up the tills…</LoadingState>}>
+      <Suspense fallback={<LoadingState>Adding up the POS…</LoadingState>}>
         <SalesBody />
       </Suspense>
     </PageContent>

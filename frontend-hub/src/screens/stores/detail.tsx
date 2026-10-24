@@ -100,7 +100,7 @@ export function StoreDetail() {
                 </>
               ),
             },
-            { value: "tills", label: "Tills" },
+            { value: "tills", label: "POS" },
             { value: "server", label: "Server" },
             { value: "status", label: "Status" },
           ]
