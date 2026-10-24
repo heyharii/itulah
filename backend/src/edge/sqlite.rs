@@ -12189,11 +12189,14 @@ mod tests {
             .connection
             .lock()
             .unwrap_or_else(|error| panic!("connection: {error}"));
-        connection
+        // Bound, not returned as the tail: the cached statement borrows the
+        // guard, and a tail expression's temporaries outlive the guard.
+        let position = connection
             .prepare_cached("SELECT origin_id,generation,next_seq FROM sync_origin")
             .unwrap_or_else(|error| panic!("prepare: {error}"))
             .query_row([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
-            .unwrap_or_else(|error| panic!("sync position: {error}"))
+            .unwrap_or_else(|error| panic!("sync position: {error}"));
+        position
     }
 
     #[test]
