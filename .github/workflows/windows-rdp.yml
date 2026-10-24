@@ -79,15 +79,20 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          Invoke-WebRequest https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe -OutFile cloudflared.exe
-          Start-Process .\cloudflared.exe -ArgumentList 'tunnel','--no-autoupdate','--url','rdp://localhost:3389' -RedirectStandardError tunnel.log -WindowStyle Hidden
+          # A scheduled task, not Start-Process: the runner ends every process
+          # a step started when the step ends, and the tunnel must outlive it.
+          New-Item -ItemType Directory -Force C:\tunnel | Out-Null
+          Invoke-WebRequest https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe -OutFile C:\tunnel\cloudflared.exe
+          $action = New-ScheduledTaskAction -Execute 'C:\tunnel\cloudflared.exe' -Argument 'tunnel --no-autoupdate --logfile C:\tunnel\tunnel.log --url rdp://localhost:3389'
+          Register-ScheduledTask -TaskName CentralTunnel -Action $action -User SYSTEM -RunLevel Highest -Force | Out-Null
+          Start-ScheduledTask -TaskName CentralTunnel
           $host_ = $null
           foreach ($i in 1..60) {
             Start-Sleep -Seconds 2
-            $m = Select-String -Path tunnel.log -Pattern 'https://[a-z0-9-]+\.trycloudflare\.com' -ErrorAction SilentlyContinue | Select-Object -First 1
+            $m = Select-String -Path C:\tunnel\tunnel.log -Pattern 'https://[a-z0-9-]+\.trycloudflare\.com' -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($m) { $host_ = ($m.Matches[0].Value -replace '^https://', ''); break }
           }
-          if (-not $host_) { Get-Content tunnel.log -Tail 30; throw "no tunnel address" }
+          if (-not $host_) { Get-Content C:\tunnel\tunnel.log -Tail 30; throw "no tunnel address" }
           New-Item -ItemType Directory -Force rdp | Out-Null
           Set-Content rdp/host.txt $host_
           Write-Host "tunnel ready"
