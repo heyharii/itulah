@@ -9,7 +9,6 @@ import {
 import { createPortal } from "react-dom"
 
 import {
-  cashMovement,
   closeShift,
   countShift,
   myShifts,
@@ -22,7 +21,6 @@ import { useOutbox } from "@/outbox"
 import { refreshPaymentMethods } from "@/payment-methods"
 import type { Seat } from "@/seat"
 import { useNodeConfig, useSession } from "@/session"
-import { useApproval } from "@/approval"
 import { useShortcuts, viaPointer } from "@/shortcuts"
 import { titled } from "@/simulation"
 import { SetorModalDialog, TambahModalDialog } from "@/screens/laci"
@@ -76,8 +74,6 @@ import "@/exchange-d.css"
 /// nothing is multiplied on the way out. No shift figure carries a currency
 /// code either: a drawer holds the notes of the country the shop stands in.
 const CURRENCY = "IDR"
-
-const PAD = ["7", "8", "9", "4", "5", "6", "1", "2", "3", "⌫", "0", "000"]
 
 /// The node names movements in English on the wire; the counter reads
 /// Indonesian. Anything unknown prints as it arrived rather than as a blank.
@@ -460,59 +456,6 @@ export function ShiftScreen({
           {panel}
         </div>
       </main>
-    </div>
-  )
-}
-
-/// A rupiah amount, typed. The pad is here because a counter is touched, not
-/// clicked, and because the keyboard on a till is often behind the monitor.
-function Rupiah({
-  caption,
-  text,
-  onText,
-  autoFocus,
-}: {
-  caption: string
-  text: string
-  onText: (next: string) => void
-  autoFocus?: boolean
-}) {
-  const value = Number(text) || 0
-  return (
-    <div>
-      <span className="label">{caption}</span>
-      <div className="amount-field" style={{ marginTop: 8 }}>
-        <span className="rp">Rp</span>
-        <input
-          value={value > 0 ? value.toLocaleString("id-ID") : ""}
-          onChange={(event) => onText(event.target.value.replace(/\D/g, ""))}
-          inputMode="numeric"
-          placeholder="0"
-          aria-label={caption}
-          autoFocus={autoFocus}
-          // A prefilled amount is selected, so the first key typed replaces it.
-          onFocus={(event) => event.target.select()}
-        />
-      </div>
-      <div className="numpad" style={{ marginTop: 8 }}>
-        {PAD.map((key) => (
-          <button
-            key={key}
-            type="button"
-            className={key === "⌫" ? "del" : undefined}
-            aria-label={key === "⌫" ? "Hapus satu digit" : undefined}
-            onClick={() =>
-              onText(
-                key === "⌫"
-                  ? text.slice(0, -1)
-                  : String(Number(text + key) || ""),
-              )
-            }
-          >
-            {key}
-          </button>
-        ))}
-      </div>
     </div>
   )
 }

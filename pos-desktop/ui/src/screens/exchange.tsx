@@ -63,13 +63,6 @@ export type Receipt = {
   readonly lines: readonly SoldLine[]
 }
 
-type NewLine = {
-  readonly skuCode: string
-  readonly name: string
-  readonly priceMinor: number
-  readonly epcs: readonly string[]
-}
-
 export const asMap = (value: unknown): Record<string, unknown> | null =>
   typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -111,7 +104,6 @@ export function readReceipt(body: unknown, fallbackNo: string): Receipt | null {
 
 export const hm = (iso: string | null) =>
   iso === null ? "" : new Date(iso).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })
-const pcs = (count: number) => `${count} pcs`
 export const skuOf = (epc: string) => {
   const read = readScan(epc)
   return read.kind === "epc" ? read.sku_code : epc.slice(2, 13)

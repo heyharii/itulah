@@ -24,11 +24,8 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 
 import * as api from "@/api"
 import { isWeb } from "@/edition"
-import { Icon } from "@/icons"
-import { PinPad } from "@/pinpad"
-import { Sheet } from "@/screens/dialogs"
 import { seatNow } from "@/seat"
-import { NO_FINGER, supervisorByFinger, supervisorByPin, useSession } from "@/session"
+import { NO_FINGER, supervisorByFinger, useSession } from "@/session"
 import { useFingerWatch, useScanner } from "@/scanner"
 import { Sensor, type Read } from "@/sensor"
 import { SIMULATED, SIM_FINGERS, SIM_HEAD, SIM_SECRET, titled } from "@/simulation"
@@ -99,13 +96,9 @@ function ApprovalSheet({
 }) {
   const session = useSession()
   const [, setStepUp] = useState<api.StepUp | null>(null)
-  const [mode, setMode] = useState<"quick" | "password">("quick")
+  const [, setMode] = useState<"quick" | "password">("quick")
   const [username, setUsername] = useState("")
-  // Held in refs and emptied the moment the node has answered, the same way
-  // `returns.tsx` holds a supervisor's PIN.
-  const pin = useRef("")
   const [password, setPassword] = useState("")
-  const [, redraw] = useState(0)
   const [busy, setBusy] = useState(false)
   const [problem, setProblemState] = useState<string | null>(null)
   const problemRef = useRef<string | null>(null)
@@ -148,11 +141,6 @@ function ApprovalSheet({
     }
   }, [])
 
-  const setPin = (next: string) => {
-    pin.current = next
-    redraw((count) => count + 1)
-  }
-
   /// Write the approval down on the node, spending the supervisor's proof.
   async function record(supervisor: api.Supervisor): Promise<void> {
     if (request.perform !== undefined) {
@@ -192,43 +180,6 @@ function ApprovalSheet({
       approvalId: reply.body.approval_id,
       name: fullName(reply.body.approved_by),
     })
-  }
-
-  async function withPin() {
-    if (username.trim() === "" || pin.current === "") {
-      setProblem("Isi kode dan PIN kepala toko.")
-      return
-    }
-    setBusy(true)
-    setProblem(null)
-    const answer = await supervisorByPin(username.trim(), pin.current)
-    setPin("")
-    if (answer.authorization === null) {
-      setBusy(false)
-      setProblem("Bukan kepala toko")
-      return
-    }
-    await record({
-      username: answer.username ?? username.trim(),
-      authorization: answer.authorization,
-    })
-    setBusy(false)
-  }
-
-  async function withFinger() {
-    setBusy(true)
-    setProblem(null)
-    const answer = await supervisorByFinger()
-    if (answer.authorization === null) {
-      setBusy(false)
-      setProblem("Bukan kepala toko")
-      return
-    }
-    await record({
-      username: answer.username ?? "",
-      authorization: answer.authorization,
-    })
-    setBusy(false)
   }
 
   async function withPassword() {

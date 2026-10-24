@@ -39,7 +39,7 @@ import { useFingerWatch, useScanner } from "@/scanner"
 import { SIMULATED, SIM_FINGERS, SIM_HEAD, SIM_SECRET, titled } from "@/simulation"
 import { sound } from "@/sound"
 import { Sensor, type Read } from "@/sensor"
-import { Brand, kasirLabel, Topbar } from "@/till"
+import { kasirLabel, Topbar } from "@/till"
 
 /// The till's door (owner, 23 Oct 2026), drawn as the prototype draws it
 /// (pos-classic-prototype.html): a cashier comes in by finger only — "welcome

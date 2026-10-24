@@ -14,7 +14,7 @@ import { ShiftGate, ShiftScreen } from "@/screens/shift"
 import { isStopped, StoppedScreen, useStanding } from "@/screens/stopped"
 import { holdSeat, seatNow, type Seat } from "@/seat"
 import { useSession } from "@/session"
-import { Till, Topbar, type Where } from "@/till"
+import { Till, type Where } from "@/till"
 
 /// The terminal, and the three decisions it makes before anything else.
 ///

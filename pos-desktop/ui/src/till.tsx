@@ -2148,9 +2148,6 @@ export function Till({
   const bagCount = (description: string) =>
     charges.filter((charge) => charge.description === description).length
   const addedBags = BAGS.filter((bag) => bagCount(bag.description) > 0)
-  // A free bag is a decision (it is on the bill at nought) but not a figure:
-  // only the ones that cost something are totalled below.
-  const billedBags = addedBags.filter((bag) => bag.amount_minor > 0)
   const bagOne = (bag: api.Charge) => setCharges((was) => [...was, bag])
   const bagLess = (bag: api.Charge) =>
     setCharges((was) => {
@@ -7213,7 +7210,7 @@ function Sale({
   return (
     <div className={enter ? "payd top enter" : "payd top"}>
       <div className={withStruk ? "chg with-struk" : "chg"} role="dialog" aria-modal="true" aria-label={heading}>
-        {withStruk && <div className="sk-well">{struk !== null && struk !== false && paper(struk)}</div>}
+        {withStruk && <div className="sk-well">{struk !== null && paper(struk)}</div>}
         {withStruk ? <div className="chg-main">{main}</div> : main}
       </div>
       {memberOpen && (
