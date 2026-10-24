@@ -637,18 +637,14 @@ pub async fn run(
             sd_notify("READY=1\nSTATUS=Waiting to be enrolled: open /setup on this machine");
             spawn_beats(liveness.clone(), None);
             spawn_watchdog(liveness.clone(), Some(dir.clone()), None, now);
-            // The cloud's address for the setup page: configured, or baked
-            // into the build a shop downloads, so nobody has to type it. CI
-            // bakes an empty string when no address was given; that is none.
-            let given = |url: &str| !url.trim().is_empty();
-            let cloud = std::env::var("ITULAH_CLOUD_URL")
-                .ok()
-                .filter(|url| given(url))
-                .or_else(|| {
-                    option_env!("ITULAH_DEFAULT_CLOUD_URL")
-                        .filter(|url| given(url))
-                        .map(str::to_owned)
-                });
+            // The cloud's address for the setup page, so nobody has to type it.
+            // A build that carries Central's address uses it and nothing else
+            // (`enrolment::baked_cloud`).
+            let cloud = enrolment::baked_cloud().map(str::to_owned).or_else(|| {
+                std::env::var("ITULAH_CLOUD_URL")
+                    .ok()
+                    .filter(|url| !url.trim().is_empty())
+            });
             if !enrolment::run_setup(dir.clone(), bind, cloud, stopping()).await? {
                 stopped_cleanly(dir, journal, "asked to stop");
                 return Ok(Exit::Stopped);

@@ -62,6 +62,15 @@ const PENDING_FILE: &str = "enrolment.pending.json";
 /// the code, optional second line the cloud's address.
 pub const STAGED_CODE_FILE: &str = "enroll.code";
 
+/// Central's address when this build carries one (the store server a shop
+/// downloads): then it is the only address the machine enrols with, and
+/// nothing typed at the shop — the setup page, the installer's CLOUD_URL, an
+/// address staged beside the code — changes it. A build without one (a
+/// developer's) still takes the address it is given.
+pub fn baked_cloud() -> Option<&'static str> {
+    option_env!("ITULAH_DEFAULT_CLOUD_URL").filter(|url| !url.trim().is_empty())
+}
+
 /// Leave a code for the node to claim on its next start.
 pub fn stage_code(dir: &Path, code: &str, cloud_url: Option<&str>) -> Result<(), EdgeError> {
     if enrolment::normalise_code(code).is_none() {
@@ -325,7 +334,8 @@ impl Setup {
         let Some(code) = lines.next() else {
             return;
         };
-        let Some(cloud) = lines.next().or(default_cloud) else {
+        let staged = lines.next();
+        let Some(cloud) = baked_cloud().or(staged).or(default_cloud) else {
             *self.state.lock().await = SetupState::Idle {
                 cloud_url: None,
                 error: Some("the installer left a code but no cloud address".into()),
@@ -419,7 +429,8 @@ async fn setup_claim(State(setup): State<Arc<Setup>>, Json(body): Json<ClaimBody
         )
             .into_response();
     }
-    match setup.claim(&body.cloud_url, &body.code).await {
+    let cloud = baked_cloud().map_or_else(|| body.cloud_url.clone(), str::to_owned);
+    match setup.claim(&cloud, &body.code).await {
         Ok(pending) => {
             let state = pending.waiting(None);
             *setup.state.lock().await = state.clone();

@@ -109,7 +109,9 @@ pub fn main(default_role: EdgeRole) -> Result<(), BoxError> {
             let _logs = node::init_logging(default_role, None);
             let code =
                 flag(&args, "--code").ok_or("usage: enroll --code XXXXX-XXXXX [--cloud URL]")?;
-            let cloud = flag(&args, "--cloud")
+            let cloud = enrolment::baked_cloud()
+                .map(str::to_owned)
+                .or_else(|| flag(&args, "--cloud"))
                 .or_else(|| env::var("ITULAH_CLOUD_URL").ok())
                 .ok_or("--cloud URL (or ITULAH_CLOUD_URL) is required")?;
             let dir = data_dir.unwrap_or_else(|| PathBuf::from("."));
