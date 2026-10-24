@@ -77,6 +77,11 @@ export const screens: ScreenMap = {
     () => import("@/screens/sales/customer"),
     (m) => m.Member
   ),
+  "/sales/unmatched": lazyScreen(
+    "sales/unmatched",
+    () => import("@/screens/sales/unmatched"),
+    (m) => m.UnmatchedSales
+  ),
   "/sales/overview": lazyScreen(
     "sales/overview",
     () => import("@/screens/sales/overview"),

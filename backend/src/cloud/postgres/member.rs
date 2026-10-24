@@ -128,6 +128,45 @@ pub async fn enrol_member(
     })
 }
 
+/// What a till registers beside a member's number and name (client, 23 Oct
+/// 2026). `None` leaves a field as it is.
+#[derive(Clone, Debug, Default)]
+pub struct MemberProfile {
+    /// `L` or `P`.
+    pub gender: Option<String>,
+    pub birth_place: Option<String>,
+    pub birth_date: Option<chrono::NaiveDate>,
+    pub address: Option<String>,
+    pub email: Option<String>,
+}
+
+/// Write a member's registration details (postgres 0988).
+pub async fn record_member_profile(
+    pool: &PgPool,
+    member_id: &str,
+    profile: &MemberProfile,
+) -> Result<(), AppError> {
+    let member_id = normalise_member_id(member_id)?;
+    sqlx::query(
+        "UPDATE member
+            SET gender = COALESCE($2, gender),
+                birth_place = COALESCE($3, birth_place),
+                birth_date = COALESCE($4, birth_date),
+                address = COALESCE($5, address),
+                email = COALESCE($6, email)
+          WHERE member_id = $1",
+    )
+    .bind(&member_id)
+    .bind(profile.gender.as_deref())
+    .bind(profile.birth_place.as_deref())
+    .bind(profile.birth_date)
+    .bind(profile.address.as_deref())
+    .bind(profile.email.as_deref())
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 /// Issue the code a cashier reads out.
 ///
 /// Replaces any code already live for this member rather than adding a second:

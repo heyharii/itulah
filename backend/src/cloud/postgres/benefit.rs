@@ -92,6 +92,16 @@ pub struct BenefitHolderView {
     pub balance_minor: i64,
 }
 
+/// Whose balance the till means: the code the employee showed from their
+/// phone, or the employee a finger on the shop's own scanner was matched to
+/// (client, 24 Oct 2026: "jari karyawan", no code).
+#[derive(Clone, Copy, Debug)]
+pub enum BenefitKey<'a> {
+    Code(&'a str),
+    /// An employee id, already resolved by [`benefit_employee_at_origin`].
+    Employee(&'a str),
+}
+
 // ── settings ──────────────────────────────────────────────────────────────
 
 pub async fn benefit_settings(pool: &PgPool) -> Result<Vec<BenefitSettingView>, AppError> {
@@ -469,7 +479,70 @@ async fn holder_of(tx: &mut Transaction<'_, Postgres>, code: &str) -> Result<Str
     })
 }
 
+/// Whose balance `key` names. A finger names a person rather than a code, so
+/// the only thing left to check is that they still work here.
+async fn holder_by(
+    tx: &mut Transaction<'_, Postgres>,
+    key: BenefitKey<'_>,
+) -> Result<String, AppError> {
+    let employee_id = match key {
+        BenefitKey::Code(code) => return holder_of(tx, code).await,
+        BenefitKey::Employee(employee_id) => employee_id,
+    };
+    let active: Option<String> =
+        sqlx::query_scalar("SELECT id FROM employee WHERE id = $1 AND status = 'ACTIVE'")
+            .bind(employee_id)
+            .fetch_optional(&mut **tx)
+            .await?;
+    active.ok_or_else(|| {
+        AppError::NotFound(format!(
+            "employee {employee_id} is not working here now, so the balance is not spent"
+        ))
+    })
+}
+
+/// The employee behind a login whose finger a shop's node matched.
+///
+/// The node proves which node it is with its key; it cannot prove whose
+/// finger was on its scanner beyond its own word. So the person is believed
+/// only as far as the cloud's register agrees — an active login with an
+/// active assignment at THIS origin, the same people that node may sign in
+/// (`auth_policy::relay_subject`). A node can name its own staff and nobody
+/// else's.
+pub async fn benefit_employee_at_origin(
+    pool: &PgPool,
+    origin_id: &str,
+    username: &str,
+) -> Result<String, AppError> {
+    let found: Option<Option<String>> = sqlx::query_scalar(
+        "SELECT u.employee_id FROM app_user u
+           JOIN edge_identity_assignment a ON a.user_id = u.id
+          WHERE a.origin_id = $1 AND lower(u.username) = lower($2) AND a.active AND u.active",
+    )
+    .bind(origin_id)
+    .bind(username.trim())
+    .fetch_optional(pool)
+    .await?;
+    match found {
+        None => Err(AppError::Forbidden(format!(
+            "nobody by that login may sign in at {origin_id}, so no finger there names them"
+        ))),
+        Some(None) => Err(AppError::NotFound(
+            "that login is not an employee's, so it holds no benefit balance".into(),
+        )),
+        Some(Some(employee_id)) => Ok(employee_id),
+    }
+}
+
 pub async fn benefit_holder(pool: &PgPool, code: &str) -> Result<BenefitHolderView, AppError> {
+    benefit_holder_by(pool, BenefitKey::Code(code)).await
+}
+
+/// Whose balance `key` names and what is left. Uses nothing up.
+pub async fn benefit_holder_by(
+    pool: &PgPool,
+    key: BenefitKey<'_>,
+) -> Result<BenefitHolderView, AppError> {
     let mut tx = pool.begin().await?;
     let (enabled, _) = setting_now(&mut tx).await?;
     if !enabled {
@@ -477,7 +550,7 @@ pub async fn benefit_holder(pool: &PgPool, code: &str) -> Result<BenefitHolderVi
             "the employee benefit is not turned on".into(),
         ));
     }
-    let employee_id = holder_of(&mut tx, code).await?;
+    let employee_id = holder_by(&mut tx, key).await?;
     let balance = locked_balance(&mut tx, &employee_id).await?;
     let (employee_code, full_name): (String, Option<String>) = sqlx::query_as(
         "SELECT e.code, p.full_name FROM employee e
@@ -495,13 +568,13 @@ pub async fn benefit_holder(pool: &PgPool, code: &str) -> Result<BenefitHolderVi
     })
 }
 
-/// Spend part of a basket from the balance shown by `code`. Refused for a
-/// sale that already spent once, for more than is left, for a basket on
-/// promotion, and for the cashier's own balance.
+/// Spend part of a basket from the balance `key` names. Refused for a sale
+/// that already spent once, for more than is left, for a basket on promotion,
+/// and for the cashier's own balance.
 #[allow(clippy::too_many_arguments)]
 pub async fn spend_benefit(
     pool: &PgPool,
-    code: &str,
+    key: BenefitKey<'_>,
     sale_ref: &str,
     unit_id: &str,
     amount_minor: i64,
@@ -531,7 +604,7 @@ pub async fn spend_benefit(
             "the employee benefit is not turned on".into(),
         ));
     }
-    let employee_id = holder_of(&mut tx, code).await?;
+    let employee_id = holder_by(&mut tx, key).await?;
     if cashier_employee_id == Some(employee_id.as_str()) {
         return Err(AppError::Forbidden(
             "a cashier does not ring up their own benefit; ask a colleague".into(),
@@ -561,10 +634,14 @@ pub async fn spend_benefit(
         }
         _ => error,
     })?;
-    sqlx::query("UPDATE benefit_code SET used_at = now() WHERE code = $1")
-        .bind(code.trim())
-        .execute(&mut *tx)
-        .await?;
+    // A code is used up by its spend; a finger has nothing to use up — the
+    // node's one-shot grant for it was spent at the till.
+    if let BenefitKey::Code(code) = key {
+        sqlx::query("UPDATE benefit_code SET used_at = now() WHERE code = $1")
+            .bind(code.trim())
+            .execute(&mut *tx)
+            .await?;
+    }
     let (employee_code, full_name): (String, Option<String>) = sqlx::query_as(
         "SELECT e.code, p.full_name FROM employee e
            LEFT JOIN employee_profile p ON p.employee_id = e.id WHERE e.id = $1",

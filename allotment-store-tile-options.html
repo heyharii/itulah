@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Allotment store tile options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="frontend-hub/design-system/tokens.css">
+<style>
+:root{--font-sans:"Inter Variable","Inter",system-ui,-apple-system,"Segoe UI",sans-serif}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--stone,#f2f2f4);font-family:var(--font-sans);font-size:15px;line-height:1.45;color:var(--ink,#111);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;cursor:pointer}
+/* prototype chrome */
+.pbar{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:10px 16px;background:#fff;border-bottom:1px solid var(--hairline,#e8e8ec)}
+.pbar b{font-weight:600}
+.seg{display:inline-flex;flex-wrap:wrap;gap:2px;padding:3px;border-radius:9px;background:#ececf0}
+.seg button{border:0;background:none;padding:5px 12px;border-radius:7px;color:var(--body,#555)}
+.seg button.on{background:#fff;color:var(--ink,#111);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.star{color:var(--accent,#2862dc)}
+.note{color:var(--mute,#888);font-size:15px}
+/* page */
+.page{max-width:1120px;margin:24px auto;padding:0 16px;display:flex;flex-direction:column;gap:12px}
+.card{display:grid;grid-template-columns:minmax(0,1fr) minmax(22rem,30rem);gap:12px 24px;align-items:start;background:#fff;border:1px solid var(--hairline,#e8e8ec);border-radius:14px;padding:16px 20px;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+.sup{font-size:17px;font-weight:600}
+.meta{color:var(--body,#555)}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:14.5px}
+.tot{margin-top:6px}.tot b{font-weight:600}.tot span{color:var(--body,#555)}
+.bad{color:#d70015}
+.foot{grid-column:1/-1;display:flex;justify-content:flex-end;gap:8px;border-top:1px solid var(--hairline,#e8e8ec);padding-top:12px}
+.btn{border:0;border-radius:8px;padding:6px 14px;font-weight:500}
+.btn.red{background:#d70015;color:#fff}.btn.blue{background:#2862dc;color:#fff}
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;flex:none}
+/* status colours */
+.s-pick{--c:#b8b8c0;--w:#f1f1f4;--t:#555}
+.s-picking{--c:#d68a00;--w:#fdf5e8;--t:#8a5a00}
+.s-sent{--c:#2862dc;--w:#eef3fc;--t:#2862dc}
+.s-recv{--c:#36b827;--w:#eaf6ee;--t:#1f7a3a}
+.s-short{--c:#d70015;--w:#fdf0f1;--t:#d70015}
+
+/* A · Now */
+.vA .t{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;background:#f6f6f8;border-radius:8px;padding:8px 12px}
+.vA .st{justify-self:end;display:inline-flex;align-items:center;gap:6px;color:var(--mute,#888)}
+.vA .q{grid-column:1/-1}.vA .q b{font-weight:600}.vA .q span{color:var(--body,#555)}
+
+/* B · Pill status, one line */
+.vB .t{display:flex;align-items:center;gap:10px;border:1px solid var(--hairline,#e8e8ec);border-radius:10px;padding:8px 10px 8px 12px}
+.vB .code{font-weight:600}
+.vB .pill{border-radius:999px;padding:1px 9px;background:var(--w);color:var(--t);font-size:14.5px;white-space:nowrap}
+.vB .q{margin-left:auto;font-weight:600;white-space:nowrap}
+.vB .q small{font-size:15px;font-weight:400;color:var(--body,#555)}
+
+/* C · Big number */
+.vC .t{display:flex;flex-direction:column;gap:2px;background:#f6f6f8;border-radius:10px;padding:10px 12px}
+.vC .n{font-size:22px;font-weight:600;line-height:1.1}
+.vC .n small{font-size:15px;font-weight:400;color:var(--body,#555)}
+.vC .row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.vC .st{display:inline-flex;align-items:center;gap:6px;color:var(--t)}
+.vC .art{color:var(--body,#555);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* D · Table rows, no tiles */
+.vD .tiles{display:block}
+.vD .t{display:grid;grid-template-columns:3.5rem 1fr auto;align-items:center;gap:10px;padding:7px 2px;border-top:1px solid var(--hairline,#e8e8ec)}
+.vD .t:first-child{border-top:0}
+.vD .code{font-weight:600}
+.vD .st{display:inline-flex;align-items:center;gap:6px;color:var(--t)}
+.vD .q{text-align:right;white-space:nowrap}.vD .q b{font-weight:600}.vD .q span{color:var(--body,#555)}
+
+/* E · Status-tinted tile */
+.vE .t{display:flex;flex-direction:column;gap:2px;background:var(--w);border-radius:10px;padding:9px 12px}
+.vE .row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.vE .code{font-weight:600;color:var(--ink,#111)}
+.vE .st{color:var(--t);font-weight:500}
+.vE .q b{font-weight:600}.vE .q span{color:var(--body,#555)}
+
+/* F · Store name + article name */
+.vF .t{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:2px 10px;border:1px solid var(--hairline,#e8e8ec);border-radius:10px;padding:8px 12px}
+.vF .dot{grid-row:1/3;width:10px;height:10px}
+.vF .name{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vF .q{grid-row:1/3;grid-column:3;text-align:right;white-space:nowrap}
+.vF .q b{display:block;font-size:17px;font-weight:600}
+.vF .q span{color:var(--t);font-size:14.5px}
+.vF .art{color:var(--body,#555);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* D1 · Rows with column heads, numbers in their own columns */
+.vD1 .tiles{display:block}
+.vD1 .h,.vD1 .t{display:grid;grid-template-columns:3.5rem 1fr 4.5rem 5.5rem;align-items:center;gap:10px}
+.vD1 .h{color:var(--mute,#888);font-size:15px;padding-bottom:4px;border-bottom:1px solid var(--hairline,#e8e8ec)}
+.vD1 .t{padding:7px 0;border-bottom:1px solid var(--hairline,#e8e8ec)}
+.vD1 .t:last-child{border-bottom:0}
+.vD1 .num{text-align:right;font-variant-numeric:tabular-nums}
+.vD1 .code{font-weight:600}
+.vD1 .st{display:inline-flex;align-items:center;gap:6px;color:var(--t)}
+/* D2 · Rows in a boxed mini table */
+.vD2 .tiles{display:block;border:1px solid var(--hairline,#e8e8ec);border-radius:10px;overflow:hidden}
+.vD2 .h,.vD2 .t{display:grid;grid-template-columns:3.5rem 1fr 4.5rem 5.5rem;align-items:center;gap:10px;padding:0 12px}
+.vD2 .h{background:#f7f7f9;color:var(--mute,#888);height:34px}
+.vD2 .t{height:40px;border-top:1px solid var(--hairline,#e8e8ec)}
+.vD2 .num{text-align:right;font-variant-numeric:tabular-nums}
+.vD2 .code{font-weight:600}
+.vD2 .st{display:inline-flex;align-items:center;gap:6px;color:var(--t)}
+/* D3 · Rows across the whole card, under the title */
+.vD3 .card{grid-template-columns:1fr}
+.vD3 .tiles{display:block;border-top:1px solid var(--hairline,#e8e8ec)}
+.vD3 .h,.vD3 .t{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) 5rem 6rem minmax(0,1.6fr);align-items:center;gap:12px}
+.vD3 .h{color:var(--mute,#888);padding:8px 0 4px}
+.vD3 .t{padding:8px 0;border-top:1px solid var(--hairline,#e8e8ec)}
+.vD3 .num{text-align:right;font-variant-numeric:tabular-nums}
+.vD3 .st{display:inline-flex;align-items:center;gap:6px;color:var(--t)}
+.vD3 .art{color:var(--body,#555);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vD3 .tot{display:none}
+.vD3 .headline{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+/* D4 · Rows, total as the last row */
+.vD4 .tiles{display:block}
+.vD4 .t,.vD4 .sum{display:grid;grid-template-columns:3.5rem 1fr auto;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--hairline,#e8e8ec)}
+.vD4 .t:first-child{border-top:0;padding-top:0}
+.vD4 .sum{border-top:1px solid var(--ink,#111);font-weight:600}
+.vD4 .code{font-weight:600}
+.vD4 .st{display:inline-flex;align-items:center;gap:6px;color:var(--t)}
+.vD4 .q{text-align:right;white-space:nowrap}.vD4 .q b{font-weight:600}.vD4 .q span{color:var(--body,#555)}
+.vD4 .tot{display:none}
+
+/* D2+ · mini table, at most 4 stores then "+N more" */
+.vD2m .tiles{display:block;border:1px solid var(--hairline,#e8e8ec);border-radius:10px;overflow:hidden}
+.vD2m .h,.vD2m .t,.vD2m .more{display:grid;grid-template-columns:3.5rem 1fr 4.5rem 5.5rem;align-items:center;gap:10px;padding:0 12px}
+.vD2m .h{background:#f7f7f9;color:var(--mute,#888);height:34px}
+.vD2m .t,.vD2m .more{height:40px;border-top:1px solid var(--hairline,#e8e8ec)}
+.vD2m .more{color:var(--accent,#2862dc);font-weight:500}
+.vD2m .num{text-align:right;font-variant-numeric:tabular-nums}
+.vD2m .code{font-weight:600}
+.vD2m .st{display:inline-flex;align-items:center;gap:6px;color:var(--t)}
+/* D5 · mini table by status: one row per stage, stores listed */
+.vD5 .tiles{display:block;border:1px solid var(--hairline,#e8e8ec);border-radius:10px;overflow:hidden}
+.vD5 .h,.vD5 .t{display:grid;grid-template-columns:8.5rem 1fr 4.5rem;align-items:center;gap:10px;padding:0 12px}
+.vD5 .h{background:#f7f7f9;color:var(--mute,#888);height:34px}
+.vD5 .t{min-height:40px;padding-top:8px;padding-bottom:8px;border-top:1px solid var(--hairline,#e8e8ec)}
+.vD5 .num{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+.vD5 .st{display:inline-flex;align-items:center;gap:6px;color:var(--t);white-space:nowrap}
+.vD5 .codes{color:var(--ink,#111);font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+<div class="pbar">
+  <b>Store tile on the allotment card</b>
+  <div class="seg" id="seg">
+    <button data-v="A">A · Now</button>
+    <button data-v="B">B · Pill, one line</button>
+    <button data-v="C">C · Big number</button>
+    <button data-v="D">D · Rows (now in hub)</button>
+    <button data-v="D1">D1 · Rows + heads</button>
+    <button data-v="D2">D2 · Mini table</button>
+    <button data-v="D2m">D2+ · Max 4 + more <span class="star">★</span></button>
+    <button data-v="D5">D5 · By status</button>
+    <button data-v="D3">D3 · Rows full width</button>
+    <button data-v="D4">D4 · Total row</button>
+    <button data-v="E">E · Tinted by status</button>
+    <button data-v="F">F · Name + article</button>
+  </div>
+  <span class="note">Same three cards in every option.</span>
+</div>
+<div class="page" id="page"></div>
+
+<script>
+const CARDS = [
+  { sup:"Garmen Nusantara, Sepatu Sejahtera", alt:"ALT-00000002", date:"14 Oct", gone:true, pcs:4, arts:6,
+    stores:[{code:"C001",name:"Cikupa",st:"Dispatched",cls:"s-sent",pcs:4,arts:6,art:"Kaos Anak Karakter +5"}] },
+  { sup:"Garmen Nusantara", alt:"ALT-00000003", date:"16 Oct", pcs:12, arts:1,
+    stores:[{code:"C001",name:"Cikupa",st:"Dispatched",cls:"s-sent",pcs:6,arts:1,art:"Celana Chino Slim Fit"},
+            {code:"C002",name:"Muaro Bungo",st:"To pick",cls:"s-pick",pcs:6,arts:1,art:"Celana Chino Slim Fit"}] },
+  { sup:"Garmen Nusantara", alt:"ALT-00000024", date:"19 Oct", pcs:22, arts:1,
+    stores:[{code:"C001",name:"Cikupa",st:"Received",cls:"s-recv",pcs:11,arts:1,art:"Kemeja Test Demo"},
+            {code:"C002",name:"Muaro Bungo",st:"Short 1",cls:"s-short",pcs:10,arts:1,art:"Kemeja Test Demo"},
+            {code:"C003",name:"Purbalingga",st:"Picking",cls:"s-picking",pcs:1,arts:1,art:"Kemeja Test Demo"}] },
+  { sup:"Garmen Nusantara", alt:"ALT-00000031", date:"20 Oct", pcs:78, arts:3, stores:(() => {
+      const names=["Cikupa","Muaro Bungo","Purbalingga","Bumiayu","Jambi","Wiramode","Brebes","Pasuruan","WMJB","WMBA","Sipin","Banjaran","Wonosobo"];
+      const st=[["Received","s-recv"],["Received","s-recv"],["Short 1","s-short"],["Dispatched","s-sent"],["Dispatched","s-sent"],["Dispatched","s-sent"],["Dispatched","s-sent"],["Picking","s-picking"],["Picking","s-picking"],["To pick","s-pick"],["To pick","s-pick"],["To pick","s-pick"],["To pick","s-pick"]];
+      return names.map((n,i)=>({code:"C0"+String(i+1).padStart(2,"0"),name:n,st:st[i][0],cls:st[i][1],pcs:6,arts:3,art:"Kaos Uji UJ19 +2"}));
+    })() },
+];
+const pcs = n => n === 1 ? "1 pc" : `${n} pcs`;
+const arts = n => n === 1 ? "1 article" : `${n} articles`;
+const TILE = {
+  A: s => `<div class="t ${s.cls}"><b>${s.code}</b><span class="st"><i class="dot" style="background:var(--c)"></i>${s.st}</span><span class="q"><b>${pcs(s.pcs)}</b><span> · ${arts(s.arts)}</span></span></div>`,
+  B: s => `<div class="t ${s.cls}"><span class="code">${s.code}</span><span class="pill">${s.st}</span><span class="q">${s.pcs} <small>${s.pcs===1?"pc":"pcs"}</small></span></div>`,
+  C: s => `<div class="t ${s.cls}"><div class="row"><span class="n">${s.pcs} <small>${s.pcs===1?"pc":"pcs"}</small></span><span class="st"><i class="dot" style="background:var(--c)"></i>${s.st}</span></div><div class="row"><b>${s.code}</b><span class="art">${s.art}</span></div></div>`,
+  D: s => `<div class="t ${s.cls}"><span class="code">${s.code}</span><span class="st"><i class="dot" style="background:var(--c)"></i>${s.st}</span><span class="q"><b>${pcs(s.pcs)}</b><span> · ${arts(s.arts)}</span></span></div>`,
+  E: s => `<div class="t ${s.cls}"><div class="row"><span class="code">${s.code}</span><span class="st">${s.st}</span></div><div class="q"><b>${pcs(s.pcs)}</b><span> · ${arts(s.arts)}</span></div></div>`,
+  D1: s => `<div class="t ${s.cls}"><span class="code">${s.code}</span><span class="st"><i class="dot" style="background:var(--c)"></i>${s.st}</span><span class="num"><b>${s.pcs}</b></span><span class="num">${s.arts}</span></div>`,
+  D2: s => `<div class="t ${s.cls}"><span class="code">${s.code}</span><span class="st"><i class="dot" style="background:var(--c)"></i>${s.st}</span><span class="num"><b>${s.pcs}</b></span><span class="num">${s.arts}</span></div>`,
+  D2m: s => TILE.D2(s),
+  D3: s => `<div class="t ${s.cls}"><span><b>${s.code}</b> · ${s.name}</span><span class="st"><i class="dot" style="background:var(--c)"></i>${s.st}</span><span class="num"><b>${s.pcs}</b></span><span class="num">${s.arts}</span><span class="art">${s.art}</span></div>`,
+  D4: s => `<div class="t ${s.cls}"><span class="code">${s.code}</span><span class="st"><i class="dot" style="background:var(--c)"></i>${s.st}</span><span class="q"><b>${pcs(s.pcs)}</b><span> · ${arts(s.arts)}</span></span></div>`,
+  F: s => `<div class="t ${s.cls}"><i class="dot" style="background:var(--c)"></i><span class="name">${s.code} · ${s.name}</span><span class="q"><b>${pcs(s.pcs)}</b><span>${s.st}</span></span><span class="art" style="grid-column:2">${s.art}</span></div>`,
+};
+const HEAD = {
+  D1: '<div class="h"><span>Store</span><span>Status</span><span class="num">Pcs</span><span class="num">Articles</span></div>',
+  D2: '<div class="h"><span>Store</span><span>Status</span><span class="num">Pcs</span><span class="num">Articles</span></div>',
+  D2m: '<div class="h"><span>Store</span><span>Status</span><span class="num">Pcs</span><span class="num">Articles</span></div>',
+  D5: '<div class="h"><span>Status</span><span>Stores</span><span class="num">Pcs</span></div>',
+  D3: '<div class="h"><span>Store</span><span>Status</span><span class="num">Pcs</span><span class="num">Articles</span><span>Article</span></div>',
+};
+function body(v,c){
+  if (v==="D2m") {
+    const shown=c.stores.slice(0,4).map(TILE.D2).join("");
+    const rest=c.stores.slice(4);
+    return shown + (rest.length ? `<div class="more"><span></span><span>+ ${rest.length} more stores</span><span class="num">${rest.reduce((a,x)=>a+x.pcs,0)}</span><span></span></div>` : "");
+  }
+  if (v==="D5") {
+    const by=new Map();
+    for (const x of c.stores) { const k=x.st.startsWith("Short")?"Short":x.st; const g=by.get(k)||{st:x.st.startsWith("Short")?"Short":x.st,cls:x.cls,codes:[],pcs:0}; g.codes.push(x.code); g.pcs+=x.pcs; by.set(k,g); }
+    return [...by.values()].map(g=>`<div class="t ${g.cls}"><span class="st"><i class="dot" style="background:var(--c)"></i>${g.st}</span><span class="codes">${g.codes.join(", ")}</span><span class="num">${g.pcs}</span></div>`).join("");
+  }
+  return c.stores.map(TILE[v]).join("");
+}
+function render(v){
+  const page = document.getElementById("page");
+  page.className = `page v${v}`;
+  page.innerHTML = CARDS.map(c => `
+    <div class="card">
+      <div>
+        <div class="${v==="D3"?"headline":""}"><div class="sup">${c.sup}</div>${v==="D3"?`<b>${pcs(c.pcs)} · ${arts(c.arts)}</b>`:""}</div>
+        <div class="meta"><span class="mono">${c.alt}</span> · ${c.date}${c.gone?' · <span class="bad">Cancelled</span>':''}</div>
+        <div class="tot"><b>${pcs(c.pcs)}</b><span> · ${arts(c.arts)}</span></div>
+      </div>
+      <div class="tiles">${HEAD[v]||""}${body(v,c)}${v==="D4"?`<div class="sum"><span>Total</span><span></span><span class="q">${pcs(c.pcs)} · ${arts(c.arts)}</span></div>`:""}</div>
+      ${c.gone?'':'<div class="foot"><button class="btn red">Cancel</button><button class="btn blue">Edit</button></div>'}
+    </div>`).join("");
+  document.querySelectorAll("#seg button").forEach(b => b.classList.toggle("on", b.dataset.v === v));
+  try { localStorage.setItem("tileV", v) } catch {}
+}
+document.getElementById("seg").addEventListener("click", e => { const b = e.target.closest("button"); if (b) render(b.dataset.v) });
+let v0 = "D2m"; try { v0 = localStorage.getItem("tileV") || "D2m" } catch {}
+render(v0);
+</script>
+</body>
+</html>

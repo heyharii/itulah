@@ -309,6 +309,18 @@ pub const SECTION_RULES: &[SectionRule] = &[
         &["merchandise"],
         Reads::Also(&["inventory", "operations", "stores"]),
     ),
+    // A shop's own Send of its reject: the store's act, at its own till.
+    rule(
+        "/api/v1/inventory/store-returns",
+        &["stores"],
+        Reads::Also(&["merchandise", "inventory"]),
+    ),
+    // Merchandise moving a shop's goods to its Return HO pocket.
+    rule(
+        "/api/v1/inventory/store-returns/mark",
+        &["merchandise"],
+        Reads::Also(&["inventory"]),
+    ),
     // ── marketing, and the prices merchandise owns inside Commercial ───
     rule(
         "/api/v1/commercial",

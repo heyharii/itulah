@@ -1,0 +1,34 @@
+{
+  "signin": {
+    "seconds": 4.5715,
+    "say": "Kasir masuk ke aplikasi dengan Username dan Password-nya sendiri."
+  },
+  "menu": {
+    "seconds": 3.23925,
+    "say": "Setelah login, kasir memilih menu Kasir."
+  },
+  "popup": {
+    "seconds": 5.51175,
+    "say": "Muncul pop up Open Kasir. Pertama, verifikasi user dengan sidik jari."
+  },
+  "finger": {
+    "seconds": 5.355,
+    "say": "Jari ditempel ke sensor. Hanya jari milik user yang login yang diterima."
+  },
+  "float": {
+    "seconds": 7.28825,
+    "say": "Lalu isi saldo awal kasir. Sudah terisi Rp 500.000, tinggal ketik kalau jumlahnya berbeda."
+  },
+  "open": {
+    "seconds": 2.08975,
+    "say": "Tekan Open Kasir."
+  },
+  "ready": {
+    "seconds": 3.3175,
+    "say": "Setelah berhasil, menu kasir bisa digunakan."
+  },
+  "keys": {
+    "seconds": 6.191,
+    "say": "Semua fungsi kasir ada di tombol F, seperti di 7Soft, jadi bisa dipakai tanpa mouse."
+  }
+}

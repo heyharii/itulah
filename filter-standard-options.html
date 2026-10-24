@@ -1,0 +1,690 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Filter standard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+/* One filter grammar for every hub list, taken from Purchase Orders:
+   status tabs · search that offers the long list · date boxes · one line of
+   icon chips · switch ── columns. Five screens (one per family that exists
+   today) × Now / Standard × Desktop / Tablet / iPhone. Look copied from the
+   running hub (white.css tokens), 20 Oct 2026. */
+:root{
+  --ink:#1d1d1f; --body:#6e6e73; --mute:#6e6e73; --ph:#8e8e93;
+  --soft:#fafafb; --soft-2:#f2f2f5; --soft-3:#f5f5f7; --rail-3:#efeff2;
+  --hairline:#e8e8ec; --hairline-2:#dcdce1; --hairline-strong:#c7c7cc; --row-line:#eeeef1; --band:#fafafb;
+  --accent:#2862dc; --accent-bg:#eef3fc; --bad:#d70015; --good:#248a3d; --warn:#c45a00;
+  --ease-out:cubic-bezier(.23,1,.32,1); --ease-drawer:cubic-bezier(.32,.72,0,1);
+  --font:"Inter",system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;height:100%}
+body{font-family:var(--font);font-size:15px;line-height:20px;color:var(--ink);background:#141518;letter-spacing:-.006em;-webkit-font-smoothing:antialiased;overflow:hidden}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;letter-spacing:inherit;text-align:left}
+input{font:inherit;letter-spacing:inherit;color:inherit}
+.i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.i.s{width:16px;height:16px}
+
+/* prototype chrome (not the product) */
+.proto{height:50px;overflow-x:auto;background:#141518;color:#fff;display:flex;align-items:center;gap:12px;padding:0 14px 0 18px}
+.proto .t{font-weight:600;white-space:nowrap}
+.seg{display:flex;gap:2px;background:#24262b;border-radius:9px;padding:3px;flex:none}
+.seg button{height:32px;padding:0 11px;border-radius:7px;color:#b9bcc3;white-space:nowrap;transition:background-color .15s ease,color .15s ease,transform .16s var(--ease-out)}
+.seg button:active{transform:scale(.97)}
+.seg button b{font-weight:600;color:#fff;margin-right:5px}
+.seg button.on{background:#fff;color:var(--ink)} .seg button.on b{color:var(--ink)}
+.seg .star{color:#f4b740;margin-left:4px}
+.proto .sp{flex:1}
+.note{min-height:36px;background:#1c1e22;color:#a7abb3;line-height:24px;padding:6px 18px;border-top:1px solid #26282d}
+.note b{color:#fff;font-weight:500}
+.stage{height:calc(100vh - 86px);overflow:auto;background:#141518;padding:0}
+.stage.framed{padding:28px 0 60px}
+
+/* desktop shell: rail · panel · page */
+.app{display:grid;grid-template-columns:68px 244px minmax(0,1fr);background:#ececef;min-height:960px;width:1440px;margin:0 auto}
+.rail{display:flex;flex-direction:column;align-items:center;padding:16px 0;gap:8px;color:#3a3a3c}
+.rail .ri{width:40px;height:36px;border-radius:9px;display:grid;place-items:center}
+.rail .ri.on{background:#fff;box-shadow:0 0 0 1px rgb(0 0 0/.05)}
+.rail .sp{flex:1}
+.av{width:34px;height:34px;border-radius:50%;background:#fff;display:grid;place-items:center;font-weight:600;box-shadow:0 0 0 1px var(--hairline)}
+.panel{background:#fff;margin:12px 12px 12px 0;border-radius:20px;box-shadow:0 0 0 1px rgb(0 0 0/.04);padding:14px 10px}
+.panel h2{margin:0 0 10px;padding:6px 10px;font-size:18px;font-weight:600;letter-spacing:-.01em}
+.nv{height:36px;display:flex;align-items:center;padding:0 10px;border-radius:8px;color:#3a3a3c;width:100%}
+.nv.on{background:var(--rail-3);color:var(--ink);font-weight:500}
+.panel hr{border:0;border-top:1px solid var(--hairline);margin:6px 10px}
+.card{background:#fff;margin:12px 12px 12px 0;border-radius:20px;box-shadow:0 0 0 1px rgb(0 0 0/.04);min-width:0;display:flex;flex-direction:column}
+.head{height:76px;display:flex;align-items:center;justify-content:space-between;padding:0 28px;border-bottom:1px solid var(--hairline);flex:none}
+.head h1{margin:0;font-size:18px;font-weight:600;letter-spacing:-.012em}
+.btn{height:36px;display:inline-flex;align-items:center;gap:6px;padding:0 14px 0 12px;border-radius:9px;font-weight:500;white-space:nowrap;transition:background-color .15s ease,transform .16s var(--ease-out)}
+.btn.primary{background:var(--accent);color:#fff}
+.content{padding:28px 28px 32px}
+:is(.btn,.ghost,.chip,.swp,.box,.tab,.mi,.dk,.tile,.prs,.sx):active{transform:scale(.97)}
+
+/* tablet frame (iPad Air portrait, 820) */
+.tab-frame{width:820px;margin:0 auto;background:#ececef;border-radius:28px;overflow:hidden;box-shadow:0 0 0 10px #2a2c31,0 30px 80px rgb(0 0 0/.5);min-height:1180px;display:flex;flex-direction:column}
+.topbar{height:52px;display:flex;align-items:center;gap:8px;padding:0 20px;color:var(--mute);flex:none}
+.topbar b{color:var(--ink);font-weight:500}
+.tab-frame .card{margin:0 12px 12px}
+.tab-frame .content{padding:24px 24px 28px}
+.tab-frame .head{padding:0 24px}
+
+/* phone frame (iPhone XR, 414 × 896) */
+.phone{width:414px;height:896px;margin:0 auto;border-radius:54px;background:#fff;box-shadow:0 0 0 12px #2a2c31,0 30px 80px rgb(0 0 0/.5);overflow:hidden;position:relative;display:flex;flex-direction:column}
+.ph-status{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 30px;font-weight:600;flex:none}
+.ph-top{height:48px;display:flex;align-items:center;gap:6px;padding:0 16px;flex:none}
+.ph-top .d{color:var(--mute)} .ph-top b{font-weight:600;font-size:17px}
+.ph-scroll{flex:1;overflow:auto;padding:4px 16px 120px}
+.ph-sum{color:var(--mute);margin:4px 0 14px}
+.ph-sum b{color:var(--ink);font-weight:500}
+.dock{position:absolute;left:0;right:0;bottom:0;padding:10px 12px 30px;background:linear-gradient(transparent,#fff 30%);display:flex;gap:8px;align-items:center}
+.dk{height:44px;border-radius:999px;background:var(--soft-2);display:inline-flex;align-items:center;gap:6px;padding:0 14px 0 16px;font-weight:500;white-space:nowrap;flex:none;transition:transform .16s var(--ease-out)}
+.dk.field{flex:1;min-width:0;padding:0 6px 0 14px;font-weight:400;color:var(--ph)}
+.dk.field span{flex:1;overflow:hidden;text-overflow:ellipsis}
+.dk .gear{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;color:var(--ink);position:relative}
+.dk .gear .badge{position:absolute;top:2px;right:0;min-width:17px;height:17px;border-radius:9px;background:var(--accent);color:#fff;font-size:15px;line-height:17px;text-align:center;font-weight:600;padding:0 4px;transform:scale(.8)}
+.dk.plus{width:44px;padding:0;justify-content:center;background:var(--accent);color:#fff}
+.scrim{position:absolute;inset:0;background:rgb(0 0 0/.28);opacity:0;transition:opacity .3s ease;pointer-events:none}
+.scrim.in{opacity:1;pointer-events:auto}
+.bsheet{position:absolute;left:0;right:0;bottom:0;max-height:86%;background:#fff;border-radius:22px 22px 0 0;transform:translateY(100%);transition:transform .38s var(--ease-drawer);display:flex;flex-direction:column}
+.bsheet.in{transform:none}
+.grab{width:36px;height:5px;border-radius:3px;background:#d1d1d6;margin:8px auto 4px;flex:none}
+.bs-head{height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 20px;flex:none}
+.bs-head b{font-size:17px;font-weight:600}
+.bs-body{flex:1;overflow:auto;padding:4px 20px 12px}
+.bs-sec+.bs-sec{margin-top:24px}
+.bs-sec .lab{color:var(--mute);margin-bottom:10px}
+.bs-foot{display:flex;gap:10px;padding:12px 20px 30px;border-top:1px solid var(--hairline);flex:none}
+.bs-foot .btn{height:48px;flex:1;justify-content:center;border-radius:12px;font-size:16px}
+.bs-foot .btn.tint{background:var(--accent-bg);color:var(--accent);flex:0 0 108px}
+.mrow{height:52px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--row-line);width:100%}
+.mrow .t{flex:1}
+.mrow .v{color:var(--mute)}
+.mrow:last-child{border-bottom:0}
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.tile{height:48px;display:flex;align-items:center;gap:8px;padding:0 12px;border:1px solid var(--hairline-2);border-radius:12px;min-width:0;transition:background-color .15s ease,border-color .15s ease,color .15s ease,transform .16s var(--ease-out)}
+.tile .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tile .i,.tile .n{color:var(--mute)} .tile .n{font-variant-numeric:tabular-nums}
+.tile.on{border-color:var(--accent);background:var(--accent-bg);color:var(--accent)}
+.tile.on .i,.tile.on .n{color:var(--accent)}
+.prsrow{display:flex;flex-wrap:wrap;gap:8px}
+.prs{height:40px;padding:0 14px;border-radius:999px;background:var(--soft-2);font-weight:500;display:inline-flex;align-items:center;gap:6px;transition:background-color .15s ease,color .15s ease,transform .16s var(--ease-out)}
+.prs.on{background:var(--accent-bg);color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.prs .i{color:var(--mute)} .prs.on .i{color:var(--accent)}
+.radio{width:20px;height:20px;border-radius:50%;border:1.5px solid var(--hairline-strong);flex:none;display:grid;place-items:center}
+.radio.on{border:6px solid var(--accent)}
+
+/* figures */
+.kpis{display:flex;margin:0 0 32px -1px}
+.kpi{padding:0 40px 0 20px;border-left:1px solid var(--hairline);display:flex;flex-direction:column;gap:6px}
+.kpi:first-child{border-left:0;padding-left:0}
+.kpi .lab{color:var(--mute)}
+.kpi .val{font-size:18px;line-height:24px;font-weight:600;font-variant-numeric:tabular-nums}
+.kpi .val.bad{color:var(--bad)}
+.tab-frame .kpi{padding:0 24px 0 16px}
+
+/* tabs */
+.tabs{display:flex;gap:34px;border-bottom:1px solid var(--hairline);margin-bottom:24px}
+.tab{height:44px;display:flex;align-items:center;gap:6px;font-size:16px;color:var(--mute);position:relative;transition:color .15s ease}
+.tab .n{font-variant-numeric:tabular-nums}
+.tab.on{color:var(--ink);font-weight:500}
+.tab.on::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--ink);border-radius:2px}
+.segc{display:inline-flex;gap:2px;background:var(--soft-2);border-radius:9px;padding:3px;margin-bottom:20px}
+.segc button{height:30px;padding:0 12px;border-radius:7px;color:var(--mute)}
+.segc button.on{background:#fff;color:var(--ink);font-weight:500;box-shadow:0 1px 2px rgb(0 0 0/.08)}
+
+/* the bar */
+.bar{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.bar .sp{flex:1}
+.bar.two{row-gap:10px}
+.bar .brk{flex-basis:100%;height:0}
+.search{height:36px;flex:0 1 300px;min-width:160px;display:flex;align-items:center;gap:6px;padding:0 6px 0 12px;border:1px solid var(--hairline-2);border-radius:8px;color:var(--ph);position:relative;transition:border-color .15s ease,box-shadow .15s ease}
+.search.grow{flex:1 1 300px}
+.search:focus-within{border-color:var(--accent);box-shadow:0 0 0 2px rgb(40 98 220/12%)}
+.search input{border:0;outline:0;flex:1;min-width:0;background:none;color:var(--ink)}
+.search input::placeholder{color:var(--ph)}
+.tok{height:26px;display:inline-flex;align-items:center;gap:4px;padding:0 2px 0 8px;border-radius:6px;background:var(--accent-bg);color:var(--accent);font-weight:500;white-space:nowrap;flex:none;animation:tokIn .18s var(--ease-out)}
+.tok .sx{width:22px;height:22px;border-radius:5px;display:grid;place-items:center}
+@keyframes tokIn{from{opacity:0;transform:scale(.94)}}
+.box{height:36px;width:186px;display:inline-flex;align-items:center;gap:8px;padding:0 12px;border:1px solid var(--hairline-2);border-radius:8px;color:var(--ph);white-space:nowrap;flex:none;position:relative;transition:border-color .15s ease,transform .16s var(--ease-out)}
+.box .i{color:var(--mute)}
+.box.set{color:var(--ink);border-color:var(--hairline-strong)}
+.box span{flex:1;overflow:hidden;text-overflow:ellipsis}
+.box.sel{width:auto;color:var(--ink)}
+.swp{height:36px;display:inline-flex;align-items:center;gap:10px;padding:0 14px 0 10px;border:1px solid var(--hairline-2);border-radius:9px;font-weight:500;white-space:nowrap;transition:transform .16s var(--ease-out),background-color .15s ease}
+.sw{width:32px;height:20px;border-radius:999px;background:#e5e5ea;position:relative;transition:background-color .16s ease;flex:none}
+.sw::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgb(0 0 0/.18);transition:transform .16s var(--ease-out)}
+.on>.sw,.swp.on .sw{background:var(--accent)} .on>.sw::after,.swp.on .sw::after{transform:translateX(12px)}
+.ghost{height:36px;display:inline-flex;align-items:center;gap:7px;padding:0 13px 0 11px;border:1px solid var(--hairline-2);border-radius:9px;background:#fff;font-weight:500;white-space:nowrap;transition:background-color .15s ease,transform .16s var(--ease-out)}
+.ghost.icon{width:36px;padding:0;justify-content:center}
+.ghost .n{color:var(--accent);font-variant-numeric:tabular-nums}
+.clear{height:36px;display:inline-flex;align-items:center;gap:6px;padding:0 10px;border-radius:9px;color:var(--accent);font-weight:500;animation:tokIn .18s var(--ease-out)}
+
+/* chips — FilterChips, one line, extra folds into +N */
+.chips{display:flex;gap:6px;margin-bottom:14px;flex-wrap:nowrap;overflow:hidden}
+.chips.wrap{flex-wrap:wrap}
+.chip{height:36px;display:inline-flex;align-items:center;gap:6px;padding:0 14px 0 10px;border-radius:999px;border:1px solid transparent;background:var(--soft-2);font-weight:500;white-space:nowrap;flex:none;transition:background-color .15s ease,border-color .15s ease,color .15s ease,transform .16s var(--ease-out)}
+.chip .i,.chip .n{color:var(--mute)} .chip .n{font-variant-numeric:tabular-nums}
+.chip.on{border-color:var(--accent);background:var(--accent-bg);color:var(--accent)}
+.chip.on .i,.chip.on .n{color:var(--accent)}
+.chip.zero{color:var(--mute)}
+.chip.more{padding:0 14px;color:var(--mute)}
+.ftok{height:36px;display:inline-flex;align-items:center;gap:6px;padding:0 4px 0 12px;border-radius:999px;background:var(--soft-2);font-weight:500;white-space:nowrap}
+.ftok .x{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;color:var(--mute)}
+
+/* popovers */
+.anchor{position:relative}
+.pop{position:absolute;top:calc(100% + 6px);left:0;z-index:30;background:#fff;border-radius:12px;box-shadow:0 0 0 1px rgb(0 0 0/.06),0 10px 30px rgb(0 0 0/.12);padding:6px;min-width:240px;opacity:0;transform:scale(.96);transform-origin:top left;transition:opacity .18s var(--ease-out),transform .18s var(--ease-out)}
+.pop.in{opacity:1;transform:none}
+.pop .plab{color:var(--mute);padding:6px 10px 4px}
+.mi{height:36px;width:100%;display:flex;align-items:center;gap:10px;padding:0 10px;border-radius:8px;white-space:nowrap;color:var(--ink)}
+.mi .i{color:var(--mute)}
+.mi .ck{margin-left:auto;color:var(--accent)}
+
+/* the framed table */
+.frame{border:1px solid var(--hairline);border-radius:12px;overflow:hidden}
+table{width:100%;border-collapse:collapse;table-layout:fixed}
+th{height:42px;background:var(--band);color:var(--mute);font-weight:400;text-align:left;padding:0 16px;border-bottom:1px solid var(--hairline);white-space:nowrap}
+th.num,td.num{text-align:right}
+td{padding:0 16px;height:64px;border-top:1px solid var(--row-line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+tbody tr:first-child td{border-top:0}
+td.num{font-variant-numeric:tabular-nums}
+.sub{color:var(--mute);margin-top:2px;overflow:hidden;text-overflow:ellipsis}
+.st{display:inline-flex;align-items:center;gap:8px}
+.st::before{content:"";width:6px;height:6px;border-radius:50%;background:#8e8e93;flex:none}
+.st.g::before{background:var(--good)} .st.b::before{background:var(--bad)} .st.w::before{background:var(--warn)} .st.a::before{background:var(--accent)}
+tfoot td{height:48px;background:var(--band);border-top:1px solid var(--hairline);color:var(--mute)}
+tfoot b{color:var(--ink);font-weight:500}
+.empty{padding:48px 0;text-align:center;color:var(--mute)}
+
+/* cards (tablet and phone) */
+.cards{display:flex;flex-direction:column;border:1px solid var(--hairline);border-radius:12px;overflow:hidden}
+.crd{display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border-top:1px solid var(--row-line)}
+.crd:first-child{border-top:0}
+.crd .l{flex:1;min-width:0}
+.crd .l .nm{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.crd .r{text-align:right;flex:none}
+.crd .fig{font-weight:600;font-variant-numeric:tabular-nums}
+.phone .cards{border:0;border-radius:0;margin:0 -16px}
+.ph-count{color:var(--mute);margin:14px 0 0}
+
+@media (hover:hover) and (pointer:fine){
+  .chip:not(.on):hover{background:#e9e9ee}
+  .ghost:hover{background:var(--soft-2)}
+  .swp:hover,.box:hover{background:var(--soft-3)}
+  .btn.primary:hover{background:#2055c7}
+  .mi:hover{background:var(--soft-3)}
+  .tab:not(.on):hover{color:var(--ink)}
+  .tok .sx:hover{background:#dde7fb}
+  .clear:hover{background:var(--accent-bg)}
+  tbody tr:hover td{background:#fbfbfc}
+}
+@media (prefers-reduced-motion:reduce){
+  .pop,.bsheet{transition:opacity .2s ease!important;transform:none!important}
+  .bsheet:not(.in){opacity:0;pointer-events:none}
+  .tok,.clear{animation:none}
+  :is(.btn,.ghost,.chip,.swp,.box,.tab,.mi,.dk,.tile,.prs,.sx):active{transform:none}
+}
+</style>
+</head>
+<body>
+<div class="proto">
+  <span class="t">Filter standard</span>
+  <div class="seg" id="screens"></div>
+  <span class="sp"></span>
+  <div class="seg" id="views"><button data-v="now">Now</button><button data-v="std">Standard<span class="star">★</span></button></div>
+  <div class="seg" id="devices"><button data-d="desk">Desktop 1440</button><button data-d="tab">Tablet 820</button><button data-d="phone">iPhone 414</button></div>
+</div>
+<div class="note" id="note"></div>
+<div class="stage" id="stage"></div>
+
+<script>
+const $ = (s, el = document) => el.querySelector(s)
+const P = {
+  search:'<circle cx="11" cy="11" r="7.5"/><path d="m20.5 20.5-4.2-4.2"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>',
+  x:'<path d="M18 6 6 18M6 6l12 12"/>',
+  down:'<path d="m6 9 6 6 6-6"/>',
+  right:'<path d="m9 6 6 6-6 6"/>',
+  check:'<path d="M20 6 9 17l-5-5"/>',
+  cal:'<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
+  cols:'<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18"/>',
+  filter:'<path d="M3 6h18"/><path d="M7 12h10"/><path d="M10 18h4"/>',
+  sliders:'<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
+  download:'<path d="M12 15V3"/><path d="m7 10 5 5 5-5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>',
+  truck:'<path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.62L18.3 9.38a1 1 0 0 0-.78-.38H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/>',
+  store:'<path d="M2 7h20l-2-4H4z"/><path d="M4 7v13h16V7"/><path d="M9 20v-6h6v6"/>',
+  ware:'<path d="M22 8.35V20a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8.35A2 2 0 0 1 3.26 6.5l8-3.2a2 2 0 0 1 1.48 0l8 3.2A2 2 0 0 1 22 8.35Z"/><path d="M6 18h12M6 14h12"/>',
+  building:'<rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4M8 6h.01M16 6h.01M12 6h.01M12 10h.01M12 14h.01M16 10h.01M16 14h.01M8 10h.01M8 14h.01"/>',
+  wallet:'<path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/>',
+  user:'<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+  percent:'<path d="M19 5 5 19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/>',
+  gift:'<rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7"/><path d="M7.5 8a2.5 2.5 0 0 1 0-5C11 3 12 8 12 8s1-5 4.5-5a2.5 2.5 0 0 1 0 5"/>',
+  pkg:'<path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5M12 22V12"/>',
+  tag:'<path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r="1.5"/>',
+  printer:'<path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8" rx="1"/>',
+  spark:'<path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M5.6 18.4l2.8-2.8M15.6 8.4l2.8-2.8"/>',
+  plug:'<path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>',
+  wrench:'<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.8-3.8a6 6 0 0 1-7.9 7.9l-6.9 6.9a2.1 2.1 0 0 1-3-3l6.9-6.9a6 6 0 0 1 7.9-7.9z"/>',
+  coffee:'<path d="M10 2v2M14 2v2M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h14a4 4 0 1 1 0 8h-1"/>',
+  shirt:'<path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z"/>',
+  box:'<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/>',
+  pen:'<path d="M12 20h9"/><path d="M16.4 3.6a2.1 2.1 0 1 1 3 3L7 19l-4 1 1-4Z"/>',
+  receipt:'<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8H8M16 12H8M13 16H8"/>',
+  cart:'<circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/>',
+  bank:'<path d="M3 22h18M6 18v-7M10 18v-7M14 18v-7M18 18v-7M12 2l8 5H4z"/>',
+  grid:'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>',
+  chat:'<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>',
+  layers:'<path d="m12 2 10 5-10 5L2 7z"/><path d="m2 17 10 5 10-5M2 12l10 5 10-5"/>',
+}
+const svg = (n, c = "i") => `<svg class="${c}" viewBox="0 0 24 24">${P[n] || ""}</svg>`
+
+/* ---------- the five screens, one per family that exists today ---------- */
+const S = {
+  po: {
+    key: "1", short: "Purchase Orders", dept: "Procurement", nav: ["Purchase Orders", "Return PO", "Suppliers", "Review count", "Outstanding"],
+    family: "Reference", action: "New order",
+    kpis: [["Orders", "372"], ["Still open", "42"], ["Overdue", "6", 1], ["On order", "Rp 1,84 M"]],
+    tabs: [["active", "Active", 42], ["completed", "Completed", 318], ["cancelled", "Cancelled", 12]],
+    search: "Search orders", ent: { label: "Supplier", icon: "truck", items: ["CV Sinar Jaya", "PT Kencana Tekstil", "UD Maju Garmen", "PT Indo Denim", "CV Rajut Abadi"] },
+    dates: ["Created at", "Delivery date"], chips: null, toggle: "Group by supplier",
+    cols: [["Order", 220], ["Supplier", 0], ["Ordered", 140, 1], ["Received", 140, 1], ["Delivery date", 150], ["Status", 160]],
+    fig: 2, rows: [
+      ["PO-2610-0142", "CV Sinar Jaya", "1.200 pcs", "0 pcs", "24 Oct 2026", ["Sent", "a"], "active"],
+      ["PO-2610-0139", "PT Kencana Tekstil", "860 pcs", "420 pcs", "18 Oct 2026", ["Overdue", "b"], "active"],
+      ["PO-2610-0137", "UD Maju Garmen", "2.400 pcs", "2.400 pcs", "15 Oct 2026", ["Received", "g"], "completed"],
+      ["PO-2610-0133", "PT Indo Denim", "640 pcs", "0 pcs", "30 Oct 2026", ["Sent", "a"], "active"],
+      ["PO-2610-0128", "CV Rajut Abadi", "300 pcs", "300 pcs", "10 Oct 2026", ["Received", "g"], "completed"],
+      ["PO-2610-0121", "CV Sinar Jaya", "980 pcs", "0 pcs", "08 Oct 2026", ["Cancelled", ""], "cancelled"],
+      ["PO-2610-0117", "PT Kencana Tekstil", "1.500 pcs", "900 pcs", "27 Oct 2026", ["Count to review", "w"], "active"],
+    ],
+    now: "Acuan. Desktop: tab + Search (supplier jadi token) + 2 kotak tanggal + Group by supplier ── Columns. Tablet hari ini: kotak tanggal HILANG (FilterRow cuma lg:contents). iPhone: dock Active ▾ · Search ⚙, ⚙ buka menu Filter/Sort, lalu satu layar per field.",
+  },
+  users: {
+    key: "2", short: "Users", dept: "System", nav: ["Users", "Devices", "Nodes", "Sync", "Activity"],
+    family: "FilterPanel (34 screens)", action: "Invite",
+    kpis: [["People", "72"], ["Signed in today", "41"], ["Invited", "5"], ["Disabled", "3"]],
+    tabs: [["active", "Active", 64], ["invited", "Invited", 5], ["disabled", "Disabled", 3]],
+    search: "Search people", ent: { label: "Unit", icon: "store", items: ["Store 01 Bandung", "Store 02 Cimahi", "Store 03 Garut", "DC Soekarno-Hatta", "Head office"] },
+    dates: ["Last sign-in"], chips: { label: "Section", items: [["Store", "store", 38], ["Warehouse", "ware", 14], ["Office", "building", 12], ["Finance", "wallet", 8]] }, toggle: null,
+    cols: [["Name", 0], ["Role", 190], ["Unit", 210], ["Last sign-in", 170], ["Status", 130]],
+    fig: 3, rows: [
+      ["Rina Kurniasih", "Cashier", "Store 01 Bandung", "Today 08:12", ["Active", "g"], "active", "Store"],
+      ["Dedi Saputra", "Picker", "DC Soekarno-Hatta", "Today 07:40", ["Active", "g"], "active", "Warehouse"],
+      ["Siti Rahmawati", "Buyer", "Head office", "Yesterday", ["Active", "g"], "active", "Office"],
+      ["Agus Pratama", "Store manager", "Store 02 Cimahi", "Today 09:02", ["Active", "g"], "active", "Store"],
+      ["Wulan Sari", "Accountant", "Head office", "18 Oct 2026", ["Active", "g"], "active", "Finance"],
+      ["Bayu Nugroho", "Cashier", "Store 03 Garut", "—", ["Invited", "a"], "invited", "Store"],
+      ["Fajar Hidayat", "Packer", "DC Soekarno-Hatta", "02 Sep 2026", ["Disabled", ""], "disabled", "Warehouse"],
+    ],
+    now: "Hari ini: kotak search + tombol Filter. Filter buka sheet (laptop) atau rail kanan (≥96rem), padahal 12 Okt sudah diputuskan \"jangan filter kanan\". Filter aktif muncul sebagai token \"Role is Cashier ×\".",
+  },
+  promo: {
+    key: "3", short: "Promotions", dept: "Marketing", nav: ["Promotions", "Campaigns", "Vouchers", "Changes"],
+    family: "DeskFilter (6 screens)", action: "New promotion",
+    kpis: [["Live", "6"], ["Sold on promo", "3.412 pcs"], ["Discount given", "Rp 48,2 jt"], ["Ends this week", "2"]],
+    tabs: [["live", "Live", 6], ["scheduled", "Scheduled", 3], ["ended", "Ended", 41], ["draft", "Draft", 2]],
+    search: "Search promotions", ent: { label: "Store", icon: "store", items: ["Store 01 Bandung", "Store 02 Cimahi", "Store 03 Garut", "Store 04 Tasik"] },
+    dates: ["Runs on"], chips: { label: "Kind", items: [["Percent off", "percent", 22], ["Buy X get Y", "gift", 14], ["Bundle", "pkg", 9], ["Price cut", "tag", 7]] }, toggle: null,
+    cols: [["Promotion", 0], ["Kind", 170], ["Stores", 170], ["Runs", 230], ["Sold", 120, 1]],
+    fig: 4, rows: [
+      ["Payday 25%", "Percent off", "All stores", "25 – 31 Oct 2026", "1.204 pcs", "live"],
+      ["Buy 2 get 1 Kaos", "Buy X get Y", "Store 01, 02", "15 – 27 Oct 2026", "842 pcs", "live"],
+      ["Bundle Denim + Belt", "Bundle", "Store 03 Garut", "18 – 31 Oct 2026", "96 pcs", "live"],
+      ["Clearance Kemeja", "Price cut", "All stores", "01 – 30 Oct 2026", "1.270 pcs", "live"],
+      ["11.11", "Percent off", "All stores", "11 Nov 2026", "—", "scheduled"],
+      ["Back to school", "Bundle", "Store 02 Cimahi", "Jul 2026", "2.110 pcs", "ended"],
+    ].map((r) => [...r.slice(0, 5), null, r[5], r[1]]),
+    now: "Hari ini: tombol Filter + baris token di bawahnya (\"Store is any of 2 selected ×\"). Kind tersembunyi di dalam tombol Filter.",
+  },
+  supplies: {
+    key: "4", short: "Supply Requests", dept: "GA", nav: ["Overview", "Supply Requests", "Repairs", "Service Schedule", "Assets", "Contracts", "Sites"],
+    family: "FilterChips (13 screens)", action: "New request",
+    kpis: [["Waiting", "5"], ["This month", "Rp 18,4 jt"], ["Approved", "12"], ["Rejected", "2"]],
+    tabs: [["waiting", "Waiting", 5], ["approved", "Approved", 12], ["rejected", "Rejected", 2]],
+    search: "Search requests", ent: { label: "Site", icon: "store", items: ["Store 01 Bandung", "Store 02 Cimahi", "DC Soekarno-Hatta", "Head office"] },
+    dates: ["Requested on"], chips: { label: "Category", items: [["Stationery", "printer", 7], ["Cleaning", "spark", 5], ["Electrical", "plug", 3], ["Tools", "wrench", 2], ["Pantry", "coffee", 1], ["Uniform", "shirt", 1], ["Packaging", "box", 0]] }, toggle: null,
+    cols: [["Item", 0], ["Category", 160], ["Site", 200], ["Requested by", 180], ["Amount", 140, 1], ["Status", 130]],
+    fig: 4, rows: [
+      ["Kertas A4 80g · 10 rim", "Stationery", "Head office", "Siti Rahmawati", "Rp 520.000", ["Waiting", "w"], "waiting"],
+      ["Pembersih lantai · 6 L", "Cleaning", "Store 01 Bandung", "Agus Pratama", "Rp 210.000", ["Waiting", "w"], "waiting"],
+      ["Lampu LED 18W · 12", "Electrical", "Store 02 Cimahi", "Rina Kurniasih", "Rp 780.000", ["Approved", "g"], "approved"],
+      ["Tinta printer label", "Stationery", "DC Soekarno-Hatta", "Dedi Saputra", "Rp 340.000", ["Waiting", "w"], "waiting"],
+      ["Obeng set", "Tools", "DC Soekarno-Hatta", "Fajar Hidayat", "Rp 165.000", ["Approved", "g"], "approved"],
+      ["Seragam kasir · 8", "Uniform", "Store 03 Garut", "Bayu Nugroho", "Rp 1.120.000", ["Rejected", "b"], "rejected"],
+    ].map((r) => [...r, r[1]]),
+    now: "Hari ini: chip ikon untuk 7 kategori + All, termasuk yang kosong. Di 1440 jadi 2 baris. State-nya lokal (useState), jadi tidak ikut URL.",
+  },
+  journal: {
+    key: "5", short: "Journal", dept: "Finance", nav: ["Journal", "General Ledger", "Cash & Bank", "Payables", "Periods"],
+    family: "Select dropdowns (±50 screens)", action: "New entry",
+    kpis: [["Entries", "1.214"], ["Debit", "Rp 4,82 M"], ["Credit", "Rp 4,82 M"], ["Draft", "7"]],
+    tabs: [["posted", "Posted", 1204], ["draft", "Draft", 7], ["reversed", "Reversed", 3]],
+    search: "Search entries", ent: { label: "Account or unit", icon: "layers", items: ["1101 Cash on hand", "1120 Cash in bank BCA", "4100 Sales", "5100 Cost of goods sold", "Unit · PT Itulah Retail", "Unit · CV Itulah Grosir"] },
+    dates: ["Posted on"], chips: { label: "Source", items: [["Manual", "pen", 84], ["Sales", "receipt", 612], ["Purchase", "cart", 301], ["Bank", "bank", 177], ["Payroll", "user", 30]] }, toggle: null,
+    cols: [["Entry", 170], ["Description", 0], ["Source", 140], ["Posted on", 150], ["Amount", 170, 1]],
+    fig: 4, rows: [
+      ["JV-2610-0912", "Takings Store 01 · 19 Oct", "Sales", "19 Oct 2026", "Rp 18.420.000", "posted"],
+      ["JV-2610-0911", "PO-2610-0137 received", "Purchase", "19 Oct 2026", "Rp 96.000.000", "posted"],
+      ["JV-2610-0907", "BCA charges October", "Bank", "18 Oct 2026", "Rp 85.000", "posted"],
+      ["JV-2610-0899", "Accrual electricity", "Manual", "17 Oct 2026", "Rp 4.200.000", "draft"],
+      ["JV-2610-0890", "Payroll September", "Payroll", "16 Oct 2026", "Rp 212.500.000", "posted"],
+      ["JV-2610-0861", "Reverse duplicate takings", "Manual", "12 Oct 2026", "Rp 6.100.000", "reversed"],
+    ].map((r) => [...r.slice(0, 5), null, r[5], r[2]]),
+    now: "Hari ini: dropdown Unit ▾ dan Source ▾, teks tanggal, lalu Segmented Posted|Draft sebagai status. Semuanya tersembunyi di balik klik, dan tidak ikut URL.",
+  },
+}
+const ORDER = ["po", "users", "promo", "supplies", "journal"]
+
+/* ---------- state ---------- */
+const q = new URLSearchParams(location.search)
+const st = {
+  s: S[q.get("s")] ? q.get("s") : "po",
+  v: q.get("v") === "now" ? "now" : "std",
+  d: ["desk", "tab", "phone"].includes(q.get("d")) ? q.get("d") : "desk",
+}
+const f = { tab: null, ent: null, text: "", chip: null, dates: {}, toggle: false, sheet: false, sheetPage: "menu" }
+let pop = null
+function resetFilters() {
+  const sc = S[st.s]
+  Object.assign(f, { tab: sc.tabs[0][0], ent: null, text: "", chip: null, dates: {}, toggle: false, sheet: false, sheetPage: "menu" })
+}
+resetFilters()
+function saveUrl() {
+  history.replaceState(null, "", `?s=${st.s}&v=${st.v}&d=${st.d}`)
+}
+
+/* ---------- data ---------- */
+function rowsOf(sc, useTab = true) {
+  return sc.rows.filter((r) => {
+    if (useTab && r[6] !== f.tab) return false
+    if (f.ent && !r.slice(0, 5).some((c) => typeof c === "string" && (c.includes(f.ent.replace("Unit · ", "")) || f.ent.includes(c)))) return false
+    if (f.chip && r[7] !== f.chip) return false
+    if (f.text && !r.slice(0, 5).join(" ").toLowerCase().includes(f.text.toLowerCase())) return false
+    return true
+  })
+}
+const anySet = () => f.ent || f.chip || f.text || Object.keys(f.dates).length || f.toggle
+const setCount = () => (f.ent ? 1 : 0) + (f.chip ? 1 : 0) + Object.keys(f.dates).length + (f.toggle ? 1 : 0)
+const status = (s) => (s ? `<span class="st ${s[1]}">${s[0]}</span>` : "")
+const fmt = (n) => n.toLocaleString("id-ID")
+
+/* ---------- desktop / tablet pieces ---------- */
+function head(sc) {
+  return `<div class="head"><h1>${sc.short}</h1><button class="btn primary">${svg("plus")}${sc.action}</button></div>`
+}
+function kpis(sc) {
+  return `<div class="kpis">${sc.kpis.map(([l, v, bad]) => `<div class="kpi"><span class="lab">${l}</span><span class="val ${bad ? "bad" : ""}">${v}</span></div>`).join("")}</div>`
+}
+function tabs(sc) {
+  return `<div class="tabs">${sc.tabs.map(([k, l, n]) => `<button class="tab ${f.tab === k ? "on" : ""}" data-tab="${k}">${l}<span class="n">${fmt(n)}</span></button>`).join("")}</div>`
+}
+function searchBox(sc, grow) {
+  return `<div class="search ${grow ? "grow" : ""}" id="sbox">${svg("search", "i s")}
+    ${f.ent ? `<span class="tok">${f.ent.replace("Unit · ", "")}<button class="sx" data-act="entx" aria-label="Remove">${svg("x", "i s")}</button></span>` : ""}
+    <input id="sin" placeholder="${f.ent ? "" : sc.search}" value="${f.text}" autocomplete="off" /></div>`
+}
+function dateBox(label) {
+  const v = f.dates[label]
+  return `<button class="box ${v ? "set" : ""}" data-date="${label}">${svg("cal", "i s")}<span>${v ? `${label}: ${v}` : label}</span></button>`
+}
+function chipRow(sc, wrap) {
+  if (!sc.chips) return ""
+  let items = sc.chips.items
+  let extra = 0
+  if (!wrap) {
+    const used = items.filter((c) => c[2] > 0 || c[0] === f.chip).sort((a, b) => b[2] - a[2])
+    const max = st.d === "tab" ? 4 : 6
+    let shown = used.slice(0, max)
+    const picked = used.find((c) => c[0] === f.chip)
+    if (picked && !shown.includes(picked)) shown = [...shown.slice(0, max - 1), picked]
+    extra = used.length - shown.length
+    items = shown
+  }
+  const total = sc.chips.items.reduce((s, c) => s + c[2], 0)
+  return `<div class="chips ${wrap ? "wrap" : ""}">
+    <button class="chip ${!f.chip ? "on" : ""}" data-chip="">${svg("grid", "i s")}All <span class="n">${total}</span></button>
+    ${items.map(([l, ic, n]) => `<button class="chip ${f.chip === l ? "on" : ""} ${n === 0 ? "zero" : ""}" data-chip="${l}">${svg(ic, "i s")}${l} <span class="n">${n}</span></button>`).join("")}
+    ${extra > 0 ? `<button class="chip more" data-act="more">+${extra}</button>` : ""}
+  </div>`
+}
+function toggle(sc) {
+  return sc.toggle ? `<button class="swp ${f.toggle ? "on" : ""}" data-act="toggle"><span class="sw"></span>${sc.toggle}</button>` : ""
+}
+const clearBtn = () => (anySet() ? `<button class="clear" data-act="clear">${svg("x", "i s")}Clear</button>` : "")
+const rightTools = () => `<span class="sp"></span><button class="ghost">${svg("cols", "i s")}Columns</button><button class="ghost icon" aria-label="Export">${svg("download", "i s")}</button>`
+
+function stdBar(sc) {
+  if (st.d === "desk") {
+    return `<div class="bar">${searchBox(sc)}${sc.dates.map(dateBox).join("")}${toggle(sc)}${clearBtn()}${rightTools()}</div>${chipRow(sc)}`
+  }
+  // tablet: search takes the width, dates and the switch on line two
+  return `<div class="bar two">${searchBox(sc, true)}<button class="ghost">${svg("cols", "i s")}Columns</button><div class="brk"></div>${sc.dates.map(dateBox).join("")}${toggle(sc)}${clearBtn()}</div>${chipRow(sc)}`
+}
+
+function nowBar(sc) {
+  const id = st.s
+  if (id === "po") {
+    const dates = st.d === "desk" ? sc.dates.map(dateBox).join("") : ""
+    return `<div class="bar">${searchBox(sc)}${dates}${toggle(sc)}${clearBtn()}${rightTools()}</div>`
+  }
+  if (id === "users") {
+    return `<div class="bar">${searchBox(sc)}<button class="ghost">${svg("filter", "i s")}Filter <span class="n">2</span></button>${rightTools()}</div>
+      <div class="bar"><span class="ftok">Role is Cashier<span class="x">${svg("x", "i s")}</span></span><span class="ftok">Unit is any of 2 selected<span class="x">${svg("x", "i s")}</span></span></div>`
+  }
+  if (id === "promo") {
+    return `<div class="bar"><button class="ghost">${svg("filter", "i s")}Filter <span class="n">1</span></button><span class="ftok">Store is any of 2 selected<span class="x">${svg("x", "i s")}</span></span>${rightTools()}</div>`
+  }
+  if (id === "supplies") {
+    return `<div class="bar">${searchBox(sc)}${rightTools()}</div>${chipRow(sc, true)}`
+  }
+  return `<div class="bar"><button class="box sel">Unit: All units ${svg("down", "i s")}</button><button class="box sel">Source: All sources ${svg("down", "i s")}</button><button class="box sel">${svg("cal", "i s")}01 Oct – 20 Oct 2026 ${svg("down", "i s")}</button><span class="sp"></span><button class="box sel">Comfortable ${svg("down", "i s")}</button></div>`
+}
+function nowStatus(sc) {
+  if (st.s === "journal") return `<div class="segc">${sc.tabs.slice(0, 2).map(([k, l]) => `<button class="${f.tab === k ? "on" : ""}" data-tab="${k}">${l}</button>`).join("")}</div>`
+  return tabs(sc)
+}
+
+function table(sc, rows) {
+  if (!rows.length) return `<div class="frame"><div class="empty">Nothing matches. <button class="clear" data-act="clear" style="display:inline-flex">Clear filters</button></div></div>`
+  const cols = sc.cols
+  return `<div class="frame"><table><colgroup>${cols.map((c) => `<col ${c[1] ? `style="width:${c[1]}px"` : ""}>`).join("")}</colgroup>
+    <thead><tr>${cols.map((c) => `<th class="${c[2] ? "num" : ""}">${c[0]}</th>`).join("")}</tr></thead>
+    <tbody>${rows.map((r) => `<tr>${cols.map((c, i) => `<td class="${c[2] ? "num" : ""}">${c[0] === "Status" ? status(r[5]) : r[i]}</td>`).join("")}</tr>`).join("")}</tbody>
+    <tfoot><tr><td colspan="${cols.length}"><b>${rows.length}</b> of ${fmt(sc.tabs.find((t) => t[0] === f.tab)?.[1] ? sc.tabs.find((t) => t[0] === f.tab)[2] : rows.length)}</td></tr></tfoot></table></div>`
+}
+function cards(sc, rows) {
+  if (!rows.length) return `<div class="empty">Nothing matches.</div>`
+  return `<div class="cards">${rows.map((r) => `<div class="crd"><div class="l"><div class="nm">${r[0]}</div><div class="sub">${r[1]}</div></div>
+    <div class="r"><div class="fig">${r[sc.fig]}</div><div class="sub">${r[5] ? status(r[5]) : r[sc.fig === 4 ? 3 : 2]}</div></div></div>`).join("")}</div>`
+}
+
+function deskPage(sc) {
+  const rows = rowsOf(sc, true)
+  const body = st.v === "std" ? `${tabs(sc)}${stdBar(sc)}` : `${nowStatus(sc)}${nowBar(sc)}`
+  return `${head(sc)}<div class="content">${kpis(sc)}${body}${st.d === "desk" ? table(sc, rows) : cards(sc, rows)}</div>`
+}
+
+/* ---------- phone ---------- */
+function phone(sc) {
+  const rows = rowsOf(sc, true)
+  const cur = sc.tabs.find((t) => t[0] === f.tab)
+  const n = setCount()
+  return `<div class="phone">
+    <div class="ph-status"><span>9:41</span><span>●●● ▮</span></div>
+    <div class="ph-top"><span class="d">${sc.dept} /</span><b>${sc.short}</b>${svg("down", "i s")}</div>
+    <div class="ph-scroll">
+      <div class="ph-sum"><b>${cur[1]}</b> · ${fmt(cur[2])} ${sc.short.toLowerCase()}${n ? ` · <b>${n} filter${n > 1 ? "s" : ""} on</b>` : ""}</div>
+      ${cards(sc, rows)}
+    </div>
+    <div class="dock">
+      <button class="dk" data-act="status">${cur[1]} ${svg("down", "i s")}</button>
+      <button class="dk field" data-act="sheet">${svg("search", "i s")}<span>${f.ent ? f.ent.replace("Unit · ", "") : sc.search + "…"}</span><span class="gear" style="flex:none">${svg("sliders", "i s")}${n ? `<span class="badge">${n}</span>` : ""}</span></button>
+      <button class="dk plus" aria-label="${sc.action}">${svg("plus")}</button>
+    </div>
+    <div class="scrim ${f.sheet ? "in" : ""}" data-act="close"></div>
+    <div class="bsheet ${f.sheet ? "in" : ""}" id="bsheet">${f.sheet ? sheetBody(sc) : ""}</div>
+  </div>`
+}
+function sheetBody(sc) {
+  if (f.sheet === "status") {
+    return `<div class="grab"></div><div class="bs-head"><b>Status</b></div><div class="bs-body">${sc.tabs.map(([k, l, c]) => `<button class="mrow" data-tab="${k}"><span class="radio ${f.tab === k ? "on" : ""}"></span><span class="t">${l}</span><span class="v">${fmt(c)}</span></button>`).join("")}</div><div style="height:30px"></div>`
+  }
+  if (st.v === "now") {
+    if (f.sheetPage === "menu") {
+      return `<div class="grab"></div><div class="bs-head"><b>${sc.short}</b></div><div class="bs-body">
+        <button class="mrow" data-page="fields">${svg("filter")}<span class="t">Filter</span><span class="v">${setCount() || ""}</span>${svg("right", "i s")}</button>
+        <button class="mrow">${svg("sliders")}<span class="t">Sort</span><span class="v">Newest</span>${svg("right", "i s")}</button></div><div style="height:30px"></div>`
+    }
+    const fields = [sc.ent.label, ...sc.dates, ...(sc.chips ? [sc.chips.label] : [])]
+    return `<div class="grab"></div><div class="bs-head"><button data-page="menu" style="color:var(--accent)">‹ Back</button><b>Filter</b><span style="width:48px"></span></div><div class="bs-body">
+      ${fields.map((l) => `<button class="mrow"><span class="t">${l}</span><span class="v">Any</span>${svg("right", "i s")}</button>`).join("")}</div><div style="height:30px"></div>`
+  }
+  // Standard: one page, every choice in view, same order as the desk bar
+  const shown = rowsOf(sc, true).length
+  return `<div class="grab"></div><div class="bs-head"><b>Filter</b>${anySet() ? `<button data-act="clear" style="color:var(--accent);font-weight:500">Clear</button>` : ""}</div>
+  <div class="bs-body">
+    <div class="bs-sec"><div class="lab">${sc.ent.label}</div><div class="prsrow">
+      ${sc.ent.items.slice(0, 4).map((e) => `<button class="prs ${f.ent === e ? "on" : ""}" data-ent="${e}">${svg(sc.ent.icon, "i s")}${e.replace("Unit · ", "")}</button>`).join("")}
+      <button class="prs">${svg("search", "i s")}More…</button></div></div>
+    ${sc.dates.map((d) => `<div class="bs-sec"><div class="lab">${d}</div><div class="prsrow">
+      ${["Any", "This week", "This month", "Last month"].map((p) => `<button class="prs ${(f.dates[d] || "Any") === p ? "on" : ""}" data-dp="${d}|${p}">${p}</button>`).join("")}
+      <button class="prs">${svg("cal", "i s")}Pick…</button></div></div>`).join("")}
+    ${sc.chips ? `<div class="bs-sec"><div class="lab">${sc.chips.label}</div><div class="tiles">
+      ${sc.chips.items.filter((c) => c[2] > 0).map(([l, ic, c]) => `<button class="tile ${f.chip === l ? "on" : ""}" data-chip="${l}">${svg(ic, "i s")}<span class="t">${l}</span><span class="n">${c}</span></button>`).join("")}</div></div>` : ""}
+    ${sc.toggle ? `<div class="bs-sec"><button class="mrow ${f.toggle ? "on" : ""}" data-act="toggle" style="border:0"><span class="t">${sc.toggle}</span><span class="sw"></span></button></div>` : ""}
+    <div class="bs-sec"><div class="lab">Sort</div>
+      ${["Newest first", "Oldest first", sc.cols[1][0] + " A–Z"].map((s, i) => `<button class="mrow"><span class="radio ${i === 0 ? "on" : ""}"></span><span class="t">${s}</span></button>`).join("")}</div>
+  </div>
+  <div class="bs-foot">${anySet() ? `<button class="btn tint" data-act="clear">Clear</button>` : ""}<button class="btn primary" data-act="close">Show ${shown} ${sc.short.toLowerCase()}</button></div>`
+}
+
+/* ---------- popovers (desktop / tablet) ---------- */
+function openPop(anchor, html) {
+  closePop()
+  const wrap = document.createElement("div")
+  wrap.className = "pop"
+  wrap.innerHTML = html
+  anchor.style.position = "relative"
+  anchor.appendChild(wrap)
+  requestAnimationFrame(() => wrap.classList.add("in"))
+  pop = wrap
+}
+function closePop() {
+  if (!pop) return
+  const p = pop
+  pop = null
+  p.classList.remove("in")
+  setTimeout(() => p.remove(), 140)
+}
+function suggest(sc, text) {
+  const box = $("#sbox")
+  if (!box || f.ent) return closePop()
+  const hits = sc.ent.items.filter((e) => e.toLowerCase().includes(text.toLowerCase())).slice(0, 5)
+  if (!hits.length) return closePop()
+  if (pop && pop.parentElement === box) {
+    pop.innerHTML = suggestHtml(sc, hits)
+    return
+  }
+  openPop(box, suggestHtml(sc, hits))
+}
+const suggestHtml = (sc, hits) => `<div class="plab">${sc.ent.label}</div>${hits.map((e) => `<button class="mi" data-ent="${e}">${svg(sc.ent.icon, "i s")}${e.replace("Unit · ", "")}</button>`).join("")}`
+
+/* ---------- render ---------- */
+const NOTES = {
+  std: {
+    desk: "<b>Standard</b> — satu baris: Search (nama panjang jadi token di dalamnya) · kotak tanggal · switch · Clear ── Columns · Export. Pilihan pendek = satu baris chip ikon di bawahnya, cuma yang ada isinya, sisanya +N.",
+    tab: "<b>Standard di tablet</b> — urutan sama, dibagi 2 baris: Search selebar layar + Columns, lalu tanggal · switch. Chip tetap 1 baris (maks 4 + N). Baris jadi kartu (DataTable < 1024).",
+    phone: "<b>Standard di iPhone</b> — dock tidak berubah: Status ▾ · Search ⚙ · +. ⚙ buka SATU sheet dengan semua pilihan kelihatan, urutan sama dengan desktop: nama · tanggal · chip · switch · sort. Tombol Show N di jangkauan jempol.",
+  },
+}
+function render() {
+  const sc = S[st.s]
+  $("#screens").innerHTML = ORDER.map((k) => `<button data-s="${k}" class="${st.s === k ? "on" : ""}"><b>${S[k].key}</b>${S[k].short}</button>`).join("")
+  document.querySelectorAll("#views button").forEach((b) => b.classList.toggle("on", b.dataset.v === st.v))
+  document.querySelectorAll("#devices button").forEach((b) => b.classList.toggle("on", b.dataset.d === st.d))
+  $("#note").innerHTML = st.v === "now" ? `<b>Now · ${sc.family}</b> — ${sc.now}` : NOTES.std[st.d]
+  const stage = $("#stage")
+  stage.classList.toggle("framed", st.d !== "desk")
+  if (st.d === "desk") {
+    stage.innerHTML = `<div class="app"><nav class="rail">${["grid", "cart", "store", "user", "chat", "wallet"].map((n, i) => `<div class="ri ${i === 1 ? "on" : ""}">${svg(n)}</div>`).join("")}<div class="sp"></div><div class="av">A</div></nav>
+      <aside class="panel"><h2>${sc.dept}</h2>${sc.nav.map((n) => `<button class="nv ${n === sc.short ? "on" : ""}">${n}</button>`).join("")}</aside>
+      <main class="card">${deskPage(sc)}</main></div>`
+  } else if (st.d === "tab") {
+    stage.innerHTML = `<div class="tab-frame"><div class="topbar">${sc.dept} / <b>${sc.short}</b>${svg("down", "i s")}</div><main class="card">${deskPage(sc)}</main></div>`
+  } else {
+    stage.innerHTML = phone(sc)
+  }
+  saveUrl()
+}
+
+/* ---------- events ---------- */
+document.addEventListener("click", (e) => {
+  const sc = S[st.s]
+  const t = e.target.closest("button,[data-act]")
+  if (!t) { if (pop && !e.target.closest(".pop")) closePop(); return }
+  const d = t.dataset
+  if (d.s) { st.s = d.s; resetFilters(); closePop(); return render() }
+  if (d.v) { st.v = d.v; resetFilters(); closePop(); return render() }
+  if (d.d) { st.d = d.d; f.sheet = false; closePop(); return render() }
+  if (d.tab) { f.tab = d.tab; if (f.sheet === "status") f.sheet = false; return render() }
+  if (d.chip !== undefined) { f.chip = d.chip || null; return render() }
+  if (d.ent) { f.ent = d.ent; f.text = ""; closePop(); return render() }
+  if (d.page) { f.sheetPage = d.page; return render() }
+  if (d.dp) { const [k, p] = d.dp.split("|"); if (p === "Any") delete f.dates[k]; else f.dates[k] = p; return render() }
+  if (d.date) {
+    const k = d.date
+    openPop(t, `<div class="plab">${k}</div>${["This week", "This month", "Last month", "This year"].map((p) => `<button class="mi" data-dset="${k}|${p}">${p}${f.dates[k] === p ? svg("check", "i s ck") : ""}</button>`).join("")}${f.dates[k] ? `<button class="mi" data-dset="${k}|">Any date</button>` : ""}`)
+    return
+  }
+  if (d.dset !== undefined) { const [k, p] = d.dset.split("|"); if (p) f.dates[k] = p; else delete f.dates[k]; closePop(); return render() }
+  switch (d.act) {
+    case "entx": f.ent = null; return render()
+    case "toggle": f.toggle = !f.toggle; return render()
+    case "clear": Object.assign(f, { ent: null, text: "", chip: null, dates: {}, toggle: false }); return render()
+    case "more": {
+      const rest = sc.chips.items.filter((c) => c[2] > 0)
+      openPop(t, rest.map(([l, ic, n]) => `<button class="mi" data-chip="${l}">${svg(ic, "i s")}${l}<span style="margin-left:auto;color:var(--mute)">${n}</span></button>`).join(""))
+      return
+    }
+    case "sheet": f.sheet = "filter"; f.sheetPage = "menu"; return render()
+    case "status": f.sheet = "status"; return render()
+    case "close": {
+      const sh = $("#bsheet"), sr = $(".scrim")
+      sh?.classList.remove("in"); sr?.classList.remove("in")
+      setTimeout(() => { f.sheet = false; render() }, 300)
+      return
+    }
+  }
+})
+document.addEventListener("input", (e) => {
+  if (e.target.id !== "sin") return
+  f.text = e.target.value
+  suggest(S[st.s], f.text)
+  // keep the table live without stealing the caret
+  const sc = S[st.s]
+  const rows = rowsOf(sc, true)
+  const holder = st.d === "desk" ? $(".frame") : $(".cards") || $(".empty")
+  if (holder) {
+    const tmp = document.createElement("div")
+    tmp.innerHTML = st.d === "desk" ? table(sc, rows) : cards(sc, rows)
+    holder.replaceWith(tmp.firstElementChild)
+  }
+})
+document.addEventListener("focusin", (e) => { if (e.target.id === "sin") suggest(S[st.s], f.text) })
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT") { if (e.key === "Escape") { closePop(); e.target.blur() } return }
+  const k = ORDER.find((s) => S[s].key === e.key)
+  if (k) { st.s = k; resetFilters(); return render() }
+  if (e.key === "v") { st.v = st.v === "std" ? "now" : "std"; resetFilters(); return render() }
+  if (e.key === "d") { const ds = ["desk", "tab", "phone"]; st.d = ds[(ds.indexOf(st.d) + 1) % 3]; f.sheet = false; return render() }
+  if (e.key === "Escape") { closePop(); if (f.sheet) { f.sheet = false; render() } }
+})
+render()
+</script>
+</body>
+</html>

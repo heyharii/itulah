@@ -227,6 +227,9 @@ export interface FleetPoolList {
   readonly fleet_total_status: string
   readonly reconciliation_summary: ReconciliationSummary
   readonly fleet_total_diagnostics: FleetTotalDiagnostics
+  /// Sites of a store head office removed (0990). Their pools stay in
+  /// `items`; a destination picker leaves them out.
+  readonly removed_site_ids?: readonly string[]
   readonly items: readonly FleetPool[]
 }
 
@@ -908,6 +911,8 @@ export interface DestinationRollup extends AllotmentStages {
   readonly destination_type: DestinationType
   readonly destination_id: string
   readonly destination_name: string | null
+  /// On the road to it: sent and not yet counted in.
+  readonly to_receive_qty?: number
 }
 
 /// An SKU promised out of a pool that does not hold it.
@@ -2384,6 +2389,25 @@ export function createAllotment(request: CreateAllotmentRequest) {
   return node.post<CreateAllotmentResult>(
     "/api/v1/inventory/allotments",
     request
+  )
+}
+
+/// HO moves a store's goods to its To be returned · Return HO (owner, 23 Oct
+/// 2026): the store's node moves them off its warehouse, then its floor, and
+/// sends them when it is ready (`POST /api/v1/inventory/store-returns/mark`).
+export interface MarkStoreReturnResult {
+  readonly store_id: string
+  readonly pieces: number
+  readonly command_id: string
+}
+
+export function markStoreReturn(
+  storeId: string,
+  lines: readonly { sku_code: string; quantity: number }[]
+) {
+  return node.post<MarkStoreReturnResult>(
+    "/api/v1/inventory/store-returns/mark",
+    { store_id: storeId, lines }
   )
 }
 

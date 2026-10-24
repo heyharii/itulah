@@ -1,0 +1,750 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EDC per store · prototype</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="frontend-hub/design-system/tokens.css">
+<link rel="stylesheet" href="frontend-hub/design-system/bundle.css">
+<style>
+:root{--sheet-rail:560px}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--stone);font-family:Inter,system-ui,sans-serif;color:var(--ink);font-size:15px}
+button{font:inherit}
+
+/* the prototype's own strip, outside the hub */
+.proto{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 16px 0 calc(var(--rail) + 4px)}
+.proto b{font-weight:600;color:var(--mute)}
+
+.app.ds-shell{min-height:calc(100vh - 48px)}
+.ds-rail .ds-ico{width:18px;height:18px}
+.ds-panel{display:flex;flex-direction:column;align-self:flex-start;min-height:calc(100vh - 72px)}
+.panel-group{margin:14px 10px 6px;color:var(--panel-mute)}
+.ds-page{align-self:flex-start;min-height:calc(100vh - 72px)}
+
+/* icons the kit does not carry yet: lucide credit-card, qr-code, landmark, banknote, ticket */
+.ic-card{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='20' height='14' x='2' y='5' rx='2'/%3E%3Cline x1='2' x2='22' y1='10' y2='10'/%3E%3C/svg%3E")}
+.ic-qr{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='5' height='5' x='3' y='3' rx='1'/%3E%3Crect width='5' height='5' x='16' y='3' rx='1'/%3E%3Crect width='5' height='5' x='3' y='16' rx='1'/%3E%3Cpath d='M21 16h-3a2 2 0 0 0-2 2v3'/%3E%3Cpath d='M21 21v.01'/%3E%3Cpath d='M12 7v3a2 2 0 0 1-2 2H7'/%3E%3Cpath d='M3 12h.01'/%3E%3Cpath d='M12 3h.01'/%3E%3Cpath d='M12 16v.01'/%3E%3Cpath d='M16 12h1'/%3E%3Cpath d='M21 12v.01'/%3E%3Cpath d='M12 21v-1'/%3E%3C/svg%3E")}
+.ic-bank{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='3' x2='21' y1='22' y2='22'/%3E%3Cline x1='6' x2='6' y1='18' y2='11'/%3E%3Cline x1='10' x2='10' y1='18' y2='11'/%3E%3Cline x1='14' x2='14' y1='18' y2='11'/%3E%3Cline x1='18' x2='18' y1='18' y2='11'/%3E%3Cpolygon points='12 2 20 7 4 7'/%3E%3C/svg%3E")}
+.ic-cash{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='20' height='12' x='2' y='6' rx='2'/%3E%3Ccircle cx='12' cy='12' r='2'/%3E%3Cpath d='M6 12h.01M18 12h.01'/%3E%3C/svg%3E")}
+.ic-ticket{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z'/%3E%3Cpath d='M13 5v2M13 17v2M13 11v2'/%3E%3C/svg%3E")}
+
+/* tables */
+.ds-table td{vertical-align:top}
+.ds-table td .ds-sub{color:var(--mute)}
+.none{color:var(--faint)}
+.ds-table tr.ds-opens:hover td{background:var(--soft)}
+.ds-table td.is-open{background:var(--soft-2)!important}
+
+/* the matrix */
+.mx-box{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:auto;background:var(--canvas)}
+.mx{border-collapse:separate;border-spacing:0;table-layout:fixed;min-width:100%;font-size:15px}
+.mx th{position:sticky;top:0;z-index:1;height:var(--table-head,44px);padding:0 14px;background:var(--band);box-shadow:inset 0 -1px 0 var(--hairline);color:var(--mute);font-weight:500;text-align:left;white-space:nowrap}
+.mx th:first-child,.mx td:first-child{position:sticky;left:0;z-index:2;background:var(--canvas);box-shadow:inset -1px 0 0 var(--hairline-strong)}
+.mx th:first-child{z-index:3;background:var(--band);box-shadow:inset -1px 0 0 var(--hairline-strong),inset 0 -1px 0 var(--hairline)}
+.mx td{padding:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-bottom:1px solid var(--row-line);vertical-align:top;line-height:22px}
+.mx tbody tr:last-child td{border-bottom:0}
+.mx td:first-child{font-weight:500}
+.mx td.cell{cursor:pointer;transition:background-color .12s cubic-bezier(.23,1,.32,1)}
+.mx td.cell:hover{background:var(--soft)}
+.mx td.cell.is-open{background:var(--soft-2)}
+.mx td.cell .ds-sub{display:block;color:var(--mute)}
+.mx td.cell .add{color:var(--faint)}
+.mx td.cell:hover .add{color:var(--accent)}
+.mx-foot{padding:12px 16px 0;color:var(--mute)}
+
+/* sheets: one layer slides in from the right; what is under it dims in place */
+.layer{position:fixed;inset:0;z-index:20;pointer-events:none}
+.layer .scrim{position:absolute;inset:0;background:var(--scrim);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);opacity:0;transition:opacity 340ms cubic-bezier(.32,.72,0,1);pointer-events:auto}
+.layer.is-in .scrim{opacity:1}
+.layer.is-under .scrim{opacity:0}
+.layer .ds-sheet{position:absolute;top:var(--float);bottom:var(--float);right:var(--float);width:var(--sheet-rail);max-width:calc(100vw - 2*var(--float));pointer-events:auto;translate:calc(100% + 24px) 0;transition:translate 340ms cubic-bezier(.32,.72,0,1)}
+.layer.is-in .ds-sheet{translate:0 0}
+.layer.is-out .scrim{transition:opacity 200ms cubic-bezier(.23,1,.32,1);opacity:0}
+.layer.is-out .ds-sheet{transition:translate 200ms cubic-bezier(.23,1,.32,1);translate:calc(100% + 24px) 0}
+.layer .ds-sheet::after{content:"";position:absolute;inset:0;background:rgb(40 30 20 / 10%);opacity:0;pointer-events:none;transition:opacity 340ms cubic-bezier(.32,.72,0,1);border-radius:inherit}
+.layer.is-under .ds-sheet::after{opacity:1}
+.layer.l1 .ds-sheet{right:calc(var(--float) + 12px)}
+.layer.l1 .ds-sheet,.layer.l2 .ds-sheet{top:calc(var(--float) + 12px)}
+.ds-sheet-body{flex:1;overflow:auto;gap:40px;padding:28px 36px 32px}
+.ds-sheet-head{padding:28px 36px 20px}
+.ds-sheet-foot{padding:14px 36px;min-height:68px}
+.ds-sheet-foot .grow{flex:1}
+@media (prefers-reduced-motion:reduce){.layer .ds-sheet,.layer .scrim{transition-duration:0ms!important}}
+
+/* sections and tiles */
+.sec-head{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:var(--control)}
+.tiles{display:grid;gap:10px}
+.tiles.c2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.tiles.c3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.tiles.c4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.ds-choice{cursor:pointer;min-height:48px;text-align:left;color:var(--ink);transition:background-color .12s cubic-bezier(.23,1,.32,1),box-shadow .12s cubic-bezier(.23,1,.32,1)}
+.ds-choice:hover{background:var(--soft)}
+.ds-choice.is-on:hover{background:var(--accent-bg)}
+.ds-choice .ds-ico{color:var(--line-ico)}
+.ds-choice.is-on .ds-ico{color:var(--accent)}
+.ds-choice[disabled]{cursor:default;color:var(--faint);background:var(--canvas)}
+.ds-choice[disabled] .ds-ico{color:var(--faint)}
+.ds-choice .two{display:flex;flex-direction:column;min-width:0}
+.ds-choice .two span{color:var(--mute)}
+.ds-choice:active:not([disabled]){scale:.98}
+.ds-choice{transition:background-color .12s,box-shadow .12s,scale .12s cubic-bezier(.23,1,.32,1)}
+.field-error{color:var(--bad-fg)}
+
+/* Settles to: one account per kind the machine takes, each a Pick over the chart */
+.settle{display:grid;grid-template-columns:104px minmax(0,1fr);align-items:center;gap:16px 12px}
+.settle-kind{display:flex;align-items:center;gap:10px;color:var(--ink)}
+.settle-kind .ds-ico{color:var(--line-ico)}
+.pick{position:relative;min-width:0}
+.pick-box{display:flex;align-items:center;gap:8px;width:100%;height:var(--field);padding:4px 36px 4px 14px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);color:var(--ink);font-size:15px;text-align:left;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pick-box .code{color:var(--mute);font-variant-numeric:tabular-nums}
+.pick-box:focus-visible,.pick.is-open .pick-box{border-color:var(--accent);box-shadow:var(--shadow-focus);outline:none}
+.pick > .ds-ico{position:absolute;right:14px;top:50%;margin-top:-7px;color:var(--line-ico);pointer-events:none}
+.pick input.pick-box{cursor:text}
+.pick input.pick-box::placeholder{color:var(--mute)}
+.pick-list{position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:5;min-width:208px;max-height:352px;overflow:auto;padding:5px;border:1px solid var(--hairline);border-radius:var(--r-card);background:var(--canvas);box-shadow:var(--shadow-pop);transform-origin:top center;animation:pick-in 160ms cubic-bezier(.23,1,.32,1)}
+@keyframes pick-in{from{opacity:0;scale:.95}}
+@media (prefers-reduced-motion:reduce){.pick-list{animation:pick-fade 160ms ease-out}@keyframes pick-fade{from{opacity:0}}}
+.pick-row{display:flex;align-items:center;gap:8px;width:100%;min-height:36px;padding:0 8px;border:0;border-radius:8px;background:none;color:var(--ink);font-size:15px;text-align:left;cursor:pointer}
+.pick-row .code{flex:none;width:44px;color:var(--mute);font-variant-numeric:tabular-nums}
+.pick-row .name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pick-row .ds-ico{flex:none;width:14px;height:14px;color:var(--line-ico)}
+.pick-row.is-lit{background:var(--soft-2)}
+.pick-head{padding:8px 8px 4px;color:var(--mute)}
+.pick-empty{padding:12px 8px;text-align:center;color:var(--mute)}
+.pick-out{position:sticky;bottom:-5px;margin:5px -5px -5px;padding:5px;border-top:1px solid var(--hairline);background:var(--canvas)}
+.pick-out .pick-row{font-weight:500}
+.new-fields{display:grid;grid-template-columns:120px minmax(0,1fr);gap:24px}
+.ds-fact dd{margin-left:0}
+.layer .ds-sheet.is-wide{width:720px}
+.ds-table td{white-space:nowrap}
+
+/* the toast */
+.toast-at{position:fixed;left:50%;bottom:24px;z-index:40;translate:-50% 0;transition:opacity 200ms cubic-bezier(.23,1,.32,1),translate 200ms cubic-bezier(.23,1,.32,1)}
+.toast-at.is-hidden{opacity:0;translate:-50% 8px;pointer-events:none}
+.ds-toast{align-items:center}
+
+/* Till · Bayar: the POS's machine-first picker, in its own Indonesian */
+.till-wrap{display:grid;grid-template-columns:minmax(0,1fr);gap:20px;max-width:760px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 12px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);color:var(--ink);cursor:pointer}
+.chip .ds-ico{color:var(--line-ico)}
+.chip.is-on{background:var(--accent-bg);border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);color:var(--accent);font-weight:600}
+.chip.is-on .ds-ico{color:var(--accent)}
+.pos{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden;background:var(--canvas)}
+.pos-head{display:flex;justify-content:space-between;align-items:baseline;padding:16px 20px;border-bottom:1px solid var(--hairline)}
+.pos-head b{font-size:17px}
+.pos-head .due{font-size:22px;font-weight:600;font-variant-numeric:tabular-nums}
+.pos-q{padding:16px 20px 4px;color:var(--mute)}
+.pos-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:8px 20px 20px}
+.pos-opt{display:flex;align-items:center;gap:14px;min-height:64px;padding:10px 14px;border:1px solid var(--hairline-2);border-radius:10px}
+.pos-opt .key{display:grid;place-items:center;flex:none;width:30px;height:30px;border-radius:7px;background:var(--soft-2);font-weight:600;font-variant-numeric:tabular-nums}
+.pos-opt .two{display:flex;flex-direction:column}
+.pos-opt .two b{font-weight:600}
+.pos-opt .two span{color:var(--mute)}
+.pos-opt.edc .key{background:var(--accent-bg);color:var(--accent)}
+
+@media (max-width:900px){.ds-panel{display:none}.pos-list{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<div class="proto">
+  <div class="ds-seg" role="tablist" aria-label="Version" id="versions"></div>
+</div>
+
+<div class="ds app ds-shell">
+  <nav class="ds-rail" aria-label="Departments">
+    <span class="ds-rail-btn" aria-label="Search"><span class="ds-ico ds-ico-search"></span></span>
+    <span class="ds-rail-btn" aria-label="Procurement"><span class="ds-ico ds-ico-cart"></span></span>
+    <span class="ds-rail-btn" aria-label="Inventory"><span class="ds-ico ds-ico-package"></span></span>
+    <span class="ds-rail-btn" aria-label="Sales"><span class="ds-ico ds-ico-store"></span></span>
+    <span class="ds-rail-btn is-current" aria-label="Finance"><span class="ds-ico ic-bank"></span></span>
+    <span class="ds-rail-btn" aria-label="HR"><span class="ds-ico ds-ico-users"></span></span>
+  </nav>
+  <aside class="ds-panel">
+    <div class="ds-panel-title">Finance</div>
+    <div class="ds-nav">
+      <span class="ds-nav-row">Overview</span>
+      <div class="panel-group">Daily work</div>
+      <span class="ds-nav-row">Stores</span>
+      <span class="ds-nav-row">Payables</span>
+      <span class="ds-nav-row">Cash &amp; Bank</span>
+      <div class="panel-group">Accounting</div>
+      <span class="ds-nav-row">Journal</span>
+      <span class="ds-nav-row">Assets</span>
+      <span class="ds-nav-row">Month End</span>
+      <div class="panel-group"></div>
+      <span class="ds-nav-row is-active">Setup</span>
+    </div>
+  </aside>
+  <main class="ds-page"><div class="ds-page-content" id="page"></div></main>
+</div>
+
+<div id="layers"></div>
+<div class="toast-at is-hidden" id="toast"><div class="ds-toast ds-toast--ok"><span class="ds-ico ds-ico-check"></span><div class="ds-toast-text"><div class="ds-toast-title" id="toast-text">Saved</div></div></div></div>
+
+<script>
+// ── the data ────────────────────────────────────────────────────────────
+const BANKS = ["BCA", "Mandiri", "BRI", "BNI"]
+// The chart's Cash In Bank accounts (under 1001): what a machine may settle to.
+const COA = [
+  { code: "1005", name: "Cash In Bank Giro Bank BCA" },
+  { code: "1006", name: "Cash In Bank Giro Bank Mandiri" },
+  { code: "1007", name: "Cash In Bank Giro Bank BRI" },
+  { code: "1008", name: "Cash In Bank Giro Bank BNI" },
+  { code: "1009", name: "Cash In Bank Giro Bank Danamon" },
+  { code: "1010", name: "Cash In Bank Tabungan Bank BCA" },
+  { code: "1011", name: "Cash In Bank Tabungan Bank Mandiri" },
+  { code: "1012", name: "Cash In Bank Tabungan Bank BRI" },
+  { code: "1013", name: "Cash In Bank Tabungan Bank BNI" },
+]
+const coa = (code) => COA.find((one) => one.code === code)
+// "1005 · Giro BCA": short enough for a matrix cell.
+const shortName = (code) => {
+  const one = coa(code)
+  return one ? `${one.code} · ${one.name.replace(/^Cash In Bank /, "").replace(/Bank /, "")}` : "—"
+}
+const KINDS = [["d", "Debit", "ic-card"], ["c", "Credit", "ic-card"], ["q", "QRIS", "ic-qr"]]
+// What a machine settles to, as one cell says it.
+const settleSummary = (one) => {
+  const codes = [...new Set(KINDS.filter(([key]) => one[key]).map(([key]) => one.accs[key]))]
+  return codes.length === 1 ? shortName(codes[0]) : `${codes.length} accounts`
+}
+const OTHER = [
+  { code: "CASH", name: "Cash", icon: "ic-cash", till: ["Tunai", "Uang tunai"] },
+  { code: "VOUCHER", name: "Voucher", icon: "ic-ticket", till: ["Voucher", "Gift card, refund, komplimen"] },
+  { code: "BENEFIT", name: "Employee balance", icon: "ds-ico-wallet", till: ["Diskon karyawan", "Saldo karyawan"] },
+  { code: "OVO", name: "E-wallet OVO", icon: "ds-ico-wallet", till: ["E-wallet OVO", "Dompet digital"] },
+]
+// A machine: what it takes, and the account each kind settles to.
+const m = (d, c, q, acc, qacc = acc) => ({ d, c, q, accs: { d: acc, c: acc, q: qacc } })
+const SHOPS = [
+  { id: "s01", name: "Store 01", machines: { BCA: m(1, 1, 1, "1005"), Mandiri: m(1, 1, 0, "1006"), BRI: m(1, 0, 0, "1007") }, other: ["CASH", "VOUCHER", "BENEFIT"] },
+  { id: "s02", name: "Store 02", machines: { BCA: m(1, 1, 1, "1005", "1010"), Mandiri: m(1, 1, 1, "1006") }, other: ["CASH", "VOUCHER", "BENEFIT"] },
+  { id: "s03", name: "Store 03", machines: { BCA: m(1, 1, 1, "1010") }, other: ["CASH", "VOUCHER", "BENEFIT"] },
+  { id: "s04", name: "Store 04", machines: { BRI: m(1, 1, 0, "1007"), BCA: m(0, 0, 1, "1005") }, other: ["CASH", "VOUCHER"] },
+  { id: "s05", name: "Store 05", machines: { BCA: m(1, 1, 1, "1005", "1010"), Mandiri: m(1, 1, 1, "1011"), BNI: m(1, 1, 0, "1008") }, other: ["CASH", "VOUCHER", "BENEFIT", "OVO"] },
+  { id: "s06", name: "Store 06", machines: {}, other: ["CASH", "VOUCHER"] },
+]
+const shopOf = (id) => SHOPS.find((one) => one.id === id)
+const banksOf = (shop) => BANKS.filter((bank) => shop.machines[bank])
+const takes = (one) => [one.d && "Debit", one.c && "Credit", one.q && "QRIS"].filter(Boolean).join(" · ")
+const machineName = (bank, one) => (one && !one.d && !one.c && one.q ? `QRIS ${bank}` : `EDC ${bank}`)
+const machineCount = () => SHOPS.reduce((n, shop) => n + banksOf(shop).length, 0)
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c])
+
+// ── the versions ────────────────────────────────────────────────────────
+const VERSIONS = [
+  { id: "now", label: "Now" },
+  { id: "a", label: "A · Machines in the shop ★" },
+  { id: "b", label: "B · Shops × banks" },
+  { id: "till", label: "Till · Bayar" },
+]
+let version = "a"
+let needle = ""
+let tillShop = "s05"
+let openCell = null // "s05:BCA" while its sheet is open
+
+function renderVersions() {
+  document.getElementById("versions").innerHTML = VERSIONS.map(
+    (one) => `<button class="ds-seg-item ${one.id === version ? "is-on" : ""}" role="tab" aria-selected="${one.id === version}" data-v="${one.id}">${one.label}</button>`
+  ).join("")
+}
+document.getElementById("versions").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-v]")
+  if (!button) return
+  version = button.dataset.v
+  closeAll(true)
+  render()
+})
+
+const head = (title, crumb = "Finance · Setup") => `<div class="ds-page-head"><div><div class="ds-crumb">${crumb}</div><h1 class="ds-title">${title}</h1></div></div>`
+const kpis = () => {
+  const without = SHOPS.filter((shop) => banksOf(shop).length === 0).length
+  const qris = SHOPS.reduce((n, shop) => n + banksOf(shop).filter((bank) => shop.machines[bank].q).length, 0)
+  return `<div class="ds-kpis">
+    <div class="ds-kpi"><div class="ds-kpi-label">Shops</div><div class="ds-kpi-value">${SHOPS.length}</div></div>
+    <div class="ds-kpi"><div class="ds-kpi-label">EDC machines</div><div class="ds-kpi-value">${machineCount()}</div></div>
+    <div class="ds-kpi"><div class="ds-kpi-label">With QRIS</div><div class="ds-kpi-value">${qris}</div></div>
+    <div class="ds-kpi"><div class="ds-kpi-label">Without EDC</div><div class="ds-kpi-value ${without ? "is-bad" : ""}">${without}</div></div>
+  </div>`
+}
+const bar = () => `<div class="ds-bar"><label class="ds-search"><span class="ds-ico ds-ico-search"></span><input id="needle" type="text" placeholder="Search shops" aria-label="Search shops" value="${esc(needle)}"></label></div>`
+const shown = () => SHOPS.filter((shop) => shop.name.toLowerCase().includes(needle.trim().toLowerCase()))
+
+function render() {
+  renderVersions()
+  const page = document.getElementById("page")
+  if (version === "now") page.innerHTML = nowPage()
+  if (version === "a") page.innerHTML = aPage()
+  if (version === "b") page.innerHTML = bPage()
+  if (version === "till") page.innerHTML = tillPage()
+  const input = document.getElementById("needle")
+  if (input) {
+    input.addEventListener("input", () => {
+      needle = input.value
+      const at = input.selectionStart
+      render()
+      const again = document.getElementById("needle")
+      again.focus()
+      again.setSelectionRange(at, at)
+    })
+  }
+}
+
+// ── Now: today's Shop Payment Methods ───────────────────────────────────
+function methodsOf(shop) {
+  const out = []
+  for (const code of shop.other) out.push(code)
+  for (const bank of banksOf(shop)) {
+    const one = shop.machines[bank]
+    if (one.d) out.push(`DEBIT_${bank}`)
+    if (one.c) out.push(`CREDIT_${bank}`)
+    if (one.q) out.push(`QRIS_${bank}`)
+  }
+  return out
+}
+function nowPage() {
+  return head("Shop Payment Methods") + bar() + `<div class="ds-table-card"><table class="ds-table">
+    <colgroup><col><col style="width:190px"></colgroup>
+    <thead><tr><th>Shop</th><th class="is-num">Methods taken</th></tr></thead>
+    <tbody>${shown().map((shop) => `<tr class="ds-opens" data-now="${shop.id}"><td>${shop.name}</td><td class="is-num">${methodsOf(shop).length}</td></tr>`).join("")}</tbody>
+  </table></div>`
+}
+function nowSheet(shop) {
+  const taken = new Set(methodsOf(shop))
+  const group = (title, rows) => `<section class="ds-section"><h3 class="ds-section-title" style="color:var(--mute);font-weight:500">${title}</h3>
+    <div class="tiles c2">${rows.map(([code, name]) => `<div class="ds-choice ${taken.has(code) ? "is-on" : ""}" style="cursor:default"><span class="ds-check-box ${taken.has(code) ? "is-on" : ""}">${taken.has(code) ? '<span class="ds-ico ds-ico-check ds-ico--14" style="width:10px;height:10px;color:#fff"></span>' : ""}</span><span class="two">${name}<span>${code}</span></span></div>`).join("")}</div></section>`
+  const per = (kind, word) => BANKS.map((bank) => [`${kind}_${bank}`, `${word} ${bank}`])
+  return sheet({
+    crumb: "Shop Payment Methods",
+    title: shop.name,
+    caption: `${taken.size} taken`,
+    body:
+      group("Cash", [["CASH", "Tunai"]]) +
+      group("Debit card", per("DEBIT", "Debit")) +
+      group("Credit card", per("CREDIT", "Kartu kredit")) +
+      group("QRIS", per("QRIS", "QRIS")) +
+      group("Voucher", [["VOUCHER", "Voucher"]]),
+    foot: `<span class="grow"></span><button class="ds-btn ds-btn--destructive" data-close>Cancel</button><button class="ds-btn ds-btn--primary" disabled style="opacity:.4">Submit</button>`,
+  })
+}
+
+// ── A: the machines inside the shop's sheet ─────────────────────────────
+function aPage() {
+  return head("Shop Payment Methods") + kpis() + bar() + `<div class="ds-table-card"><table class="ds-table">
+    <colgroup><col style="width:220px"><col><col style="width:300px"></colgroup>
+    <thead><tr><th>Shop</th><th>EDC machines</th><th>Other methods</th></tr></thead>
+    <tbody>${shown().map((shop) => {
+      const banks = banksOf(shop)
+      return `<tr class="ds-opens" data-a="${shop.id}"><td>${shop.name}</td>
+        <td>${banks.length ? banks.map((bank) => machineName(bank, shop.machines[bank]).replace("EDC ", "")).join(", ") : '<span class="none">—</span>'}</td>
+        <td>${OTHER.filter((one) => shop.other.includes(one.code)).map((one) => one.name).join(", ")}</td></tr>`
+    }).join("")}</tbody>
+  </table></div>`
+}
+function aSheet(shop) {
+  const banks = banksOf(shop)
+  const rows = banks.map((bank) => {
+    const one = shop.machines[bank]
+    return `<tr class="ds-opens" data-machine="${shop.id}:${bank}"><td>${machineName(bank, one)}</td><td>${takes(one)}</td><td>${esc(settleSummary(one))}</td></tr>`
+  }).join("")
+  const free = BANKS.filter((bank) => !shop.machines[bank])
+  return sheet({
+    crumb: "Shop Payment Methods",
+    title: shop.name,
+    wide: true,
+    body:
+      `<section class="ds-section"><div class="sec-head"><h3 class="ds-section-title">EDC machines<span class="ds-section-count">${banks.length}</span></h3>
+        ${free.length ? `<button class="ds-btn ds-btn--primary" data-add="${shop.id}"><span class="ds-ico ds-ico-plus"></span>Add machine</button>` : ""}</div>
+        ${banks.length ? `<div class="ds-table-card"><table class="ds-table"><colgroup><col style="width:150px"><col><col style="width:220px"></colgroup>
+          <thead><tr><th>Machine</th><th>Takes</th><th>Settles to</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="ds-empty" style="padding:24px 16px"><p>No EDC machine yet.</p></div>`}
+      </section>` +
+      otherSection(shop),
+    foot: `<span class="grow"></span><button class="ds-btn ds-btn--primary" data-save-other="${shop.id}">Save</button>`,
+  })
+}
+let otherDraft = null
+function otherSection(shop) {
+  const ticked = otherDraft ?? new Set(shop.other)
+  return `<section class="ds-section"><h3 class="ds-section-title">Other methods</h3>
+    <div class="tiles c2">${OTHER.map((one) => `<button type="button" class="ds-choice ${ticked.has(one.code) ? "is-on" : ""}" data-other="${one.code}" aria-pressed="${ticked.has(one.code)}"><span class="ds-ico ${one.icon}"></span>${one.name}</button>`).join("")}</div></section>`
+}
+
+// ── B: shops down, banks across ─────────────────────────────────────────
+function bPage() {
+  return head("Shop Payment Methods") + kpis() + bar() + `<div class="mx-box"><table class="mx">
+    <colgroup><col style="width:150px">${BANKS.map(() => '<col style="width:172px">').join("")}<col style="width:260px"></colgroup>
+    <thead><tr><th>Shop</th>${BANKS.map((bank) => `<th>${bank}</th>`).join("")}<th>Other methods</th></tr></thead>
+    <tbody>${shown().map((shop) => `<tr><td>${shop.name}</td>${BANKS.map((bank) => {
+      const one = shop.machines[bank]
+      const key = `${shop.id}:${bank}`
+      return `<td class="cell ${openCell === key ? "is-open" : ""}" data-machine="${key}">${one ? `${takes(one)}<span class="ds-sub">${esc(settleSummary(one))}</span>` : '<span class="add">—</span>'}</td>`
+    }).join("")}<td class="cell ${openCell === `${shop.id}:other` ? "is-open" : ""}" data-other-cell="${shop.id}">${OTHER.filter((one) => shop.other.includes(one.code)).map((one) => one.name).join(", ")}</td></tr>`).join("")}</tbody>
+  </table></div><div class="mx-foot">${shown().length} of ${SHOPS.length} shops</div>`
+}
+function otherSheet(shop) {
+  return sheet({
+    crumb: shop.name,
+    title: "Other methods",
+    body: otherSection(shop).replace('<h3 class="ds-section-title">Other methods</h3>', ""),
+    foot: `<span class="grow"></span><button class="ds-btn ds-btn--primary" data-save-other="${shop.id}">Save</button>`,
+  })
+}
+
+// ── the machine sheet, shared by A and B ────────────────────────────────
+let draft = null // { shop, bank, d, c, q, acc, isNew, pickBank }
+function machineSheet() {
+  const shop = shopOf(draft.shop)
+  const bank = draft.bank
+  const none = !draft.d && !draft.c && !draft.q
+  const title = draft.isNew && draft.pickBank ? "Add machine" : machineName(bank, draft)
+  const bankTiles = draft.pickBank
+    ? `<section class="ds-section"><h3 class="ds-section-title">Bank</h3><div class="tiles c4">${BANKS.map((one) => {
+        const taken = !!shop.machines[one]
+        return `<button type="button" class="ds-choice ${bank === one ? "is-on" : ""}" data-bank="${one}" ${taken ? "disabled" : ""} aria-pressed="${bank === one}"><span class="ds-ico ic-bank"></span>${one}</button>`
+      }).join("")}</div></section>`
+    : ""
+  const settles = bank && !none
+    ? `<section class="ds-section"><h3 class="ds-section-title">Settles to</h3><div class="settle">${KINDS.filter(([key]) => draft[key]).map(([key, word, icon]) => `<span class="settle-kind"><span class="ds-ico ${icon}"></span>${word}</span>${pickField(key)}`).join("")}</div></section>`
+    : ""
+  return sheet({
+    crumb: shop.name,
+    title,
+    body:
+      bankTiles +
+      `<section class="ds-section"><h3 class="ds-section-title">Takes</h3><div class="tiles c3">${KINDS.map(([key, word, icon]) => `<button type="button" class="ds-choice ${draft[key] ? "is-on" : ""}" data-kind="${key}" aria-pressed="${!!draft[key]}"><span class="ds-ico ${icon}"></span>${word}</button>`).join("")}</div>
+        ${draft.tried && none ? '<div class="field-error">Pick what this machine takes</div>' : ""}</section>` +
+      settles,
+    foot:
+      (draft.isNew ? "" : `<button class="ds-btn ds-btn--primary" data-remove>Remove machine</button>`) +
+      `<span class="grow"></span><button class="ds-btn ds-btn--primary" data-save-machine ${bank ? "" : 'disabled style="opacity:.4"'}>${draft.isNew ? "Add machine" : "Save"}</button>`,
+  })
+}
+
+// ── Pick: one account out of the chart, typed at ────────────────────────
+let pick = null // { kind, query, lit } while a Settles to list is open
+function pickField(kind) {
+  const code = draft.accs[kind]
+  const one = coa(code)
+  if (pick?.kind !== kind) {
+    return `<span class="pick"><button type="button" class="pick-box" data-pick="${kind}" aria-haspopup="listbox">${one ? `<span class="code">${one.code}</span>${esc(one.name)}` : '<span class="code">Pick an account</span>'}</button><span class="ds-ico ds-ico-chevron-down ds-ico--14"></span></span>`
+  }
+  return `<span class="pick is-open"><input class="pick-box" id="pick-input" type="text" placeholder="Search accounts" aria-label="Settles to, ${kind}" autocomplete="off" value="${esc(pick.query)}"><span class="ds-ico ds-ico-search ds-ico--14"></span>
+    <div class="pick-list" role="listbox" id="pick-list">${pickRows()}</div></span>`
+}
+// The machine's own bank first, then the rest of the chart; the way out last.
+function pickMatches() {
+  const text = pick.query.trim().toLowerCase()
+  const bank = (draft.bank ?? "").toLowerCase()
+  return COA
+    .filter((one) => text === "" || `${one.code} ${one.name}`.toLowerCase().includes(text))
+    .sort((a, b) => Number(!a.name.toLowerCase().includes(bank)) - Number(!b.name.toLowerCase().includes(bank)) || a.code.localeCompare(b.code))
+}
+function pickRows() {
+  const rows = pickMatches()
+  const chosen = draft.accs[pick.kind]
+  const list = rows.length
+    ? rows.map((one, i) => `<button type="button" class="pick-row ${i === pick.lit ? "is-lit" : ""}" role="option" aria-selected="${one.code === chosen}" data-pick-acc="${one.code}"><span class="code">${one.code}</span><span class="name">${esc(one.name)}</span>${one.code === chosen ? '<span class="ds-ico ds-ico-check"></span>' : ""}</button>`).join("")
+    : '<div class="pick-empty">Nothing matches.</div>'
+  return `${list}<div class="pick-out"><button type="button" class="pick-row" data-new-account><span class="ds-ico ds-ico-plus"></span>New account</button></div>`
+}
+// The list floats over the sheet, under its field or above it when the field
+// sits low, so the way out is never scrolled away.
+function placeList() {
+  const input = document.getElementById("pick-input")
+  const list = document.getElementById("pick-list")
+  if (!input || !list) return
+  const box = input.closest(".ds-sheet").getBoundingClientRect()
+  const r = input.getBoundingClientRect()
+  const below = box.bottom - r.bottom - 18
+  const above = r.top - box.top - 18
+  const tall = Math.min(list.scrollHeight, 352)
+  Object.assign(list.style, { position: "fixed", left: `${r.left - box.left}px`, width: `${r.width}px`, right: "auto" })
+  if (below >= tall || below >= above) {
+    Object.assign(list.style, { top: `${r.bottom - box.top + 6}px`, bottom: "auto", maxHeight: `${Math.min(352, below)}px`, transformOrigin: "top center" })
+  } else {
+    Object.assign(list.style, { top: "auto", bottom: `${box.bottom - r.top + 6}px`, maxHeight: `${Math.min(352, above)}px`, transformOrigin: "bottom center" })
+  }
+}
+function openPick(kind) {
+  pick = { kind, query: "", lit: 0 }
+  redrawTop()
+  placeList()
+  const input = document.getElementById("pick-input")
+  input?.focus()
+  input?.addEventListener("input", () => {
+    pick.query = input.value
+    pick.lit = 0
+    document.getElementById("pick-list").innerHTML = pickRows()
+    placeList()
+  })
+  input?.addEventListener("keydown", (event) => {
+    const rows = pickMatches()
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault()
+      pick.lit = Math.max(0, Math.min(rows.length - 1, pick.lit + (event.key === "ArrowDown" ? 1 : -1)))
+      document.getElementById("pick-list").innerHTML = pickRows()
+    } else if (event.key === "Enter" && rows[pick.lit]) {
+      event.preventDefault()
+      choose(rows[pick.lit].code)
+    } else if (event.key === "Escape") {
+      event.preventDefault()
+      event.stopPropagation()
+      closePick()
+    }
+  })
+}
+function choose(code) {
+  draft.accs[pick.kind] = code
+  closePick()
+}
+function closePick() {
+  pick = null
+  redrawTop()
+}
+
+// ── New account: a Cash In Bank leaf, made from inside the pick ─────────
+let fresh = null // { kind, code, name }
+function newAccountSheet() {
+  return sheet({
+    crumb: "Chart of Accounts",
+    title: "New account",
+    body: `<div class="new-fields">
+        <label class="ds-field"><span class="ds-field-label">Code<span class="ds-req" aria-hidden="true">*</span></span><input class="ds-input" id="new-code" type="text" value="${esc(fresh.code)}"></label>
+        <label class="ds-field"><span class="ds-field-label">Name<span class="ds-req" aria-hidden="true">*</span></span><input class="ds-input" id="new-name" type="text" value="${esc(fresh.name)}"></label>
+      </div>
+      <dl class="ds-facts">
+        <div class="ds-fact"><dt>Under heading</dt><dd>1001 · Cash In Bank</dd></div>
+        <div class="ds-fact"><dt>Account type</dt><dd>Bank</dd></div>
+      </dl>`,
+    foot: `<span class="grow"></span><button class="ds-btn ds-btn--primary" data-save-account>Save</button>`,
+  })
+}
+function openNewAccount() {
+  const next = String(Math.max(...COA.map((one) => Number(one.code))) + 1)
+  const kind = pick.kind
+  fresh = { kind, code: next, name: `Cash In Bank Giro Bank ${draft.bank} ${shopOf(draft.shop).name}` }
+  pick = null
+  redrawTop()
+  push(newAccountSheet)
+}
+
+function openMachine(shopId, bank, pickBank) {
+  const shop = shopOf(shopId)
+  const one = bank ? shop.machines[bank] : null
+  draft = one
+    ? { shop: shopId, bank, d: one.d, c: one.c, q: one.q, accs: { ...one.accs }, isNew: false, pickBank: false }
+    : { shop: shopId, bank, d: 1, c: 1, q: 1, accs: bank ? usualAccounts(bank) : {}, isNew: true, pickBank }
+  openCell = bank ? `${shopId}:${bank}` : null
+  push(machineSheet)
+}
+// A new machine settles each kind where most of that bank's machines already
+// do; with none yet, to the bank's Giro account.
+function usualAccounts(bank) {
+  const out = {}
+  for (const [key] of KINDS) {
+    const tally = new Map()
+    for (const shop of SHOPS) {
+      const code = shop.machines[bank]?.accs[key]
+      if (code) tally.set(code, (tally.get(code) ?? 0) + 1)
+    }
+    out[key] = [...tally.entries()].sort((a, b) => b[1] - a[1])[0]?.[0]
+      ?? COA.find((one) => one.name.toLowerCase() === `cash in bank giro bank ${bank.toLowerCase()}`)?.code
+      ?? COA[0].code
+  }
+  return out
+}
+
+// ── Till · Bayar ────────────────────────────────────────────────────────
+function tillPage() {
+  const shop = shopOf(tillShop)
+  const options = []
+  const cash = OTHER.find((one) => one.code === "CASH")
+  if (shop.other.includes("CASH")) options.push({ label: cash.till[0], sub: cash.till[1] })
+  for (const bank of banksOf(shop)) {
+    const one = shop.machines[bank]
+    const card = one.d || one.c
+    options.push({
+      edc: true,
+      label: machineName(bank, one),
+      sub: card ? [one.d && "Debit", one.c && "Kredit", one.q && "QRIS"].filter(Boolean).join(" · ") : "Kode QR",
+    })
+  }
+  for (const one of OTHER) if (one.code !== "CASH" && shop.other.includes(one.code)) options.push({ label: one.till[0], sub: one.till[1] })
+  return head("Bayar", `POS · ${shop.name}`) + `<div class="till-wrap">
+    <div class="chips" role="radiogroup" aria-label="Shop">${SHOPS.map((one) => `<button class="chip ${one.id === tillShop ? "is-on" : ""}" role="radio" aria-checked="${one.id === tillShop}" data-till="${one.id}"><span class="ds-ico ds-ico-store"></span>${one.name}</button>`).join("")}</div>
+    <div class="pos">
+      <div class="pos-head"><b>Bayar</b><span class="due">Rp 249.000</span></div>
+      <div class="pos-q">Mesin mana?</div>
+      <div class="pos-list">${options.map((one, i) => `<div class="pos-opt ${one.edc ? "edc" : ""}"><span class="key">${i + 1}</span><span class="two"><b>${one.label}</b><span>${one.sub}</span></span></div>`).join("")}</div>
+    </div>
+  </div>`
+}
+
+// ── sheets and layers ───────────────────────────────────────────────────
+const stack = [] // render functions, bottom first
+function sheet({ crumb, title, caption, body, foot, wide }) {
+  return `<div class="ds-sheet${wide ? " is-wide" : ""}" role="dialog" aria-label="${esc(title)}">
+    <div class="ds-sheet-head"><div class="ds-sheet-headtext"><div class="ds-sheet-crumb"><span>${esc(crumb)}</span></div>
+      <div class="ds-sheet-titlerow"><h2 class="ds-sheet-title">${esc(title)}</h2></div>${caption ? `<div class="ds-sheet-caption">${caption}</div>` : ""}</div>
+      <button class="ds-sheet-close" data-close aria-label="Close"><span class="ds-ico ds-ico-x ds-ico--17"></span></button></div>
+    <div class="ds-sheet-body">${body}</div>
+    <div class="ds-sheet-foot">${foot}</div></div>`
+}
+function push(draw) {
+  stack.push(draw)
+  const host = document.createElement("div")
+  host.className = `layer l${stack.length - 1}`
+  host.innerHTML = `<div class="scrim" data-close></div>${draw()}`
+  document.getElementById("layers").appendChild(host)
+  const under = document.querySelectorAll("#layers .layer")
+  under.forEach((one, i) => one.classList.toggle("is-under", i < under.length - 1))
+  requestAnimationFrame(() => requestAnimationFrame(() => host.classList.add("is-in")))
+  if (version === "b") render()
+}
+function redrawTop() {
+  const hosts = document.querySelectorAll("#layers .layer")
+  const host = hosts[hosts.length - 1]
+  if (!host) return
+  const scroll = host.querySelector(".ds-sheet-body")?.scrollTop ?? 0
+  host.querySelector(".ds-sheet").outerHTML = stack[stack.length - 1]()
+  host.querySelector(".ds-sheet").style.transition = "none"
+  host.querySelector(".ds-sheet-body").scrollTop = scroll
+}
+function redrawUnder() {
+  const hosts = document.querySelectorAll("#layers .layer")
+  hosts.forEach((host, i) => {
+    if (i === hosts.length - 1) return
+    host.querySelector(".ds-sheet").outerHTML = stack[i]()
+    host.querySelector(".ds-sheet").style.transition = "none"
+  })
+}
+function pop() {
+  const hosts = document.querySelectorAll("#layers .layer")
+  const host = hosts[hosts.length - 1]
+  if (!host) return
+  stack.pop()
+  host.classList.add("is-out")
+  host.classList.remove("is-in")
+  setTimeout(() => host.remove(), 210)
+  const left = [...hosts].slice(0, -1)
+  left.forEach((one, i) => one.classList.toggle("is-under", i < left.length - 1))
+  pick = null
+  if (stack.length === 0) {
+    openCell = null
+    otherDraft = null
+  }
+  if (draft && stack.length <= (version === "a" ? 1 : 0)) draft = null
+  render()
+}
+function closeAll(now) {
+  stack.length = 0
+  draft = null
+  otherDraft = null
+  openCell = null
+  if (now) document.getElementById("layers").innerHTML = ""
+}
+let toastTimer
+function toast(text) {
+  document.getElementById("toast-text").textContent = text
+  const el = document.getElementById("toast")
+  el.classList.remove("is-hidden")
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => el.classList.add("is-hidden"), 1800)
+}
+
+// ── clicks ──────────────────────────────────────────────────────────────
+document.addEventListener("click", (event) => {
+  // A click anywhere but the open list closes it.
+  if (pick && !event.target.closest(".pick")) closePick()
+  const t = event.target.closest("[data-now],[data-a],[data-machine],[data-other-cell],[data-add],[data-close],[data-kind],[data-pick],[data-pick-acc],[data-new-account],[data-save-account],[data-bank],[data-other],[data-save-machine],[data-remove],[data-save-other],[data-till]")
+  if (!t) return
+  const d = t.dataset
+  if (d.now !== undefined) push(() => nowSheet(shopOf(d.now)))
+  else if (d.a !== undefined) push(() => aSheet(shopOf(d.a)))
+  else if (d.machine !== undefined) {
+    const [shop, bank] = d.machine.split(":")
+    openMachine(shop, bank, false)
+  } else if (d.otherCell !== undefined) {
+    openCell = `${d.otherCell}:other`
+    otherDraft = new Set(shopOf(d.otherCell).other)
+    push(() => otherSheet(shopOf(d.otherCell)))
+  } else if (d.add !== undefined) openMachine(d.add, null, true)
+  else if (d.close !== undefined) pop()
+  else if (d.kind !== undefined) {
+    draft[d.kind] = draft[d.kind] ? 0 : 1
+    redrawTop()
+  } else if (d.pick !== undefined) {
+    openPick(d.pick)
+  } else if (d.pickAcc !== undefined) {
+    choose(d.pickAcc)
+  } else if (d.newAccount !== undefined) {
+    openNewAccount()
+  } else if (d.saveAccount !== undefined) {
+    const code = document.getElementById("new-code").value.trim()
+    const name = document.getElementById("new-name").value.trim()
+    if (code === "" || name === "" || coa(code)) return
+    COA.push({ code, name })
+    draft.accs[fresh.kind] = code
+    toast(`Account ${code} created`)
+    fresh = null
+    pop()
+    redrawUnder()
+  } else if (d.bank !== undefined) {
+    draft.bank = d.bank
+    draft.accs = usualAccounts(d.bank)
+    redrawTop()
+  } else if (d.other !== undefined) {
+    const shop = stackShop()
+    otherDraft = otherDraft ?? new Set(shop.other)
+    if (otherDraft.has(d.other)) otherDraft.delete(d.other)
+    else otherDraft.add(d.other)
+    redrawTop()
+  } else if (d.saveMachine !== undefined) {
+    if (!draft.d && !draft.c && !draft.q) {
+      draft.tried = true
+      redrawTop()
+      return
+    }
+    const shop = shopOf(draft.shop)
+    const name = machineName(draft.bank, draft)
+    shop.machines[draft.bank] = { d: draft.d, c: draft.c, q: draft.q, accs: { ...draft.accs } }
+    toast(draft.isNew ? `${name} added` : `${name} saved`)
+    pop()
+    redrawUnder()
+  } else if (d.remove !== undefined) {
+    const shop = shopOf(draft.shop)
+    const name = machineName(draft.bank, draft)
+    delete shop.machines[draft.bank]
+    toast(`${name} removed`)
+    pop()
+    redrawUnder()
+  } else if (d.saveOther !== undefined) {
+    const shop = shopOf(d.saveOther)
+    if (otherDraft) shop.other = OTHER.map((one) => one.code).filter((code) => otherDraft.has(code))
+    otherDraft = null
+    toast("Saved")
+    pop()
+  } else if (d.till !== undefined) {
+    tillShop = d.till
+    render()
+  }
+})
+// The shop whose sheet is on top (A's shop sheet or B's other-methods sheet).
+function stackShop() {
+  const crumbOrTitle = [...document.querySelectorAll("#layers .layer")].pop()?.querySelector("[data-save-other]")?.dataset.saveOther
+  return shopOf(crumbOrTitle)
+}
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return
+  if (pick) closePick()
+  else if (stack.length) pop()
+})
+
+render()
+</script>
+</body>
+</html>

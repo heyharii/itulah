@@ -2264,7 +2264,7 @@ mod tests {
                  (id, version, name, effective_from, effective_to, activated_at)
              VALUES (?1, ?2, ?3, ?4, NULL, ?4)",
             )
-            .map_err(db)?
+            .unwrap_or_else(|error| panic!("prepare: {error}"))
             .execute(params![
                 id,
                 version,
@@ -2292,7 +2292,7 @@ mod tests {
              VALUES (?1, ?5, ?2, ?3, 'STORE',
                      1, 'IDR', ?4, 'STANDARD')",
             )
-            .map_err(db)?
+            .unwrap_or_else(|error| panic!("prepare: {error}"))
             .execute(params![
                 publication_id,
                 sku_code,
@@ -2312,7 +2312,7 @@ mod tests {
                  (sku_code, name, uom, barcode, tax_category, active, generation, updated_at)
              VALUES (?1, ?2, 'PCS', NULL, 'STANDARD', 1, 1, '2026-09-01T00:00:00Z')",
             )
-            .map_err(db)?
+            .unwrap_or_else(|error| panic!("prepare: {error}"))
             .execute(params![sku_code, name])
         {
             panic!("fixture catalogue: {error}");
@@ -2334,7 +2334,7 @@ mod tests {
                   budget_minor, max_uses)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, NULL)",
             )
-            .map_err(db)?
+            .unwrap_or_else(|error| panic!("prepare: {error}"))
             .execute(params![
                 campaign_id,
                 publication_id,
@@ -2374,7 +2374,7 @@ mod tests {
                  (rule_id, publication_id, name, definition_json, status, priority)
              VALUES (?1, ?2, ?3, ?4, 'ACTIVE', 0)",
             )
-            .map_err(db)?
+            .unwrap_or_else(|error| panic!("prepare: {error}"))
             .execute(params![
                 rule_id,
                 publication_id,

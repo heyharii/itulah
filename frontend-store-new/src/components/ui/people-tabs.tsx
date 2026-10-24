@@ -25,6 +25,7 @@ export function PeopleTabs<T extends string>({
   title = "Show",
   className,
   plainCount = false,
+  zeros = false,
 }: {
   tabs: readonly {
     readonly value: T
@@ -40,6 +41,9 @@ export function PeopleTabs<T extends string>({
   /// The count as plain grey text after the word, the hub's "To receive 2" —
   /// no pill behind the figure.
   plainCount?: boolean
+  /// Say "0" too, where a tab that holds nothing is still news ("Found 0"):
+  /// by default a count shows only while there is something in it.
+  zeros?: boolean
 }) {
   const phone = useLayout() === "phone"
   if (phone) {
@@ -88,10 +92,10 @@ export function PeopleTabs<T extends string>({
             )}
           >
             {tab.label}
-            {tab.count !== undefined && tab.count > 0 && plainCount && (
+            {tab.count !== undefined && (tab.count > 0 || zeros) && plainCount && (
               <span className="text-mute tabular-nums">{tab.count}</span>
             )}
-            {tab.count !== undefined && tab.count > 0 && !plainCount && (
+            {tab.count !== undefined && (tab.count > 0 || zeros) && !plainCount && (
               <span className="rounded-full bg-soft-2 px-1.5 text-[0.875rem] leading-[1.125rem] font-semibold text-body tabular-nums">
                 {tab.count}
               </span>

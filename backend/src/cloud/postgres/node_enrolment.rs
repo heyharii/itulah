@@ -1163,7 +1163,8 @@ async fn resend_open_work(
     // or a node's facts; one accepted as delivered has left it.
     let on_the_road = sqlx::query(
         "SELECT f.event_id, f.koli_id, f.source_site_id, f.destination_store_id,
-                f.shipment_reference, f.occurred_at
+                f.shipment_reference, f.occurred_at,
+                (SELECT k.koli_number FROM edge_koli k WHERE k.koli_id = f.koli_id) AS koli_number
            FROM edge_fulfillment_progress_fact f
           WHERE f.stage = 'IN_TRANSIT'
             AND EXISTS (
@@ -1222,6 +1223,7 @@ async fn resend_open_work(
                 departed_at: row.try_get("occurred_at")?,
                 units,
                 destination_pool_id: None,
+                koli_number: row.try_get("koli_number")?,
             },
         )
         .await?;

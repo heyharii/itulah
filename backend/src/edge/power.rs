@@ -82,7 +82,9 @@ fn read() -> Option<PowerFacts> {
     parse_nut(&String::from_utf8(output.stdout).ok()?)
 }
 
+// `GetSystemPowerStatus` exists only as FFI; it fills a plain struct.
 #[cfg(windows)]
+#[allow(unsafe_code)]
 fn read() -> Option<PowerFacts> {
     use windows_sys::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
     let mut status: SYSTEM_POWER_STATUS = unsafe { std::mem::zeroed() };

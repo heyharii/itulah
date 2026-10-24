@@ -55,6 +55,8 @@ struct SiteFacts {
     kind: String,
     /// The kind of the unit that owns it: HO or STORE (0600).
     unit_kind: String,
+    /// Its unit was removed by head office (`unit.status = 'CLOSED'`, 0990).
+    closed: bool,
 }
 
 /// Everything the route rules read, read once, from rows.
@@ -85,6 +87,10 @@ impl CreateValidationContext {
         self.sites
             .get(site_id)
             .is_some_and(|site| site.unit_kind == HEAD_OFFICE_UNIT_KIND)
+    }
+
+    fn of_removed_store(&self, site_id: &str) -> bool {
+        self.sites.get(site_id).is_some_and(|site| site.closed)
     }
 
     /// Stores keep the same id on Cloud and their Edge node. A warehouse can
@@ -2429,7 +2435,8 @@ async fn load_create_validation_context(
     .map(|row| (row.get("id"), (row.get("site_id"), row.get("role"))))
     .collect();
     let sites = sqlx::query(
-        "SELECT site.id,site.kind,unit.kind unit_kind FROM site JOIN unit ON unit.id=site.unit_id
+        "SELECT site.id,site.kind,unit.kind unit_kind,unit.status='CLOSED' closed
+         FROM site JOIN unit ON unit.id=site.unit_id
          WHERE site.id=ANY($1)",
     )
     .bind(&site_ids)
@@ -2442,6 +2449,7 @@ async fn load_create_validation_context(
             SiteFacts {
                 kind: row.get("kind"),
                 unit_kind: row.get("unit_kind"),
+                closed: row.get("closed"),
             },
         )
     })
@@ -2585,6 +2593,14 @@ fn validate_create_line(
                 return Err(AppError::Validation(
                     "TO_SITE goes to a site of ours that sells".into(),
                 ));
+            }
+            // A removed store (0990) takes nothing more. Only the destination:
+            // its own goods still go back to the Gudang from there.
+            if context.of_removed_store(&identity.destination_id) {
+                return Err(AppError::Conflict(format!(
+                    "{} belongs to a store that has been removed; nothing more is allotted to it",
+                    identity.destination_id
+                )));
             }
             // Owner's ruling, 28 Sep 2026 ("toko vs toko ga bisa ya, udah
             // titik"): a store never sends goods to another store. The database
@@ -3235,6 +3251,7 @@ mod tests {
                     SiteFacts {
                         kind: "STORE".into(),
                         unit_kind: "STORE".into(),
+                        closed: false,
                     },
                 ),
                 (
@@ -3242,6 +3259,7 @@ mod tests {
                     SiteFacts {
                         kind: "DC".into(),
                         unit_kind: HEAD_OFFICE_UNIT_KIND.into(),
+                        closed: false,
                     },
                 ),
             ]),

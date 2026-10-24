@@ -72,8 +72,8 @@ pub struct StoreInboundResult {
     pub extra_units: i64,
 }
 
-/// One delivery as a list shows it. Blind while IN_TRANSIT: `result` is null
-/// and nothing about the manifest's contents is exposed — only `koli_count`.
+/// One delivery as a list shows it. `result` is null while IN_TRANSIT; what
+/// was packed is in the detail (`StoreInboundDetail::lines`).
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct StoreInboundDelivery {
@@ -116,9 +116,11 @@ pub struct StoreInboundLine {
     pub extra_epcs: Vec<String>,
 }
 
-/// A delivery and, once RECEIVED, its comparison per SKU. `lines` is EMPTY
-/// while IN_TRANSIT (blind). `skipped_epcs` are tags the receipt read but did
-/// not book: already on this shop's books, or not one of ours.
+/// A delivery and its lines per SKU. While IN_TRANSIT a line is what was
+/// packed (`expected`, nothing received or missing yet) — the count is no
+/// longer blind (owner, 23 Oct 2026); once RECEIVED it is the comparison.
+/// `skipped_epcs` are tags the receipt read but did not book: already on this
+/// shop's books, or not one of ours.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct StoreInboundDetail {
@@ -135,6 +137,37 @@ pub struct StoreInboundDetail {
     /// the catalogue (the Gudang in the cloud). Still no quantity.
     #[serde(default)]
     pub manifest_items: Vec<StoreInboundManifestItem>,
+    /// Every koli of the delivery with what was packed in it, so a scanned
+    /// label opens one box.
+    #[serde(default)]
+    pub koli: Vec<StoreInboundKoli>,
+}
+
+/// One koli of a delivery: the number on its label and what was packed in it.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct StoreInboundKoli {
+    pub koli_id: String,
+    /// `KL-…`; absent when the centre that announced it did not send it.
+    pub koli_number: Option<String>,
+    pub lines: Vec<StoreInboundKoliLine>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct StoreInboundKoliLine {
+    pub sku_code: String,
+    pub name: Option<String>,
+    pub quantity: i64,
+}
+
+/// What a scanned code opens: a delivery, and the koli when the code was a
+/// koli label.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct StoreInboundScan {
+    pub delivery_id: String,
+    pub koli_id: Option<String>,
 }
 
 /// One SKU a delivery carries, named, with nothing of how many.
@@ -161,8 +194,8 @@ pub struct StoreInboundReceiveRequest {
 
 /// Receive without a reader (owner, 29 Sep 2026: receiving needs no RFID).
 ///
-/// Still blind: the shop counts what came off the lorry per SKU — scanned
-/// barcodes or typed — without being shown what was sent. The node turns
+/// The shop counts what came off the lorry per SKU — scanned barcodes or
+/// typed — starting from what was packed (owner, 23 Oct 2026). The node turns
 /// each count into that many of the delivery's own manifest pieces of the SKU
 /// and books them exactly as a sweep would, so the comparison, the missing
 /// pieces and the cloud reconciliation all read the same either way.
@@ -325,6 +358,22 @@ pub(crate) fn apply_announcement(
             true
         }
     };
+    tx.execute(
+        "INSERT INTO store_inbound_koli (koli_id,delivery_id,koli_number)
+         VALUES(?1,?2,?3)
+         ON CONFLICT(koli_id) DO UPDATE
+            SET koli_number=COALESCE(store_inbound_koli.koli_number,excluded.koli_number)",
+        params![
+            payload.koli_id.to_string(),
+            delivery_id,
+            payload
+                .koli_number
+                .as_deref()
+                .map(str::trim)
+                .filter(|number| !number.is_empty())
+        ],
+    )
+    .map_err(db)?;
     for unit in &payload.units {
         tx.execute(
             "INSERT OR IGNORE INTO store_inbound_unit
@@ -490,8 +539,6 @@ fn delivery_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DeliveryRow> {
 }
 
 fn present(connection: &Connection, row: DeliveryRow) -> Result<StoreInboundDelivery, EdgeError> {
-    // Blind: nothing about the manifest's contents leaves this function while
-    // the delivery is in transit.
     let result = if row.status == STATUS_RECEIVED {
         let (expected, received, missing): (i64, i64, i64) = connection
             .query_row(
@@ -563,8 +610,9 @@ pub fn list(connection: &Connection, status: Option<&str>) -> Result<StoreInboun
     Ok(StoreInboundList { deliveries })
 }
 
-/// One delivery. Lines only once RECEIVED; while IN_TRANSIT the answer is the
-/// header alone, with `lines` empty.
+/// One delivery. While IN_TRANSIT its lines are what was packed per SKU;
+/// once RECEIVED, what was packed against what was counted. Its koli either
+/// way.
 pub fn detail(connection: &Connection, delivery_id: &str) -> Result<StoreInboundDetail, EdgeError> {
     let sql =
         format!("SELECT {DELIVERY_COLUMNS} FROM store_inbound_delivery d WHERE d.delivery_id=?1");
@@ -592,15 +640,7 @@ pub fn detail(connection: &Connection, delivery_id: &str) -> Result<StoreInbound
         .map_err(db)?
         .collect::<Result<Vec<_>, _>>()
         .map_err(db)?;
-    if !received {
-        return Ok(StoreInboundDetail {
-            delivery,
-            lines: Vec::new(),
-            skipped_epcs,
-            manifest_skus,
-            manifest_items: Vec::new(),
-        });
-    }
+    let koli = koli_of(connection, delivery_id)?;
 
     #[derive(Default)]
     struct Tally {
@@ -681,7 +721,96 @@ pub fn detail(connection: &Connection, delivery_id: &str) -> Result<StoreInbound
         skipped_epcs,
         manifest_skus,
         manifest_items: Vec::new(),
+        koli,
     })
+}
+
+/// Every koli of a delivery with what was packed in it, in label order.
+fn koli_of(connection: &Connection, delivery_id: &str) -> Result<Vec<StoreInboundKoli>, EdgeError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT u.koli_id, k.koli_number, upper(u.sku_code), c.name, COUNT(*)
+               FROM store_inbound_unit u
+               LEFT JOIN store_inbound_koli k ON k.koli_id = u.koli_id
+               LEFT JOIN catalog_item c ON c.sku_code = u.sku_code
+              WHERE u.delivery_id=?1 AND u.late_announcement=0
+              GROUP BY u.koli_id, upper(u.sku_code)
+              ORDER BY k.koli_number IS NULL, k.koli_number, u.koli_id, 3",
+        )
+        .map_err(db)?;
+    let rows = statement
+        .query_map([delivery_id], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, Option<String>>(1)?,
+                StoreInboundKoliLine {
+                    sku_code: r.get(2)?,
+                    name: r.get(3)?,
+                    quantity: r.get(4)?,
+                },
+            ))
+        })
+        .map_err(db)?;
+    let mut koli: Vec<StoreInboundKoli> = Vec::new();
+    for row in rows {
+        let (koli_id, koli_number, line) = row.map_err(db)?;
+        match koli.last_mut() {
+            Some(last) if last.koli_id == koli_id => last.lines.push(line),
+            _ => koli.push(StoreInboundKoli {
+                koli_id,
+                koli_number,
+                lines: vec![line],
+            }),
+        }
+    }
+    Ok(koli)
+}
+
+/// The delivery a scanned code opens: a koli label (`KL-…`, or its QR
+/// `K1:KL-…`), a surat jalan (`SJ-…`, or its QR `S1:SJ-…`), or a delivery
+/// id. Case and the QR's prefix do not matter.
+pub fn find_by_scan(connection: &Connection, code: &str) -> Result<StoreInboundScan, EdgeError> {
+    let code = code.trim().to_ascii_uppercase();
+    let code = code
+        .strip_prefix("K1:")
+        .or_else(|| code.strip_prefix("S1:"))
+        .unwrap_or(&code)
+        .trim()
+        .to_string();
+    if code.is_empty() {
+        return Err(EdgeError::Validation("a scan needs a code".into()));
+    }
+    let koli = connection
+        .query_row(
+            "SELECT delivery_id, koli_id FROM store_inbound_koli
+              WHERE upper(koli_number)=?1 LIMIT 1",
+            [&code],
+            |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+        )
+        .optional()
+        .map_err(db)?;
+    if let Some((delivery_id, koli_id)) = koli {
+        return Ok(StoreInboundScan {
+            delivery_id,
+            koli_id: Some(koli_id),
+        });
+    }
+    let delivery: Option<String> = connection
+        .query_row(
+            "SELECT delivery_id FROM store_inbound_delivery
+              WHERE upper(shipment_reference)=?1 OR upper(delivery_id)=?1
+              ORDER BY departed_at DESC LIMIT 1",
+            [&code],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(db)?;
+    delivery
+        .map(|delivery_id| StoreInboundScan {
+            delivery_id,
+            koli_id: None,
+        })
+        .ok_or_else(|| EdgeError::NotFound(format!("no koli or surat jalan {code}")))
 }
 
 /// One SKU of a received delivery the shop counted more of than it could

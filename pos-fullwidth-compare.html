@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Full width compare</title>
+<style>
+/* Two full-width tills in the same state: the new one (pos-classic-prototype.html,
+   D Full width) and the old one (pos-web-options.html, D · Command). Both are
+   live: click and type inside either. Serve from the repo root (root-protos
+   :5397) so the states can be switched in both frames. */
+:root{--ink:#1d1d1f;--body:#6e6e73;--hairline:#e8e8ec;--accent:#2862dc;--accent-bg:#eef3fc;--stone:#e8ebf0;--segment-track:#f2f2f4}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font-family:"Inter Variable",Inter,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:15px;line-height:1.45;color:var(--ink);background:var(--stone);-webkit-font-smoothing:antialiased;display:flex;flex-direction:column}
+button{font:inherit;color:inherit;cursor:pointer;border:0;background:none}
+header{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 16px;background:#fff;border-bottom:1px solid var(--hairline)}
+h1{margin:0 6px 0 0;font-size:17px;font-weight:600;letter-spacing:-.3px}
+.seg{display:inline-flex;gap:2px;padding:3px;border-radius:9px;background:var(--segment-track)}
+.seg button{height:30px;padding:0 12px;border-radius:7px;font-weight:500;color:var(--body);white-space:nowrap}
+.seg button.on{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.lbl{color:var(--body)}
+main{flex:1;min-height:0;display:flex;gap:16px;padding:16px;overflow:auto}
+main.one{flex-direction:column}
+.pane{flex:1 1 0;min-width:0;display:flex;flex-direction:column;gap:8px}
+.pane[hidden]{display:none}
+.pane h2{margin:0;font-size:15px;font-weight:600;display:flex;align-items:baseline;gap:8px}
+.pane h2 span{font-weight:400;color:var(--body)}
+.box{position:relative;width:100%;overflow:hidden;border-radius:6px;background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.08),0 8px 24px rgba(0,0,0,.08)}
+.box iframe{position:absolute;left:0;top:0;width:1366px;border:0;transform-origin:0 0;background:#fff}
+</style>
+</head>
+<body>
+<header>
+  <h1>Full width compare</h1>
+  <div class="seg" id="view"><button data-v="both" class="on">Side by side</button><button data-v="new">New</button><button data-v="old">Old</button></div>
+  <span class="lbl">State</span>
+  <div class="seg" id="state"><button data-v="sell">Empty</button><button data-v="basket" class="on">Basket</button><button data-v="pay">Pay</button><button data-v="change">Done</button></div>
+</header>
+<main id="main">
+  <section class="pane" id="p-new"><h2>New <span>pos-classic-prototype.html · D Full width</span></h2><div class="box" id="b-new"><iframe id="f-new" title="New full width"></iframe></div></section>
+  <section class="pane" id="p-old"><h2>Old <span>pos-web-options.html · D Command</span></h2><div class="box" id="b-old"><iframe id="f-old" title="Old D Command"></iframe></div></section>
+</main>
+<script>
+(() => {
+  const W = 1366, H = 768, OLD_BAR = 48;          // the old file's own dark bar is cut off
+  const fNew = document.getElementById('f-new'), fOld = document.getElementById('f-old');
+  let state = 'basket', n = 0;
+  const OLD_STATE = { sell: 'empty', basket: 'basket', pay: 'pay', change: 'done' };
+
+  function fit() {
+    for (const [box, frame, extra] of [[document.getElementById('b-new'), fNew, 0], [document.getElementById('b-old'), fOld, OLD_BAR]]) {
+      const sc = box.clientWidth / W;
+      box.style.height = Math.round(H * sc) + 'px';
+      frame.style.height = (H + extra) + 'px';
+      frame.style.transform = `translateY(${-extra * sc}px) scale(${sc})`;
+    }
+  }
+  function load() {
+    n += 1;
+    fNew.src = `pos-classic-prototype.html?v=${n}#D.${state}.bare`;
+    fOld.src = `pos-web-options.html?v=${n}#D`;
+  }
+  fOld.addEventListener('load', () => {
+    // same origin when served: press the old file's own state switch
+    try {
+      const btn = fOld.contentDocument.querySelector(`#stateseg [data-v="${OLD_STATE[state]}"]`);
+      if (btn) setTimeout(() => btn.click(), 200);
+    } catch (e) { /* opened as a file: the old frame stays on its first state */ }
+  });
+  document.getElementById('view').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    document.querySelectorAll('#view button').forEach(x => x.classList.toggle('on', x === b));
+    document.getElementById('p-new').hidden = b.dataset.v === 'old';
+    document.getElementById('p-old').hidden = b.dataset.v === 'new';
+    document.getElementById('main').classList.toggle('one', b.dataset.v !== 'both');
+    fit();
+  });
+  document.getElementById('state').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    document.querySelectorAll('#state button').forEach(x => x.classList.toggle('on', x === b));
+    state = b.dataset.v; load();
+  });
+  window.addEventListener('resize', fit);
+  fit(); load();
+})();
+</script>
+</body>
+</html>

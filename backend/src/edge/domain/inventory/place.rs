@@ -120,6 +120,43 @@ pub enum OperationalPool {
     Reject {
         site_id: SiteId,
     },
+    /// TO BE RETURNED, a shop's pockets beside its reject (owner, 23 Oct
+    /// 2026: "kantong dalam kantong"): `{site}.to-return.over` — an over
+    /// delivery MD sent back — and `{site}.to-return.ho` — what HO moved for
+    /// the shop to send. Role REJECT: off the shelves, not for sale, and sent
+    /// to HO the way the reject is.
+    ToReturn {
+        site_id: SiteId,
+        pocket: ToReturnPocket,
+    },
+}
+
+/// Which pocket of a shop's To be returned a [`OperationalPool::ToReturn`] is.
+/// The reject is the third, and keeps its own spelling (`{site}.reject`).
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ToReturnPocket {
+    /// What a delivery brought beyond what was sent, and MD sent back.
+    OverDelivery,
+    /// What head office moved off the shop's shelves to come back.
+    ReturnHo,
+}
+
+impl ToReturnPocket {
+    pub const fn slug(self) -> &'static str {
+        match self {
+            Self::OverDelivery => "over",
+            Self::ReturnHo => "ho",
+        }
+    }
+
+    pub fn from_slug(slug: &str) -> Option<Self> {
+        match slug {
+            "over" => Some(Self::OverDelivery),
+            "ho" => Some(Self::ReturnHo),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -199,6 +236,7 @@ impl OperationalPool {
             Self::Return { site_id, origin_id } => format!("{site_id}.return.{origin_id}"),
             Self::StoreFloor { store_id } => format!("{store_id}.floor"),
             Self::Reject { site_id } => format!("{site_id}.reject"),
+            Self::ToReturn { site_id, pocket } => format!("{site_id}.to-return.{}", pocket.slug()),
         }
     }
 
@@ -218,7 +256,7 @@ impl OperationalPool {
             | Self::Outbound { site_id, .. }
             | Self::Return { site_id, .. } => site_id,
             Self::StoreFloor { store_id } => store_id,
-            Self::Reject { site_id } => site_id,
+            Self::Reject { site_id } | Self::ToReturn { site_id, .. } => site_id,
         }
     }
 
@@ -235,7 +273,9 @@ impl OperationalPool {
             Self::DcOutboundLoaded { .. } => PoolRole::Loaded,
             Self::DcOutboundInTransit { .. } => PoolRole::InTransit,
             Self::Outbound { stage, .. } => stage.role(),
-            Self::DcRejectDc { .. } | Self::Reject { .. } => PoolRole::Reject,
+            Self::DcRejectDc { .. } | Self::Reject { .. } | Self::ToReturn { .. } => {
+                PoolRole::Reject
+            }
             Self::DcRejectStore { .. } | Self::Return { .. } => PoolRole::Return,
             Self::StoreFloor { .. } => PoolRole::Floor,
         }
@@ -324,6 +364,9 @@ impl FromStr for OperationalPool {
             ["warehouse"] => Ok(Self::Stockroom { site_id }),
             ["floor"] => Ok(Self::StoreFloor { store_id: site_id }),
             ["reject"] => Ok(Self::Reject { site_id }),
+            ["to-return", pocket] => ToReturnPocket::from_slug(pocket)
+                .map(|pocket| Self::ToReturn { site_id, pocket })
+                .ok_or_else(|| PlaceError::UnknownPool(value.to_owned())),
             // A fixed token of the pool grammar, not a site id: the first
             // Gudang's own reject was spelled this way.
             ["reject", "dc"] => Ok(Self::DcRejectDc { dc_id: site_id }),
@@ -432,6 +475,25 @@ impl Place {
             self,
             Self::Operational {
                 pool: OperationalPool::StoreFloor { .. },
+                state: InventoryState::Normal
+            }
+        )
+    }
+
+    /// Where a SALE may take a piece from: the floor, or the same site's
+    /// stockroom.
+    ///
+    /// Owner, 23 Oct 2026: a piece the till reads must sell wherever its shop
+    /// holds it, and a sale head office matches later takes one piece from a
+    /// place's racks as readily as from its shelf. Still only goods at rest and
+    /// on hand — nothing in a koli on its way out, nothing booked missing,
+    /// nothing set aside as reject. `is_saleable` keeps its meaning: the floor
+    /// is still the only place a shopper picks from.
+    pub fn is_sale_source(&self) -> bool {
+        matches!(
+            self,
+            Self::Operational {
+                pool: OperationalPool::StoreFloor { .. } | OperationalPool::Stockroom { .. },
                 state: InventoryState::Normal
             }
         )

@@ -299,6 +299,7 @@ cloud	GET	/api/v1/stores/{unit}	Cashier	-
 cloud	GET	/api/v1/stores/{unit}/actions	Cashier	-
 cloud	GET	/api/v1/stores/{unit}/actions/history	Cashier	-
 cloud	GET	/api/v1/stores/{unit}/exceptions	Cashier	-
+cloud	GET	/api/v1/stores/{unit}/pos	Cashier	-
 cloud	GET	/api/v1/supplier-items	Supervisor	-
 cloud	GET	/api/v1/supplier-items/{id}	Supervisor	-
 cloud	GET	/api/v1/supplier-returns	Supervisor	-
@@ -641,9 +642,14 @@ cloud	POST	/api/v1/sourcing-basket	Supervisor	-
 cloud	POST	/api/v1/sourcing-basket/clear	Supervisor	-
 cloud	POST	/api/v1/sourcing-basket/{supplier_item_id}/remove	Supervisor	supplier_item
 cloud	POST	/api/v1/stores/{unit}/actions/{key}	Supervisor	unit
+cloud	POST	/api/v1/stores/{unit}/cashiers/{user_id}/resume	Admin	unit
+cloud	POST	/api/v1/stores/{unit}/cashiers/{user_id}/stop	Admin	unit
 cloud	POST	/api/v1/stores/{unit}/open	Admin	unit
+cloud	POST	/api/v1/stores/{unit}/remove	Admin	unit
+cloud	POST	/api/v1/stores/{unit}/resume	Admin	unit
 cloud	POST	/api/v1/stores/{unit}/server/disconnect	Admin	unit
 cloud	POST	/api/v1/stores/{unit}/server/install	Admin	unit
+cloud	POST	/api/v1/stores/{unit}/stop	Admin	unit
 cloud	POST	/api/v1/supplier-items/{id}/activate	Supervisor	supplier_item
 cloud	POST	/api/v1/supplier-items/{id}/deactivate	Supervisor	supplier_item
 cloud	POST	/api/v1/supplier-returns	Supervisor	-
@@ -825,6 +831,7 @@ store	POST	/api/v1/store/receive-batch	-	-
 store	POST	/api/v1/store/return-requests/{allotment_id}/send	-	-
 store	POST	/api/v1/store/returns	-	-
 store	POST	/api/v1/store/sales	-	-
+store	POST	/api/v1/store/sales/member	-	-
 store	POST	/api/v1/store/sales/{sale_id}/receipt	-	-
 store	POST	/api/v1/store/sales/{sale_id}/receipt/escpos	-	-
 store	POST	/api/v1/store/sales/{sale_id}/void	-	-
@@ -860,6 +867,7 @@ edge-common	GET	/api/v1/node/identity	-	-
 edge-common	GET	/api/v1/rfid/sessions	-	-
 edge-common	GET	/api/v1/rfid/sessions/{session_id}	-	-
 edge-common	GET	/api/v1/sync/status	-	-
+edge-common	GET	/api/v1/till/standing	-	-
 edge-common	POST	/api/v1/attendance/punches	-	-
 edge-common	POST	/api/v1/auth/change-password	-	-
 edge-common	POST	/api/v1/auth/fingerprints	-	-

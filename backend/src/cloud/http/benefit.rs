@@ -8,7 +8,7 @@ use crate::cloud::{
     domain::{actions, required_role_for_action, role_allows, Authorization, Reach},
     postgres::{
         self as infrastructure, BenefitAccountView, BenefitBalanceRow, BenefitCodeView,
-        BenefitHolderView, BenefitMovementRow, BenefitSettingView,
+        BenefitHolderView, BenefitKey, BenefitMovementRow, BenefitSettingView,
     },
 };
 use axum::{
@@ -244,7 +244,7 @@ pub async fn spend(
     Ok(Json(
         infrastructure::spend_benefit(
             &state.db,
-            &body.code,
+            BenefitKey::Code(&body.code),
             &body.sale_ref,
             body.unit_id.trim(),
             body.amount_minor,
@@ -307,32 +307,70 @@ pub struct RelayBenefitRequest {
     pub basket_has_promotion: bool,
     #[serde(default)]
     pub reason: Option<String>,
+    /// Instead of a code: the login whose finger this node's till matched
+    /// (client, 24 Oct 2026). The node spent its own one-shot grant for that
+    /// finger before relaying; here the person is believed only if the cloud
+    /// assigns them to this very node (`benefit_employee_at_origin`).
+    #[serde(default)]
+    pub holder: Option<String>,
 }
 
+/// The origin that is asking, proved by its key, and the shop it speaks for.
 async fn relay_origin_site(
     state: &AppState,
     headers: &axum::http::HeaderMap,
     request: &RelayBenefitRequest,
-) -> Result<String, AppError> {
+) -> Result<(String, String), AppError> {
     let origin = super::authenticate_origin(state, headers, &request.origin_id).await?;
     let stamped = request
         .site_id
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    match (origin.site_id, stamped) {
+    let site = match (origin.site_id, stamped) {
         (Some(registered), Some(claimed)) if registered != claimed => {
-            Err(AppError::Forbidden(format!(
+            return Err(AppError::Forbidden(format!(
                 "origin {} speaks for {registered}, not {claimed}",
                 origin.origin_id
             )))
         }
-        (Some(registered), _) => Ok(registered),
-        (None, Some(claimed)) => Ok(claimed.to_owned()),
-        (None, None) => Err(AppError::Validation(
-            "a benefit call has to say which shop it is for".into(),
-        )),
+        (Some(registered), _) => registered,
+        (None, Some(claimed)) => claimed.to_owned(),
+        (None, None) => {
+            return Err(AppError::Validation(
+                "a benefit call has to say which shop it is for".into(),
+            ))
+        }
+    };
+    Ok((origin.origin_id, site))
+}
+
+/// The employee a relayed call names by finger, when it names one.
+async fn relay_holder(
+    state: &AppState,
+    origin_id: &str,
+    request: &RelayBenefitRequest,
+) -> Result<Option<String>, AppError> {
+    let Some(holder) = request
+        .holder
+        .as_deref()
+        .map(str::trim)
+        .filter(|holder| !holder.is_empty())
+    else {
+        return Ok(None);
+    };
+    if request
+        .code
+        .as_deref()
+        .is_some_and(|code| !code.trim().is_empty())
+    {
+        return Err(AppError::Validation(
+            "a benefit call names a code or a finger, not both".into(),
+        ));
     }
+    Ok(Some(
+        infrastructure::benefit_employee_at_origin(&state.db, origin_id, holder).await?,
+    ))
 }
 
 fn relay_by(request: &RelayBenefitRequest, reason: &str) -> Result<Authorization, AppError> {
@@ -360,9 +398,14 @@ pub async fn sync_lookup(
     headers: axum::http::HeaderMap,
     Json(request): Json<RelayBenefitRequest>,
 ) -> Result<Json<BenefitHolderView>, AppError> {
-    relay_origin_site(&state, &headers, &request).await?;
+    let (origin, _) = relay_origin_site(&state, &headers, &request).await?;
+    let fingered = relay_holder(&state, &origin, &request).await?;
+    let key = match fingered.as_deref() {
+        Some(employee_id) => BenefitKey::Employee(employee_id),
+        None => BenefitKey::Code(relay_code(&request)?),
+    };
     Ok(Json(
-        infrastructure::benefit_holder(&state.db, relay_code(&request)?).await?,
+        infrastructure::benefit_holder_by(&state.db, key).await?,
     ))
 }
 
@@ -371,7 +414,8 @@ pub async fn sync_spend(
     headers: axum::http::HeaderMap,
     Json(request): Json<RelayBenefitRequest>,
 ) -> Result<Json<BenefitHolderView>, AppError> {
-    let site = relay_origin_site(&state, &headers, &request).await?;
+    let (origin, site) = relay_origin_site(&state, &headers, &request).await?;
+    let fingered = relay_holder(&state, &origin, &request).await?;
     let unit = infrastructure::sites::unit_of_site(&state.db, &site).await?;
     let sale_ref = request
         .sale_ref
@@ -387,11 +431,16 @@ pub async fn sync_spend(
             .fetch_optional(&state.db)
             .await?
             .flatten();
-    let by = relay_by(&request, &format!("benefit spent on {sale_ref}"))?;
+    let key = match fingered.as_deref() {
+        Some(employee_id) => BenefitKey::Employee(employee_id),
+        None => BenefitKey::Code(relay_code(&request)?),
+    };
+    let how = if fingered.is_some() { " by finger" } else { "" };
+    let by = relay_by(&request, &format!("benefit spent on {sale_ref}{how}"))?;
     Ok(Json(
         infrastructure::spend_benefit(
             &state.db,
-            relay_code(&request)?,
+            key,
             sale_ref,
             &unit,
             request.amount_minor.unwrap_or(0),

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Only head office uninstalls a POS (the client's review, 23 Oct 2026).
+
+  The till holds itself while it is a till of its store: `Held` under
+  HKCU\Software\Central POS, written by the till app (src/uninstall.rs). While
+  it is there, uninstalling is refused with the sentence below. Head office
+  removing the till from the hub makes the app delete it and offer
+  "Uninstall POS". An upgrade removes the old version too, and is never
+  refused (UPGRADINGPRODUCTCODE).
+
+  Linked through `bundle.windows.wix.componentGroupRefs` (the empty group
+  below): WiX only takes in a fragment something references.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <Property Id="CENTRAL_POS_HELD">
+      <RegistrySearch Id="CentralPosHeld" Root="HKCU" Key="Software\Central POS" Name="Held" Type="raw" />
+    </Property>
+    <Condition Message="Kasir ini masih aktif. Hanya kantor pusat yang bisa menghapusnya."><![CDATA[NOT (REMOVE~="ALL") OR UPGRADINGPRODUCTCODE OR NOT CENTRAL_POS_HELD]]></Condition>
+    <ComponentGroup Id="CentralPosUninstallGuard" />
+  </Fragment>
+</Wix>

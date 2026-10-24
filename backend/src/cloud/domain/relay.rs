@@ -204,6 +204,9 @@ pub const HR_RELAY_ALLOWLIST: &[(&str, &str)] = &[
     ("GET", "/api/v1/ga/supply-categories"),
     ("GET", "/api/v1/ga/supplies"),
     ("POST", "/api/v1/ga/supplies"),
+    // ── Stock: the shop's own Send of its reject (23 Oct 2026) ─────────
+    // The handler takes the site from the relay binding, never the body.
+    ("POST", "/api/v1/inventory/store-returns/reject"),
 ];
 
 /// The longest id a `{}` segment admits. Generous for a UUID, a period, a place

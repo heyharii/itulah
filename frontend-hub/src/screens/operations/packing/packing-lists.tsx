@@ -11,6 +11,7 @@ import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Input } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
+import { ScanField } from "@/components/ui/scan-field"
 import { Pill, Status } from "@/components/ui/pill"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { EmptyState } from "@/components/ui/states"
@@ -204,6 +205,7 @@ export function PackingLists() {
   const shopName = useShopName()
   const [typed, setTyped] = useState("")
   const [tab, setTab] = useState<Tab>("all")
+  const [unknown, setUnknown] = useState<string | null>(null)
   const shorts = usePackingShort()
   const phone = useLayout() === "phone"
   const columns = useMemo(() => columnsFor(phone), [phone])
@@ -233,6 +235,20 @@ export function PackingLists() {
           b.koli.koli_number.localeCompare(a.koli.koli_number)
       )
   }, [list.data, typed, shopName, shorts])
+
+  /// A packing list's QR reads "K1:<koli number>", its Code 128 the bare
+  /// number (owner, 23 Oct 2026: "packing list bisa di scan dan dapat isi
+  /// packing listnya"): either opens that packing list.
+  function onScan(raw: string) {
+    const number = raw.replace(/^K1:/i, "").trim().toLowerCase()
+    const found = (list.data ?? []).find(
+      (one) => one.koli_number.toLowerCase() === number
+    )
+    if (found) {
+      setUnknown(null)
+      opened.open(found.koli_id)
+    } else setUnknown(`${raw} is not a packing list here`)
+  }
 
   const shortCount = searched.filter((row) => row.short > 0).length
   const rows = useMemo(
@@ -305,6 +321,14 @@ export function PackingLists() {
           />
         </label>
       </div>
+      <ScanField
+        action="Scan"
+        placeholder="Scan a packing list"
+        autoFocus={false}
+        className="mb-4 px-0 py-0"
+        problem={unknown}
+        onSubmit={onScan}
+      />
       <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(list, {
           loading: "Reading the packing lists…",

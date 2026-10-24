@@ -63,6 +63,25 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: backend -> target
+      # Every build its own version, so a newer MSI always upgrades an older
+      # one (MajorUpgrade replaces only a LOWER version) and `store --version`
+      # says the same: the tag's on a release (store-v1.2.3 → 1.2.3), else
+      # Cargo.toml's major.minor and this workflow's run number. Bump
+      # Cargo.toml's minor along with a release tag, or later branch builds
+      # read as older than the release.
+      - name: Stamp the version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" == refs/tags/store-v* ]]; then
+            version="${GITHUB_REF_NAME#store-v}"
+          else
+            base="$(sed -nE 's/^version = "([0-9]+\.[0-9]+)\.[0-9]+"$/\1/p' backend/Cargo.toml | head -n 1)"
+            version="$base.$GITHUB_RUN_NUMBER"
+          fi
+          [[ "$version" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,5}$ ]] || { echo "not a version an MSI can carry: $version" >&2; exit 1; }
+          sed -i -E "0,/^version = \"[^\"]+\"/s//version = \"$version\"/" backend/Cargo.toml
+          echo "version $version"
       - name: Test the node's unattended parts
         working-directory: backend
         run: cargo test --lib -- edge::node edge::enrolment edge::diagnose sync::enrolment
@@ -105,6 +124,22 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: backend -> target
+      # The same rule as the Linux job's step of the same name.
+      - name: Stamp the version
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:GITHUB_REF -like 'refs/tags/store-v*') {
+            $version = $env:GITHUB_REF_NAME -replace '^store-v', ''
+          } else {
+            $base = (Select-String -Path backend/Cargo.toml -Pattern '^version = "(\d+\.\d+)\.\d+"$' | Select-Object -First 1).Matches[0].Groups[1].Value
+            $version = "$base.$env:GITHUB_RUN_NUMBER"
+          }
+          if ($version -notmatch '^\d{1,3}\.\d{1,3}\.\d{1,5}$') { throw "not a version an MSI can carry: $version" }
+          $toml = Get-Content -Raw backend/Cargo.toml
+          $toml = ([regex]'(?m)^version = "[^"]+"').Replace($toml, "version = ""$version""", 1)
+          [System.IO.File]::WriteAllText("$PWD/backend/Cargo.toml", $toml)
+          Write-Host "version $version"
       - name: Test the node's unattended parts
         working-directory: backend
         run: cargo test --lib -- edge::node edge::enrolment edge::diagnose sync::enrolment

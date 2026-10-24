@@ -45,6 +45,10 @@ pub struct StoreReturnList {
 #[derive(Clone, Debug, Deserialize)]
 pub struct SendReturnRequest {
     pub idempotency_key: String,
+    /// Who carries it — courier, plate, driver — as one note, the way the
+    /// Gudang writes a trip (owner, 23 Oct 2026: the shop dispatches itself).
+    #[serde(default)]
+    pub trip_note: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]

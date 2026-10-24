@@ -4,7 +4,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
-import { Check, Download, Printer } from "lucide-react"
+import { Check, ChevronDown, Download, Printer } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 
 import {
@@ -22,6 +22,7 @@ import {
   Problem,
 } from "@/components/ui/states"
 import { Thumbnail } from "@/components/ui/thumbnail"
+import { TintButton } from "@/components/ui/tint-button"
 import { dc } from "@/lib/api"
 import { useColourwayFill } from "@/lib/colourway-fill"
 import { useEdgeActor } from "@/lib/edge-session"
@@ -197,6 +198,15 @@ export function PackSheet({
   /// it stays in hand while it drops away.
   const [layer, setLayer] = useState<{ no: number; open: boolean } | null>(null)
   const [backOpen, setBackOpen] = useState(false)
+  /// Pack on a row asks how many (owner, 23 Oct 2026 sketch: Pack → QTY pad).
+  const [packAsk, setPackAsk] = useState<{ sku: string; max: number } | null>(
+    null
+  )
+  /// Review packing is up: what goes in the koli, read back before Finish.
+  const [reviewing, setReviewing] = useState(false)
+  /// The articles opened by hand; `null` until one is touched, when only the
+  /// first stands open (owner, 23 Oct 2026 sketch: Artikel A open, B shut).
+  const [unfolded, setUnfolded] = useState<ReadonlySet<string> | null>(null)
   const [photo, setPhoto] = useState<string | null>(null)
   /// The sealed koli whose packing list is being printed.
   const [printing, setPrinting] = useState<{
@@ -233,6 +243,9 @@ export function PackSheet({
     setLayer(null)
     setBackOpen(false)
     setJustSealed(null)
+    setPackAsk(null)
+    setReviewing(false)
+    setUnfolded(null)
   }
 
   const picklists = useQuery({
@@ -546,6 +559,7 @@ export function PackSheet({
         setJustSealed({ koli: manifest.koli, at: Date.now(), items })
         fx.current = { seal: `packed-${id}` }
         setView({ kind: "picked" })
+        setReviewing(false)
         setPrinting({ id, number: manifest.koli.koli_number })
       }
       setVersion((v) => v + 1)
@@ -674,56 +688,143 @@ export function PackSheet({
     ]
       .filter((sku) => (inBox[sku] ?? 0) > 0 || freeOf(sku) > 0)
       .sort((a, b) => a.localeCompare(b))
+    /// The SKUs of one article together, in the order the rows run.
+    const articleOf = (sku: string) => catalogue.get(sku)?.article_code ?? sku
+    const groups: { code: string; skus: string[] }[] = []
+    for (const sku of reviewing
+      ? rows.filter((one) => (inBox[one] ?? 0) > 0)
+      : rows) {
+      const code = articleOf(sku)
+      const group = groups.find((one) => one.code === code)
+      if (group) group.skus.push(sku)
+      else groups.push({ code, skus: [sku] })
+    }
+    const isOpen = (code: string) =>
+      reviewing ||
+      (unfolded === null ? code === groups[0]?.code : unfolded.has(code))
+    const toggle = (code: string) =>
+      setUnfolded((now) => {
+        const next = new Set(
+          now ?? (groups[0] ? [groups[0].code] : [])
+        )
+        if (next.has(code)) next.delete(code)
+        else next.add(code)
+        return next
+      })
+    /// A row inside its article says only colour · size.
+    const variantInfo = (sku: string): SkuInfo => {
+      const identity = catalogue.get(sku)
+      const variant = [identity?.colour, identity?.size]
+        .filter(Boolean)
+        .join(" · ")
+      return { ...info(sku), title: variant || info(sku).title }
+    }
     body =
       rows.length > 0 ? (
-        <>
-          <div className="mt-[18px]">
-            {rows.map((sku) => {
-              const packedN = inBox[sku] ?? 0
-              const free = freeOf(sku)
-              const done = packedN > 0 && free === 0
-              return (
-                <SkuRow
-                  key={sku}
-                  info={info(sku)}
-                  qty={packedN + free}
-                  onPhoto={() => setPhoto(sku)}
-                  // Pack, then Packed in green with a red Unpack beside it
-                  // (owner, 21 Oct 2026).
-                  action={
-                    done
-                      ? undefined
-                      : {
-                          label: "Pack",
-                          tone: "solid",
-                          onClick: () =>
-                            putTo(box?.no ?? "new", [[sku, free]], null),
-                        }
-                  }
-                  end={
-                    done ? (
-                      <span className="flex items-center gap-3 whitespace-nowrap">
-                        <span className="inline-flex items-center gap-1 font-semibold text-ok-fg">
-                          <Check className="size-4" aria-hidden />
-                          Packed
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            box && takeOutOfOpen(box.no, sku, packedN)
-                          }
-                          className="font-semibold text-bad-fg hover:underline"
-                        >
-                          Unpack
-                        </button>
-                      </span>
-                    ) : undefined
-                  }
-                />
+        <div className="mt-[18px] flex flex-col gap-3">
+          {groups.map((group) => {
+            const identity = catalogue.get(group.skus[0]!)
+            const total = sumOf(
+              group.skus.map((sku) =>
+                reviewing ? (inBox[sku] ?? 0) : (inBox[sku] ?? 0) + freeOf(sku)
               )
-            })}
-          </div>
-        </>
+            )
+            const allPacked = group.skus.every((sku) => freeOf(sku) === 0)
+            const open = isOpen(group.code)
+            return (
+              <section
+                key={group.code}
+                className="rounded-card border border-hairline px-3.5"
+              >
+                <button
+                  type="button"
+                  aria-expanded={open}
+                  disabled={reviewing}
+                  onClick={() => toggle(group.code)}
+                  className="flex min-h-[3.75rem] w-full items-center gap-3 text-left"
+                >
+                  <span className="min-w-0 flex-1 text-[0.9375rem] leading-[21px]">
+                    <span className="block font-semibold text-ink">
+                      {identity?.article_name ?? group.code}
+                    </span>
+                    <span className="block text-mute">
+                      {identity?.article_code ?? group.code}
+                    </span>
+                  </span>
+                  {allPacked && !reviewing && (
+                    <Check className="size-4 text-ok-fg" aria-label="Packed" />
+                  )}
+                  <span className="text-[1.0625rem] font-semibold text-ink tabular-nums">
+                    {count(total)}
+                  </span>
+                  {!reviewing && (
+                    <ChevronDown
+                      aria-hidden
+                      className={`size-5 text-mute transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+                    />
+                  )}
+                </button>
+                {open &&
+                  group.skus.map((sku) => {
+                    const packedN = inBox[sku] ?? 0
+                    const free = freeOf(sku)
+                    if (reviewing)
+                      return (
+                        <SkuRow
+                          key={sku}
+                          info={variantInfo(sku)}
+                          qty={packedN}
+                          onPhoto={() => setPhoto(sku)}
+                        />
+                      )
+                    const done = packedN > 0 && free === 0
+                    return (
+                      <SkuRow
+                        key={sku}
+                        info={variantInfo(sku)}
+                        qty={packedN + free}
+                        onPhoto={() => setPhoto(sku)}
+                        // Pack asks how many when there is more than one
+                        // (owner, 23 Oct 2026); Packed in green with a red
+                        // Unpack beside it once the row is in whole.
+                        action={
+                          done
+                            ? undefined
+                            : {
+                                label: "Pack",
+                                tone: "solid",
+                                onClick: () =>
+                                  free > 1
+                                    ? setPackAsk({ sku, max: free })
+                                    : putTo(box?.no ?? "new", [[sku, free]], null),
+                              }
+                        }
+                        end={
+                          packedN > 0 ? (
+                            <span className="flex items-center gap-3 whitespace-nowrap">
+                              <span className="inline-flex items-center gap-1 font-semibold text-ok-fg tabular-nums">
+                                <Check className="size-4" aria-hidden />
+                                {done ? "Packed" : count(packedN)}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  box && takeOutOfOpen(box.no, sku, packedN)
+                                }
+                                className="font-semibold text-bad-fg hover:underline"
+                              >
+                                Unpack
+                              </button>
+                            </span>
+                          ) : undefined
+                        }
+                      />
+                    )
+                  })}
+              </section>
+            )
+          })}
+        </div>
       ) : packed.length > 0 ? (
         <Everything
           koli={packed.length}
@@ -861,19 +962,33 @@ export function PackSheet({
         </span>
         {sealTarget ? (
           <>
-            <div className="ml-auto max-md:flex-1 max-md:[&>button]:w-full">
-              <Button
-                variant="primary"
-                pending={seal.isPending}
-                onClick={() =>
-                  seal.mutate({
-                    no: sealTarget.no,
-                    shown: packed.length + 1,
-                  })
-                }
+            {reviewing && (
+              <TintButton
+                disabled={seal.isPending}
+                onClick={() => setReviewing(false)}
               >
-                Create pack · {quantity(koliPieces(sealTarget))}
-              </Button>
+                Back
+              </TintButton>
+            )}
+            <div className="ml-auto max-md:flex-1 max-md:[&>button]:w-full">
+              {reviewing ? (
+                <Button
+                  variant="primary"
+                  pending={seal.isPending}
+                  onClick={() =>
+                    seal.mutate({
+                      no: sealTarget.no,
+                      shown: packed.length + 1,
+                    })
+                  }
+                >
+                  Finish packing · {quantity(koliPieces(sealTarget))}
+                </Button>
+              ) : (
+                <Button variant="primary" onClick={() => setReviewing(true)}>
+                  Review packing · {quantity(koliPieces(sealTarget))}
+                </Button>
+              )}
             </div>
           </>
         ) : (
@@ -901,8 +1016,25 @@ export function PackSheet({
   const closeLayer = () =>
     setLayer((was) => (was === null ? was : { ...was, open: false }))
 
+  const askMax = packAsk ? Math.min(packAsk.max, freeOf(packAsk.sku)) : 0
+  const packBox =
+    draft.koli.find((one) => koliPieces(one) > 0) ?? draft.koli[0]
   const questions = (
     <>
+      {packAsk !== null && askMax > 0 && (
+        <QuantityPad
+          key={`${packAsk.sku}-pack`}
+          title={info(packAsk.sku).title}
+          chip={<KoliChip>{info(packAsk.sku).code}</KoliChip>}
+          max={askMax}
+          label={(n) => (n > 0 ? `Pack ${count(n)}` : "Pack")}
+          onClose={() => setPackAsk(null)}
+          onConfirm={(n) => {
+            putTo(packBox?.no ?? "new", [[packAsk.sku, n]], null)
+            setPackAsk(null)
+          }}
+        />
+      )}
       {put !== null &&
         !(touch && put.to !== null) &&
         (put.all || putMax > 0) && (

@@ -1023,6 +1023,10 @@ pub struct StoreInboundAnnouncePayload {
     /// of it ignores it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub destination_pool_id: Option<String>,
+    /// What the koli's label says (`KL-…`), so the shop can scan the label
+    /// and see what is in the box. Absent from a centre older than this.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub koli_number: Option<String>,
 }
 
 impl StoreInboundAnnouncePayload {
@@ -1044,6 +1048,7 @@ impl StoreInboundAnnouncePayload {
                 })
                 .collect(),
             destination_pool_id: None,
+            koli_number: progress.koli_number.clone(),
         }
     }
 
@@ -1074,3 +1079,57 @@ parser!(
     parse_store_inbound_announcement,
     StoreInboundAnnouncePayload
 );
+
+/// Head office moves a shop's goods to its To be returned · Return HO pocket
+/// (owner, 23 Oct 2026): the shop does not wait on a request and HO does not
+/// write one. The shop's node moves each SKU off its stockroom first, then
+/// its floor, into `{site}.to-return.ho`; what it no longer holds (sold since
+/// HO looked) is moved as far as it goes and the rest is passed over. The
+/// shop then sends the pocket whenever it is ready.
+///
+/// Sent only to a shop whose heartbeat carries [`STORE_RETURN_MARK_CAPABILITY`].
+/// No `deny_unknown_fields`, like every command a shop reads.
+pub const INVENTORY_STORE_RETURN_MARK_V1: &str = "inventory.store_return.mark.v1";
+
+/// A shop that takes [`INVENTORY_STORE_RETURN_MARK_V1`].
+pub const STORE_RETURN_MARK_CAPABILITY: &str = "inventory.store_return.mark.v1";
+
+pub const STORE_RETURN_MARK_SCHEMA_VERSION: u32 = 1;
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct StoreReturnMarkLine {
+    pub sku_code: String,
+    pub quantity: i64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct StoreReturnMarkPayload {
+    pub schema_version: u32,
+    /// The shop the goods are at, as head office spells it.
+    pub site_id: String,
+    pub lines: Vec<StoreReturnMarkLine>,
+    pub moved_by: String,
+    pub moved_at: DateTime<Utc>,
+}
+
+pub fn parse_store_return_mark(payload: &Value) -> Result<StoreReturnMarkPayload, String> {
+    let marked: StoreReturnMarkPayload = serde_json::from_value(payload.clone())
+        .map_err(|error| format!("malformed {INVENTORY_STORE_RETURN_MARK_V1}: {error}"))?;
+    if marked.schema_version != STORE_RETURN_MARK_SCHEMA_VERSION {
+        return Err(format!(
+            "{INVENTORY_STORE_RETURN_MARK_V1} schema_version must be {STORE_RETURN_MARK_SCHEMA_VERSION}"
+        ));
+    }
+    required(&marked.site_id, "site_id")?;
+    required(&marked.moved_by, "moved_by")?;
+    if marked.lines.is_empty() {
+        return Err(format!("{INVENTORY_STORE_RETURN_MARK_V1} names no goods"));
+    }
+    for line in &marked.lines {
+        required(&line.sku_code, "lines.sku_code")?;
+        if line.quantity <= 0 {
+            return Err(format!("{} to move must be positive", line.sku_code));
+        }
+    }
+    Ok(marked)
+}

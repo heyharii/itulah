@@ -638,10 +638,17 @@ pub async fn run(
             spawn_beats(liveness.clone(), None);
             spawn_watchdog(liveness.clone(), Some(dir.clone()), None, now);
             // The cloud's address for the setup page: configured, or baked
-            // into the build a shop downloads, so nobody has to type it.
+            // into the build a shop downloads, so nobody has to type it. CI
+            // bakes an empty string when no address was given; that is none.
+            let given = |url: &str| !url.trim().is_empty();
             let cloud = std::env::var("ITULAH_CLOUD_URL")
                 .ok()
-                .or_else(|| option_env!("ITULAH_DEFAULT_CLOUD_URL").map(str::to_owned));
+                .filter(|url| given(url))
+                .or_else(|| {
+                    option_env!("ITULAH_DEFAULT_CLOUD_URL")
+                        .filter(|url| given(url))
+                        .map(str::to_owned)
+                });
             if !enrolment::run_setup(dir.clone(), bind, cloud, stopping()).await? {
                 stopped_cleanly(dir, journal, "asked to stop");
                 return Ok(Exit::Stopped);

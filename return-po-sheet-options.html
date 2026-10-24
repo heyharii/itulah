@@ -1,0 +1,612 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Return PO sheet</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* Tokens: frontend-hub/design-system/tokens.css (All white, 17 Oct 2026) */
+:root {
+  --ink: #1d1d1f; --body: #6e6e73; --mute: #6e6e73; --faint: #c7c7cc; --crumb-sep: #aeaeb2; --line-ico: #8e8e93;
+  --canvas: #fff; --soft: #fafafb; --soft-2: #f2f2f5; --soft-3: #f5f5f7; --band: #fafafb; --segment-track: #f2f2f4;
+  --row-line: #eeeef1; --hairline: #e8e8ec; --hairline-2: #dcdce1; --hairline-strong: #c7c7cc; --stone: #e8ebf0;
+  --scrim: rgba(208, 208, 213, .48);
+  --accent: #2862dc; --accent-bg: #eef3fc; --cta: #2862dc; --cta-hover: #2055c7;
+  --ok: #36b827; --ok-fg: #248a3d; --warn: #c9892e; --warn-fg: #a66c1f; --bad: #d70015; --bad-fg: #d70015;
+  --info: #2f86d8; --info-fg: #496b9c;
+  --shadow-sheet: 0 0 0 1px rgba(0,0,0,.05), 0 2px 8px rgba(0,0,0,.05), 0 24px 64px rgba(0,0,0,.14);
+  --shadow-float: 0 8px 24px rgba(24,39,60,.06), 0 24px 64px rgba(24,39,60,.12);
+  --shadow-primary: 0 1px 2px rgba(20,50,100,.1); --shadow-focus: 0 0 0 2px rgba(40,98,220,.12);
+  --shadow-segment: 0 1px 3px rgba(0,0,0,.12);
+  --r-inner: 8px; --r-chip: 6px; --r-card: 10px; --r-sheet: 16px;
+  --ease-out: cubic-bezier(.23, 1, .32, 1);
+  --font: "Inter Variable", Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  display: flex; flex-direction: column; font-family: var(--font); font-size: 15px; line-height: 1.45;
+  color: var(--ink); background: var(--stone); -webkit-font-smoothing: antialiased;
+}
+button, input { font: inherit; color: inherit; }
+h2, h3, h4, dl, dd, p, ol { margin: 0; padding: 0; }
+.num { font-variant-numeric: tabular-nums; }
+[hidden] { display: none !important; }
+
+/* ── Prototype chrome (not part of the design) ─────────────────────────── */
+.chrome { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 10px 16px; background: var(--canvas); border-bottom: 1px solid var(--hairline); }
+.seg { display: inline-flex; gap: 2px; padding: 3px; border-radius: 9px; background: var(--segment-track); max-width: 100%; overflow-x: auto; }
+.seg button { height: 30px; padding: 0 11px; border: 0; border-radius: 6px; background: none; color: var(--body); font-weight: 500; white-space: nowrap; cursor: pointer; transition: color 120ms var(--ease-out); }
+.seg button[aria-pressed="true"] { border-radius: 7px; background: var(--canvas); color: var(--ink); box-shadow: var(--shadow-segment); }
+.why { flex-basis: 100%; color: var(--body); }
+.why b { color: var(--ink); font-weight: 600; }
+
+/* ── Stage: the list under the sheet, veiled ───────────────────────────── */
+.stage { position: relative; flex: 1; min-height: 0; display: flex; justify-content: flex-end; padding: 12px; background: var(--scrim); }
+.stage.phone { justify-content: center; align-items: flex-start; overflow: auto; }
+
+/* ── Sheet ─────────────────────────────────────────────────────────────── */
+.sheet { position: relative; display: flex; flex-direction: column; width: 760px; max-width: 100%; height: 100%; border-radius: var(--r-sheet); background: var(--canvas); box-shadow: var(--shadow-sheet); overflow: hidden; }
+.head { flex: none; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 24px 28px 16px; border-bottom: 1px solid var(--hairline); }
+.headtext { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.crumb { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; font-size: 15px; line-height: 18px; color: var(--mute); }
+.crumb .sep { color: var(--crumb-sep); }
+.titlerow { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; min-width: 0; }
+.title { font-size: 17px; line-height: 24px; font-weight: 600; letter-spacing: -.3px; }
+.caption { font-size: 15px; line-height: 20px; color: var(--mute); }
+.head-tools { display: flex; align-items: center; gap: 8px; flex: none; }
+.close { display: grid; place-items: center; width: 36px; height: 36px; margin: -4px -6px 0 0; border: 0; border-radius: var(--r-inner); background: none; color: var(--ink); cursor: pointer; }
+@media (hover: hover) and (pointer: fine) { .close:hover { background: var(--soft-2); } }
+
+.body { position: relative; flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 24px; padding: 20px 28px 24px; }
+.foot { flex: none; display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; min-height: 64px; padding: 12px 28px; border-top: 1px solid var(--hairline); }
+.foot-note { margin-right: auto; color: var(--mute); line-height: 20px; }
+
+/* Mode move: same frame, contents out 100ms then in 160ms */
+.swap-out { opacity: 0; transition: opacity 100ms var(--ease-out); }
+.swap-start { opacity: 0; }
+.swap-in { opacity: 1; transition: opacity 160ms var(--ease-out); }
+
+/* ── Kit ───────────────────────────────────────────────────────────────── */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: none; height: 36px; padding: 0 16px; border: 1px solid transparent; border-radius: var(--r-inner); background: transparent; font-weight: 500; line-height: 20px; white-space: nowrap; cursor: pointer; transition: background-color 120ms var(--ease-out), scale 120ms var(--ease-out), opacity 120ms var(--ease-out); }
+.btn:active { scale: .97; }
+.btn:focus-visible, .link:focus-visible, .add-note:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.btn[disabled] { opacity: .5; pointer-events: none; }
+.btn.is-pending { opacity: .75; pointer-events: none; }
+.btn--primary { background: var(--cta); color: #fff; font-weight: 600; box-shadow: var(--shadow-primary); }
+.btn--ghost { border-color: var(--hairline-2); background: var(--canvas); }
+@media (hover: hover) and (pointer: fine) {
+  .btn--primary:hover { background: var(--cta-hover); }
+  .btn--ghost:hover { background: var(--soft-2); }
+}
+.link { border: 0; padding: 0; background: none; text-align: left; white-space: nowrap; color: var(--accent); cursor: pointer; border-radius: 4px; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 3px; transition: text-decoration-color 120ms var(--ease-out); }
+.link:hover { text-decoration-color: currentColor; }
+.tag { display: inline-flex; align-items: center; height: 24px; padding: 0 8px; border-radius: var(--r-chip); box-shadow: inset 0 0 0 1px var(--hairline-2); font-weight: 600; line-height: 20px; color: var(--body); white-space: nowrap; }
+.tag--warn { color: var(--warn-fg); }
+.tag--bad { color: var(--bad-fg); }
+.pill { display: inline-flex; align-items: center; gap: 7px; font-weight: 500; line-height: 20px; white-space: nowrap; }
+.pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+.facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 32px; }
+.fact { min-width: 0; }
+.fact dt { line-height: 18px; color: var(--body); }
+.fact dd { margin-top: 4px; line-height: 22px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px 32px; }
+.field { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.field-label { line-height: 20px; color: var(--mute); }
+.req { margin-left: 2px; color: var(--bad); }
+.input { width: 100%; height: 40px; padding: 0 14px; border: 1px solid var(--hairline-2); border-radius: var(--r-inner); background: var(--canvas); outline: none; transition: border-color 120ms var(--ease-out), box-shadow 120ms var(--ease-out); }
+.input:focus { border-color: var(--accent); box-shadow: var(--shadow-focus); }
+.input--cell { height: 36px; padding: 0 12px; }
+
+.kpis { display: flex; flex-wrap: wrap; gap: 16px 0; margin-left: -25px; clip-path: inset(-8px -8px -8px 25px); }
+.kpi { position: relative; padding: 0 24px; min-width: 0; }
+.kpi::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 1px; background: var(--hairline); }
+.kpi-label { line-height: 20px; color: var(--mute); }
+.kpi-value { padding-top: 4px; font-size: 16px; line-height: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.kpi-value .link { font-weight: 600; display: block; }
+
+.sec { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.sec-title { font-size: 14px; font-weight: 600; line-height: 20px; }
+.sec-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+.sec-count { color: var(--mute); font-size: 14px; line-height: 20px; }
+
+/* Items box: framed, a band for the heading, hairlines between rows */
+.box { border: 1px solid var(--hairline); border-radius: var(--r-card); overflow: clip; }
+.tbl { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
+.tbl th { height: 40px; padding: 0 16px; background: var(--band); box-shadow: inset 0 -1px 0 var(--hairline); color: var(--mute); font-weight: 500; text-align: left; white-space: nowrap; }
+.tbl td { padding: 12px 16px; border-bottom: 1px solid var(--row-line); vertical-align: middle; overflow-wrap: anywhere; }
+.tbl td.td-in { padding-top: 8px; padding-bottom: 8px; }
+.tbl tbody tr:last-child td { border-bottom: 0; }
+.tbl .r { text-align: right; font-variant-numeric: tabular-nums; }
+.tbl tfoot td { height: 44px; padding-top: 0; padding-bottom: 0; background: var(--band); border-top: 1px solid var(--hairline); border-bottom: 0; font-weight: 500; }
+.tbl tfoot .r { font-weight: 600; }
+.nm { display: block; font-weight: 500; }
+.sub { display: block; color: var(--body); }
+.note-under { display: block; margin-top: 2px; color: var(--body); }
+.under-in { margin-top: 8px; }
+.add-note { display: inline-block; margin-top: 2px; padding: 0; border: 0; background: none; color: var(--accent); line-height: 22px; cursor: pointer; border-radius: 4px; }
+td > .add-note { margin-top: 0; }
+@media (hover: hover) and (pointer: fine) { .add-note:hover { text-decoration: underline; text-underline-offset: 3px; } }
+
+/* Phone stack: name and quantity on one line, the note under them */
+.stack .srow { padding: 12px 16px; border-bottom: 1px solid var(--row-line); }
+.stack .srow:last-child { border-bottom: 0; }
+.sline { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+.sline .num { flex: none; }
+.s-label { display: block; margin: 8px 0 8px; color: var(--mute); line-height: 20px; }
+.stotal { display: flex; justify-content: space-between; align-items: center; height: 44px; padding: 0 16px; background: var(--band); border-top: 1px solid var(--hairline); font-weight: 500; }
+.stotal .num { font-weight: 600; }
+
+/* DocStamp */
+.stamp-corner { position: absolute; top: 14px; right: 24px; z-index: 2; pointer-events: none; }
+.stamp { display: inline-block; padding: 2px 10px; border: 3px double currentColor; border-radius: 6px; transform: rotate(-6deg); opacity: .85; mix-blend-mode: multiply; text-align: center; white-space: nowrap; font-size: 18px; line-height: 24px; font-weight: 700; }
+.stamp--ok { color: var(--ok-fg); }
+.stamp-day { display: block; font-size: 15px; line-height: 20px; font-weight: 400; font-variant-numeric: tabular-nums; }
+
+.proof { display: grid; place-items: center; width: 160px; aspect-ratio: 4 / 3; border-radius: var(--r-inner); border: 1px solid var(--hairline); background: linear-gradient(135deg, #e9e4dc, #d9d3ca 55%, #cfc8be); color: rgba(29,29,31,.45); }
+
+/* Activity fold */
+.act-trigger { display: flex; align-items: center; gap: 6px; width: 100%; padding: 14px 0 0; border: 0; border-top: 1px solid var(--hairline); background: none; text-align: left; font-weight: 500; color: var(--body); cursor: pointer; transition: color 120ms var(--ease-out); }
+.act-trigger:hover { color: var(--ink); }
+.act-trigger svg { color: var(--line-ico); transition: transform 150ms var(--ease-out); }
+.activity.open .act-trigger svg { transform: rotate(90deg); }
+.act-trigger .n { color: var(--mute); font-weight: 400; }
+.act-panel { display: none; padding-top: 12px; }
+.activity.open .act-panel { display: block; animation: fade 160ms var(--ease-out); }
+@keyframes fade { from { opacity: 0; } }
+.trail { list-style: none; display: flex; flex-direction: column; }
+.trail li { position: relative; display: flex; gap: 12px; padding-bottom: 14px; }
+.trail li:last-child { padding-bottom: 0; }
+.trail li::after { content: ""; position: absolute; left: 5px; top: 16px; bottom: -2px; width: 1px; background: var(--hairline-2); }
+.trail li:last-child::after { display: none; }
+.trail .dot { flex: none; width: 11px; height: 11px; margin-top: 5px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 2px var(--canvas); }
+.trail .dot.todo { background: var(--hairline-strong); }
+.trail .who { font-weight: 500; }
+.trail .what { color: var(--body); }
+.trail .at { color: var(--mute); font-variant-numeric: tabular-nums; }
+
+/* Facts in three columns (A) or one stack (C) */
+.facts--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.facts--1 { grid-template-columns: minmax(0, 1fr); align-content: start; }
+.drawer .fields { grid-template-columns: minmax(0, 1fr); }
+.drawer .facts--3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.lines { display: flex; flex-direction: column; line-height: 22px; overflow-wrap: anywhere; }
+.head-stamp { margin: 6px 6px 0 0; }
+.drawer .head-stamp { transform: rotate(-12deg); }
+
+/* ── Now: today's sheet, as drawn by supplier-returns.tsx ─────────────── */
+.now-h4 { margin-bottom: 12px; font-size: 16px; line-height: 22px; font-weight: 600; }
+.now-card { border: 1px solid var(--hairline); border-radius: var(--r-card); overflow: hidden; background: var(--canvas); }
+.now-table { width: 100%; border-collapse: collapse; }
+.now-table th { height: 44px; background: var(--soft); text-align: left; font-weight: 500; color: var(--body); }
+.now-table th:first-child, .now-table td:first-child { padding-left: 16px; }
+.now-table th:nth-child(2), .now-table td:nth-child(2) { padding: 0 12px; }
+.now-table th:last-child, .now-table td:last-child { padding-right: 16px; text-align: right; }
+.now-table td { padding-top: 14px; padding-bottom: 14px; border-top: 1px solid var(--hairline); }
+.now-table td.td-in { padding-top: 8px; padding-bottom: 8px; }
+.now-table .nm { font-weight: 500; }
+.now-table tr.now-total td { border-top: 1px solid var(--ink); font-weight: 600; }
+.now-table .input { height: 36px; }
+.input--44 { height: 44px; }
+
+/* ── Phone: the bottom drawer, 414 × 896, clear of the home bar ───────── */
+.phone-frame { position: relative; flex: none; width: 414px; height: min(896px, 100%); border-radius: 28px; background: var(--soft-3); box-shadow: 0 0 0 1px rgba(0,0,0,.08), 0 20px 50px rgba(0,0,0,.12); overflow: hidden; }
+.phone-frame::before { content: ""; position: absolute; inset: 0; background: var(--scrim); }
+.drawer { position: absolute; inset: 12px 0 0; display: flex; flex-direction: column; border-radius: var(--r-sheet) var(--r-sheet) 0 0; background: var(--canvas); box-shadow: var(--shadow-float); overflow: hidden; }
+.grip { flex: none; width: 36px; height: 4px; margin: 8px auto 0; border-radius: 4px; background: var(--hairline-strong); }
+.drawer .head { padding: 12px 16px 14px; }
+.drawer .body { padding: 16px 16px 24px; }
+.drawer .foot { padding: 12px 16px 34px; }
+.drawer .foot .btn { flex: 1; height: 44px; }
+.drawer .foot-note { flex-basis: 100%; }
+.drawer .input { height: 44px; }
+.drawer .stamp-corner { right: 12px; }
+.drawer .stamp { transform: rotate(-12deg); }
+.drawer .now-table { font-size: 15px; }
+.home-bar { position: absolute; left: 50%; bottom: 8px; width: 134px; height: 5px; margin-left: -67px; border-radius: 5px; background: var(--ink); z-index: 3; }
+
+/* D: identity → document context → preparation → return items → history.
+   Keep the shared 17/16/15/14 type scale; hierarchy comes from grouping. */
+.stage[data-option="d"] .head { padding-bottom: 20px; }
+.stage[data-option="d"] .headtext { gap: 8px; }
+.stage[data-option="d"] .titlerow { gap: 8px 12px; }
+.stage[data-option="d"] .caption,
+.stage[data-option="d"] .pill { font-size: 14px; line-height: 20px; }
+.status--todo { color: var(--body); }
+.status--progress { color: var(--warn-fg); }
+.return-overview { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px 32px; }
+.contact-facts { display: flex; flex-direction: column; gap: 12px; }
+.document-facts { display: flex; flex-direction: column; gap: 12px; }
+.return-overview dt { font-size: 14px; line-height: 20px; }
+.return-overview dd { margin-top: 4px; color: var(--ink); font-weight: 400; }
+.document-facts .link { color: inherit; font-weight: inherit; text-decoration-color: var(--hairline-strong); }
+.document-facts .link:hover { text-decoration-color: currentColor; }
+.return-preparation { padding-top: 20px; border-top: 1px solid var(--hairline); }
+.return-preparation .field-label { color: var(--ink); font-size: 14px; font-weight: 600; }
+.field-hint { color: var(--body); font-size: 14px; line-height: 20px; }
+.stage[data-option="d"] .tbl th { font-size: 14px; }
+.stage[data-option="d"] .tbl .r { font-weight: 500; }
+.stage[data-option="d"] .tbl tfoot .r,
+.stage[data-option="d"] .stotal .num { font-size: 16px; font-weight: 600; }
+.stage[data-option="d"] .add-note { color: var(--body); font-size: 14px; }
+.stage[data-option="d"] .sub,
+.stage[data-option="d"] .note-under,
+.stage[data-option="d"] .act-trigger,
+.stage[data-option="d"] .foot-note { font-size: 14px; }
+.optional { color: var(--mute); font-weight: 400; }
+.drawer .return-overview { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+.drawer .document-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.drawer .return-preparation .input { font-size: 16px; }
+.drawer .return-preparation.facts { grid-template-columns: minmax(0, 1fr); }
+.phone-frame { max-width: 100%; }
+@media (max-width: 600px) {
+  .stage { padding: 8px; }
+  .chrome { gap: 8px; padding: 8px; }
+  .seg { width: 100%; }
+  .why { font-size: 14px; }
+  .drawer .head-stamp { font-size: 14px; padding: 2px 6px; }
+  .drawer .stamp-day { font-size: 14px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+</style>
+</head>
+<body>
+<header class="chrome">
+  <div class="seg" role="group" aria-label="Option" id="seg-o"></div>
+  <div class="seg" role="group" aria-label="State" id="seg-s"></div>
+  <div class="seg" role="group" aria-label="Device" id="seg-d"></div>
+  <div class="seg" role="group" aria-label="Data" id="seg-x"></div>
+  <p class="why" id="why"></p>
+</header>
+<main class="stage" id="stage"></main>
+
+<script>
+const OPTS = {
+  now: { label: "Now", why: "As in the hub today." },
+  a: { label: "A · Three across", why: "Supplier, Address, Phone in one row; PO, Created at, Person in charge in the row under it." },
+  b: { label: "B · Two sides", why: "Supplier, Address, Phone down the left; PO, Created at, Person in charge down the right." },
+  c: { label: "C · Like the paper", why: "Supplier as one fact of three lines, as on the surat jalan; PO and Created at beside it; Person in charge after the items." },
+  d: { label: "D · Clear hierarchy", why: "Supplier as the title; contact and document details grouped below, followed by person in charge and return items." },
+};
+const STAGES = { todo: "To be returned", progress: "In progress", completed: "Completed" };
+const DEVICES = { desk: "Desktop", phone: "Phone 414" };
+const SETS = { typical: "Typical", many: "Many items" };
+
+const DATA = {
+  typical: {
+    number: "RS-00000003", supplier: "Kaos & Kemeja Prima, CV", address: "Bandung, Indonesia", phone: "0217 0029 97",
+    po: "PO-161026-008", raised: "16 Oct 2026", raisedBy: "Rina Kusuma",
+    items: [{ sku: "K1", name: "Kaos Uji Browser C", qty: 2 }], unknown: 2,
+    sampleNotes: { K1: "Extra Pieces", "*": "No Label" },
+  },
+  many: {
+    number: "RS-00000011", supplier: "Garmen Nusantara Sejahtera Abadi Jaya, PT",
+    address: "Jl. Raya Soreang No. 128, Kopo, Kabupaten Bandung, Jawa Barat 40921", phone: "022 8594 1177",
+    po: "PO-161026-008", raised: "16 Oct 2026", raisedBy: "Rina Kusuma",
+    items: [
+      { sku: "M1", name: "Kemeja Flanel Kotak Lengan Panjang Slim Fit · Navy", qty: 240 },
+      { sku: "M2", name: "Kaos Polos Cotton Combed 30s Oversize · Hitam", qty: 1240 },
+      { sku: "M3", name: "Celana Chino Pria Stretch Regular · Khaki", qty: 36 },
+      { sku: "M4", name: "Kaos Uji Browser C", qty: 2 },
+      { sku: "M5", name: "Hoodie Zipper Fleece Tebal Unisex Premium Quality · Abu Muda", qty: 18 },
+      { sku: "M6", name: "Kemeja Oxford Lengan Pendek · Putih", qty: 4 },
+    ],
+    unknown: 37,
+    sampleNotes: { M2: "Extra Pieces", "*": "No Label, Mixed Sizes" },
+  },
+};
+
+const S = { o: "d", s: "todo", d: "desk", x: "typical", pic: "", notes: {}, open: {}, act: false, pending: false };
+
+/* ── helpers ─────────────────────────────────────────────────────────── */
+const $ = (q, r = document) => r.querySelector(q);
+const esc = (v) => String(v).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const fmt = (n) => n.toLocaleString("id-ID");
+const pcs = (n) => `${fmt(n)} pcs`;
+const D = () => DATA[S.x];
+const narrowViewport = window.matchMedia("(max-width: 600px)");
+const phone = () => S.d === "phone" || narrowViewport.matches;
+const lines = () => [
+  ...D().items,
+  ...(D().unknown > 0 ? [{ sku: "*", name: "Not as Ordered", sub: "Item Unknown", qty: D().unknown }] : []),
+];
+const total = () => lines().reduce((t, l) => t + l.qty, 0);
+const ready = () => S.pic.trim() !== "";
+const typedAny = () => Object.values(S.notes).some((v) => v.trim() !== "");
+/* A state opened straight from the switch shows a name and notes as if typed */
+const picShown = () => S.pic.trim() || "Budi Santoso";
+const notesShown = () => (typedAny() ? S.notes : D().sampleNotes);
+const noteShown = (sku) => (notesShown()[sku] || "").trim();
+const anyNoteShown = () => lines().some((l) => noteShown(l.sku));
+const titleTyping = (v) => v.replace(/(^|\s)(\p{Ll})/gu, (m, a, b) => a + b.toUpperCase());
+
+const ICON = {
+  x: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>',
+  chev: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>',
+  print: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9V3h12v6"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v7H6z"/></svg>',
+  down: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>',
+  image: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/></svg>',
+};
+
+/* ── pieces ──────────────────────────────────────────────────────────── */
+const fact = (term, value) => `<div class="fact"><dt>${term}</dt><dd>${value}</dd></div>`;
+const poLinks = () => `<button class="link" type="button">${esc(D().po)}</button>`;
+const proof = () => `<span class="proof">${ICON.image}</span>`;
+const stamp = () => `<div class="stamp-corner" aria-hidden="true"><span class="stamp stamp--ok">Completed<span class="stamp-day">17 Oct</span></span></div>`;
+const picInput = (h44 = false) =>
+  `<input id="pic" class="input${h44 ? " input--44" : ""}" data-in="pic" value="${esc(S.pic)}" autocomplete="off" spellcheck="false" required${S.o === "d" ? ' aria-describedby="pic-hint"' : ""}>`;
+const picField = (label = "Person in charge") =>
+  `<div class="field"><label class="field-label" for="pic">${label}<span class="req">*</span></label>${picInput()}</div>`;
+
+function events() {
+  const ev = [{ who: D().raisedBy, what: "created this return", at: created() }];
+  if (S.s !== "todo") ev.unshift({ who: picShown(), what: "generated the delivery note", at: "17 Oct 2026, 10:04" });
+  if (S.s === "completed") ev.unshift({ who: picShown(), what: "handed it over to the supplier", at: "17 Oct 2026, 15:30" });
+  return ev;
+}
+function activity() {
+  const ev = events();
+  // Today's fold also counts the step still to come ("To hand over").
+  if (S.o === "now" && S.s !== "completed") ev.unshift({ todo: true, who: "To hand over", what: "", at: "" });
+  return `<div class="activity${S.act ? " open" : ""}">
+    <button class="act-trigger" type="button" data-act="activity" aria-expanded="${S.act}">${ICON.chev}<span>Activity</span><span class="n num">${ev.length}</span></button>
+    <div class="act-panel"><ol class="trail">${ev
+      .map((e) => `<li><span class="dot${e.todo ? " todo" : ""}"></span><div><span class="who">${esc(e.who)}</span> <span class="what">${e.what}</span>${e.at ? `<div class="at">${e.at}</div>` : ""}</div></li>`)
+      .join("")}</ol></div></div>`;
+}
+
+/* A line's note: a field, a quiet "Add note", or the words it was given */
+function noteBits(l, edit, where) {
+  const v = S.notes[l.sku] ?? "";
+  if (S.s === "todo") {
+    if (edit === "input" || S.open[l.sku] || v.trim())
+      return `<input class="input input--cell${where === "under" ? " under-in" : ""}" data-in="note" data-sku="${l.sku}" data-edit="${edit}" data-where="${where}" value="${esc(v)}" aria-label="Note for ${esc(l.name)}">`;
+    return `<button class="add-note" type="button" data-act="addnote" data-sku="${l.sku}">Add note</button>`;
+  }
+  const t = noteShown(l.sku);
+  if (!t) return "";
+  return where === "under" ? `<span class="note-under">Note: ${esc(t)}</span>` : esc(t);
+}
+
+/* The items box. where: "col" (a Note column) or "under" (under the name) */
+function items({ where, edit, totalRow = true }) {
+  const L = lines();
+  const showNotes = S.s === "todo" || anyNoteShown();
+  const heading = `<div class="sec-heading"><h3 class="sec-title">Items</h3><span class="sec-count num">${L.length} ${L.length === 1 ? "line" : "lines"}</span></div>`;
+  if (phone()) {
+    const rows = L.map((l) => {
+      const bits = showNotes ? noteBits(l, edit, "under") : "";
+      const label = S.s === "todo" && edit === "input" ? `<label class="s-label">Note</label>` : "";
+      return `<div class="srow"><div class="sline"><span class="nm">${esc(l.name)}</span><span class="num">${pcs(l.qty)}</span></div>${l.sub ? `<span class="sub">${l.sub}</span>` : ""}${label}${bits.startsWith("<input") ? bits.replace(" under-in", label ? "" : " under-in") : bits}</div>`;
+    }).join("");
+    return `<section class="sec">${heading}<div class="box stack">${rows}${totalRow ? `<div class="stotal"><span>Total</span><span class="num">${pcs(total())}</span></div>` : ""}</div></section>`;
+  }
+  const noteCol = where === "col" && showNotes;
+  const rows = L.map((l) => {
+    const name = `<span class="nm">${esc(l.name)}</span>${l.sub ? `<span class="sub">${l.sub}</span>` : ""}`;
+    const under = where === "under" && showNotes ? noteBits(l, edit, "under") : "";
+    const inCell = noteCol && S.s === "todo" && (edit === "input" || S.open[l.sku] || (S.notes[l.sku] ?? "").trim());
+    return `<tr><td>${name}${under}</td>${noteCol ? `<td class="${inCell ? "td-in" : ""}" data-cell="${l.sku}">${noteBits(l, edit, "col")}</td>` : ""}<td class="r">${pcs(l.qty)}</td></tr>`;
+  }).join("");
+  return `<section class="sec">${heading}<div class="box"><table class="tbl">
+    <colgroup><col>${noteCol ? '<col style="width:38%">' : ""}<col style="width:128px"></colgroup>
+    <thead><tr><th>Item</th>${noteCol ? `<th>Note${S.o === "d" && S.s === "todo" ? ' <span class="optional">· Optional</span>' : ""}</th>` : ""}<th class="r">Quantity</th></tr></thead>
+    <tbody>${rows}</tbody>
+    ${totalRow ? `<tfoot><tr><td colspan="${noteCol ? 2 : 1}">Total</td><td class="r">${pcs(total())}</td></tr></tfoot>` : ""}
+  </table></div></section>`;
+}
+
+const created = () => `${D().raised}, 09:12`;
+const supplierFacts = () => [fact("Supplier", esc(D().supplier)), fact("Address", esc(D().address)), fact("Phone", `<span class="num">${D().phone}</span>`)];
+const docFacts = () => [fact("PO", poLinks()), fact("Created at", created()), S.s === "todo" ? picField() : fact("Person in charge", esc(picShown()))];
+const proofFact = () => (S.s === "completed" ? fact("Proof of receipt", proof()) : "");
+const headStamp = () => `<span class="stamp stamp--ok head-stamp" aria-hidden="true">Completed<span class="stamp-day">17 Oct</span></span>`;
+
+/* ── heads ───────────────────────────────────────────────────────────── */
+function head() {
+  const d = D();
+  const close = `<button class="close" type="button" aria-label="Close">${ICON.x}</button>`;
+  if (S.o === "now") {
+    const tools =
+      S.s === "completed"
+        ? `<button class="btn btn--ghost" type="button">${ICON.print}Print</button><button class="btn btn--ghost" type="button">${ICON.down}Download</button>`
+        : "";
+    return `<div class="headtext"><div class="crumb">Return PO<span class="sep">/</span>${d.number}</div>
+      <div class="titlerow"><h2 class="title">${esc(d.supplier)}</h2></div><div><span class="tag tag--bad">Over Delivery · Not As Ordered</span></div></div>
+      <div class="head-tools">${tools}${close}</div>`;
+  }
+  const stamped = S.s === "completed" ? headStamp() : "";
+  // The sketch: the supplier is the title, "Return PO · RS-…" under it.
+  if (S.o === "d")
+    return `<div class="headtext"><div class="titlerow"><h2 class="title">${esc(d.supplier)}</h2>${S.s !== "completed" ? `<span class="pill status--${S.s}">${STAGES[S.s]}</span>` : ""}</div><div class="caption">Return PO <span aria-hidden="true">·</span> <span class="num">${d.number}</span></div></div>
+      <div class="head-tools">${stamped}${close}</div>`;
+  // The supplier is a row in the body, so the return's own number is the title.
+  return `<div class="headtext"><div class="crumb">Return PO</div><h2 class="title">${d.number}</h2></div>
+    <div class="head-tools">${stamped}${close}</div>`;
+}
+
+/* ── bodies ──────────────────────────────────────────────────────────── */
+const BODY = {
+  now() {
+    const d = D(), s = S.s;
+    let h = s === "completed" ? stamp() : "";
+    if (s === "todo")
+      h += `<div class="field"><label class="field-label" for="pic">Person in Charge<span class="req">*</span></label>${picInput(true)}</div>`;
+    h += `<dl class="facts">${s !== "todo" ? fact("Note Date", "17 Oct 2026") : ""}${fact("Address", esc(d.address))}${fact("Phone", d.phone)}${fact(
+      "Person in Charge",
+      s === "todo" ? "—" : esc(picShown())
+    )}${fact("PO", poLinks())}${s === "completed" ? fact("Proof of Receipt", proof()) : ""}</dl>`;
+    const rows = lines()
+      .map(
+        (l) =>
+          `<tr><td><span class="nm">${esc(l.name)}</span>${l.sub ? `<span class="sub">${l.sub}</span>` : ""}</td><td class="${s === "todo" ? "td-in" : ""}">${
+            s === "todo" ? `<input class="input" data-in="note" data-sku="${l.sku}" data-edit="input" value="${esc(S.notes[l.sku] ?? "")}" aria-label="Notes">` : esc(noteShown(l.sku))
+          }</td><td class="num">${fmt(l.qty)}</td></tr>`
+      )
+      .join("");
+    h += `<div><h4 class="now-h4">Items</h4><div class="now-card"><table class="now-table"><thead><tr><th>Item</th><th style="width:40%">Notes</th><th>Quantity</th></tr></thead><tbody>${rows}<tr class="now-total"><td colspan="2">Total</td><td class="num">${fmt(total())}</td></tr></tbody></table></div></div>`;
+    return h + activity();
+  },
+  /* Theirs in the first row, ours in the row under it: label over value */
+  a() {
+    return `<dl class="facts facts--3">${[...supplierFacts(), ...docFacts()].join("")}${proofFact()}</dl>${ITEMS()}${activity()}`;
+  },
+  /* Theirs down the left, ours down the right */
+  b() {
+    const s = supplierFacts(), o = docFacts();
+    return `<dl class="facts">${s.map((one, i) => one + o[i]).join("")}${S.s === "completed" ? "<div></div>" + proofFact() : ""}</dl>${ITEMS()}${activity()}`;
+  },
+  /* The surat jalan's "Kepada": one fact of three lines, the order's facts beside it */
+  c() {
+    const d = D();
+    return `<div class="facts"><dl class="facts facts--1">${fact("Supplier", `${esc(d.supplier)}<br>${esc(d.address)}<br><span class="num">${d.phone}</span>`)}</dl>
+      <dl class="facts facts--1">${fact("PO", poLinks())}${fact("Created at", created())}</dl></div>${ITEMS()}${
+      S.s === "todo" ? `<div class="fields">${picField()}</div>` : `<dl class="facts">${fact("Person in charge", esc(picShown()))}${proofFact()}</dl>`
+    }${activity()}`;
+  },
+  /* Supplier identity stays in the head; context and editable work are distinct groups. */
+  d() {
+    const d = D();
+    const pic =
+      S.s === "todo"
+        ? `<div class="return-preparation"><div class="fields"><div class="field"><label class="field-label" for="pic">Person in charge<span class="req">*</span></label>${picInput()}<p class="field-hint" id="pic-hint">Name shown on the delivery note.</p></div></div></div>`
+        : `<dl class="facts return-preparation">${fact("Person in charge", esc(picShown()))}${proofFact()}</dl>`;
+    return `<section class="return-overview" aria-label="Return details"><dl class="contact-facts">${fact("Supplier address", esc(d.address))}${fact("Phone", `<span class="num">${d.phone}</span>`)}</dl>
+      <dl class="document-facts">${fact("PO", poLinks())}${fact("Created at", created())}</dl></section>${pic}${ITEMS()}${activity()}`;
+  },
+};
+const ITEMS = () => items({ where: "col", edit: "link" });
+
+/* ── feet ────────────────────────────────────────────────────────────── */
+const printBtns = `<button class="btn btn--ghost" type="button">${ICON.print}Print</button><button class="btn btn--ghost" type="button">${ICON.down}Download</button>`;
+const generateBtn = () =>
+  `<button class="btn btn--primary${S.pending ? " is-pending" : ""}" type="button" data-act="generate" ${ready() && !S.pending ? "" : "disabled"}>${
+    S.pending ? "Generating…" : "Generate Delivery Note"
+  }</button>`;
+function foot() {
+  if (S.s === "progress") return `${printBtns}<button class="btn btn--primary" type="button" data-act="confirm">Confirm</button>`;
+  if (S.s === "completed") return S.o === "now" ? `<button class="btn btn--ghost" type="button">Close</button>` : printBtns;
+  if (S.o === "now") return generateBtn();
+  return `<span class="foot-note" data-note ${ready() ? "hidden" : ""}>Person in charge needed</span>${generateBtn()}`;
+}
+
+/* ── render ──────────────────────────────────────────────────────────── */
+function chrome() {
+  const seg = (id, map, key) =>
+    ($(id).innerHTML = Object.entries(map)
+      .map(([k, v]) => `<button type="button" data-set="${key}" data-val="${k}" aria-pressed="${S[key] === k}">${v.label ?? v}</button>`)
+      .join(""));
+  seg("#seg-o", OPTS, "o");
+  seg("#seg-s", STAGES, "s");
+  seg("#seg-d", DEVICES, "d");
+  seg("#seg-x", SETS, "x");
+  $("#why").innerHTML = `<b>${OPTS[S.o].label}</b> — ${OPTS[S.o].why}`;
+}
+function render() {
+  chrome();
+  const stage = $("#stage");
+  stage.className = `stage${phone() ? " phone" : ""}`;
+  stage.dataset.option = S.o;
+  const inner = `<header class="head">${head()}</header><div class="body" id="body">${BODY[S.o]()}</div><footer class="foot" id="foot">${foot()}</footer>`;
+  stage.innerHTML = phone()
+    ? `<div class="phone-frame"><div class="drawer"><div class="grip"></div>${inner}</div><span class="home-bar"></span></div>`
+    : `<div class="sheet">${inner}</div>`;
+  try { history.replaceState(null, "", `#o=${S.o}&s=${S.s}&d=${S.d}&x=${S.x}`); } catch (e) {}
+}
+/* The mode move: the frame stays, the contents swap */
+function swap(change) {
+  const parts = [$("#body"), $("#foot")];
+  parts.forEach((p) => p && p.classList.add("swap-out"));
+  setTimeout(() => {
+    change();
+    render();
+    const fresh = [$("#body"), $("#foot")];
+    fresh.forEach((p) => p.classList.add("swap-start"));
+    requestAnimationFrame(() => requestAnimationFrame(() => fresh.forEach((p) => { p.classList.add("swap-in"); p.classList.remove("swap-start"); })));
+  }, 100);
+}
+function syncFoot() {
+  document.querySelectorAll("[data-act=generate]").forEach((b) => (b.disabled = !ready() || S.pending));
+  document.querySelectorAll("[data-note]").forEach((n) => (n.hidden = ready()));
+}
+
+/* ── events ──────────────────────────────────────────────────────────── */
+document.addEventListener("click", (e) => {
+  const set = e.target.closest("[data-set]");
+  if (set) {
+    const { set: key, val } = set.dataset;
+    if (key === "x" && val !== S.x) { S.pic = ""; S.notes = {}; S.open = {}; }
+    S[key] = val;
+    S.pending = false;
+    render();
+    return;
+  }
+  const act = e.target.closest("[data-act]");
+  if (!act) return;
+  const kind = act.dataset.act;
+  if (kind === "activity") {
+    S.act = !S.act;
+    act.closest(".activity").classList.toggle("open", S.act);
+    act.setAttribute("aria-expanded", S.act);
+  } else if (kind === "addnote") {
+    const sku = act.dataset.sku;
+    S.open[sku] = true;
+    const where = act.closest("td[data-cell]") ? "col" : "under";
+    const l = lines().find((x) => x.sku === sku);
+    if (where === "col") act.closest("td").classList.add("td-in");
+    act.outerHTML = noteBits(l, "link", where);
+    $(`[data-in=note][data-sku="${CSS.escape(sku)}"]`).focus();
+  } else if (kind === "generate") {
+    S.pending = true;
+    act.outerHTML = generateBtn();
+    setTimeout(() => swap(() => { S.pending = false; S.s = "progress"; }), 700);
+  } else if (kind === "confirm") {
+    swap(() => { S.s = "completed"; });
+  }
+});
+document.addEventListener("input", (e) => {
+  const el = e.target;
+  if (el.dataset.in === "pic") {
+    const at = el.selectionStart;
+    el.value = titleTyping(el.value);
+    el.setSelectionRange(at, at);
+    S.pic = el.value;
+    syncFoot();
+  } else if (el.dataset.in === "note") {
+    const at = el.selectionStart;
+    el.value = titleTyping(el.value);
+    el.setSelectionRange(at, at);
+    S.notes[el.dataset.sku] = el.value;
+  }
+});
+/* An "Add note" field left empty folds back to the link */
+document.addEventListener("focusout", (e) => {
+  const el = e.target;
+  if (el.dataset?.in !== "note" || el.dataset.edit !== "link" || el.value.trim() !== "") return;
+  const sku = el.dataset.sku;
+  delete S.open[sku];
+  const td = el.closest("td[data-cell]");
+  if (td) td.classList.remove("td-in");
+  el.outerHTML = `<button class="add-note" type="button" data-act="addnote" data-sku="${sku}">Add note</button>`;
+});
+document.addEventListener("keydown", (e) => {
+  if (e.target.matches("input") || e.metaKey || e.ctrlKey) return;
+  const keys = Object.keys(OPTS);
+  const i = "12345".indexOf(e.key);
+  if (i >= 0 && i < keys.length) { S.o = keys[i]; render(); }
+});
+
+/* #o=a&s=todo&d=desk&x=typical */
+for (const [k, v] of new URLSearchParams(location.hash.slice(1))) {
+  if (k in S && ({ o: OPTS, s: STAGES, d: DEVICES, x: SETS }[k] || {})[v]) S[k] = v;
+}
+narrowViewport.addEventListener("change", render);
+render();
+</script>
+</body>
+</html>

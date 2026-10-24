@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Return HO · move to To be returned</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<style>
+:root{
+  --ink:#1d1d1f;--text:#344054;--body:#424245;--mute:#6e6e73;--faint:#aeaeb2;
+  --line:#e8e8ec;--band:#fafafb;--soft:#f5f5f7;--soft3:#f6f6f7;
+  --accent:#2862dc;--accent-bg:#eef3fd;--bad:#c4321c;--warn:#b26a00;--ok:#1f7a3d;
+}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.4 Inter,system-ui,sans-serif;color:var(--ink);background:var(--soft3)}
+button,input,select{font:inherit}
+/* prototype chrome */
+.chrome{position:sticky;top:0;z-index:30;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;padding:10px 16px;background:#20242c;color:#fff}
+.chrome span{opacity:.6}
+.chrome .seg{display:flex;gap:4px;flex-wrap:wrap}
+.chrome button{border:0;border-radius:999px;padding:6px 12px;background:#353a44;color:#fff;cursor:pointer}
+.chrome button[aria-pressed=true]{background:#fff;color:#20242c;font-weight:600}
+.chrome .group[hidden]{display:none}
+.chrome .group{display:flex;gap:8px;align-items:center}
+/* hub shell */
+.shell{display:flex;min-height:calc(100vh - 52px);padding:10px}
+.rail{width:52px;flex:none}
+.page{flex:1;min-width:0;background:#fff;border-radius:12px;border:1px solid var(--line)}
+.head{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:56px;padding:0 20px;border-bottom:1px solid var(--line)}
+.head h1{font-size:17px;font-weight:600;margin:0}
+.content{padding:20px}
+.btn{height:36px;border-radius:8px;padding:0 12px;border:0;cursor:pointer;font-weight:500;background:transparent;color:var(--ink)}
+.btn.primary{background:var(--accent);color:#fff;font-weight:600}
+.btn.tint{background:var(--accent-bg);color:var(--accent);font-weight:600}
+.btn:disabled{opacity:.45;cursor:default}
+.kpis{display:flex;gap:0;margin:0 0 20px}
+.kpi{padding:0 24px;border-left:1px solid var(--line)}
+.kpi:first-child{padding-left:0;border-left:0}
+.kpi small{display:block;color:var(--mute);font-size:15px}
+.kpi b{font-size:18px;font-weight:600}
+.tabs{display:flex;gap:24px;border-bottom:1px solid var(--line);margin-bottom:16px}
+.tabs button{border:0;background:none;padding:10px 0;color:var(--mute);cursor:pointer}
+.tabs button.on{color:var(--ink);font-weight:600;box-shadow:inset 0 -2px 0 var(--ink)}
+.tabs i{font-style:normal;color:var(--mute);font-weight:400;margin-left:6px}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:14px}
+.card{background:#fff;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+table{width:100%;border-collapse:collapse}
+th{height:48px;background:var(--band);color:var(--mute);font-weight:500;text-align:left;padding:0 16px;border-bottom:1px solid var(--line)}
+td{padding:12px 16px;border-top:1px solid var(--line);vertical-align:middle}
+tbody tr:first-child td{border-top:0}
+.n{text-align:right;font-variant-numeric:tabular-nums;width:120px}
+.dim{color:var(--faint)}
+tr.click{cursor:pointer} tr.click:hover td{background:var(--band)}
+.art{display:flex;gap:12px;align-items:center}
+.ph{width:44px;height:44px;border-radius:7px;flex:none}
+.art b{display:block;font-weight:600}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--mute);font-size:15px}
+tr.sub td:first-child{padding-left:72px;color:var(--body)}
+.sw{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:8px;box-shadow:inset 0 0 0 1px rgb(0 0 0/.15);vertical-align:-1px}
+input.qty{width:84px;height:36px;border:1px solid var(--line);border-radius:8px;text-align:right;padding:0 10px;font-variant-numeric:tabular-nums}
+input.qty.on{border-color:var(--accent);background:var(--accent-bg);color:var(--accent);font-weight:600}
+.of{display:block;color:var(--mute);font-size:15px;margin-top:2px}
+.foot{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:20px}
+.pill{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:1px 10px;color:var(--body)}
+.pill::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--faint)}
+.pill.rj::before{background:var(--bad)} .pill.od::before{background:var(--warn)} .pill.ho::before{background:var(--accent)}
+.empty{padding:48px 16px;text-align:center;color:var(--mute)}
+/* store pickers */
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{display:inline-flex;align-items:center;gap:8px;min-height:36px;border:1px solid var(--line);background:#fff;border-radius:999px;padding:0 14px;cursor:pointer;color:var(--body)}
+.chip i{font-style:normal;color:var(--mute)}
+.chip.on{border-color:var(--accent);background:var(--accent-bg);color:var(--accent);font-weight:600}
+.chip.on i{color:var(--accent)}
+.search{position:relative;width:min(360px,100%)}
+.search input{width:100%;height:40px;border:1px solid var(--line);border-radius:8px;padding:0 12px 0 36px}
+.search::before{content:"⌕";position:absolute;left:12px;top:50%;transform:translateY(-52%);color:var(--mute);font-size:18px}
+.results{margin-top:8px;width:min(360px,100%)}
+.results button{display:flex;justify-content:space-between;width:100%;border:0;border-top:1px solid var(--line);background:#fff;padding:12px 14px;cursor:pointer;text-align:left}
+.results button:first-child{border-top:0}
+.results button:hover{background:var(--band)}
+.picked{display:inline-flex;align-items:center;gap:10px;height:36px;padding:0 6px 0 14px;border-radius:999px;background:var(--accent-bg);color:var(--accent);font-weight:600}
+.picked button{border:0;background:none;color:var(--accent);cursor:pointer;font-size:18px;width:26px;height:26px;border-radius:50%}
+th.st{text-align:right;width:132px;max-width:132px;padding-top:8px;padding-bottom:8px;line-height:1.3;vertical-align:middle}
+th.st b,th.st span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+th.st b{font-weight:600;color:var(--ink)}
+/* dialog, sheet, toast */
+.scrim{position:fixed;inset:0;background:rgb(0 0 0/.32);display:none;align-items:center;justify-content:center;z-index:40;padding:16px}
+.scrim.open{display:flex}
+.dialog{width:min(520px,100%);background:#fff;border-radius:14px;padding:24px;max-height:90vh;overflow:auto}
+.dialog h2{margin:0 0 6px;font-size:18px;font-weight:600}
+.dialog p{margin:0 0 16px;color:var(--body)}
+.dialog h3{margin:16px 0 8px;font-size:15px;font-weight:600}
+.dialog .list{border:1px solid var(--line);border-radius:10px}
+.dialog .list div{display:flex;justify-content:space-between;gap:12px;padding:10px 14px;border-top:1px solid var(--line)}
+.dialog .list div:first-child{border-top:0}
+.dialog .acts{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);opacity:0;background:#20242c;color:#fff;padding:12px 16px;border-radius:10px;transition:opacity .2s,transform .2s;z-index:60}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+/* store app phone */
+.phone{position:relative;width:414px;max-width:100%;height:820px;margin:0 auto;background:#fff;border:1px solid var(--line);border-radius:24px;overflow:hidden;display:flex;flex-direction:column}
+.phone .top{height:52px;display:flex;align-items:center;padding:0 16px;border-bottom:1px solid var(--line);font-weight:600;font-size:17px;flex:none}
+.phone .body{flex:1;overflow:auto;padding:16px}
+.phone .kpis{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px}
+.phone .kpi{border:0;padding:0}
+.phone .dock{flex:none;padding:12px 16px 20px;border-top:1px solid var(--line);background:#fff}
+.seg2{display:flex;background:var(--soft);border-radius:9px;padding:3px;margin-bottom:12px}
+.seg2 button{flex:1;border:0;background:none;border-radius:7px;padding:7px 4px;color:var(--body);cursor:pointer}
+.seg2 button.on{background:#fff;color:var(--ink);font-weight:600;box-shadow:0 1px 2px rgb(0 0 0/.08)}
+.row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 14px;border-top:1px solid var(--line)}
+.row:first-child{border-top:0}
+.row b{display:block;font-weight:600}
+.sheet-scrim{position:absolute;inset:0;background:rgb(0 0 0/.32);display:none;align-items:flex-end;z-index:5}
+.sheet-scrim.open{display:flex}
+.sheet{width:100%;max-height:88%;background:#fff;border-radius:16px 16px 0 0;display:flex;flex-direction:column}
+.sheet .sh{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line)}
+.sheet .sh h2{margin:0;font-size:18px;font-weight:600}
+.sheet .sb{overflow:auto;padding:8px 20px 16px}
+.sheet h3{margin:16px 0 6px;font-size:15px;font-weight:600;display:flex;gap:8px;align-items:center}
+.sheet label.it{display:flex;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.sheet label.it span{flex:1}
+.sheet .sf{padding:12px 20px 20px;border-top:1px solid var(--line)}
+.field{display:block;margin:16px 0 4px}
+.field span{display:block;font-weight:500;margin-bottom:6px}
+.field input{width:100%;height:47px;border:1px solid var(--line);border-radius:8px;padding:0 12px}
+.check{width:20px;height:20px;accent-color:var(--accent);flex:none}
+.wide{width:100%;height:47px}
+/* store app on a laptop */
+.sa{display:flex;gap:10px;min-height:calc(100vh - 52px);padding:10px;position:relative}
+.sa-rail{width:52px;flex:none}
+.sa-mod{width:232px;flex:none;background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px 10px;display:flex;flex-direction:column}
+.sa-mod h2{font-size:17px;font-weight:600;margin:4px 8px 14px}
+.sa-mod a{display:flex;justify-content:space-between;padding:8px 10px;border-radius:8px;color:var(--body);text-decoration:none}
+.sa-mod a.on{background:var(--soft);color:var(--ink);font-weight:500}
+.sa-mod .who{margin-top:auto;padding:8px 10px;color:var(--mute)}
+.sa-mod .who b{display:block;color:var(--ink);font-weight:500}
+.sa-page{flex:1;min-width:0;background:#fff;border:1px solid var(--line);border-radius:12px}
+.sa .kpis{display:flex}
+.segd{display:inline-flex;background:var(--soft);border-radius:9px;padding:3px;margin-bottom:14px}
+.segd button{border:0;background:none;border-radius:7px;padding:6px 14px;color:var(--body);cursor:pointer}
+.segd button.on{background:#fff;color:var(--ink);font-weight:600;box-shadow:0 1px 2px rgb(0 0 0/.08)}
+.rail-scrim{position:fixed;inset:0;background:rgb(0 0 0/.24);display:none;justify-content:flex-end;z-index:45}
+.rail-scrim.open{display:flex}
+.rail-sheet{width:min(560px,100%);height:100%;background:#fff;display:flex;flex-direction:column;box-shadow:-8px 0 24px rgb(0 0 0/.08)}
+.rail-sheet .sh{display:flex;justify-content:space-between;align-items:center;padding:20px 36px;border-bottom:1px solid var(--line)}
+.rail-sheet .sh h2{margin:0;font-size:18px;font-weight:600}
+.rail-sheet .sb{flex:1;overflow:auto;padding:8px 36px 24px}
+.rail-sheet h3{margin:24px 0 6px;font-size:15px;font-weight:600}
+.rail-sheet label.it{display:flex;gap:12px;align-items:center;padding:12px 0;border-top:1px solid var(--line)}
+.rail-sheet label.it span{flex:1}
+.rail-sheet .sf{display:flex;justify-content:flex-end;gap:8px;padding:16px 36px;border-top:1px solid var(--line)}
+@media (max-width:760px){.rail{display:none}.shell{padding:0}.page{border-radius:0;border:0}.kpis{flex-wrap:wrap;gap:12px}.kpi{border:0;padding:0 16px 0 0}.n{width:76px}tr.sub td:first-child{padding-left:28px}.hide-sm{display:none}}
+</style>
+</head>
+<body>
+<div class="chrome">
+  <div class="group"><span>Screen</span>
+    <div class="seg" id="screens">
+      <button data-s="list">1 · Return HO</button>
+      <button data-s="new">2 · New return</button>
+      <button data-s="store">3 · At the store</button>
+    </div></div>
+  <div class="group" id="g-store"><span>Store</span>
+    <div class="seg" id="pickers">
+      <button data-p="list">S1 · Store list first</button>
+      <button data-p="chips">S2 · Chips</button>
+      <button data-p="search">S3 · Search</button>
+      <button data-p="matrix">S4 · Matrix</button>
+      <button data-p="cm">S5 · Chips + matrix</button>
+      <button data-p="drop">S0 · Dropdown (was)</button>
+    </div></div>
+  <div class="group" id="g-dev"><span>Device</span>
+    <div class="seg" id="devices">
+      <button data-d="phone">Phone</button>
+      <button data-d="laptop">Laptop</button>
+    </div></div>
+  <div class="group" id="g-pick"><span>Pick</span>
+    <div class="seg" id="versions">
+      <button data-v="a">A · By article</button>
+      <button data-v="b">B · Flat SKU</button>
+    </div></div>
+</div>
+<div id="app"></div>
+<div class="scrim" id="scrim"><div class="dialog" id="dialog"></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const STORES = ["Cikupa","Muaro Bungo","Purbalingga","Bekasi","Depok","Bogor","Tangerang","Serang","Cirebon","Tegal","Garut","Karawang","Sukabumi"]
+  .map((city,i)=>({id:`C${String(i+1).padStart(3,"0")}`, name:`C${String(i+1).padStart(3,"0")} ${city}`, i}))
+const ARTICLES = [
+  {code:"00000017", name:"Kaos Basic Katun Combed", ph:"#e9e4da", skus:[
+    {sku:"00000017·003", label:"White S", sw:"#fff", store:4, wh:2},
+    {sku:"00000017·004", label:"White M", sw:"#fff", store:6, wh:0},
+    {sku:"00000017·103", label:"Black M", sw:"#222", store:3, wh:5}]},
+  {code:"00000027", name:"Celana Chino Slim", ph:"#c9b48f", skus:[
+    {sku:"00000027·004", label:"Khaki 30", sw:"#c3a97a", store:0, wh:7},
+    {sku:"00000027·005", label:"Khaki 32", sw:"#c3a97a", store:2, wh:3}]},
+  {code:"00000008", name:"Sandal Slide Karet", ph:"#3b3b3b", skus:[
+    {sku:"00000008·105", label:"Black XL", sw:"#222", store:5, wh:0}]},
+]
+// Each store holds a little differently.
+const at=(st,k)=>({store:(k.store+st.i*3)%8, wh:(k.wh+st.i*2)%6})
+const stockOf=(st)=>ARTICLES.flatMap(a=>a.skus).reduce((s,k)=>{const h=at(st,k);return s+h.store+h.wh},0)
+const POCKETS = [
+  {store:"C001 Cikupa", reject:2, over:1, ho:5, since:"23 Oct"},
+  {store:"C002 Muaro Bungo", reject:0, over:0, ho:3, since:"22 Oct"},
+]
+const pocketOf=(st)=>{const p=POCKETS.find(p=>p.store===st.name);return p?p.reject+p.over+p.ho:0}
+const TRANSIT = [
+  {trip:"DSP-C001-TOKO-000003", store:"C001 Cikupa", note:"JNE · B 1234 XY", left:"22 Oct", koli:1, pcs:4},
+]
+const RECEIVED = [
+  {trip:"DSP-C001-TOKO-000002", store:"C001 Cikupa", note:"Pak Andi", at:"20 Oct", pcs:3, kinds:["ho"]},
+  {trip:"DSP-C002-TOKO-000001", store:"C002 Muaro Bungo", note:"Gojek", at:"18 Oct", pcs:2, kinds:["rj","od"]},
+]
+const KIND = {rj:["rj","Reject item"], od:["od","Over delivery"], ho:["ho","Return HO"]}
+
+let cmStores=[]
+let screen="new", version="a", picker="cm", tab="tbr", store="", find="", qty={}, matrixStores=["C001","C002","C003"]
+const app=document.getElementById("app")
+const total=()=>Object.values(qty).reduce((s,n)=>s+n,0)
+const storeById=(id)=>STORES.find(s=>s.id===id)
+const hubShell=(title,actions,body)=>`<div class="shell"><div class="rail"></div><div class="page"><div class="head"><h1>${title}</h1><div>${actions}</div></div><div class="content">${body}</div></div></div>`
+
+// ── 1 · Return HO ───────────────────────────────────────────────────────────
+function listScreen(){
+  const tbr=POCKETS.reduce((s,p)=>s+p.reject+p.over+p.ho,0)
+  const kpis=`<div class="kpis">
+    <div class="kpi"><small>To be returned</small><b>${tbr} pcs</b></div>
+    <div class="kpi"><small>In transit</small><b>${TRANSIT.reduce((s,t)=>s+t.pcs,0)} pcs</b></div>
+    <div class="kpi"><small>Received this month</small><b>${RECEIVED.reduce((s,t)=>s+t.pcs,0)} pcs</b></div></div>`
+  const tabs=`<div class="tabs">${[["tbr","To be returned",POCKETS.length],["transit","In transit",TRANSIT.length],["recv","Received",RECEIVED.length]].map(([k,l,c])=>`<button data-tab="${k}" class="${tab===k?"on":""}">${l}<i>${c}</i></button>`).join("")}</div>`
+  let table
+  if(tab==="tbr") table=`<div class="card"><table><thead><tr><th>Store</th><th class="n">Reject item</th><th class="n">Over delivery</th><th class="n">Return HO</th><th class="n">Total</th></tr></thead><tbody>${POCKETS.map(p=>`<tr class="click"><td><b style="font-weight:600">${p.store}</b><div style="color:var(--mute)">Since ${p.since}</div></td><td class="n ${p.reject?"":"dim"}">${p.reject||0}</td><td class="n ${p.over?"":"dim"}">${p.over||0}</td><td class="n ${p.ho?"":"dim"}">${p.ho||0}</td><td class="n"><b>${p.reject+p.over+p.ho}</b></td></tr>`).join("")}</tbody></table></div>`
+  else if(tab==="transit") table=`<div class="card"><table><thead><tr><th>Trip</th><th>Store</th><th class="hide-sm">Trip note</th><th class="hide-sm">Left</th><th class="n">Koli</th><th class="n">Pcs</th></tr></thead><tbody>${TRANSIT.map(t=>`<tr class="click"><td class="mono">${t.trip}</td><td>${t.store}</td><td class="hide-sm">${t.note}</td><td class="hide-sm">${t.left}</td><td class="n">${t.koli}</td><td class="n">${t.pcs}</td></tr>`).join("")}</tbody></table></div>`
+  else table=`<div class="card"><table><thead><tr><th>Trip</th><th>Store</th><th class="hide-sm">Received</th><th>Kind</th><th class="n">Pcs</th></tr></thead><tbody>${RECEIVED.map(t=>`<tr class="click"><td class="mono">${t.trip}</td><td>${t.store}</td><td class="hide-sm">${t.at}</td><td>${t.kinds.map(k=>`<span class="pill ${KIND[k][0]}">${KIND[k][1]}</span>`).join(" ")}</td><td class="n">${t.pcs}</td></tr>`).join("")}</tbody></table></div>`
+  return hubShell("Return HO",`<button class="btn primary" data-go="new">New return</button>`,kpis+tabs+table)
+}
+
+// ── 2 · New return ──────────────────────────────────────────────────────────
+function storeTable(){
+  return `<div class="card"><table><thead><tr><th>Store</th><th class="n">In stock</th><th class="n">To be returned</th></tr></thead><tbody>${STORES.map(s=>`<tr class="click" data-store="${s.id}"><td><b style="font-weight:600">${s.name}</b></td><td class="n">${stockOf(s)}</td><td class="n ${pocketOf(s)?"":"dim"}">${pocketOf(s)}</td></tr>`).join("")}</tbody></table></div>`
+}
+function articleTable(st){
+  const key=(k)=>`${st.id}|${k.sku}`
+  const head=`<thead><tr><th>${version==="a"?"Article":"SKU"}</th><th class="n">Store</th><th class="n">Warehouse</th><th class="n" style="width:132px">To be returned</th></tr></thead>`
+  if(version==="b") return `<div class="card"><table>${head}<tbody>${ARTICLES.flatMap(a=>a.skus.map(k=>({...k,name:a.name}))).map(k=>skuRow(st,k,false)).join("")}</tbody></table></div>`
+  return `<div class="card"><table>${head}<tbody>${ARTICLES.map(a=>{
+    const s=a.skus.reduce((t,k)=>t+at(st,k).store,0), w=a.skus.reduce((t,k)=>t+at(st,k).wh,0), m=a.skus.reduce((t,k)=>t+(qty[key(k)]||0),0)
+    return `<tr><td><div class="art"><span class="ph" style="background:${a.ph}"></span><span><b>${a.name}</b><span class="mono">${a.code}</span></span></div></td><td class="n"><b>${s}</b></td><td class="n"><b>${w}</b></td><td class="n" style="color:var(--accent);font-weight:600">${m||""}</td></tr>`+a.skus.map(k=>skuRow(st,k,true)).join("")}).join("")}</tbody></table></div>`
+}
+function box(st,k,withOf){
+  const h=at(st,k), max=h.store+h.wh, id=`${st.id}|${k.sku}`, v=qty[id]||""
+  return `<input class="qty ${v?"on":""}" inputmode="numeric" placeholder="0" data-q="${id}" data-max="${max}" value="${v}" ${max?"":"disabled"} aria-label="${st.name} ${k.sku} to be returned">${withOf?`<span class="of">of ${max}</span>`:""}`
+}
+function skuRow(st,k,sub){
+  const h=at(st,k)
+  return `<tr class="${sub?"sub":""}"><td>${sub?`<span class="sw" style="background:${k.sw}"></span>${k.label} <span class="mono">${k.sku}</span>`:`<b style="font-weight:600;display:block">${k.name}</b><span class="mono">${k.label} · ${k.sku}</span>`}</td><td class="n ${h.store?"":"dim"}">${h.store}</td><td class="n ${h.wh?"":"dim"}">${h.wh}</td><td class="n">${box(st,k,false)}</td></tr>`
+}
+function matrixTable(){
+  const shown=matrixStores.map(storeById)
+  const add=`<div class="bar"><span style="color:var(--mute)">Stores</span><div class="chips">${STORES.map(s=>`<button class="chip ${matrixStores.includes(s.id)?"on":""}" data-mx="${s.id}">${s.id}</button>`).join("")}</div></div>`
+  const head=`<thead><tr><th>Article</th>${shown.map(s=>`<th class="st" title="${s.name}"><b>${s.id}</b><span>${s.name.slice(s.id.length+1)}</span></th>`).join("")}</tr></thead>`
+  const body=ARTICLES.map(a=>`<tr><td colspan="${shown.length+1}"><div class="art"><span class="ph" style="background:${a.ph}"></span><span><b>${a.name}</b><span class="mono">${a.code}</span></span></div></td></tr>`+
+    a.skus.map(k=>`<tr class="sub"><td><span class="sw" style="background:${k.sw}"></span>${k.label} <span class="mono">${k.sku}</span></td>${shown.map(s=>`<td class="n">${box(s,k,true)}</td>`).join("")}</tr>`).join("")).join("")
+  return add+`<div class="card" style="overflow-x:auto"><table>${head}<tbody>${body}</tbody></table></div>`
+}
+/// S5: the chips pick the columns — name and stock, several at once.
+function chipsMatrix(){
+  const chips=`<div class="bar"><div class="chips">${STORES.map(s=>{
+    const moved=Object.entries(qty).filter(([id])=>id.startsWith(s.id+"|")).reduce((t,[,n])=>t+n,0)
+    return `<button class="chip ${cmStores.includes(s.id)?"on":""}" data-cm="${s.id}">${s.name} <i>${moved?`${moved} of ${stockOf(s)}`:stockOf(s)}</i></button>`}).join("")}</div></div>`
+  if(cmStores.length===0) return chips+`<div class="card"><div class="empty">Choose the stores whose goods go back to HO.</div></div>`
+  const shown=cmStores.map(storeById)
+  const head=`<thead><tr><th>Article</th>${shown.map(s=>`<th class="st" title="${s.name}"><b>${s.id}</b><span>${s.name.slice(s.id.length+1)}</span></th>`).join("")}</tr></thead>`
+  const body=ARTICLES.map(a=>`<tr><td colspan="${shown.length+1}"><div class="art"><span class="ph" style="background:${a.ph}"></span><span><b>${a.name}</b><span class="mono">${a.code}</span></span></div></td></tr>`+
+    a.skus.map(k=>`<tr class="sub"><td><span class="sw" style="background:${k.sw}"></span>${k.label} <span class="mono">${k.sku}</span></td>${shown.map(s=>`<td class="n">${box(s,k,true)}</td>`).join("")}</tr>`).join("")).join("")
+  return chips+`<div class="card" style="overflow-x:auto"><table>${head}<tbody>${body}</tbody></table></div>`
+}
+function newScreen(){
+  const st=store?storeById(store):null
+  let top="", body
+  if(picker==="matrix"){ body=matrixTable() }
+  else if(picker==="cm"){ body=chipsMatrix() }
+  else if(picker==="list"){
+    if(!st) body=storeTable()
+    else { top=`<div class="bar"><button class="btn tint" data-clear>← All stores</button></div>`; body=articleTable(st) }
+  }
+  else if(picker==="chips"){
+    top=`<div class="bar"><div class="chips">${STORES.map(s=>`<button class="chip ${s.id===store?"on":""}" data-store="${s.id}">${s.name} <i>${stockOf(s)}</i></button>`).join("")}</div></div>`
+    body=st?articleTable(st):`<div class="card"><div class="empty">Choose the store whose goods go back to HO.</div></div>`
+  }
+  else if(picker==="search"){
+    if(st){ top=`<div class="bar"><span class="picked">${st.name}<button data-clear aria-label="Change store">×</button></span></div>`; body=articleTable(st) }
+    else {
+      const hits=STORES.filter(s=>find===""||s.name.toLowerCase().includes(find.toLowerCase()))
+      top=`<div class="bar" style="display:block"><label class="search"><input id="find" placeholder="Find a store" value="${find}" aria-label="Find a store"></label>
+        <div class="card results">${hits.slice(0,6).map(s=>`<button data-store="${s.id}"><span>${s.name}</span><span style="color:var(--mute)">${stockOf(s)} pcs</span></button>`).join("")||`<div class="empty">No store</div>`}</div></div>`
+      body=""
+    }
+  }
+  else {
+    top=`<div class="bar"><select class="chip" id="drop" aria-label="Store"><option value="">Choose a store</option>${STORES.map(s=>`<option value="${s.id}" ${s.id===store?"selected":""}>${s.name}</option>`).join("")}</select></div>`
+    body=st?articleTable(st):`<div class="card"><div class="empty">Choose the store whose goods go back to HO.</div></div>`
+  }
+  const title=picker==="list"&&st?`New Return · ${st.name}`:"New Return"
+  const foot=(picker==="list"&&!st)||(picker==="search"&&!st)?"":`<div class="foot"><span>${total()} pcs</span><button class="btn primary" id="move" ${total()?"":"disabled"}>Move to To be returned</button></div>`
+  return hubShell(title,`<button class="btn" data-go="list">Back</button>`,top+body+foot)
+}
+
+// ── 3 · At the store ────────────────────────────────────────────────────────
+let lines=[
+  {kind:"rj", sku:"00000008·105", name:"Sandal Slide Karet", label:"Black XL", pcs:2},
+  {kind:"od", sku:"00000017·103", name:"Kaos Basic Katun Combed", label:"Black M", pcs:1},
+  {kind:"ho", sku:"00000017·004", name:"Kaos Basic Katun Combed", label:"White M", pcs:2},
+  {kind:"ho", sku:"00000027·005", name:"Celana Chino Slim", label:"Khaki 32", pcs:3},
+]
+let device="laptop"
+let storeKind="rj", sheet=false, ticked=new Set(lines.map(l=>l.sku)), onRoad=4
+function storeScreen(){ return device==="laptop"?storeLaptop():storePhone() }
+function storeLaptop(){
+  const n=(k)=>lines.filter(l=>l.kind===k).reduce((s,l)=>s+l.pcs,0)
+  const all=lines.reduce((s,l)=>s+l.pcs,0)
+  const shown=lines.filter(l=>l.kind===storeKind)
+  const chosen=lines.filter(l=>ticked.has(l.sku)).reduce((s,l)=>s+l.pcs,0)
+  const groups=["rj","od","ho"].filter(k=>n(k)>0).map(k=>`<h3><span class="pill ${k}">${KIND[k][1]}</span></h3>${lines.filter(l=>l.kind===k).map(l=>`<label class="it"><input type="checkbox" class="check" data-tick="${l.sku}" ${ticked.has(l.sku)?"checked":""}><span><b style="font-weight:600;display:block">${l.name}</b><span class="mono">${l.label} · ${l.sku}</span></span><b>${l.pcs}</b></label>`).join("")}`).join("")
+  return `<div class="sa"><div class="sa-rail"></div>
+    <nav class="sa-mod"><h2>Stock</h2><a class="on">Stock</a><a>Receive</a><a>Count</a><a>Stock ledger</a><div class="who"><b>Store 01</b>Store server</div></nav>
+    <div class="sa-page"><div class="head"><h1>Stock</h1><div style="display:flex;gap:8px"><button class="btn tint">Stock ledger</button><button class="btn primary" data-sheet ${all?"":"disabled"}>Send to HO</button></div></div>
+      <div class="content">
+        <div class="kpis"><div class="kpi"><small>Reject item</small><b>${n("rj")} pcs</b></div><div class="kpi"><small>Over delivery</small><b>${n("od")} pcs</b></div><div class="kpi"><small>Return HO</small><b>${n("ho")} pcs</b></div><div class="kpi"><small>To be returned</small><b>${all} pcs</b></div></div>
+        <div class="tabs"><button>Inventory</button><button class="on">To be returned<i>${all}</i></button><button>In transit<i>${onRoad?1:0}</i></button></div>
+        <div class="segd">${["rj","od","ho"].map(k=>`<button data-kind="${k}" class="${storeKind===k?"on":""}">${KIND[k][1]}</button>`).join("")}</div>
+        <div class="card"><table><thead><tr><th>Article</th><th>Colour · Size</th><th>SKU</th><th class="n">Pcs</th></tr></thead><tbody>${shown.length?shown.map(l=>`<tr><td><b style="font-weight:600">${l.name}</b></td><td>${l.label}</td><td class="mono">${l.sku}</td><td class="n">${l.pcs}</td></tr>`).join(""):`<tr><td colspan="4"><div class="empty">Nothing here</div></td></tr>`}</tbody></table></div>
+      </div></div>
+    <div class="rail-scrim ${sheet?"open":""}"><div class="rail-sheet">
+      <div class="sh"><h2>Send to HO</h2><button class="btn" data-shut>Close</button></div>
+      <div class="sb">${groups}<label class="field" style="margin-top:28px"><span>Trip</span><input placeholder="Courier, plate, driver"></label></div>
+      <div class="sf"><button class="btn primary" id="send" ${chosen?"":"disabled"}>Send ${chosen} pcs</button></div>
+    </div></div>
+  </div>`
+}
+function storePhone(){
+  const n=(k)=>lines.filter(l=>l.kind===k).reduce((s,l)=>s+l.pcs,0)
+  const all=lines.reduce((s,l)=>s+l.pcs,0)
+  const shown=lines.filter(l=>l.kind===storeKind)
+  const chosen=lines.filter(l=>ticked.has(l.sku)).reduce((s,l)=>s+l.pcs,0)
+  const groups=["rj","od","ho"].filter(k=>n(k)>0).map(k=>`<h3><span class="pill ${k}">${KIND[k][1]}</span></h3>${lines.filter(l=>l.kind===k).map(l=>`<label class="it"><input type="checkbox" class="check" data-tick="${l.sku}" ${ticked.has(l.sku)?"checked":""}><span><b style="font-weight:600;display:block">${l.name}</b><span class="mono">${l.label} · ${l.sku}</span></span><b>${l.pcs}</b></label>`).join("")}`).join("")
+  return `<div style="padding:20px 16px"><div class="phone">
+    <div class="top">Stock</div>
+    <div class="body">
+      <div class="kpis"><div class="kpi"><small>Reject item</small><b>${n("rj")} pcs</b></div><div class="kpi"><small>Over delivery</small><b>${n("od")} pcs</b></div><div class="kpi"><small>Return HO</small><b>${n("ho")} pcs</b></div><div class="kpi"><small>To be returned</small><b>${all} pcs</b></div></div>
+      <div class="tabs" style="margin-top:16px"><button>Inventory</button><button class="on">To be returned<i>${all}</i></button><button>In transit<i>${onRoad?1:0}</i></button></div>
+      <div class="seg2">${["rj","od","ho"].map(k=>`<button data-kind="${k}" class="${storeKind===k?"on":""}">${KIND[k][1]}</button>`).join("")}</div>
+      <div class="card">${shown.length?shown.map(l=>`<div class="row"><span><b>${l.name}</b><span class="mono">${l.label} · ${l.sku}</span></span><span>${l.pcs}</span></div>`).join(""):`<div class="empty">Nothing here</div>`}</div>
+    </div>
+    <div class="dock"><button class="btn primary wide" data-sheet ${all?"":"disabled"}>Send to HO</button></div>
+    <div class="sheet-scrim ${sheet?"open":""}" data-shut><div class="sheet">
+      <div class="sh"><h2>Send to HO</h2><button class="btn" data-shut>Close</button></div>
+      <div class="sb">${groups}<label class="field"><span>Trip</span><input placeholder="Courier, plate, driver"></label></div>
+      <div class="sf"><button class="btn primary wide" id="send" ${chosen?"":"disabled"}>Send ${chosen} pcs</button></div>
+    </div></div>
+  </div></div>`
+}
+
+// ── wiring ──────────────────────────────────────────────────────────────────
+function render(){
+  app.innerHTML = screen==="list"?listScreen():screen==="new"?newScreen():storeScreen()
+  const mark=(sel,attr,val)=>document.querySelectorAll(sel).forEach(b=>b.setAttribute("aria-pressed",String(b.dataset[attr]===val)))
+  mark("#screens button","s",screen); mark("#pickers button","p",picker); mark("#versions button","v",version); mark("#devices button","d",device)
+  document.getElementById("g-dev").hidden=screen!=="store"
+  document.getElementById("g-store").hidden=screen!=="new"
+  document.getElementById("g-pick").hidden=screen!=="new"||picker==="matrix"||picker==="cm"
+}
+const toast=(t)=>{const e=document.getElementById("toast");e.textContent=t;e.classList.add("show");setTimeout(()=>e.classList.remove("show"),2600)}
+const scrim=document.getElementById("scrim"), dialog=document.getElementById("dialog")
+const keep=(sel)=>{const el=document.querySelector(sel);if(!el)return;const pos=el.value.length;el.focus();try{el.setSelectionRange(pos,pos)}catch{}}
+
+document.addEventListener("click",(e)=>{
+  if(e.target.classList?.contains("sheet-scrim")||e.target.classList?.contains("rail-scrim")){sheet=false;render();return}
+  const t=e.target.closest("button,[data-tab],[data-kind],[data-go],[data-store]")
+  if(!t) return
+  if(t.dataset.s){screen=t.dataset.s;render()}
+  else if(t.dataset.p){picker=t.dataset.p;store="";find="";qty={};cmStores=[];render()}
+  else if(t.dataset.v){version=t.dataset.v;render()}
+  else if(t.dataset.d){device=t.dataset.d;sheet=false;render()}
+  else if(t.dataset.tab){tab=t.dataset.tab;render()}
+  else if(t.dataset.go){screen=t.dataset.go;render()}
+  else if(t.dataset.store){store=t.dataset.store;render()}
+  else if(t.hasAttribute("data-clear")){store="";find="";qty={};render()}
+  else if(t.dataset.cm){const id=t.dataset.cm
+    if(cmStores.includes(id)){cmStores=cmStores.filter(x=>x!==id);for(const k of Object.keys(qty))if(k.startsWith(id+"|"))delete qty[k]}
+    else cmStores=[...cmStores,id].sort();render()}
+  else if(t.dataset.mx){const id=t.dataset.mx;matrixStores=matrixStores.includes(id)?matrixStores.filter(x=>x!==id):[...matrixStores,id].sort();render()}
+  else if(t.dataset.kind){storeKind=t.dataset.kind;render()}
+  else if(t.hasAttribute("data-sheet")){sheet=true;render()}
+  else if(t.hasAttribute("data-shut")){sheet=false;render()}
+  else if(t.id==="move"){
+    const byStore={}
+    for(const [id,n] of Object.entries(qty)){const [sid,sku]=id.split("|");const a=ARTICLES.find(a=>a.skus.some(k=>k.sku===sku));const k=a.skus.find(k=>k.sku===sku);(byStore[sid]??=[]).push(`<div><span>${a.name} · ${k.label}</span><b>${n}</b></div>`)}
+    const ids=Object.keys(byStore)
+    dialog.innerHTML=`<h2>Move ${total()} pcs to To be returned?</h2><p>${ids.length===1?storeById(ids[0]).name:`${ids.length} stores`} ${ids.length===1?"sees":"see"} them under To be returned · Return HO and ${ids.length===1?"sends":"send"} them when ready.</p>
+      ${ids.map(id=>`${ids.length>1?`<h3>${storeById(id).name}</h3>`:""}<div class="list">${byStore[id].join("")}</div>`).join("")}
+      <div class="acts"><button class="btn" data-close>Cancel</button><button class="btn primary" data-confirm>Move</button></div>`
+    scrim.classList.add("open")
+  }
+  else if(t.hasAttribute("data-close")) scrim.classList.remove("open")
+  else if(t.hasAttribute("data-confirm")){
+    scrim.classList.remove("open"); toast(`${total()} pcs moved to To be returned`)
+    qty={};store="";find="";cmStores=[];screen="list";tab="tbr";render()
+  }
+  else if(t.id==="send"){
+    const gone=lines.filter(l=>ticked.has(l.sku)), pcs=gone.reduce((s,l)=>s+l.pcs,0)
+    lines=lines.filter(l=>!ticked.has(l.sku)); ticked=new Set(lines.map(l=>l.sku)); onRoad+=pcs; sheet=false; render()
+    toast(`${pcs} pcs on the way to HO · In transit`)
+  }
+})
+document.addEventListener("input",(e)=>{
+  const i=e.target
+  if(i.dataset.q){const v=Math.min(parseInt(i.value.replace(/\D/g,""))||0,Number(i.dataset.max));if(v)qty[i.dataset.q]=v;else delete qty[i.dataset.q];render();keep(`input[data-q="${i.dataset.q}"]`)}
+  else if(i.id==="find"){find=i.value;render();keep("#find")}
+})
+document.addEventListener("change",(e)=>{
+  const c=e.target
+  if(c.id==="drop"){store=c.value;qty={};render()}
+  else if(c.dataset.tick){c.checked?ticked.add(c.dataset.tick):ticked.delete(c.dataset.tick);render()}
+})
+render()
+</script>
+</body>
+</html>

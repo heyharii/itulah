@@ -1,0 +1,971 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Stock and Missing</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* Tokens from frontend-hub/src/styles/white.css (All white). Shell copied from
+   stock-card-prototype.html so the two read as one menu. */
+:root{
+  --ink:#1d1d1f;--mute:#6e6e73;--body:#6e6e73;--faint:#c7c7cc;--ico:#8e8e93;
+  --soft:#fafafb;--soft-2:#f2f2f5;
+  --hair:#e8e8ec;--hair-2:#dcdce1;--hair-3:#c7c7cc;
+  --accent:#2862dc;--accent-bg:#eef3fc;
+  --ok:#248a3d;--bad:#d70015;--bad-bg:#fdeeee;--warn:#a66c1f;
+  --ring:0 0 0 1px rgb(0 0 0 / 5%),0 2px 8px rgb(0 0 0 / 5%),0 24px 64px rgb(0 0 0 / 12%);
+  --scrim:rgb(40 30 20 / 10%);
+  --drawer:cubic-bezier(.32,.72,0,1);--out:cubic-bezier(.23,1,.32,1);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font:15px/1.45 Inter,system-ui,sans-serif;color:var(--ink);background:#fff;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
+button,input{font:inherit;color:inherit}button{background:none;border:0;cursor:pointer;text-align:left}
+.n{font-variant-numeric:tabular-nums}.m{color:var(--mute)}.b{color:var(--bad)}
+
+.side{position:fixed;top:0;left:0;bottom:0;width:240px;border-right:1px solid var(--hair);padding:18px 12px}
+.side h4{font-size:17px;font-weight:600;padding:0 10px 12px}
+.side a{display:flex;align-items:center;padding:7px 10px;border-radius:8px;color:var(--mute)}
+.side a.on{background:var(--soft-2);color:var(--ink);font-weight:500}
+.side .badge{margin-left:auto;color:var(--bad);font-weight:500}
+.page{padding:22px 32px 96px 272px;max-width:1240px}
+#stockView,.page.wide{max-width:none}
+@media (max-width:1100px){.side{display:none}.page{padding-left:32px}}
+.head{display:flex;align-items:center;gap:14px;min-height:36px;margin-bottom:18px}
+.head h1{font-size:17px;font-weight:600;flex:1}
+
+.kpi{display:flex;flex-wrap:wrap;margin-bottom:20px}
+.kpi>div{padding:0 22px;border-left:1px solid var(--hair);display:flex;flex-direction:column}
+.kpi>div:first-child{padding-left:0;border-left:0}
+.kpi label{color:var(--mute)}.kpi strong{font-size:16px;font-weight:600}
+
+/* page tabs: underline words */
+.tabs{display:flex;gap:26px;border-bottom:1px solid var(--hair);margin-bottom:18px}
+.tab{padding:0 0 11px;color:var(--mute);position:relative;transition:color 150ms ease}
+.tab span{margin-left:6px;color:var(--faint)}
+.tab[aria-selected=true]{color:var(--ink);font-weight:500}
+.tab[aria-selected=true] span{color:var(--mute)}
+.tab[aria-selected=true]::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--ink);border-radius:2px}
+
+/* "Lost at" filter: icon radio chips */
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.chip{display:inline-flex;align-items:center;gap:8px;height:38px;padding:0 14px 0 11px;border:1px solid var(--hair);border-radius:999px;color:var(--body);transition:transform 160ms var(--out),border-color 150ms ease,background-color 150ms ease,color 150ms ease}
+.chip:active{transform:scale(.97)}
+@media (hover:hover){.chip:hover{border-color:var(--hair-3);color:var(--ink)}}
+.chip svg{width:18px;height:18px;stroke-width:1.7;flex-shrink:0}
+.chip .c{color:var(--faint)}
+.chip[aria-checked=true]{border-color:var(--accent);background:var(--accent-bg);color:var(--accent);font-weight:500}
+.chip[aria-checked=true] .c{color:var(--accent);opacity:.7}
+
+.bar{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.search{height:36px;width:320px;max-width:100%;border:1px solid var(--hair-2);border-radius:10px;padding:0 12px 0 34px;outline:none;background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' fill='none' stroke='%238e8e93' stroke-width='2' viewBox='0 0 24 24'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E") no-repeat 12px center}
+.search:focus{border-color:var(--accent)}
+
+/* PO items frame */
+.box{border:1px solid var(--hair);border-radius:8px;overflow:hidden}
+table{width:100%;border-collapse:collapse;table-layout:fixed}
+th{background:var(--soft);font-weight:500;color:var(--body);text-align:left;padding:10px 16px;white-space:nowrap}
+td{padding:14px 16px;border-top:1px solid var(--hair);vertical-align:middle;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+tbody tr:first-child td{border-top:0}
+.r{text-align:right}
+tr.go{cursor:pointer}
+@media (hover:hover){tr.go:hover td{background:var(--soft)}}
+tr.go td:last-child::after{content:"›";color:var(--ico);margin-left:10px}
+.id{display:flex;flex-direction:column;min-width:0}.id small{font-size:15px;color:var(--mute);overflow:hidden;text-overflow:ellipsis}
+.thumb{display:inline-grid;place-items:center;width:40px;height:40px;border-radius:7px;background:var(--soft-2);margin-right:12px;flex-shrink:0;font-size:20px}
+.withthumb{display:flex;align-items:center;min-width:0}
+.empty{padding:36px;text-align:center;color:var(--mute)}
+h3{font-size:15px;font-weight:600;margin:0 0 10px}
+
+/* history: the stock-card ledger frame */
+tr.hit td{background:var(--bad-bg)}
+tr.end td{background:var(--soft)}
+tr.tot td{background:var(--soft);font-weight:600}
+tr.miss td:first-child{color:var(--bad);white-space:normal}
+.hist td{white-space:normal}
+.sub{display:block;font-size:15px}
+
+/* record sheet */
+.scrim{position:fixed;inset:0;background:var(--scrim);opacity:0;pointer-events:none;transition:opacity 200ms var(--out);z-index:40}
+.scrim.on{opacity:1;pointer-events:auto;transition-duration:340ms}
+.sheet{position:fixed;top:12px;right:12px;bottom:12px;width:min(928px,calc(100vw - 24px));background:#fff;border-radius:14px;box-shadow:var(--ring);display:flex;flex-direction:column;z-index:50;transform:translateX(calc(100% + 24px));transition:transform 200ms var(--out)}
+.sheet.on{transform:none;transition:transform 340ms var(--drawer)}
+.sh{padding:28px 36px 20px;display:flex;align-items:flex-start;gap:12px;border-bottom:1px solid var(--hair)}
+.sh .t{flex:1;min-width:0}.sh h2{font-size:18px;font-weight:600}
+.x{width:32px;height:32px;border-radius:8px;display:grid;place-items:center;color:var(--ico);font-size:20px;flex-shrink:0}
+@media (hover:hover){.x:hover{background:var(--soft-2);color:var(--ink)}}
+.sb{flex:1;overflow:auto;padding:28px 36px}
+.sb>.in{transition:opacity 160ms ease,transform 160ms var(--out)}
+.sb>.in.out{opacity:0;transform:translateY(4px);transition-duration:100ms}
+.sf{display:flex;align-items:center;justify-content:flex-end;gap:10px;padding:14px 36px;min-height:68px;border-top:1px solid var(--hair)}
+.sf:empty{display:none}
+
+.btn{height:40px;padding:0 18px;text-align:center;border-radius:10px;font-weight:500;transition:transform 160ms var(--out),background-color 150ms ease}
+.btn:active{transform:scale(.97)}
+.btn.primary{background:var(--accent);color:#fff}
+.btn.danger{background:var(--bad);color:#fff}
+.btn.tint{background:var(--accent-bg);color:var(--accent)}
+.btn.tint-bad{background:var(--bad-bg);color:var(--bad)}
+.btn:disabled{opacity:.4;pointer-events:none}
+
+/* found / write off form */
+.form{display:flex;flex-direction:column;gap:28px;max-width:560px}
+.field>label{display:block;font-weight:500;margin-bottom:10px}
+.step{display:inline-flex;align-items:center;border:1px solid var(--hair-2);border-radius:10px;height:44px}
+.step button{width:44px;height:42px;display:grid;place-items:center;font-size:20px;color:var(--accent);transition:transform 160ms var(--out)}
+.step button:active{transform:scale(.92)}
+.step button:disabled{color:var(--faint)}
+.step b{min-width:56px;text-align:center;font-size:16px;font-weight:600}
+.step+.m{margin-left:12px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px}
+.tile{display:flex;flex-direction:column;align-items:center;gap:8px;padding:16px 12px;border:1px solid var(--hair);border-radius:12px;color:var(--body);transition:transform 160ms var(--out),border-color 150ms ease,background-color 150ms ease,color 150ms ease}
+.tile:active{transform:scale(.97)}
+.tile svg{width:24px;height:24px;stroke-width:1.6}
+.tile[aria-checked=true]{border-color:var(--accent);background:var(--accent-bg);color:var(--accent);font-weight:500}
+.tile.bad[aria-checked=true]{border-color:var(--bad);background:var(--bad-bg);color:var(--bad)}
+.tile small{font-size:15px;color:var(--mute);font-weight:400}
+.form .chips{margin-bottom:0}
+
+/* Stock board: C · Books | Seen cards, as in the hub */
+.side a[data-view]{cursor:pointer}
+.mnav{display:none;gap:4px;padding:12px 16px 0 32px}
+.mnav button{height:36px;padding:0 14px;border-radius:999px;color:var(--mute)}
+.mnav button.on{background:var(--soft-2);color:var(--ink);font-weight:500}
+.mnav span{margin-left:6px;color:var(--bad)}
+@media (max-width:1100px){.mnav{display:flex}}
+@media (max-width:760px){.mnav{padding-left:16px}}
+.side a[data-view]:not(.on):hover{color:var(--ink)}
+.gh{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;margin:24px 0 8px}
+.gh p::before{content:"·";margin-right:10px;color:var(--faint)}
+.gh:first-child{margin-top:0}
+.gh h2{font-size:15px;font-weight:500;color:var(--body)}
+.gh p{color:var(--mute)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,360px),1fr));gap:16px}
+.card{display:flex;flex-direction:column;gap:16px;width:100%;padding:20px;border:1px solid var(--hair);border-radius:12px;background:#fff;transition:border-color 150ms ease,transform 160ms var(--out)}
+.card:active{transform:scale(.98)}
+@media (hover:hover){.card:hover{border-color:var(--hair-3)}}
+.card .top{display:flex;justify-content:space-between;align-items:center;gap:12px;min-height:28px}
+.card .top>div{min-width:0}
+.card .nm{display:block;font-weight:600}
+.card .pk{display:block;margin-top:2px;color:var(--mute)}
+.card .lost{flex-shrink:0;padding:3px 10px;border-radius:999px;background:var(--bad);color:#fff;font-weight:500}
+.halves{display:grid;grid-template-columns:1fr 1fr}
+.halves>div{min-width:0}.halves>div+div{border-left:1px solid var(--hair);padding-left:16px}
+.halves label{display:block;color:var(--mute)}.halves b{font-size:16px;font-weight:600}
+.halves .g{font-weight:400;color:var(--mute);margin-left:6px}
+.cfoot{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px 12px;margin-top:auto;padding-top:10px;border-top:1px solid var(--hair);color:var(--mute)}
+.warn{color:var(--warn)}
+.btn.mini{height:32px;padding:0 14px}
+/* the hub's view tiles (stock-card.tsx Ways) */
+.ways{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;width:352px;max-width:100%}
+.way{display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px 12px;border:1px solid var(--hair);border-radius:12px;color:var(--body);transition:transform 150ms var(--out),border-color 150ms ease,background-color 150ms ease,color 150ms ease}
+.way:active{transform:scale(.97)}
+@media (hover:hover){.way:hover{border-color:var(--hair-3);color:var(--ink)}}
+.way[aria-selected=true]{border-color:var(--accent);background:var(--accent-bg);color:var(--accent);font-weight:500}
+.way svg{width:24px;height:24px;stroke-width:1.6}
+.ways.six{grid-template-columns:repeat(6,1fr);width:auto;max-width:900px;margin-bottom:16px}
+.way .c{color:var(--faint)}.way[aria-selected=true] .c{color:var(--accent);opacity:.7}
+@media (max-width:760px){.ways.six{grid-template-columns:repeat(3,1fr)}}
+#kbar{align-items:flex-end;margin-bottom:16px}
+.range{display:flex;align-items:center;gap:8px}
+.picker{position:relative}
+.pop{left:0;right:auto;transform-origin:top left}
+.rbox{display:inline-flex;align-items:center;gap:10px;height:36px;padding:0 12px;border:1px solid var(--hair-2);border-radius:10px;background:#fff;font-variant-numeric:tabular-nums;transition:border-color 150ms ease}
+.rbox[aria-expanded=true]{border-color:var(--accent)}
+.rbox svg{width:15px;height:15px;color:var(--ico)}
+.pop{position:absolute;top:44px;z-index:35;width:320px;background:#fff;border-radius:12px;box-shadow:var(--ring);padding:14px;transform-origin:top right;animation:popin 160ms var(--out)}
+@keyframes popin{from{opacity:0;transform:scale(.97)}}
+.pre{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.pre .chip{height:32px;padding:0 12px}
+.pm{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.pm button{width:32px;height:32px;border-radius:50%;text-align:center;color:var(--ico);font-size:18px}
+@media (hover:hover){.pm button:hover{background:var(--soft-2);color:var(--ink)}}
+.pg{display:grid;grid-template-columns:repeat(7,1fr);row-gap:2px}
+.pg .wd{height:28px;display:grid;place-items:center;color:var(--mute)}
+.pg button{height:36px;text-align:center;border-radius:8px;font-variant-numeric:tabular-nums}
+@media (hover:hover){.pg button:not(:disabled):not(.end):hover{background:var(--soft-2)}}
+.pg button.in{background:var(--accent-bg);border-radius:0}
+.pg button.end{background:var(--accent);color:#fff;font-weight:600}
+.pg button:disabled{color:var(--faint);cursor:default}
+.todo{display:inline-block;padding:2px 10px;border-radius:999px;background:var(--accent-bg);color:var(--accent);font-weight:500}
+@media (prefers-reduced-motion:reduce){.pop{animation:none}}
+.sel{height:36px;border:1px solid var(--hair-2);border-radius:10px;padding:0 10px;background:#fff}
+.tint{color:var(--accent)}
+#cardView .bar,#countsView .head{gap:12px}
+.seg.tvs{display:inline-flex;margin-bottom:12px}
+.stocktable tr.grp td{background:var(--soft);color:var(--body);font-weight:500;padding-top:10px;padding-bottom:10px}
+.stocktable tr.go td:last-child::after{content:none}
+.stocktable .lost{color:var(--bad);font-weight:500}
+.card[role=button]{cursor:pointer;text-align:left}
+.btn.small{height:36px;padding:0 14px;margin-top:12px}
+.lostrow{display:flex;align-items:center;gap:12px;width:100%;margin-top:12px;padding:14px 16px;border:1px dashed var(--hair-2);border-radius:8px;color:var(--mute);transition:background-color 150ms ease}
+.lostrow span:first-child{flex:1}
+.lostrow::after{content:"›";color:var(--ico)}
+@media (hover:hover){.lostrow:hover{background:var(--soft)}}
+.back{display:inline-flex;align-items:center;height:32px;padding:0 12px;margin-bottom:10px;border-radius:8px;background:var(--accent-bg);color:var(--accent);font-weight:500;transition:transform 160ms var(--out)}
+.back:active{transform:scale(.97)}
+.sb .tabs{margin-top:4px}
+
+/* toast */
+.toast{position:fixed;left:50%;bottom:28px;z-index:60;background:var(--ink);color:#fff;padding:12px 18px;border-radius:12px;box-shadow:var(--ring);transform:translate(-50%,calc(100% + 40px));opacity:0;transition:transform 400ms var(--out),opacity 400ms ease}
+.toast.on{transform:translate(-50%,0);opacity:1}
+
+/* prototype switch, not part of the design */
+.proto{position:fixed;left:50%;transform:translateX(-50%);bottom:16px;z-index:30;display:flex;align-items:center;gap:10px;background:#fff;border-radius:999px;box-shadow:var(--ring);padding:6px 6px 6px 16px;color:var(--mute)}
+.seg{display:flex;background:var(--soft-2);border-radius:999px;padding:3px}
+.seg button{height:32px;padding:0 14px;white-space:nowrap;border-radius:999px;color:var(--mute)}
+.seg button[aria-pressed=true]{background:#fff;color:var(--ink);font-weight:500;box-shadow:0 1px 3px rgb(0 0 0/10%)}
+
+@media (max-width:760px){
+  .page{padding:16px 16px 96px}
+  .kpi{display:grid;grid-template-columns:1fr 1fr;gap:12px 0}.kpi>div:nth-child(odd){padding-left:0;border-left:0}
+  .ph{display:none}
+  td,th{padding-left:12px;padding-right:12px}
+  .thumb{display:none}
+  .search{width:100%}
+  .sheet{top:0;right:0;bottom:0;width:100%;border-radius:14px 14px 0 0}
+  .sh,.sb,.sf{padding-left:16px;padding-right:16px}
+  .sf .btn{flex:1;white-space:nowrap}.sf .btn.tint{flex:0 0 auto}
+  .proto{bottom:10px;padding-left:6px}
+}
+@media (min-width:761px){.ph-only{display:none}}
+@media (prefers-reduced-motion:reduce){.sheet,.sheet.on,.toast{transition:opacity 200ms ease}.sb>.in.out{transform:none}}
+</style>
+</head>
+<body>
+<aside class="side"><h4>Inventory</h4><a data-view="stock">Stock</a><a data-view="missing">Missing<span class="badge n" id="badge"></span></a><a data-view="counts">Counts</a><a data-view="card">Stock card</a></aside>
+<nav class="mnav" aria-label="Inventory"><button data-view="stock">Stock</button><button data-view="missing">Missing<span class="n" id="mbadge"></span></button><button data-view="counts">Counts</button><button data-view="card">Stock card</button></nav>
+<main class="page" id="stockView">
+  <div class="head"><h1>Stock</h1></div>
+  <div class="kpi" id="skpi"></div>
+  <div class="bar"><input class="search" id="sq" placeholder="Search place" autocomplete="off"></div>
+  <div id="board"></div>
+</main>
+<main class="page wide" id="countsView">
+  <div class="head"><h1>Counts</h1><button class="btn primary" data-newcount>New count</button></div>
+  <div class="kpi" id="ckpi"></div>
+  <div class="bar"><div class="picker" id="cpick"></div></div>
+  <div id="clist"></div>
+</main>
+<main class="page wide" id="cardView">
+  <div class="head"><h1>Stock card</h1></div>
+  <div class="kpi" id="kkpi"></div>
+  <div class="bar" id="kbar"></div>
+  <div class="bar"><input class="search" id="kq" placeholder="Search article, SKU or place" autocomplete="off"><div class="picker" id="kpick"></div></div>
+  <div id="klist"></div>
+</main>
+<main class="page" id="missingView">
+  <div class="head"><h1>Missing</h1></div>
+  <div class="kpi" id="kpi"></div>
+  <div class="tabs" role="tablist" id="tabs" style="display:none"></div>
+  <div id="chips" hidden></div>
+  <div class="bar"><input class="search" id="q" placeholder="Search article, SKU or place" autocomplete="off"></div>
+  <div id="list"></div>
+</main>
+<div class="scrim" id="scrim"></div>
+<section class="sheet" id="sheet" aria-modal="true" role="dialog"></section>
+<div class="toast" id="toast" role="status"></div>
+<div class="proto"><span class="ph">Prototype</span><div class="seg" id="seg"><button data-act="1">With Found · Lost</button><button data-act="0">Read only</button></div></div>
+
+<script>
+const fmt=n=>n.toLocaleString("id-ID");
+const TODAY=new Date(2026,9,19);
+const MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const D=s=>{const [y,m,d]=s.split("-").map(Number);return new Date(y,m-1,d)};
+const day=s=>{const d=D(s);return `${d.getDate()} ${MON[d.getMonth()]}`};
+const shift=(s,n)=>{const d=D(s);d.setDate(d.getDate()+n);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`};
+const age=s=>Math.round((TODAY-D(s))/86400000);
+const ISO_TODAY="2026-10-19";
+const OVERDUE=30;
+
+const I=p=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
+const ICON={
+  All:I('<path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/>'),
+  Pick:I('<path d="M18 11V6a2 2 0 0 0-4 0v5"/><path d="M14 10V4a2 2 0 0 0-4 0v2"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>'),
+  Pack:I('<path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/><path d="M12 22V12"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="m7.5 4.27 9 5.15"/>'),
+  "In transit":I('<path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.62l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/>'),
+  "Store receive":I('<path d="M3 9l1.5-5h15L21 9"/><path d="M3 9h18v1a3 3 0 0 1-6 0 3 3 0 0 1-6 0 3 3 0 0 1-6 0z"/><path d="M5 12v8h14v-8"/><path d="M10 20v-5h4v5"/>'),
+  Count:I('<rect width="8" height="4" x="8" y="2" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/>'),
+  Floor:I('<path d="M20.4 6.6 16 4a4 4 0 0 1-8 0L3.6 6.6a1 1 0 0 0-.5 1.2l1 3a1 1 0 0 0 1 .7H7V20a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-8.5h1.9a1 1 0 0 0 1-.7l1-3a1 1 0 0 0-.5-1.2z"/>'),
+  Stockroom:I('<path d="M22 8.35V20a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8.35A2 2 0 0 1 3.26 6.5l8-3.2a2 2 0 0 1 1.48 0l8 3.2A2 2 0 0 1 22 8.35Z"/><path d="M6 18h12"/><path d="M6 14h12"/><rect width="12" height="12" x="6" y="10"/>'),
+  Lost:I('<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>'),
+  Damaged:I('<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>')
+};
+ICON.Warehouse=ICON.Stockroom;ICON.Unallotted=ICON.Stockroom;ICON.Reject=ICON.Damaged;ICON.Return=ICON.Damaged;
+const STEPS=["Pick","Pack","In transit","Store receive","Count"];
+const STAFF={"Head Office":"Rina Wulandari","Muaro Bungo":"Fajar Pratama","Cikupa":"Dewi Lestari","Bumiayu":"Yoga Saputra","Jambi":"Intan Permata","Purbalingga":"Nur Aisyah","Wiramode":"Rizky Ramadhan","Brebes":"Wulan Sari","Pasuruan":"Hendra Gunawan","WMJB":"Maya Anggraini","Sipin":"Teguh Prasetyo","Banjaran":"Lina Marlina","Wonosobo":"Arif Hidayat"};
+const ME="Sinta Maharani";
+
+/* Each row = one article at one place, as the hub already groups Missing
+   (SKU × pool). lost = pieces that went missing at that step; qty = still
+   missing now. ev = what happened after (reader saw it, part found). */
+let ROWS=[
+ {a:"Kaos Basic Katun Combed",v:"Putih · L",sku:"00011020455",e:"👕",place:"Muaro Bungo",qty:5,since:"2026-08-28",step:"Count",doc:"CC-0077",book:61},
+ {a:"Jaket Denim Washed",v:"Biru · L",sku:"00011050212",e:"🧥",place:"Wiramode",pool:"Stockroom",qty:2,since:"2026-09-09",step:"Count",doc:"CC-0082",book:9},
+ {a:"Kaos Anak Karakter",v:"Kuning · 6",sku:"00011030918",e:"👕",place:"Pasuruan",qty:2,since:"2026-09-12",step:"Store receive",doc:"SJ-0287",sent:10},
+ {a:"Sandal Slide Karet",v:"Hitam · 41",sku:"00011070341",e:"🩴",place:"In transit",store:"Brebes",qty:6,since:"2026-10-01",step:"In transit",doc:"SJ-0301",koli:3,kLost:1},
+ {a:"Kaos Basic Katun Combed",v:"Hitam · M",sku:"00011020453",e:"👕",place:"Cikupa",qty:3,lost:4,since:"2026-10-04",step:"Store receive",doc:"SJ-0304",sent:12,
+   ev:[{d:"2026-10-07",w:"Seen by the Floor reader",doc:"",by:""},{d:"2026-10-08",w:"Found 1 on Floor",doc:"",by:"Dewi Lestari",ch:-1}]},
+ {a:"Celana Chino Slim Fit",v:"Khaki · 32",sku:"00011040132",e:"👖",place:"Jambi",qty:4,since:"2026-10-06",step:"Store receive",doc:"SJ-0306",sent:16},
+ {a:"Kemeja Oxford Lengan Panjang",v:"Biru muda · L",sku:"00011090317",e:"👔",place:"Purbalingga",qty:3,since:"2026-10-08",step:"Count",doc:"CC-0089",book:22},
+ {a:"Sneakers Kanvas Low",v:"Hitam · 42",sku:"00011080542",e:"👟",place:"In transit",store:"Wonosobo",qty:2,since:"2026-10-10",step:"In transit",doc:"SJ-0310",koli:2,kLost:1},
+ {a:"Sneakers Kanvas Low",v:"Putih · 40",sku:"00011080540",e:"👟",place:"Head Office",qty:1,since:"2026-10-11",step:"Count",doc:"CC-0091",book:38},
+ {a:"Dress Midi Plisket",v:"Sage · S",sku:"00011100221",e:"👗",place:"Banjaran",qty:1,since:"2026-10-13",step:"Store receive",doc:"SJ-0313",sent:6},
+ {a:"Rok Lipit Midi",v:"Navy · M",sku:"00011110612",e:"👗",place:"WMJB",qty:1,since:"2026-10-14",step:"Store receive",doc:"SJ-0314",sent:8,
+   ev:[{d:"2026-10-16",w:"Seen by the Floor reader",doc:"",by:""}]},
+ {a:"Hoodie Fleece Oversize",v:"Abu · XL",sku:"00011120914",e:"🧥",place:"Head Office",qty:2,since:"2026-10-15",step:"Pack",doc:"ALT-0412",picked:12,store:"Sipin"},
+ {a:"Blus Rayon Motif Bunga",v:"Merah · M",sku:"00011010712",e:"👚",place:"Sipin",qty:1,since:"2026-10-16",step:"Count",doc:"CC-0094",book:14},
+ {a:"Loafers Kulit Sintetis",v:"Cokelat · 42",sku:"00011060442",e:"👞",place:"Head Office",qty:1,since:"2026-10-17",step:"Pick",doc:"ALT-0418",ask:4,store:"Cikupa"},
+ /* settled */
+ {a:"Celana Chino Slim Fit",v:"Hitam · 30",sku:"00011040130",e:"👖",place:"Cikupa",qty:2,since:"2026-09-22",step:"Store receive",doc:"SJ-0294",sent:14,out:"found",done:"2026-09-25",where:"Stockroom",by:"Dewi Lestari"},
+ {a:"Kaos Anak Karakter",v:"Biru · 8",sku:"00011030920",e:"👕",place:"Head Office",qty:1,since:"2026-10-02",step:"Count",doc:"CC-0086",book:40,out:"found",done:"2026-10-09",where:"Unallotted",by:"Rina Wulandari"},
+ {a:"Jaket Denim Washed",v:"Hitam · M",sku:"00011050210",e:"🧥",place:"In transit",store:"Bumiayu",qty:3,since:"2026-10-05",step:"In transit",doc:"SJ-0305",koli:4,kLost:1,out:"found",done:"2026-10-07",where:"Unallotted",to:"Head Office",by:"Rina Wulandari"},
+ {a:"Sneakers Kanvas Low",v:"Putih · 41",sku:"00011080541",e:"👟",place:"Jambi",qty:1,since:"2026-10-09",step:"Count",doc:"CC-0090",book:11,out:"found",done:"2026-10-15",where:"Floor",by:"Intan Permata"},
+ {a:"Sandal Slide Karet",v:"Biru · 39",sku:"00011070339",e:"🩴",place:"Wonosobo",qty:2,since:"2026-08-14",step:"Count",doc:"CC-0071",book:30,out:"off",done:"2026-09-30",by:ME},
+ {a:"Dress Midi Plisket",v:"Hitam · M",sku:"00011100212",e:"👗",place:"Head Office",qty:1,since:"2026-09-03",step:"Pack",doc:"ALT-0388",picked:8,store:"Brebes",out:"found",done:"2026-10-03",where:"Return",to:"Head Office",by:"Rina Wulandari"},
+ {a:"Kaos Basic Katun Combed",v:"Abu · S",sku:"00011020451",e:"👕",place:"Pasuruan",qty:4,since:"2026-08-20",step:"Store receive",doc:"SJ-0271",sent:20,out:"off",done:"2026-09-21",by:ME},
+ {a:"Rok Lipit Midi",v:"Hitam · L",sku:"00011110614",e:"👗",place:"Cikupa",qty:1,since:"2026-09-20",step:"Count",doc:"CC-0084",book:12,out:"off",done:"2026-10-06",by:ME}
+].map((r,i)=>({...r,id:"r"+i,lost:r.lost??r.qty,ev:r.ev?[...r.ev]:[]}));
+
+/* the article's story at that place: how it got there, the moment it went
+   missing (+n), and what happened since */
+function history(r){
+  const who=STAFF[r.place],d=r.since,L=r.lost,H=[];
+  if(r.step==="Store receive"){
+    H.push({d:shift(d,-2),w:`Sent from Head Office · ${r.sent} pcs`,doc:r.doc,by:"Rina Wulandari"});
+    H.push({d,w:`Received ${r.sent-L} of ${r.sent}`,doc:r.doc,by:who,ch:L});
+  }else if(r.step==="In transit"){
+    H.push({d:shift(d,-1),w:`Sent from Head Office · ${r.koli} koli`,doc:r.doc,by:"Rina Wulandari"});
+    H.push({d,w:`Received ${r.koli-r.kLost} of ${r.koli} koli at ${r.store}`,doc:r.doc,by:STAFF[r.store],ch:L});
+  }else if(r.step==="Count"){
+    H.push({d:shift(d,-31),w:`Counted ${r.book} of ${r.book}`,doc:"CC-00"+(Number(r.doc.slice(3))-9),by:who});
+    H.push({d,w:`Counted ${r.book-L} of ${r.book}`,doc:r.doc,by:who,ch:L});
+  }else if(r.step==="Pick"){
+    H.push({d:shift(d,-1),w:`Allotted to ${r.store} · ${r.ask} pcs`,doc:r.doc,by:"Andini Putri"});
+    H.push({d,w:`Picked ${r.ask-L} of ${r.ask} · Cannot pick`,doc:r.doc,by:"Agus Setiawan",ch:L});
+  }else if(r.step==="Pack"){
+    H.push({d:shift(d,-1),w:`Picked ${r.picked} for ${r.store}`,doc:r.doc,by:"Agus Setiawan"});
+    H.push({d,w:`Packed ${r.picked-L} of ${r.picked}`,doc:r.doc,by:"Budi Santoso",ch:L});
+  }
+  H.push(...r.ev);
+  if(r.out==="found"&&!r.ev.some(e=>e.final))H.push({d:r.done,w:`Found ${r.qty} · Missing → ${dest(r)}`,doc:"",by:r.by,ch:-r.qty,final:1});
+  if(r.out==="off"&&!r.ev.some(e=>e.final))H.push({d:r.done,w:`Lost ${r.qty}`,doc:"",by:r.by,ch:-r.qty,final:1});
+  return H;
+}
+
+/* ---------- state ---------- */
+const qs=new URLSearchParams(location.search);
+let tab=qs.get("tab")||"open",step="All",needle="",openId=null,mode="view",draft=null;
+let actions=qs.get("actions")!=="0";
+const TABS=[["open","Missing"]];
+const inTab=r=>tab==="open"?!r.out:r.out===tab;
+
+function kpi(){
+  const open=ROWS.filter(r=>!r.out);
+  const pcs=open.reduce((t,r)=>t+r.qty,0);
+  const old=open.filter(r=>age(r.since)>OVERDUE).length;
+  document.getElementById("kpi").innerHTML=[
+    ["Missing",fmt(pcs)+" pcs",pcs?"b":""],
+    ["Articles",fmt(new Set(open.map(r=>r.sku)).size),""],
+    ["Places",fmt(new Set(open.map(r=>r.place)).size),""],
+    ["Over 30 days",fmt(old),old?"b":""]
+  ].map(([l,v,c])=>`<div><label>${l}</label><strong class="n ${c}">${v}</strong></div>`).join("");
+  document.getElementById("badge").textContent=open.length||"";
+  document.getElementById("tabs").innerHTML=TABS.map(([k,l])=>`<button class="tab" role="tab" aria-selected="${k===tab}" data-tab="${k}">${l}<span class="n">${ROWS.filter(r=>k==="open"?!r.out:r.out===k).length}</span></button>`).join("");
+}
+function chips(){
+  const rows=ROWS.filter(inTab);
+  document.getElementById("chips").innerHTML=["All",...STEPS].map(s=>{
+    const c=s==="All"?rows.length:rows.filter(r=>r.step===s).length;
+    return `<button class="way" role="tab" aria-selected="${s===step}" data-step="${s}">${ICON[s]}<span>${s} <span class="c n">${c}</span></span></button>`;
+  }).join("");
+}
+function rowsNow(){
+  const q=needle.trim().toLowerCase();
+  return ROWS.filter(inTab).filter(r=>step==="All"||r.step===step)
+    .filter(r=>!q||[r.a,r.v,r.sku,r.place,r.doc].some(x=>x.toLowerCase().includes(q)))
+    .sort((x,y)=>tab==="open"?D(x.since)-D(y.since):D(y.done)-D(x.done));
+}
+function art(r,sub){
+  return `<div class="withthumb"><span class="thumb" aria-hidden="true">${r.e}</span><span class="id"><span>${r.a}</span><small>${r.v} · ${r.sku}</small>${sub?`<small class="ph-only">${sub}</small>`:""}</span></div>`;
+}
+function since(r){
+  const n=age(r.since),late=n>OVERDUE;
+  return `<span class="${late?"b":""}">${day(r.since)}</span> <span class="${late?"b":"m"}">· ${n} d</span>`;
+}
+function list(){
+  const L=document.getElementById("list"),rows=rowsNow();
+  if(!rows.length){L.innerHTML=`<div class="box"><p class="empty">${tab==="open"&&!needle&&step==="All"?"Nothing missing":"Nothing here"}</p></div>`;return}
+  if(tab==="open"){
+    L.innerHTML=`<div class="box"><table><colgroup><col><col class="ph" style="width:14%"><col style="width:104px"><col class="ph" style="width:14%"><col class="ph" style="width:27%"></colgroup>
+      <tr><th>Article</th><th class="ph">Place</th><th class="r">Missing</th><th class="ph">Since</th><th class="ph">Noticed by</th></tr>
+      ${rows.map(r=>`<tr class="go" data-open="${r.id}"><td>${art(r,`${r.place} · ${r.step} · ${age(r.since)} d`)}</td><td class="ph">${r.place}${r.store&&r.place==="In transit"?` <span class="m">· to ${r.store}</span>`:""}</td><td class="r n" style="font-weight:600">${fmt(r.qty)}</td><td class="ph n">${since(r)}</td><td class="ph">${r.step} <span class="m">· ${r.doc}</span></td></tr>`).join("")}
+    </table></div>`;
+  }else{
+    const f=tab==="found";
+    L.innerHTML=`<div class="box"><table><colgroup><col><col class="ph" style="width:14%"><col style="width:96px"><col class="ph" style="width:11%"><col class="ph" style="width:12%"><col class="ph" style="width:20%"></colgroup>
+      <tr><th>Article</th><th class="ph">Place</th><th class="r">Pieces</th><th class="ph">Missing since</th><th class="ph">${f?"Found on":"Lost on"}</th><th class="ph">${f?"Moved to":"By"}</th></tr>
+      ${rows.map(r=>`<tr class="go" data-open="${r.id}"><td>${art(r,`${r.place} · ${f?"found":"lost"} ${day(r.done)}`)}</td><td class="ph">${r.place}</td><td class="r n">${fmt(r.qty)}</td><td class="ph n">${day(r.since)}</td><td class="ph n">${day(r.done)}</td><td class="ph">${f?dest(r):r.by}</td></tr>`).join("")}
+    </table></div>`;
+  }
+}
+
+/* ---------- the record sheet ---------- */
+const poolsAt=place=>place==="Head Office"?["Unallotted","Return"]:["Floor","Stockroom","Return"];
+function viewBody(r){
+  const H=history(r);let still=0;
+  const fig=r.out?[
+    ["Pieces",fmt(r.qty),""],["Missing since",day(r.since),""],[r.out==="found"?"Found on":"Lost on",day(r.done),""],["Lost in",r.place==="In transit"?"In transit":originOf(r),""],["Noticed by",`${r.step} · ${r.doc}`,""]
+  ]:[
+    ["Missing",fmt(r.qty)+" pcs","b"],["Since",day(r.since),age(r.since)>OVERDUE?"b":""],["Days",fmt(age(r.since)),age(r.since)>OVERDUE?"b":""],["Lost in",r.place==="In transit"?"In transit":originOf(r),""],["Noticed by",`${r.step} · ${r.doc}`,""]
+  ];
+  return `<div class="kpi">${fig.map(([l,v,c])=>`<div><label>${l}</label><strong class="n ${c}">${v}</strong></div>`).join("")}</div>
+    <h3>Pieces</h3>
+    <div class="box" style="margin-bottom:28px"><table><colgroup><col><col style="width:40%"></colgroup>
+      <tr><th>EPC</th><th>Last seen</th></tr>
+      ${epcsOf(r).map(e=>`<tr><td class="n">${e.epc}</td><td class="${e.seen?"":"m"}">${e.seen||"Not seen since"}</td></tr>`).join("")}
+    </table></div>
+    <h3>History</h3>
+    <div class="box hist"><table><colgroup><col style="width:84px"><col><col class="ph" style="width:16%"><col class="ph" style="width:22%"><col style="width:110px"></colgroup>
+      <tr><th>Date</th><th>What</th><th class="ph">Document</th><th class="ph">By</th><th class="r">Missing</th></tr>
+      ${H.map(e=>{
+        if(e.ch)still+=e.ch;
+        const hit=e.ch>0,end=e.final;
+        return `<tr class="${hit?"hit":end?"end":""}"><td class="n ${hit?"b":"m"}">${day(e.d)}</td><td>${e.w}<small class="ph-only m sub">${[e.doc,e.by].filter(Boolean).join(" · ")}</small></td><td class="ph m">${e.doc||"—"}</td><td class="ph m">${e.by||"—"}</td><td class="r n ${hit?"b":""}" style="${e.ch?"font-weight:600":""}">${e.ch?(e.ch>0?"+":"−")+fmt(Math.abs(e.ch))+` <span class="m" style="font-weight:400">→ ${fmt(still)}</span>`:'<span class="m">—</span>'}</td></tr>`;
+      }).join("")}
+    </table></div>`;
+}
+/* where a found piece can go: its own place, Head Office, and the store it
+   was on its way to */
+/* a found piece lands where it was lost; one lost on the road, at the store it was going to */
+const homeOf=r=>r.place==="In transit"?(r.store||"Head Office"):r.place;
+/* the tags of the pieces a row counts; a reader sighting after it went missing is the hint to look there */
+function epcsOf(r){
+  let h=7;for(const c of r.sku+r.place)h=(h*31+c.charCodeAt(0))%2147483647;
+  const seenAt=r.ev.find(e=>/Seen by/.test(e.w));
+  return Array.from({length:r.qty},(_,i)=>{h=(h*16807)%2147483647;const hex=h.toString(16).toUpperCase().padStart(8,"0");
+    return {epc:`E280 1191 ${hex.slice(0,4)} ${hex.slice(4,8)} ${String(1000+i*37+r.qty).slice(-4)}`,seen:i===0&&seenAt?`${day(seenAt.d)} · Floor reader`:i===0&&r.place!=="In transit"?`${day(shift(r.since,-1))} · ${originOf(r)}`:""}});
+}
+/* the pocket a piece went missing from: the ledger keeps {pocket}:missing */
+const originOf=r=>r.pool||({"Store receive":"Stockroom",Pack:"Allotted",Pick:"Unallotted","In transit":"In transit"}[r.step])||(r.place==="Head Office"?"Unallotted":"Floor");
+const dest=r=>r.to&&r.to!==r.place?`${r.where} · ${r.to}`:r.where;
+function formBody(r){
+  const f=draft.kind==="found";
+  const pieces=`<div class="field"><label>Pieces</label><span class="step"><button data-pcs="-1" ${draft.pcs<=1?"disabled":""} aria-label="Less">−</button><b class="n">${draft.pcs}</b><button data-pcs="1" ${draft.pcs>=r.qty?"disabled":""} aria-label="More">+</button></span><span class="m">of ${fmt(r.qty)} missing</span></div>`;
+  if(!f)return `<div class="form">${pieces}</div>`;
+  return `<div class="form">
+    ${pieces}
+    <div class="field"><label>Location</label><div class="chips" role="radiogroup">${PLACES.map(P=>`<button class="chip" role="radio" aria-checked="${draft.place===P.p}" data-loc="${P.p}">${P.kind==="ho"?ICON.Warehouse:ICON["Store receive"]}${P.p}</button>`).join("")}</div></div>
+    <div class="field"><label>Pocket</label><div class="tiles" role="radiogroup">${poolsAt(draft.place).map(o=>`<button class="tile" role="radio" aria-checked="${draft.opt===o}" data-opt="${o}">${ICON[o]}${o}</button>`).join("")}</div></div>
+  </div>`;
+}
+function foot(r){
+  if(mode==="form"){
+    const f=draft.kind==="found";
+    return `<button class="btn tint" data-cancel>Cancel</button><button class="btn ${f?"primary":"danger"}" data-confirm>${f?`Move ${draft.pcs} pcs to ${dest({place:r.place,to:draft.place,where:draft.opt})}`:`Mark ${draft.pcs} pcs lost`}</button>`;
+  }
+  if(r.out||!actions)return "";
+  return `<button class="btn tint-bad" data-start="off">Lost</button><button class="btn primary" data-start="found">Found</button>`;
+}
+/* ---------- Stock: every place's pockets; Missing is one of them ---------- */
+const sgn=n=>n>0?"+"+fmt(n):n<0?"−"+fmt(-n):"0";
+/* the pockets each kind of place really has (pool_template, 0610). A store's
+   outbound stages only carry a return for one tap, so they are not shown. */
+const PLACES=[
+ {p:"Head Office",kind:"ho",pk:{Unallotted:1842,Unidentified:42,Allotted:190,Return:27},ret:{"Head Office":18},gap:-19,counted:"2026-10-11"},
+ {p:"Cikupa",pk:{Floor:212,Stockroom:96,Return:3},gap:-7,counted:"2026-10-02",road:24},
+ {p:"Muaro Bungo",pk:{Floor:148,Stockroom:61,Return:0},gap:-4,counted:"2026-08-28"},
+ {p:"Bumiayu",pk:{Floor:131,Stockroom:44,Return:0},gap:-2,counted:"2026-10-05"},
+ {p:"Jambi",pk:{Floor:186,Stockroom:72,Return:1},gap:-3,counted:"2026-10-09",road:16},
+ {p:"Purbalingga",pk:{Floor:122,Stockroom:39,Return:0},gap:-3,counted:"2026-10-08"},
+ {p:"Wiramode",pk:{Floor:240,Stockroom:118,Return:2},gap:-7,counted:"2026-09-09"},
+ {p:"Brebes",pk:{Floor:109,Stockroom:35,Return:0},gap:-2,counted:"2026-09-26",road:30},
+ {p:"Pasuruan",pk:{Floor:97,Stockroom:28,Return:0},gap:null,counted:null},
+ {p:"WMJB",pk:{Floor:174,Stockroom:66,Return:0},gap:-2,counted:"2026-10-14"},
+ {p:"WMBA",pk:{Floor:158,Stockroom:57,Return:0},gap:-1,counted:"2026-10-12"},
+ {p:"Sipin",pk:{Floor:133,Stockroom:41,Return:0},gap:-3,counted:"2026-10-16",road:26},
+ {p:"Banjaran",pk:{Floor:119,Stockroom:38,Return:0},gap:-2,counted:"2026-10-13"},
+ {p:"Wonosobo",pk:{Floor:102,Stockroom:33,Return:0},gap:-4,counted:"2026-10-10"}
+];
+/* HO shows its pockets as groups; the stages inside them are Operations' to read.
+   Unidentified = supplier goods without an article code; Return = store returns not yet inspected + damaged goods for the supplier; a store's Return = damaged goods to send back to HO; Unallotted = the racks; Allotted = Pick Area to Loaded. */
+/* HO's Return holds one row per store, all 13, empty ones included */
+{const R={Cikupa:9,Wiramode:6,Brebes:4,Jambi:3};for(const P of PLACES.slice(1))PLACES[0].ret[P.p]=R[P.p]||0;PLACES[0].pk.Return=Object.values(PLACES[0].ret).reduce((t,v)=>t+v,0)}
+/* what the readers saw per pocket; the gap sits on the main pocket */
+for(const P of PLACES){
+  const main=P.kind==="ho"?"Unallotted":"Floor";
+  P.obs=P.gap===null?null:Object.fromEntries(Object.keys(P.pk).map(k=>[k,P.pk[k]+(k===main?P.gap:0)]));
+}
+/* a trip is one vehicle run; it carries one SJ per store it stops at */
+const ROAD={trips:[{id:"Trip 1",left:"2026-10-18",sjs:[{doc:"SJ-0315",to:"Cikupa",koli:2,pcs:24},{doc:"SJ-0316",to:"Jambi",koli:1,pcs:16}]},{id:"Trip 2",left:"2026-10-19",sjs:[{doc:"SJ-0317",to:"Brebes",koli:3,pcs:30},{doc:"SJ-0318",to:"Sipin",koli:2,pcs:26}]}],rets:[{doc:"RET-0031",from:"Wiramode",pcs:14}]};
+const sjsOf=()=>ROAD.trips.flatMap(t=>t.sjs);
+const roadLine=()=>`${ROAD.trips.length} trips · ${sjsOf().length} SJ · ${ROAD.rets.length} return`;
+const roadTo=()=>sjsOf().reduce((t,x)=>t+x.pcs,0),roadBack=()=>ROAD.rets.reduce((t,x)=>t+x.pcs,0);
+const placeOf=p=>PLACES.find(P=>P.p===p);
+const onHand=P=>Object.values(P.pk).reduce((t,v)=>t+v,0);
+const seenOf=P=>P.obs===null?null:Object.values(P.obs).reduce((t,v)=>t+v,0);
+const missingRowsAt=p=>ROWS.filter(r=>!r.out&&r.place===p).sort((x,y)=>D(x.since)-D(y.since));
+const missingAt=p=>missingRowsAt(p).reduce((t,r)=>t+r.qty,0);
+/* periods a stock card can be read for; each one closes where the next opens */
+const PERIODS=[{k:"oct",label:"1 – 19 Oct 2026",mon:10,days:19},{k:"sep",label:"September 2026",mon:9,days:30},{k:"aug",label:"August 2026",mon:8,days:31}];
+let period="oct",cardBy="place";
+const perOf=k=>PERIODS.find(x=>x.k===k);
+const inPer=(d,k)=>{const P=perOf(k);return d>=`2026-${String(P.mon).padStart(2,"0")}-01`&&d<=`2026-${String(P.mon).padStart(2,"0")}-${P.days}`};
+/* a place's stock card for a period: every change to its Inventory, Missing
+   moves included at 0 (they stay inside Inventory); Oct closes on today's figure */
+function stockCardOf(P,k="oct"){
+  const per=perOf(k);
+  let h=7;for(const c of P.p+k)h=(h*31+c.charCodeAt(0))%2147483647;const rnd=()=>{h=(h*16807)%2147483647;return h/2147483647};
+  const ev=[],iso=d=>`2026-${String(per.mon).padStart(2,"0")}-${String(d).padStart(2,"0")}`,ho=P.kind==="ho";
+  for(let d=1;d<=per.days;d++){
+    if(ho){
+      if(d%7===2)ev.push({d:iso(d),w:"Received from supplier",doc:"GR-0"+(per.mon*40+d),q:60+Math.round(rnd()*40)});
+      if(d%3===0)ev.push({d:iso(d),w:"Sent to stores",doc:"Trip "+Math.ceil(d/3),q:-(30+Math.round(rnd()*30))});
+      if(d===9)ev.push({d:iso(d),w:"Return received",doc:"RET-00"+(per.mon*3),q:9});
+    }else{
+      if(d%5===2)ev.push({d:iso(d),w:"Received from HO",doc:"SJ-0"+(per.mon*30+d),q:10+Math.round(rnd()*8)});
+      const sold=Math.round(rnd()*5);if(sold)ev.push({d:iso(d),w:"Sold",note:`${sold+Math.round(rnd()*2)} receipts`,q:-sold});
+      if(d===11&&rnd()<.5)ev.push({d:iso(d),w:"Customer return",doc:"RT-00"+(per.mon*5),q:1});
+    }
+  }
+  for(const r of ROWS){
+    if(r.place===P.p&&inPer(r.since,k))ev.push({d:r.since,w:`Went missing · ${originOf(r)} → Missing`,doc:r.doc,q:0,miss:1,note:`${r.lost} pcs`});
+    if(r.out==="off"&&r.place===P.p&&inPer(r.done,k))ev.push({d:r.done,w:`Lost`,note:r.a,q:-r.qty});
+    if(r.out==="found"&&inPer(r.done,k)){
+      const to=r.to||r.place;
+      if(to===P.p&&r.place!==P.p)ev.push({d:r.done,w:`Found · from Missing ${r.place}`,note:r.a,q:r.qty});
+      if(r.place===P.p&&to!==P.p)ev.push({d:r.done,w:`Found · moved to ${to}`,note:r.a,q:-r.qty});
+      if(r.place===P.p&&to===P.p)ev.push({d:r.done,w:`Found · Missing → ${r.where}`,note:r.a,q:0});
+    }
+  }
+  ev.sort((a,b)=>a.d<b.d?-1:a.d>b.d?1:0);
+  const closing=k==="oct"?invOf(P):stockCardOf(P,PERIODS[PERIODS.findIndex(x=>x.k===k)-1].k).opening;
+  return {opening:closing-ev.reduce((t,e)=>t+e.q,0),closing,ev};
+}
+const sumsOf=(K)=>{const sum=f=>K.ev.filter(f).reduce((t,e)=>t+e.q,0);
+  return {opening:K.opening,inn:sum(e=>e.q>0),sold:-sum(e=>e.w==="Sold"),lost:-sum(e=>e.w==="Lost"),out:-sum(e=>e.q<0&&e.w!=="Sold"&&e.w!=="Lost"),closing:K.closing}};
+/* a date range instead of a fixed period: every event from 1 Aug to today, closing
+   at the range's end = today's Inventory minus what happened after it */
+const MIN_D="2026-08-01",MAX_D="2026-10-19";
+let RANGE={from:"2026-10-01",to:"2026-10-19"},CRANGE={from:"2026-09-01",to:"2026-10-19"},kq="";
+const evCache=new Map();
+function allEvents(P){
+  if(!evCache.has(P.p))evCache.set(P.p,["aug","sep","oct"].flatMap(k=>stockCardOf(P,k).ev));
+  return evCache.get(P.p);
+}
+function rangeCard(P,R=RANGE){
+  const all=allEvents(P),ev=all.filter(e=>e.d>=R.from&&e.d<=R.to);
+  const closing=invOf(P)-all.filter(e=>e.d>R.to).reduce((t,e)=>t+e.q,0);
+  return {opening:closing-ev.reduce((t,e)=>t+e.q,0),closing,ev};
+}
+/* by article: the same equation per article, split over the places that hold it */
+const ARTICLES=["Kaos Basic Katun Combed","Celana Chino Slim Fit","Jaket Denim Washed","Kemeja Oxford Lengan Panjang","Sneakers Kanvas Low","Sandal Slide Karet","Dress Midi Plisket","Blus Rayon Motif Bunga","Kaos Anak Karakter","Rok Lipit Midi","Hoodie Fleece Oversize","Loafers Kulit Sintetis"];
+/* the stock card counts SKUs (colour × size), not articles */
+const SKUS=(()=>{const m=new Map();for(const r of ROWS)if(!m.has(r.sku))m.set(r.sku,{sku:r.sku,a:r.a,v:r.v,e:r.e});return [...m.values()].sort((x,y)=>x.a.localeCompare(y.a)||x.v.localeCompare(y.v))})();
+const skuOf=k=>SKUS.find(x=>x.sku===k);
+/* an article's daily events across every place, 1 Aug to today */
+const artCache=new Map();
+function articleEvents(a){
+  if(artCache.has(a))return artCache.get(a);
+  let h=11;for(const c of a)h=(h*31+c.charCodeAt(0))%2147483647;const rnd=()=>{h=(h*16807)%2147483647;return h/2147483647};
+  const now=240+Math.round(rnd()*420),ev=[];
+  for(let t=Date.UTC(2026,7,1);t<=Date.UTC(2026,9,19);t+=86400000){
+    const d=new Date(t).toISOString().slice(0,10);
+    if(rnd()<.25)ev.push({d,k:"inn",q:5+Math.round(rnd()*20)});
+    if(rnd()<.2)ev.push({d,k:"out",q:-(2+Math.round(rnd()*10))});
+    const sold=Math.round(rnd()*4);if(sold)ev.push({d,k:"sold",q:-sold});
+    if(rnd()<.02)ev.push({d,k:"lost",q:-1});
+  }
+  const v={now,ev};artCache.set(a,v);return v;
+}
+function articleCard(a,R=RANGE){
+  const {now,ev}=articleEvents(a),inR=ev.filter(e=>e.d>=R.from&&e.d<=R.to),sum=k=>inR.filter(e=>e.k===k).reduce((t,e)=>t+Math.abs(e.q),0);
+  const closing=now-ev.filter(e=>e.d>R.to).reduce((t,e)=>t+e.q,0);
+  const inn=sum("inn"),out=sum("out"),sold=sum("sold"),lost=sum("lost");
+  return {opening:closing-inn+out+sold+lost,inn,out,sold,lost,closing};
+}
+function articlePlaces(a){
+  const t=articleCard(a),keys=["opening","inn","out","sold","lost","closing"];
+  let h=3;for(const c of a)h=(h*31+c.charCodeAt(0))%2147483647;
+  const ws=PLACES.map(()=>{h=(h*16807)%2147483647;return .2+h/2147483647});ws[0]*=4;const W=ws.reduce((x,y)=>x+y,0);
+  const rows=PLACES.map((P,i)=>({P,...Object.fromEntries(keys.map(k=>[k,Math.floor(t[k]*ws[i]/W)]))}));
+  for(const k of keys)rows[0][k]+=t[k]-rows.reduce((x,r)=>x+r[k],0);
+  for(const r of rows)r.closing=r.opening+r.inn-r.out-r.sold-r.lost;
+  return rows;
+}
+/* one table shape for both views: Opening · In · Out · Sold · Lost · Closing */
+function cardTable(rows,first,attr,tot){
+  const cell=(v,c="")=>`<td class="r n ${v?c:"m"}">${v?fmt(v):"—"}</td>`,T=k=>rows.reduce((t,r)=>t+r[k],0);
+  return `<div class="box stocktable"><table><colgroup><col><col style="width:12%"><col style="width:10%"><col style="width:10%"><col style="width:10%"><col style="width:9%"><col style="width:12%"></colgroup>
+    <tr><th>${first}</th><th class="r">Opening</th><th class="r">In</th><th class="r">Out</th><th class="r">Sold</th><th class="r">Lost</th><th class="r">Closing</th></tr>
+    ${rows.map(r=>`<tr class="go" ${attr(r)}><td>${r.name}</td><td class="r n">${fmt(r.opening)}</td>${cell(r.inn)}${cell(r.out)}${cell(r.sold)}${cell(r.lost,"b")}<td class="r n" style="font-weight:600">${fmt(r.closing)}</td></tr>`).join("")}
+    ${tot?`<tr class="tot"><td>${tot}</td><td class="r n">${fmt(T("opening"))}</td><td class="r n">${fmt(T("inn"))}</td><td class="r n">${fmt(T("out"))}</td><td class="r n">${fmt(T("sold"))}</td><td class="r n">${fmt(T("lost"))}</td><td class="r n">${fmt(T("closing"))}</td></tr>`:""}
+  </table></div>`;
+}
+function cardPage(){
+  const rows=cardBy==="place"
+    ?PLACES.filter(P=>!kq||P.p.toLowerCase().includes(kq)).map(P=>({name:P.p,P,...sumsOf(rangeCard(P))}))
+    :SKUS.filter(x=>!kq||[x.a,x.v,x.sku].some(v=>v.toLowerCase().includes(kq))).map(x=>({name:`<div class="withthumb"><span class="thumb" aria-hidden="true">${x.e}</span><span class="id"><span>${x.a} · ${x.v}</span><small>${x.sku}</small></span></div>`,a:x.sku,...articleCard(x.sku)}));
+  const T=k=>rows.reduce((t,r)=>t+r[k],0);
+  document.getElementById("kbar").innerHTML=`<div class="ways" role="tablist">${[["place","By Place",ICON["Store receive"]],["article","By SKU",ICON.Floor]].map(([k,l,ic])=>`<button class="way" role="tab" aria-selected="${cardBy===k}" data-cardby="${k}">${ic}${l}</button>`).join("")}</div>
+`;
+  document.getElementById("kkpi").innerHTML=[["Opening",T("opening")],["In",T("inn")],["Out",T("out")],["Sold",T("sold")],["Lost",T("lost")],["Closing",T("closing")]]
+    .map(([l,v])=>`<div><label>${l}</label><strong class="n ${l==="Lost"&&v?"b":""}">${fmt(v)}</strong></div>`).join("");
+  if(!rows.length){document.getElementById("klist").innerHTML=`<div class="box"><p class="empty">Nothing matches</p></div>`;return}
+  document.getElementById("klist").innerHTML=cardBy==="place"
+    ?cardTable(rows,"Place",r=>`data-card="${r.P.p}" data-goto="card"`,"All places")
+    :cardTable(rows,"SKU",r=>`data-art="${r.a}"`,"All SKUs");
+}
+function articleBody(a){
+  const t=articleCard(a),rows=articlePlaces(a).map(r=>({...r,name:r.P.p}));
+  return `<div class="kpi">${[["Opening",t.opening],["In",t.inn],["Out",t.out],["Sold",t.sold],["Lost",t.lost],["Closing",t.closing]].map(([l,v])=>`<div><label>${l}</label><strong class="n ${l==="Lost"&&v?"b":""}">${fmt(v)}</strong></div>`).join("")}</div>
+    <h3>Where it is</h3>${cardTable(rows,"Place",r=>`data-card="${r.P.p}" data-goto="card"`,"All places")}`;
+}
+
+/* Counts: New count sends a task to the RFID device; a count is To do until the
+   device finishes it, then Done with its lines per SKU. No drafts, no review. */
+let TODOS=[{p:"Banjaran",d:"2026-10-19",kind:"Full",doc:"CC-0098",status:"todo",by:ME},{p:"Wiramode",d:"2026-10-18",kind:"Stockroom",doc:"CC-0097",status:"todo",by:ME}];
+let countOpen=null,nc=null;
+function countsOf(P){
+  const todo=TODOS.filter(c=>c.p===P.p).map(c=>({...c,P}));
+  if(!P.counted)return todo;
+  const book=onHand(P),who=STAFF[P.p];let h=0;for(const c of P.p)h=(h*31+c.charCodeAt(0))%997;
+  return [...todo,...[0,1,2,3].map(i=>{const short=[2,0,1,3,0,4][(h+i)%6],b=book-i*7;return {P,p:P.p,d:shift(P.counted,-i*30),kind:i%2?"Floor":"Full",doc:"CC-00"+(60+(h+i*7)%35),status:"done",book:b,counted:b-short,by:who}})];
+}
+const allCounts=()=>PLACES.flatMap(P=>countsOf(P)).sort((a,b)=>a.d<b.d?1:a.d>b.d?-1:0);
+const countById=id=>allCounts().find(c=>c.doc===id);
+function countRows(list,withPlace){
+  return list.map(c=>{const done=c.status==="done";return `<tr class="go" data-cnt="${c.doc}"><td class="n">${day(c.d)}</td>${withPlace?`<td>${c.p}</td>`:""}<td>${c.kind} <span class="m">· ${c.doc}</span></td><td>${done?'<span class="m">Done</span>':'<span class="todo">To do</span>'}</td><td class="r n ph">${done?fmt(c.book):"—"}</td><td class="r n">${done?fmt(c.counted):"—"}</td><td class="r n ${done&&c.counted<c.book?"b":"m"}">${!done?"—":c.counted===c.book?"0":sgn(c.counted-c.book)}</td></tr>`}).join("");
+}
+const countHead=withPlace=>`<colgroup><col style="width:10%">${withPlace?`<col>`:""}<col${withPlace?' style="width:20%"':""}><col style="width:10%"><col class="ph" style="width:11%"><col style="width:11%"><col style="width:12%"></colgroup>
+  <tr><th>Date</th>${withPlace?"<th>Place</th>":""}<th>Count</th><th>Status</th><th class="r ph">Book</th><th class="r">Counted</th><th class="r">Difference</th></tr>`;
+function countsPage(){
+  const all=allCounts(),todo=all.filter(c=>c.status==="todo").length;
+  const due=PLACES.filter(P=>!P.counted||age(P.counted)>OVERDUE).length,month=all.filter(c=>c.status==="done"&&c.d>="2026-10-01");
+  document.getElementById("ckpi").innerHTML=[["To do",fmt(todo),""],["Done this month",fmt(month.length),""],["Due",fmt(due),due?"warn":""]]
+    .map(([l,v,c])=>`<div><label>${l}</label><strong class="n ${c}">${v}</strong></div>`).join("");
+  const shown=all.filter(c=>c.d>=CRANGE.from&&c.d<=CRANGE.to);
+  document.getElementById("clist").innerHTML=shown.length?`<div class="box stocktable"><table>${countHead(true)}${countRows(shown,true)}</table></div>`:`<div class="box"><p class="empty">No counts in these dates</p></div>`;
+}
+/* the count's own sheet: its lines per SKU once the device has finished */
+function countLines(c){
+  let h=5;for(const ch of c.doc)h=(h*31+ch.charCodeAt(0))%2147483647;const rnd=()=>{h=(h*16807)%2147483647;return h/2147483647};
+  const n=8,lines=ARTICLES.slice(0,n).map(a=>({a,book:0,counted:0}));
+  let left=c.book;lines.forEach((l,i)=>{l.book=i===n-1?left:Math.max(1,Math.round(c.book/n*(.5+rnd())));left-=l.book;l.counted=l.book});
+  if(lines[n-1].book<1){lines[0].book+=lines[n-1].book-1;lines[n-1].book=1;lines[n-1].counted=1;lines[0].counted=lines[0].book}
+  let short=c.book-c.counted;for(let i=0;short>0;i=(i+3)%n){if(lines[i].counted>0){lines[i].counted--;short--}}
+  return lines.sort((x,y)=>(x.counted-x.book)-(y.counted-y.book));
+}
+function countBody(c){
+  if(c.status!=="done")return `<div class="kpi"><div><label>Place</label><strong>${c.p}</strong></div><div><label>Count</label><strong>${c.kind}</strong></div><div><label>Sent</label><strong class="n">${day(c.d)}</strong></div></div>
+    <div class="box"><p class="empty">On the RFID device</p></div>`;
+  const L=countLines(c);
+  return `<div class="kpi"><div><label>Book</label><strong class="n">${fmt(c.book)}</strong></div><div><label>Counted</label><strong class="n">${fmt(c.counted)}</strong></div><div><label>Difference</label><strong class="n ${c.counted<c.book?"b":""}">${c.counted===c.book?"0":sgn(c.counted-c.book)}</strong></div><div><label>By</label><strong>${c.by}</strong></div></div>
+    <div class="box"><table><colgroup><col><col style="width:16%"><col style="width:16%"><col style="width:16%"></colgroup>
+      <tr><th>Article</th><th class="r">Book</th><th class="r">Counted</th><th class="r">Difference</th></tr>
+      ${L.map(l=>`<tr><td>${l.a}</td><td class="r n">${fmt(l.book)}</td><td class="r n">${fmt(l.counted)}</td><td class="r n ${l.counted<l.book?"b":"m"}">${l.counted===l.book?"0":sgn(l.counted-l.book)}</td></tr>`).join("")}
+    </table></div>`;
+}
+/* New count: where, then the whole place or one pocket; it goes to the RFID device */
+function newCountBody(){
+  const P=placeOf(nc.place);
+  return `<div class="form">
+    <div class="field"><label>Location</label><div class="chips" role="radiogroup">${PLACES.map(Q=>`<button class="chip" role="radio" aria-checked="${nc.place===Q.p}" data-ncloc="${Q.p}">${Q.kind==="ho"?ICON.Warehouse:ICON["Store receive"]}${Q.p}</button>`).join("")}</div></div>
+    <div class="field"><label>What to count</label><div class="tiles" role="radiogroup">${["Full",...Object.keys(P.pk)].map(o=>`<button class="tile" role="radio" aria-checked="${nc.scope===o}" data-ncscope="${o}">${ICON[o]||ICON.All}${o==="Full"?"Whole place":o}</button>`).join("")}</div></div>
+  </div>`;
+}
+/* what left the books from here this month: outside Inventory, still on record */
+const lostAt=p=>ROWS.filter(r=>r.out==="off"&&r.place===p&&r.done.startsWith("2026-10")).reduce((t,r)=>t+r.qty,0);
+const invOf=P=>onHand(P)+missingAt(P.p);
+const gapWarn=(gap,book)=>gap!==null&&book>0&&Math.abs(gap)/book*100>1.5;
+
+function card(P){
+  const hand=onHand(P),inv=invOf(P),m=missingAt(P.p),seen=seenOf(P),gap=seen===null?null:seen-hand;
+  const d=P.counted?age(P.counted):null,stale=d===null||d>OVERDUE;
+  return `<div class="card" role="button" tabindex="0" data-card="${P.p}">
+    <div><div class="top"><span class="nm">${P.p}</span>${m?`<span class="lost n">${fmt(m)} missing</span>`:""}</div></div>
+    <div class="halves"><div><label>Inventory</label><b class="n">${fmt(inv)}</b></div><div><label>Observed</label><b class="n ${gapWarn(gap,hand)?"warn":""}">${seen===null?"—":fmt(seen)}</b></div></div>
+    <div class="cfoot"><span class="${stale?"warn":""}">${P.counted?`Counted ${day(P.counted)}`:"Never counted"}</span>${countBtn(P)}</div>
+  </div>`;
+}
+function roadCard(){
+  return `<button class="card" data-card="road">
+    <div><div class="top"><span class="nm">In transit</span>${missingAt("In transit")?`<span class="lost n">${fmt(missingAt("In transit"))} missing</span>`:""}</div><span class="pk">${roadLine()}</span></div>
+    <div class="halves"><div><label>To stores</label><b class="n">${fmt(roadTo())}</b></div><div><label>Back to HO</label><b class="n">${fmt(roadBack())}</b></div></div>
+  </button>`;
+}
+/* the same board as one table: a row per place, the road as one row */
+let look="table";
+/* table versions; in all of them HO and In transit are single rows and only
+   the stores get a heading */
+let tv="a";
+const TV=[["a","A · Calm"],["b","B · Pockets"],["c","C · Compact"],["d","D · Gap"]];
+const pill=m=>m?`<span class="lost n">${fmt(m)}</span>`:'<span class="m">0</span>';
+// A count already sent and not finished: the place says Counting instead of
+// offering a second one (as the hub does).
+const countingAt=p=>TODOS.some(c=>c.p===p&&c.status!=="done");
+const countBtn=P=>countingAt(P.p)?`<span class="m">Counting</span>`:`<button class="btn primary mini" data-countcard="${P.p}">Count</button>`;
+const lastCount=P=>{const d=P.counted?age(P.counted):null;return `<span class="${d===null||d>OVERDUE?"warn":""}">${P.counted?day(P.counted):"Never"}</span>`};
+const handOf=P=>Object.entries(P.pk).filter(([k])=>k!=="Return").reduce((t,[,v])=>t+v,0);
+/* each version: [header cells, column widths, cells for a place, cells for the road] */
+const COLS={
+  a:{h:["Inventory","Observed","Missing","Last count",""],w:["14%","14%","12%","14%","120px"],
+     row:P=>{const seen=seenOf(P),gap=seen===null?null:seen-onHand(P);return [fmt(invOf(P)),`<span class="${gapWarn(gap,onHand(P))?"warn":""}">${seen===null?"—":fmt(seen)}</span>`,pill(missingAt(P.p)),lastCount(P),countBtn(P)]},
+     road:mt=>[fmt(roadTo()+roadBack()+mt),"—",pill(mt),"—",""]},
+  b:{h:["On hand","Return","Missing","Inventory","Last count",""],w:["12%","10%","10%","12%","13%","120px"],
+     row:P=>[fmt(handOf(P)),fmt(P.pk.Return||0),pill(missingAt(P.p)),`<b>${fmt(invOf(P))}</b>`,lastCount(P),countBtn(P)],
+     road:mt=>[fmt(roadTo()+roadBack()),"—",pill(mt),`<b>${fmt(roadTo()+roadBack()+mt)}</b>`,"—",""]},
+  c:{h:["Inventory","Missing","Last count",""],w:["16%","14%","16%","120px"],
+     row:P=>[fmt(invOf(P)),pill(missingAt(P.p)),lastCount(P),countBtn(P)],
+     road:mt=>[fmt(roadTo()+roadBack()+mt),pill(mt),"—",""]},
+  d:{h:["Inventory","Observed","Gap","Missing","Last count",""],w:["12%","12%","9%","10%","13%","120px"],
+     row:P=>{const seen=seenOf(P),gap=seen===null?null:seen-onHand(P);return [fmt(invOf(P)),seen===null?"—":fmt(seen),`<span class="${gapWarn(gap,onHand(P))?"warn":gap?"":"m"}">${gap===null?"—":sgn(gap)}</span>`,pill(missingAt(P.p)),lastCount(P),countBtn(P)]},
+     road:mt=>[fmt(roadTo()+roadBack()+mt),"—","—",pill(mt),"—",""]},
+};
+const hit=name=>!sq||name.toLowerCase().includes(sq);
+let sq="";
+function stockTable(ho,st){
+  const V=COLS[tv],mt=missingAt("In transit"),n=V.h.length+1;
+  const cells=(arr,P)=>arr.map((c,k)=>`<td class="${k===arr.length-1?"r":k===arr.length-2&&V.h[k]==="Last count"?"ph":"r n"}">${c}</td>`).join("");
+  const row=P=>`<tr class="go" data-card="${P.p}"><td>${P.p}</td>${cells(V.row(P),P)}</tr>`;
+  const totals=V.h.map((h,k)=>h==="Inventory"?`<td class="r n">${fmt(st.reduce((t,P)=>t+invOf(P),0))}</td>`:h==="Missing"?`<td class="r n b">${fmt(st.reduce((t,P)=>t+missingAt(P.p),0))}</td>`:h==="On hand"?`<td class="r n">${fmt(st.reduce((t,P)=>t+handOf(P),0))}</td>`:h==="Return"?`<td class="r n">${fmt(st.reduce((t,P)=>t+(P.pk.Return||0),0))}</td>`:`<td class="${h==="Last count"?"ph":""}"></td>`).join("");
+  return `<div class="box stocktable"><table><colgroup><col>${V.w.map((w,k)=>`<col style="width:${w}" class="${V.h[k]==="Last count"?"ph":""}">`).join("")}</colgroup>
+    <tr><th>Place</th>${V.h.map(h=>`<th class="${h==="Last count"?"ph":"r"}">${h}</th>`).join("")}</tr>
+    ${ho.filter(P=>hit(P.p)).map(row).join("")}
+    ${hit("In transit")?"":"<!--"}<tr class="go" data-card="road"><td>In transit <span class="m">· ${roadLine()}</span></td>${cells(V.road(mt))}</tr>${hit("In transit")?"":"-->"}
+    <tr class="grp"><td colspan="${n}">Stores · ${st.length}</td></tr>
+    ${st.filter(P=>hit(P.p)).map(row).join("")}
+    <tr class="tot"><td>Stores total</td>${totals}</tr>
+  </table></div>`;
+}
+function board(){
+  const ho=PLACES.filter(P=>P.kind==="ho");
+  const st=PLACES.filter(P=>P.kind!=="ho").sort((a,b)=>missingAt(b.p)-missingAt(a.p)||a.p.localeCompare(b.p));
+  const inv=list=>list.reduce((t,P)=>t+invOf(P),0),miss=list=>list.reduce((t,P)=>t+missingAt(P.p),0);
+  const fig=list=>`Inventory ${fmt(inv(list))}${miss(list)?` · <span class="b">${fmt(miss(list))} missing</span>`:""}`;
+  const all=PLACES,mt=missingAt("In transit"),road=roadTo()+roadBack()+mt,mAll=miss(all)+mt;
+  document.getElementById("skpi").innerHTML=[["Inventory",fmt(inv(all)),""],["Missing",fmt(mAll),mAll?"b":""],["In transit",fmt(road),""],["Places",fmt(all.length),""]]
+    .map(([l,v,c])=>`<div><label>${l}</label><strong class="n ${c}">${v}</strong></div>`).join("");
+  if(look==="table"){document.getElementById("board").innerHTML=stockTable(ho,st);return}
+  document.getElementById("board").innerHTML=`
+    <div class="gh"><h2>HO</h2></div><div class="grid">${ho.map(card).join("")}</div>
+    <div class="gh"><h2>In transit</h2></div><div class="grid">${roadCard()}</div>
+    <div class="gh"><h2>Stores · ${st.length}</h2><p class="n">${fig(st)}</p></div><div class="grid">${st.map(card).join("")}</div>`;
+}
+
+/* a place's sheet: its figures, then its pockets (Missing last, on its own)
+   or the articles in its Missing pocket */
+function placeBody(P){
+  const hand=onHand(P),inv=invOf(P),m=missingAt(P.p),seen=seenOf(P),gap=seen===null?null:seen-hand;
+  const d=P.counted?age(P.counted):null,stale=d===null||d>OVERDUE;
+  const rows=missingRowsAt(P.p);
+  const figs=[["Inventory",fmt(inv),""],["Observed",seen===null?"—":fmt(seen),""],["Gap",gap===null?"—":sgn(gap),gapWarn(gap,hand)?"warn":""],["Missing",fmt(m),m?"b":""],["Last count",P.counted?day(P.counted):"Never",stale?"warn":""]];
+  const rets=P.ret?Object.entries(P.ret):[];
+  const tabs=[["pockets","Pockets",""],["missing","Missing",rows.length],...(P.ret?[["return","Return",""]]:[]),["card","Stock card",""],["counts","Counts",""]];
+  const empty=Object.values(P.pk).filter(v=>!v).length,lost=lostAt(P.p);
+  let content;
+  if(placeTab==="pockets"){
+    content=`<div class="box"><table><colgroup><col><col style="width:20%"><col style="width:20%"><col style="width:16%"></colgroup>
+      <tr><th>Pocket</th><th class="r">Inventory</th><th class="r">Observed</th><th class="r">Gap</th></tr>
+      ${Object.entries(P.pk).map(([k,v])=>{const o=P.obs?P.obs[k]:null;return `<tr class="${k==="Return"&&P.ret?"go":""}" ${k==="Return"&&P.ret?'data-ptab="return"':""}><td class="${v?"":"m"}">${k}</td><td class="r n">${fmt(v)}</td><td class="r n">${o===null?"—":fmt(o)}</td><td class="r n">${o===null?"—":sgn(o-v)}</td></tr>`}).join("")}
+      <tr class="go miss" data-ptab="missing"><td>Missing${m?`<small class="sub m">from ${originsAt(P.p)}</small>`:""}</td><td class="r n ${m?"b":"m"}">${fmt(m)}</td><td class="r m">—</td><td class="r m">—</td></tr>
+      <tr class="tot"><td>Total</td><td class="r n">${fmt(inv)}</td><td class="r n">${seen===null?"—":fmt(seen)}</td><td class="r n">${gap===null?"—":sgn(gap)}</td></tr>
+    </table></div>`;
+  }else if(placeTab==="return"){
+    content=`<div class="box"><table><colgroup><col><col style="width:28%"></colgroup>
+      <tr><th>Return</th><th class="r">Quantity</th></tr>
+      ${rets.map(([k,v])=>`<tr><td class="${v?"":"m"}">${k==="Head Office"?"Return HO":`Return ${k}`}</td><td class="r n ${v?"":"m"}">${fmt(v)}</td></tr>`).join("")}
+      <tr class="tot"><td>Total</td><td class="r n">${fmt(rets.reduce((t,[,v])=>t+v,0))}</td></tr>
+    </table></div>`;
+  }else if(placeTab==="card"){
+    const K=rangeCard(P);let bal=K.opening;
+    content=`<div class="box hist"><table><colgroup><col style="width:84px"><col><col class="ph" style="width:18%"><col style="width:100px"><col style="width:100px"></colgroup>
+      <tr><th>Date</th><th>What</th><th class="ph">Document</th><th class="r">Change</th><th class="r">Balance</th></tr>
+      <tr class="tot"><td class="n">${day(RANGE.from)}</td><td>Opening</td><td class="ph"></td><td></td><td class="r n">${fmt(K.opening)}</td></tr>
+      ${K.ev.map(e=>{bal+=e.q;return `<tr class="${e.miss?"hit":""}"><td class="n m">${day(e.d)}</td><td>${e.w}${e.note?` <span class="m">· ${e.note}</span>`:""}<small class="ph-only m sub">${e.doc||""}</small></td><td class="ph m">${e.doc||"—"}</td><td class="r n ${e.q<0?"":""}">${e.q?sgn(e.q):'<span class="m">0</span>'}</td><td class="r n">${fmt(bal)}</td></tr>`}).join("")}
+      <tr class="tot"><td class="n">${day(RANGE.to)}</td><td>Closing</td><td class="ph"></td><td></td><td class="r n">${fmt(bal)}</td></tr>
+    </table></div>`;
+  }else if(placeTab==="counts"){
+    const C=countsOf(P);
+    content=C.length?`<div class="box stocktable"><table>${countHead(false)}${countRows(C,false)}</table></div>`:`<div class="box"><p class="empty">Never counted</p></div>`;
+  }else content=missingTable(rows);
+  return `<div class="kpi">${figs.map(([l,v,c])=>`<div><label>${l}</label><strong class="n ${c}">${v}</strong></div>`).join("")}</div>
+    <div class="tabs" role="tablist">${tabs.map(([k,l,c])=>`<button class="tab" role="tab" aria-selected="${k===placeTab}" data-ptab="${k}">${l}${c!==""?`<span class="n">${c}</span>`:""}</button>`).join("")}</div>
+    ${content}`;
+}
+function missingTable(rows){
+  return rows.length?`<div class="box"><table><colgroup><col><col style="width:96px"><col class="ph" style="width:18%"><col class="ph" style="width:26%"></colgroup>
+      <tr><th>Article</th><th class="r">Missing</th><th class="ph">Since</th><th class="ph">Noticed by</th></tr>
+      ${rows.map(r=>`<tr class="go" data-rec="${r.id}"><td><span class="id"><span>${r.a}</span><small>${r.v} · ${r.sku}${r.store&&r.place==="In transit"?` · to ${r.store}`:""}</small><small class="ph-only">${r.step} · ${age(r.since)} d</small></span></td><td class="r n" style="font-weight:600">${fmt(r.qty)}</td><td class="ph n">${since(r)}</td><td class="ph">${r.step} <span class="m">· ${r.doc}</span></td></tr>`).join("")}
+    </table></div>`:`<div class="box"><p class="empty">Nothing missing here</p></div>`;
+}
+const originsAt=p=>{const m=new Map();for(const r of missingRowsAt(p))m.set(originOf(r),(m.get(originOf(r))||0)+r.qty);return [...m].map(([k,v])=>`${k} ${fmt(v)}`).join(" · ")};
+/* In transit reads like a place: its trips, and the Missing pocket that
+   holds what no store of a trip received */
+function roadBody(){
+  const rows=missingRowsAt("In transit"),m=missingAt("In transit");
+  const tabs=[["trips","Trips",""],["missing","Missing",rows.length]];
+  return `<div class="kpi"><div><label>To stores</label><strong class="n">${fmt(roadTo())}</strong></div><div><label>Back to HO</label><strong class="n">${fmt(roadBack())}</strong></div><div><label>Missing</label><strong class="n ${m?"b":""}">${fmt(m)}</strong></div></div>
+    <div class="tabs" role="tablist">${tabs.map(([k,l,c])=>`<button class="tab" role="tab" aria-selected="${k===placeTab}" data-ptab="${k}">${l}${c!==""?`<span class="n">${c}</span>`:""}</button>`).join("")}</div>
+    ${placeTab==="missing"?missingTable(rows):roadTrips()}`;
+}
+function roadTrips(){
+  return `<h3>To stores</h3>
+    <div class="box" style="margin-bottom:28px"><table><colgroup><col><col><col style="width:18%"><col style="width:18%"></colgroup>
+      <tr><th>Trip</th><th>To</th><th class="r">Koli</th><th class="r">Pieces</th></tr>
+      ${ROAD.trips.map(t=>`<tr class="tot"><td>${t.id} <span class="m" style="font-weight:400">· left ${day(t.left)}</span></td><td style="font-weight:400" class="m">${t.sjs.length} stores</td><td class="r n">${t.sjs.reduce((a,x)=>a+x.koli,0)}</td><td class="r n">${fmt(t.sjs.reduce((a,x)=>a+x.pcs,0))}</td></tr>
+        ${t.sjs.map(x=>`<tr><td style="padding-left:32px">${x.doc}</td><td>${x.to}</td><td class="r n">${x.koli}</td><td class="r n">${fmt(x.pcs)}</td></tr>`).join("")}`).join("")}
+    </table></div>
+    <h3>Back to HO</h3>
+    <div class="box"><table><colgroup><col><col><col style="width:18%"></colgroup>
+      <tr><th>Return</th><th>From</th><th class="r">Pieces</th></tr>
+      ${ROAD.rets.map(x=>`<tr><td>${x.doc}</td><td>${x.from}</td><td class="r n">${fmt(x.pcs)}</td></tr>`).join("")}
+    </table></div>`;
+}
+
+/* ---------- one sheet frame for a place, In transit, or a missing article ---------- */
+let sheetKind=null,placeOpen=null,placeTab="pockets",backTo=null,backKind="place",backTab="missing",showEmpty=false;
+const headHtml=(title,sub,back)=>`<div class="sh"><div class="t">${back?`<button class="back" data-back>‹ ${back}</button>`:""}<h2>${title}</h2><div class="m">${sub}</div></div><button class="x" data-close aria-label="Close">×</button></div>`;
+function sheetParts(){
+  if(sheetKind==="place"){
+    const P=placeOf(placeOpen);
+    return {head:headHtml(P.p,P.kind==="ho"?"HO":"Store"),body:placeBody(P),foot:countingAt(P.p)?`<span class="m" style="margin-right:auto">Counting · waiting for the count to finish</span>`:`<button class="btn primary" data-count>Count ${P.kind==="ho"?"HO":"store"}</button>`};
+  }
+  if(sheetKind==="count"){const c=countById(countOpen);return {head:headHtml(`${c.kind==="Full"?"Full":c.kind} count · ${c.p}`,`${c.doc} · ${day(c.d)}`,backTo),body:countBody(c),foot:c.status==="done"?"":`<button class="btn tint" data-finish>Finish on device (demo)</button>`}}
+  if(sheetKind==="newcount")return {head:headHtml("New count","Sent to the RFID device"),body:newCountBody(),foot:`<button class="btn tint" data-close>Cancel</button><button class="btn primary" data-ncsend>Send to RFID device</button>`};
+  if(sheetKind==="article")return {head:headHtml(`${skuOf(countOpen).a} · ${skuOf(countOpen).v}`,`${countOpen} · ${day(RANGE.from)} – ${day(RANGE.to)}`),body:articleBody(countOpen),foot:""};
+  if(sheetKind==="road")return {head:headHtml("In transit",roadLine()),body:roadBody(),foot:""};
+  const r=ROWS.find(x=>x.id===openId);if(!r)return null;
+  return {head:headHtml(`${mode==="form"?(draft.kind==="found"?"Found · ":"Lost · "):""}${r.a}`,`${r.v} · ${r.sku} · ${r.place}`,backTo),body:mode==="form"?formBody(r):viewBody(r),foot:foot(r)};
+}
+function sheet(anim,swap){
+  const parts=sheetParts();if(!parts)return;
+  const S=document.getElementById("sheet");
+  const html=cls=>`${parts.head}<div class="sb"><div class="in ${cls}">${parts.body}</div></div><div class="sf">${parts.foot}</div>`;
+  if(swap&&S.querySelector(".in")){
+    /* mode swap: the frame stays, contents go out (100ms) and in (160ms) */
+    S.querySelector(".in").classList.add("out");
+    setTimeout(()=>{S.innerHTML=html("out");requestAnimationFrame(()=>requestAnimationFrame(()=>S.querySelector(".in").classList.remove("out")))},100);
+    return;
+  }
+  S.innerHTML=html("");
+  if(anim)requestAnimationFrame(()=>{S.classList.add("on");document.getElementById("scrim").classList.add("on")});
+}
+function close(){document.getElementById("sheet").classList.remove("on");document.getElementById("scrim").classList.remove("on");sheetKind=null;openId=null;mode="view";draft=null;backTo=null}
+
+let toastT;
+function toast(t){const T=document.getElementById("toast");T.textContent=t;T.classList.add("on");clearTimeout(toastT);toastT=setTimeout(()=>T.classList.remove("on"),2600)}
+
+/* Found / Lost: part of the pieces leaves the row and becomes its own
+   settled line; the rest stays missing with the step in its history. Found
+   moves the pieces out of the Missing pocket into the chosen one. */
+function confirm(){
+  const r=ROWS.find(x=>x.id===openId),f=draft.kind==="found",n=draft.pcs;
+  const to=f?dest({place:r.place,to:draft.place,where:draft.opt}):"";
+  const ev={d:ISO_TODAY,w:f?`Found ${n} · Missing → ${to}`:`Lost ${n}`,doc:"",by:ME,ch:-n};
+  const settled={...r,id:r.id+"-"+Date.now(),qty:n,out:f?"found":"off",done:ISO_TODAY,where:draft.opt,to:f?draft.place:undefined,by:ME,ev:[...r.ev,{...ev,final:1}]};
+  ROWS.push(settled);
+  if(f){const P=placeOf(draft.place);P.pk[draft.opt]=(P.pk[draft.opt]||0)+n;if(P.obs)P.obs[draft.opt]=(P.obs[draft.opt]||0)+n}
+  if(n>=r.qty){ROWS=ROWS.filter(x=>x!==r);openId=settled.id}
+  else{r.qty-=n;r.ev.push(ev)}
+  mode="view";draft=null;
+  toast(f?`${n} pcs moved to ${to}`:`${n} pcs marked lost`);
+  render();sheet(false,true);
+}
+
+let view=qs.get("view")||"stock";
+function render(){
+  document.getElementById("stockView").hidden=view!=="stock";
+  document.getElementById("missingView").hidden=view!=="missing";
+  document.getElementById("countsView").hidden=view!=="counts";
+  document.getElementById("cardView").hidden=view!=="card";
+  countsPage();cardPage();
+  document.querySelectorAll(".side [data-view],.mnav [data-view]").forEach(a=>a.classList.toggle("on",a.dataset.view===view));
+  document.getElementById("mbadge").textContent=ROWS.filter(r=>!r.out).length||"";
+  document.querySelectorAll("#look button").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.look===look)));
+  board();kpi();chips();list();
+  document.querySelectorAll("#seg button").forEach(b=>b.setAttribute("aria-pressed",String((b.dataset.act==="1")===actions)));
+}
+
+document.addEventListener("click",e=>{
+  const t=e.target.closest("[data-view],[data-look],[data-tv],[data-cnt],[data-newcount],[data-ncloc],[data-ncscope],[data-ncsend],[data-finish],[data-cardby],[data-art],[data-countcard],[data-card],[data-ptab],[data-empty],[data-lostof],[data-rec],[data-back],[data-count],[data-tab],[data-step],[data-open],[data-close],[data-start],[data-cancel],[data-confirm],[data-pcs],[data-loc],[data-opt],[data-act]");
+  if(!t){if(e.target.id==="scrim")close();return}
+  const r=ROWS.find(x=>x.id===openId);
+  if(t.dataset.cnt){const from=sheetKind==="place";backTo=from?placeOpen:null;backKind="place";backTab="counts";countOpen=t.dataset.cnt;sheetKind="count";if(from)sheet(false,true);else sheet(true)}
+  else if(t.hasAttribute("data-newcount")){nc={place:"Cikupa",scope:"Full"};backTo=null;sheetKind="newcount";sheet(true)}
+  else if(t.dataset.ncloc){nc.place=t.dataset.ncloc;nc.scope="Full";sheet(false)}
+  else if(t.dataset.ncscope){nc.scope=t.dataset.ncscope;sheet(false)}
+  else if(t.hasAttribute("data-ncsend")){const n=TODOS.length+99;TODOS.unshift({p:nc.place,d:ISO_TODAY,kind:nc.scope,doc:"CC-0"+n,status:"todo",by:ME});close();render();toast(`Count sent to the RFID device · ${nc.place}`)}
+  else if(t.hasAttribute("data-finish")){const c=TODOS.find(x=>x.doc===countOpen);const P=placeOf(c.p);c.status="done";c.book=c.kind==="Full"?onHand(P):P.pk[c.kind];c.counted=c.book-2;c.by=STAFF[c.p];render();sheet(false,true);toast(`Count done · ${c.p}`)}
+  else if(t.dataset.cardby){cardBy=t.dataset.cardby;cardPage()}
+  else if(t.dataset.art){countOpen=t.dataset.art;backTo=null;sheetKind="article";sheet(true)}
+  else if(t.dataset.look){look=t.dataset.look;render()}
+  else if(t.dataset.tv){tv=t.dataset.tv;board()}
+  else if(t.dataset.countcard){TODOS.unshift({p:t.dataset.countcard,d:ISO_TODAY,kind:"Full",doc:"CC-0"+(TODOS.length+99),status:"todo",by:ME});render();toast(`Count sent · ${t.dataset.countcard}`)}
+  else if(t.dataset.view){view=t.dataset.view;close();render();scrollTo(0,0)}
+  else if(t.dataset.card){backTo=null;mode="view";showEmpty=false;if(t.dataset.card==="road"){sheetKind="road";placeTab="trips"}else{sheetKind="place";placeOpen=t.dataset.card;placeTab=t.dataset.goto||"pockets"}sheet(true)}
+  else if(t.dataset.ptab){placeTab=t.dataset.ptab;sheet(false)}
+  else if(t.hasAttribute("data-empty")){showEmpty=!showEmpty;sheet(false)}
+  else if(t.dataset.lostof){const p=t.dataset.lostof;close();view="missing";tab="off";step="All";needle=p;document.getElementById("q").value=p;render();scrollTo(0,0)}
+  else if(t.dataset.rec){backTab="missing";backKind=sheetKind;backTo=sheetKind==="road"?"In transit":placeOpen;sheetKind="record";openId=t.dataset.rec;mode="view";sheet(false,true)}
+  else if(t.hasAttribute("data-back")){sheetKind=backKind;placeTab=backTab;openId=null;mode="view";draft=null;backTo=null;sheet(false,true)}
+  else if(t.hasAttribute("data-count"))toast(`Count asked · ${placeOpen}`);
+  else if(t.dataset.tab){tab=t.dataset.tab;step="All";render()}
+  else if(t.dataset.step){step=t.dataset.step;chips();list()}
+  else if(t.dataset.open){sheetKind="record";backTo=null;openId=t.dataset.open;mode="view";sheet(true)}
+  else if(t.hasAttribute("data-close"))close();
+  else if(t.dataset.start){const fp=homeOf(r),o=originOf(r);draft={kind:t.dataset.start,pcs:r.qty,place:fp,opt:t.dataset.start==="found"?(poolsAt(fp).includes(o)?o:poolsAt(fp)[0]):"Lost"};mode="form";sheet(false,true)}
+  else if(t.hasAttribute("data-cancel")){mode="view";draft=null;sheet(false,true)}
+  else if(t.hasAttribute("data-confirm"))confirm();
+  else if(t.dataset.pcs){draft.pcs=Math.min(r.qty,Math.max(1,draft.pcs+Number(t.dataset.pcs)));sheet(false)}
+  else if(t.dataset.loc){draft.place=t.dataset.loc;const ps=poolsAt(draft.place),o=originOf(r);if(!ps.includes(draft.opt))draft.opt=ps.includes(o)?o:ps[0];sheet(false)}
+  else if(t.dataset.opt){draft.opt=t.dataset.opt;sheet(false)}
+  else if(t.dataset.act){actions=t.dataset.act==="1";if(mode==="form"){mode="view";draft=null}render();if(sheetKind)sheet(false)}
+});
+document.getElementById("q").addEventListener("input",e=>{needle=e.target.value;list()});
+document.getElementById("sq").addEventListener("input",e=>{sq=e.target.value.trim().toLowerCase();board()});
+document.getElementById("kq").addEventListener("input",e=>{kq=e.target.value.trim().toLowerCase();cardPage()});
+document.addEventListener("change",e=>{});
+document.addEventListener("keydown",e=>{if(e.key==="Escape")close()});
+/* one-box day range, after the hub's DayRange: "01 Oct – 19 Oct" opens a month;
+   the first day clicked starts the window, the second ends it */
+const CAL='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>';
+const PICK={};
+const dd=d=>{const x=D(d);return `${String(x.getDate()).padStart(2,"0")} ${MON[x.getMonth()]}`};
+const isoOf=(y,m,d)=>`${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+function picker(id,R,min,onChange){PICK[id]={R,min,onChange,open:false,first:null,ym:[+R.to.slice(0,4),+R.to.slice(5,7)-1]};drawPicker(id)}
+function presets(){
+  return [["This month","2026-10-01",MAX_D],["Last month","2026-09-01","2026-09-30"],["Last 30 days",shift(MAX_D,-29),MAX_D],["Last 90 days",shift(MAX_D,-89),MAX_D]];
+}
+function drawPicker(id){
+  const p=PICK[id],el=document.getElementById(id),R=p.R;
+  let html=`<button class="rbox" data-pick="${id}" aria-expanded="${p.open}">${dd(R.from)} – ${dd(R.to)}${CAL}</button>`;
+  if(p.open){
+    const [y,m]=p.ym,first=new Date(y,m,1),lead=(first.getDay()+6)%7,days=new Date(y,m+1,0).getDate();
+    const cells=[...Array(lead).fill(""),...Array.from({length:days},(_,i)=>i+1)];
+    html+=`<div class="pop" role="dialog">
+      <div class="pre">${presets().map(([l,f,t])=>`<button class="chip" data-ppre="${id}|${f}|${t}" aria-checked="${R.from===f&&R.to===t}">${l}</button>`).join("")}</div>
+      <div class="pm"><button data-pmon="${id}|-1" aria-label="Previous month">‹</button><b>${["January","February","March","April","May","June","July","August","September","October","November","December"][m]} ${y}</b><button data-pmon="${id}|1" aria-label="Next month">›</button></div>
+      <div class="pg">${["Mo","Tu","We","Th","Fr","Sa","Su"].map(w=>`<span class="wd">${w}</span>`).join("")}
+      ${cells.map(d=>{if(!d)return "<span></span>";const iso=isoOf(y,m,d),off=iso<p.min||iso>MAX_D,end=iso===R.from||iso===R.to,inr=iso>R.from&&iso<R.to&&!p.first;
+        return `<button data-pday="${id}|${iso}" class="${end?"end":inr?"in":""}" ${off?"disabled":""}>${d}</button>`}).join("")}</div>
+    </div>`;
+  }
+  el.innerHTML=html;
+}
+document.addEventListener("click",e=>{
+  for(const id in PICK){if(PICK[id].open&&!e.target.closest("#"+id)){PICK[id].open=false;PICK[id].first=null;drawPicker(id)}}
+  const b=e.target.closest("[data-pick],[data-pday],[data-pmon],[data-ppre]");if(!b)return;
+  if(b.dataset.pick){const p=PICK[b.dataset.pick];p.open=!p.open;p.first=null;drawPicker(b.dataset.pick);return}
+  if(b.dataset.pmon){const [id,dir]=b.dataset.pmon.split("|"),p=PICK[id];let [y,m]=p.ym;m+=+dir;if(m<0){m=11;y--}if(m>11){m=0;y++}p.ym=[y,m];drawPicker(id);return}
+  if(b.dataset.ppre){const [id,f,t]=b.dataset.ppre.split("|"),p=PICK[id];p.R.from=f;p.R.to=t;p.open=false;drawPicker(id);p.onChange();return}
+  if(b.dataset.pday){const [id,iso]=b.dataset.pday.split("|"),p=PICK[id];
+    if(!p.first){p.first=iso;p.R.from=iso;p.R.to=iso;drawPicker(id)}
+    else{const a=p.first;p.R.from=a<iso?a:iso;p.R.to=a<iso?iso:a;p.first=null;p.open=false;drawPicker(id);p.onChange()}}
+});
+picker("cpick",CRANGE,"2026-06-01",()=>countsPage());
+picker("kpick",RANGE,MIN_D,()=>{cardPage();if(sheetKind)sheet(false)});
+render();
+</script>
+</body>
+</html>

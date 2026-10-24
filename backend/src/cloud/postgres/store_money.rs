@@ -327,9 +327,11 @@ pub fn parse_cash_shift(payload: &Value) -> Result<CashShiftFact, String> {
                 movement.movement_id
             ));
         }
+        // FLOAT_RETURN is "Setor modal" (client, 24 Oct 2026, postgres 0992):
+        // the float back in the Kepala toko's hands with the shift still open.
         if !matches!(
             movement.kind.as_str(),
-            "OPENING_FLOAT" | "DROP" | "PICKUP" | "PAYOUT" | "CORRECTION"
+            "OPENING_FLOAT" | "DROP" | "PICKUP" | "PAYOUT" | "CORRECTION" | "FLOAT_RETURN"
         ) {
             return Err(format!("'{}' is not a cash movement kind", movement.kind));
         }

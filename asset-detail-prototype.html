@@ -1,0 +1,684 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Asset detail</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+/* GA › Assets › one asset — the detail that gathers everything filed against it (17 Oct).
+   Sheet anatomy: frontend-hub/design-system/02-sheets.md + components/Sheet.md.
+   Tokens: design-system/tokens.json. Spec fields: backend/src/cloud/domain/ga.rs build_fields. */
+:root{
+  --ink:#1d1d1f; --body:#6e6e73; --faint:#c7c7cc; --line-ico:#8e8e93; --crumb:#aeaeb2;
+  --soft:#fafafb; --soft-2:#f2f2f5; --band:#fafafb; --stone:#e8ebf0;
+  --hairline:#e8e8ec; --hairline-2:#dcdce1; --row-line:#eeeef1; --strong:#c7c7cc;
+  --accent:#2862dc; --accent-bg:#eef3fc; --cta-hover:#2055c7;
+  --ok:#36b827; --ok-fg:#248a3d; --warn:#c9892e; --warn-fg:#a66c1f; --bad:#d70015; --bad-fg:#d70015; --info:#2f86d8;
+  --ease-out:cubic-bezier(.23,1,.32,1); --ease-drawer:cubic-bezier(.32,.72,0,1);
+  --shadow-page:0 0 0 1px rgba(0,0,0,.05),0 2px 8px rgba(0,0,0,.04),0 24px 72px rgba(0,0,0,.08);
+  --shadow-sheet:0 0 0 1px rgba(0,0,0,.05),0 2px 8px rgba(0,0,0,.05),0 24px 64px rgba(0,0,0,.14);
+  --shadow-pop:0 0 0 1px var(--hairline),0 4px 8px rgba(24,39,60,.04),0 12px 32px rgba(24,39,60,.08);
+  --scrim:rgba(208,208,213,.48);
+  --font:"Inter",system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font-family:var(--font);font-size:15px;line-height:22px;color:var(--ink);background:#d9dbe0;letter-spacing:-.006em;-webkit-font-smoothing:antialiased;overflow:hidden}
+button,input,select,textarea{font:inherit;color:inherit;letter-spacing:inherit}
+button{background:none;border:0;padding:0;margin:0;cursor:pointer}
+.i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+
+/* prototype chrome */
+.proto{height:50px;overflow-x:auto;background:#141518;color:#fff;display:flex;align-items:center;gap:12px;padding:0 14px 0 18px}
+.proto .t{font-weight:600;white-space:nowrap}
+.seg{display:flex;gap:2px;background:#24262b;border-radius:9px;padding:3px}
+.seg button{height:32px;padding:0 11px;border-radius:7px;color:#b9bcc3;white-space:nowrap;transition:background-color .15s ease,color .15s ease,transform .12s var(--ease-out)}
+.seg button:active{transform:scale(.97)}
+.seg button b{font-weight:600;color:#fff;margin-right:5px}
+.seg button.on{background:#fff;color:var(--ink)} .seg button.on b{color:var(--ink)}
+.seg .star{color:#f4b740;margin-left:4px}
+.proto .sp{flex:1}
+.note{min-height:36px;background:#1c1e22;color:#a7abb3;line-height:24px;padding:6px 18px;border-top:1px solid #26282d}
+.note b{color:#fff;font-weight:500}
+.stagewrap{height:calc(100vh - 50px - var(--nh,36px));overflow:hidden;display:flex;justify-content:center;align-items:flex-start}
+
+/* hub shell behind the sheet */
+.app{position:relative;width:1440px;height:900px;display:flex;background:var(--stone);padding:12px 12px 12px 0;flex:none;overflow:hidden}
+.rail{width:68px;flex:none;display:flex;flex-direction:column;align-items:center;gap:4px;padding-top:2px}
+.rail .ri{width:40px;height:40px;border-radius:10px;display:grid;place-items:center;color:#344054}
+.rail .ri .i{width:18px;height:18px}
+.rail .ri.on{background:#fff;color:var(--accent);box-shadow:0 0 0 1px rgba(16,24,40,.07),0 1px 2px rgba(16,24,40,.08)}
+.panel{width:216px;flex:none;background:#fff;border-radius:16px;box-shadow:0 0 0 1px rgba(0,0,0,.05),0 2px 6px rgba(0,0,0,.04);margin-right:12px}
+.panel h2{margin:0;height:56px;display:flex;align-items:center;padding:0 18px;font-size:17px;font-weight:600;color:#1d2939}
+.nav{padding:0 10px;display:flex;flex-direction:column;gap:2px}
+.nav .nr{height:36px;display:flex;align-items:center;padding:0 10px;border-radius:8px;color:#344054}
+.nav .nr.on{background:var(--accent-bg);color:var(--accent);font-weight:600}
+.nav hr{border:0;border-top:1px solid var(--hairline);margin:6px 10px}
+.page{flex:1;min-width:0;background:#fff;border-radius:16px;box-shadow:var(--shadow-page);overflow:hidden}
+.page .ph{height:77px;display:flex;align-items:center;justify-content:space-between;padding:8px 28px 0;border-bottom:1px solid var(--hairline)}
+.page .ph h1{margin:0;font-size:17px;font-weight:600}
+.page .lb{padding:24px 28px}
+.ghostrow{height:62px;border-bottom:1px solid var(--row-line);display:flex;align-items:center;gap:16px;padding:0 16px}
+.ghostrow.sel{background:var(--accent-bg)}
+.ghostrow b{font-weight:500}
+.scrim{position:absolute;inset:0;background:var(--scrim);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);z-index:10;opacity:1;transition:opacity .2s ease}
+
+/* phone frame */
+.phone{position:relative;width:414px;height:896px;border-radius:44px;background:#fff;overflow:hidden;box-shadow:0 0 0 10px #111,0 30px 80px rgba(0,0,0,.25);margin-top:24px;flex:none}
+.phone .pbar{height:47px;display:flex;align-items:center;justify-content:space-between;padding:0 30px;font-weight:600}
+.phone .plist{padding:8px 16px}
+.phone .plist h1{font-size:17px;margin:6px 0 14px}
+
+/* the sheet */
+.sheet{position:absolute;top:12px;right:12px;bottom:12px;width:1040px;background:#fff;border-radius:16px;box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;overflow:hidden;z-index:20}
+.sheet.s-rail{width:480px}
+.sheet.layer{top:24px;right:24px;bottom:24px;transform:translateX(calc(100% + 40px));transition:transform .28s var(--ease-drawer)}
+.sheet.layer.in{transform:none}
+.sheet.layer.out{transform:translateX(calc(100% + 40px));transition:transform .2s var(--ease-out)}
+.m-phone .sheet{top:12px;left:0;right:0;bottom:0;width:auto;border-radius:16px 16px 0 0;box-shadow:0 8px 24px rgba(24,39,60,.06),0 24px 64px rgba(24,39,60,.12)}
+.m-phone .sheet.layer{top:24px;transform:translateY(100%);transition:transform .34s var(--ease-drawer)}
+.m-phone .sheet.layer.in{transform:none}
+.m-phone .sheet.layer.out{transform:translateY(100%);transition:transform .2s var(--ease-out)}
+.grip{position:absolute;top:8px;left:50%;width:36px;height:4px;margin-left:-18px;border-radius:4px;background:var(--strong)}
+.sh-head{position:relative;flex:none;padding:24px 76px 16px 28px;border-bottom:1px solid var(--hairline)}
+.m-phone .sh-head{padding:22px 64px 14px 16px}
+.crumb{color:var(--body);line-height:18px;margin-bottom:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.crumb .sep{color:var(--crumb);margin:0 6px}
+.crumb a{color:var(--body);text-decoration:none;cursor:pointer}
+.titlerow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.titlerow h2{margin:0;font-size:17px;line-height:24px;font-weight:600;letter-spacing:-.3px}
+.caption{color:var(--body);margin-top:4px}
+.xbtn{position:absolute;top:20px;right:20px;width:36px;height:36px;border-radius:8px;display:grid;place-items:center;color:var(--ink);transition:background-color .12s ease,transform .12s var(--ease-out)}
+.m-phone .xbtn{top:16px;right:12px;width:44px;height:44px}
+@media (hover:hover){.xbtn:hover{background:var(--soft-2)}}
+.xbtn:active{transform:scale(.97)}
+.xbtn .i{width:17px;height:17px}
+.sh-body{position:relative;flex:1;overflow-y:auto;overflow-x:hidden;padding:20px 28px 24px;display:flex;flex-direction:column;gap:24px;transition:opacity .16s ease}
+.sh-body > *{flex:none}
+.sh-body.swapping{opacity:0;transition:opacity .1s ease}
+.m-phone .sh-body{padding:20px 16px 24px}
+.sh-foot{flex:none;min-height:64px;padding:12px 28px;border-top:1px solid var(--hairline);display:flex;justify-content:flex-end;align-items:center;gap:8px;background:#fff}
+.m-phone .sh-foot{padding:12px 16px 30px}
+.m-phone .sh-foot .b{height:44px;flex:1;justify-content:center}
+.m-phone .sh-foot .b.sq{flex:none;width:44px;padding:0}
+
+/* buttons */
+.b{height:36px;display:inline-flex;align-items:center;gap:6px;padding:0 16px;border-radius:8px;font-weight:500;white-space:nowrap;transition:background-color .12s ease,transform .12s var(--ease-out)}
+.b:active{transform:scale(.97)}
+.b.primary{background:var(--accent);color:#fff;box-shadow:0 1px 2px rgba(20,50,100,.1)}
+@media (hover:hover){.b.primary:hover{background:var(--cta-hover)}}
+.b.ghost{border:1px solid var(--hairline-2);background:#fff}
+@media (hover:hover){.b.ghost:hover{background:var(--soft-2)}}
+.b.red{background:var(--bad);color:#fff}
+.b.soft{background:var(--soft-2)}
+.tint{color:var(--accent);font-weight:500;display:inline-flex;align-items:center;gap:4px;border-radius:6px;padding:2px 4px;margin:-2px -4px;transition:background-color .12s ease}
+@media (hover:hover){.tint:hover{background:var(--accent-bg)}}
+.tint .i{width:15px;height:15px}
+.rlink{color:var(--accent);cursor:pointer;border-radius:4px}
+@media (hover:hover){.rlink:hover{text-decoration:underline;text-underline-offset:3px}}
+
+/* status: Pill in a head colours dot and word; Status in a cell keeps an ink word */
+.pill{display:inline-flex;align-items:center;gap:7px;font-weight:500;white-space:nowrap;color:var(--body)}
+.pill::before,.st::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--body);flex:none}
+.pill.ok{color:var(--ok-fg)} .pill.ok::before{background:var(--ok)}
+.st{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+.st.ok::before{background:var(--ok)} .st.warn{color:var(--warn-fg)} .st.warn::before{background:var(--warn)}
+.st.bad{color:var(--bad-fg)} .st.bad::before{background:var(--bad)} .st.done{color:var(--body)} .st.done::before{background:var(--body)}
+.st.info::before{background:var(--info)}
+
+/* figures, facts, sections */
+.kpis{display:flex;flex-wrap:wrap;row-gap:12px}
+.kpi{padding:0 24px;border-left:1px solid var(--hairline);white-space:nowrap}
+.kpi:first-child{padding-left:0;border-left:0}
+.kpi .l{color:var(--body);line-height:20px}
+.kpi .v{display:block;font-size:16px;font-weight:600;line-height:22px;margin-top:4px;font-variant-numeric:tabular-nums}
+.kpi .v.warn{color:var(--warn-fg)}
+.m-phone .kpis{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--hairline);border-radius:10px;overflow:hidden;gap:1px;background:var(--hairline)}
+.m-phone .kpi{background:#fff;border:0;padding:10px 14px}
+.sec-h{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
+.sec-h h3{margin:0;font-size:15px;font-weight:600}
+.sec-h .n{color:var(--body);font-variant-numeric:tabular-nums}
+.sec-h .sp{flex:1}
+.sec-h .acts{display:flex;gap:16px}
+.facts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px 32px;margin:0}
+.facts.c2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.facts.c3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.m-phone .facts{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.facts div{min-width:0}
+.facts dt{color:var(--body)}
+.facts dd{margin:4px 0 0;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.sub{color:var(--body)}
+.empty-line{color:var(--body);padding:4px 0}
+
+/* mini tables: framed, heading on band, rows open their record */
+.mt{border:1px solid var(--hairline);border-radius:10px;overflow:clip}
+.mt table{width:100%;border-collapse:collapse;table-layout:fixed}
+.mt th{height:40px;background:var(--band);color:var(--body);font-weight:500;text-align:left;padding:0 16px;border-bottom:1px solid var(--hairline);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mt td{white-space:nowrap;padding:12px 16px;border-top:1px solid var(--row-line);vertical-align:top;overflow:hidden;text-overflow:ellipsis}
+.mt tbody tr:first-child td{border-top:0}
+.mt tr.row{cursor:pointer}
+.mt tr.row td{transition:background-color .12s ease}
+@media (hover:hover){.mt tr.row:hover td{background:var(--soft)}}
+.mt td:last-child{position:relative;padding-right:34px}
+@media (hover:hover){.mt tr.row:hover td:last-child::after{content:"";position:absolute;right:16px;top:20px;width:7px;height:7px;border-right:1.6px solid var(--body);border-top:1.6px solid var(--body);transform:rotate(45deg)}}
+.mt .nm{font-weight:500;display:block;overflow:hidden;text-overflow:ellipsis}
+.mt .q{display:block;color:var(--body);overflow:hidden;text-overflow:ellipsis}
+.mt + .mt{margin-top:12px}
+.mt .cap{display:flex;justify-content:space-between;padding:0 16px;height:40px;align-items:center;background:var(--band);border-bottom:1px solid var(--hairline);font-weight:500}
+.mt .cap span{color:var(--body);font-weight:400}
+/* phone: a row is a block — its first cell, then the rest two to a line under their names */
+.mcards{border:1px solid var(--hairline);border-radius:10px;overflow:clip}
+.mcard{padding:12px 14px;border-top:1px solid var(--row-line);cursor:pointer}
+.mcard:first-child{border-top:0}
+.mcard .ft{font-weight:500}
+.mcard .nm{display:block;font-weight:500}
+.mcard .q{display:block;color:var(--body);font-weight:400}
+.mcard dl{display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;margin:8px 0 0}
+.mcard dt{color:var(--body)} .mcard dd{margin:2px 0 0;overflow-wrap:anywhere}
+
+/* B · two sides */
+.sides{display:grid;grid-template-columns:380px minmax(0,1fr);gap:32px;align-items:start}
+.sides > div{display:flex;flex-direction:column;gap:24px;min-width:0}
+.docs-list{border:1px solid var(--hairline);border-radius:10px;overflow:clip}
+.docs-list .dl{display:flex;justify-content:space-between;gap:12px;padding:11px 14px;border-top:1px solid var(--row-line);cursor:pointer;transition:background-color .12s ease}
+.docs-list .dl:first-child{border-top:0}
+@media (hover:hover){.docs-list .dl:hover{background:var(--soft)}}
+.docs-list .dl .w{color:var(--body);white-space:nowrap}
+
+/* C · index */
+.withindex{display:grid;grid-template-columns:196px minmax(0,1fr);gap:28px;align-items:start}
+.index{position:sticky;top:0;display:flex;flex-direction:column;gap:2px;padding-top:2px}
+.index button{white-space:nowrap;height:36px;display:flex;align-items:center;gap:8px;padding:0 10px;border-radius:8px;text-align:left;color:var(--ink);transition:background-color .12s ease,color .12s ease}
+@media (hover:hover){.index button:hover{background:var(--soft-2)}}
+.index button.on{background:var(--accent-bg);color:var(--accent);font-weight:500}
+.index button .n{margin-left:auto;color:var(--body);font-variant-numeric:tabular-nums}
+.index button.on .n{color:var(--accent)}
+.index .dot{width:6px;height:6px;border-radius:50%;background:var(--warn);flex:none}
+.cstack{display:flex;flex-direction:column;gap:32px;min-width:0}
+.cstack section{scroll-margin-top:4px}
+
+/* Now — today's sheet */
+.badges{display:flex;gap:8px}
+.npill{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border:1px solid var(--hairline-2);border-radius:999px;font-weight:500;color:var(--body)}
+.npill::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--body)}
+.ntabs{display:flex;gap:20px;border-bottom:1px solid var(--hairline);padding:0 28px;flex:none}
+.ntabs button{position:relative;padding:10px 0 11px;font-weight:500;color:var(--body)}
+.ntabs button.on{color:var(--ink)} .ntabs button.on::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--ink);border-radius:2px}
+.nsec h4{margin:0 0 10px;padding-bottom:6px;border-bottom:1px solid var(--hairline);font-size:15px;font-weight:600}
+.nhist li{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--hairline)}
+.nhist{list-style:none;margin:0;padding:0}
+
+/* forms */
+.form{display:grid;grid-template-columns:1fr 1fr;gap:20px 16px}
+.m-phone .form{grid-template-columns:1fr}
+.fld{display:flex;flex-direction:column;gap:8px;min-width:0}
+.fld.full{grid-column:1/-1}
+.fld label{font-weight:500}
+.fld label .opt{color:var(--body);font-weight:400}
+.box{height:40px;border:1px solid var(--hairline-2);border-radius:8px;padding:0 12px;background:#fff;display:flex;align-items:center;outline:0;width:100%;transition:border-color .12s ease,box-shadow .12s ease}
+.box:focus{border-color:var(--accent);box-shadow:0 0 0 2px rgba(40,98,220,.12)}
+textarea.box{height:84px;padding:9px 12px;resize:none}
+select.box{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238e8e93' stroke-width='1.8' stroke-linecap='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;background-size:16px}
+.locked{height:40px;border-radius:8px;background:var(--soft-2);padding:0 12px;display:flex;align-items:center;gap:8px;color:var(--ink);overflow:hidden;white-space:nowrap}
+.locked .i{color:var(--line-ico)}
+.locked .q{color:var(--body);overflow:hidden;text-overflow:ellipsis}
+.chips{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.chip{height:32px;display:inline-flex;align-items:center;gap:6px;padding:0 10px;border-radius:8px;background:var(--soft-2)}
+.segpick{display:flex;background:#f2f2f4;border-radius:9px;padding:2px;width:max-content}
+.segpick button{height:34px;padding:0 14px;border-radius:7px;color:var(--body);font-weight:500}
+.segpick button.on{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.drop{height:84px;border:1px dashed var(--hairline-2);border-radius:10px;display:grid;place-items:center;color:var(--body)}
+.switchrow{display:flex;align-items:center;gap:10px}
+.sw{width:30px;height:18px;border-radius:999px;background:#e5e5ea;position:relative;transition:background-color .16s ease;flex:none}
+.sw::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);transition:transform .16s var(--ease-out)}
+.sw.on{background:var(--accent)} .sw.on::after{transform:translateX(12px)}
+
+/* toast, bottom right */
+.toast{position:absolute;right:36px;bottom:96px;z-index:90;background:#fff;border-radius:12px;box-shadow:var(--shadow-pop);padding:12px 16px;display:flex;align-items:center;gap:10px;font-weight:500;transform:translateY(16px);opacity:0;transition:transform .4s ease,opacity .4s ease}
+.toast.show{transform:none;opacity:1}
+.toast .ok{width:18px;height:18px;border-radius:50%;background:var(--ok-fg);display:grid;place-items:center;color:#fff}
+.toast .ok .i{width:12px;height:12px;stroke-width:2.4}
+.m-phone .toast{left:16px;right:16px;bottom:96px}
+@media (prefers-reduced-motion:reduce){.sheet.layer,.sheet.layer.out,.m-phone .sheet.layer{transition:opacity .2s ease}}
+</style>
+</head>
+<body>
+<div class="proto">
+  <div class="t">GA · Asset detail</div>
+  <div class="seg" id="opts"></div>
+  <div class="sp"></div>
+  <div class="seg" id="assets"></div>
+  <div class="seg" id="devices"></div>
+</div>
+<div class="note" id="note"></div>
+<div class="stagewrap" id="stagewrap"><div id="stage"></div></div>
+
+<script>
+const $ = (s, r = document) => r.querySelector(s)
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))
+const ico = (d, cls = "i") => `<svg class="${cls}" viewBox="0 0 24 24">${d}</svg>`
+const P = {
+  x:'<path d="M6 6l12 12M18 6 6 18"/>', plus:'<path d="M12 5v14M5 12h14"/>', lock:'<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+  check:'<path d="M5 12.5 10 17l9-10"/>', more:'<circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/>',
+  file:'<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
+  search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+}
+
+// ---------- the two assets ----------
+// Avanza: a pool car (made up for the example). AC: AST-000006 from the demo rig, with its old unit's replacement.
+const ASSETS = {
+  avanza: {
+    number:"AST-000047", name:"Toyota Avanza 1.5 G — B 1234 ABC", status:"In use", site:"DC",
+    caption:"Bought on INV-2303-0412 line 1 · 12 Mar 2023",
+    figures:[["Condition","Good"],["Next service","2 Nov 2026"],["Open repairs","1","warn"],["Next renewal","31 Dec 2026"]],
+    identity:[["Kind","Vehicles"],["Class","Mobil"],["Make / model","Toyota Avanza 1.5 G MT"],["Plate","B 1234 ABC"],["Year","2023"],["Chassis no.","MHKAA1BA0PJ012345"],["Engine no.","2NR-F123456"],["Odometer","48.210 km"]],
+    bought:[["Acquired","12 Mar 2023"],["Purchase bill",'<span class="rlink" data-open="bill">INV-2303-0412 line 1</span>']],
+    location:[["Site","DC"],["Area","Parkir DC"],["Holder","Yusuf Ramadhan"],["Since","2 Jun 2025"]],
+    documents:[
+      {paper:"BPKB", number:"M-12345678", until:"No expiry", sub:"Original in the HO safe"},
+      {paper:"STNK", number:"B 1234 ABC", until:"12 Mar 2028", sub:"Tax paid to 12 Mar 2027"},
+      {paper:"Insurance policy", number:"01-GO-26-001234", until:"31 Dec 2026"},
+      {paper:"Purchase invoice", number:"INV-2303-0412", until:"No expiry"},
+      {paper:"Photos", number:"4 photos", until:"—"},
+    ],
+    contracts:[
+      {what:"Vehicle insurance", sub:"Garda Oto all risk", with:"Asuransi Astra", period:"1 Jan – 31 Dec 2026", st:["","Active"]},
+      {what:"STNK / KIR", sub:"Annual vehicle tax", with:"Samsat Jakarta Timur", period:"Until 12 Mar 2027", st:["","Active"]},
+      {what:"Maintenance contract", sub:"Periodic service", with:"Auto2000 Cibubur", period:"1 Jan – 31 Dec 2026", st:["","Active"]},
+    ],
+    tasks:[
+      {task:"Periodic service", every:"10.000 km", next:"At 50.000 km", by:"Auto2000 Cibubur"},
+      {task:"Oil change", every:"5.000 km", next:"At 50.000 km", by:"Auto2000 Cibubur"},
+      {task:"Tyre and battery check", every:"3 months", next:"2 Nov 2026", by:"Yusuf Ramadhan"},
+    ],
+    inspections:[
+      {on:"14 Oct 2026", by:"Yusuf Ramadhan", result:["warn","Attention"], found:"Front brake pads thin"},
+      {on:"12 Jul 2026", by:"Yusuf Ramadhan", result:["","Good"], found:"—"},
+    ],
+    repairs:[
+      {on:"15 Oct 2026", what:"Front brake pads", sub:"From the inspection of 14 Oct", vendor:"Auto2000 Cibubur", st:["warn","Open"]},
+      {on:"3 Aug 2026", what:"Rear tyre puncture", vendor:"Bengkel Jaya Ban", st:["done","Completed"]},
+      {on:"20 Feb 2026", what:"Car AC not cold", vendor:"Auto2000 Cibubur", st:["done","Completed"]},
+    ],
+    history:[
+      {on:"2 Jun 2025", what:"Holder: Rudi Hartono → Yusuf Ramadhan", by:"Nina Oktaviani", sub:"Driver changed shift"},
+      {on:"15 Jan 2025", what:"Moved: Store 01 → DC", by:"Nina Oktaviani", sub:"Used for DC delivery runs"},
+      {on:"12 Mar 2023", what:"Registered", by:"Nina Oktaviani", sub:"From INV-2303-0412"},
+    ],
+    repairObject:"Kendaraan",
+  },
+  ac: {
+    number:"AST-000006", name:"AC split toko 01 — Daikin 2 PK", status:"In use", site:"Store 01",
+    caption:"Bought on INV-2609-0088 line 2 · 4 Sep 2026",
+    figures:[["Condition","Good"],["Next cleaning","5 Dec 2026"],["Open repairs","0"],["Warranty until","4 Sep 2029"]],
+    identity:[["Kind","Technical"],["Class","Air Conditioner"],["Make / model","Daikin FTKC50"],["Capacity","2 PK"],["Serial","DKN-FTKC50-0101"],["Installed","4 Sep 2026"],["Warranty until","4 Sep 2029"]],
+    bought:[["Acquired","4 Sep 2026"],["Purchase bill",'<span class="rlink" data-open="bill">INV-2609-0088 line 2</span>']],
+    location:[["Site","Store 01"],["Area","Area penjualan"],["Holder","—"],["Since","5 Sep 2026"]],
+    documents:[
+      {paper:"Warranty card", number:"DK-W-889120", until:"4 Sep 2029"},
+      {paper:"Installation handover", number:"BAST-0904-01", until:"No expiry"},
+      {paper:"Purchase invoice", number:"INV-2609-0088", until:"No expiry"},
+      {paper:"Photos", number:"2 photos", until:"—"},
+    ],
+    contracts:[
+      {what:"Maintenance contract", sub:"AC cleaning every 3 months · all stores", with:"CV Sejuk Abadi", period:"1 Jan – 31 Dec 2026", st:["","Active"]},
+    ],
+    tasks:[
+      {task:"AC cleaning", every:"3 months", next:"5 Dec 2026", by:"CV Sejuk Abadi"},
+      {task:"Freon and pressure check", every:"6 months", next:"5 Mar 2027", by:"CV Sejuk Abadi"},
+    ],
+    inspections:[
+      {on:"5 Sep 2026", by:"Dian Pertiwi", result:["","Good"], found:"—"},
+    ],
+    repairs:[],
+    history:[
+      {on:"5 Sep 2026", what:"Area set: Area penjualan", by:"Dian Pertiwi"},
+      {on:"4 Sep 2026", what:'Replaces <span class="rlink" data-open="old">AC split toko 01 (lama) · AST-GA-002</span>', by:"Nina Oktaviani", sub:"Compressor dead, repair not worth it"},
+      {on:"4 Sep 2026", what:"Registered", by:"Nina Oktaviani", sub:"From INV-2609-0088"},
+    ],
+    repairObject:"AC & refrigerator",
+  },
+}
+
+const OPTIONS = [
+  {id:"now", t:"Now", note:"<b>As the hub draws it today.</b> Four tabs (Detail · Documents · History · Class accounts), two statuses in the head, Move/Replace/Request disposal inside the body. No contracts, no schedule, no inspections, no repairs."},
+  {id:"A", t:"One scroll", star:true, note:"<b>A · One scroll</b> — your order, no tabs: figures · identity · location & holder · documents · contracts · schedule & inspections · repairs · moves. Every row opens its own record as a layer (the same record the Repairs or Contracts menu opens); every <b>+</b> opens a form with this asset already chosen."},
+  {id:"B", t:"Two sides", note:"<b>B · Two sides</b> — the thing on the left (identity, place, papers), the work on the right (contracts, schedule & inspections, repairs, moves). On a phone it is one scroll, as A."},
+  {id:"C", t:"Index", note:"<b>C · Index</b> — A's sections with an index at the left: counts, and a dot where something waits. Click to jump; the index follows the scroll. On a phone the index is not drawn."},
+]
+const store = {get(k){try{return localStorage.getItem(k)}catch{return null}}, set(k,v){try{localStorage.setItem(k,v)}catch{}}}
+const q0 = new URLSearchParams(location.search)
+const S = {
+  opt: OPTIONS.some((o) => o.id === q0.get("o")) ? q0.get("o") : (store.get("ad-opt") || "A"),
+  asset: ["avanza","ac"].includes(q0.get("a")) ? q0.get("a") : (store.get("ad-asset") || "avanza"),
+  device: q0.get("d") === "phone" ? "phone" : (store.get("ad-dev") || "desk"),
+  nowTab: "detail", editing: false, active: "identity",
+}
+const A = () => ASSETS[S.asset]
+const phone = () => S.device === "phone"
+
+// ---------- pieces ----------
+const st = ([tone, word]) => `<span class="st ${tone}">${esc(word)}</span>`
+const facts = (list, cls = "") => `<dl class="facts ${cls}">${list.map(([l, v]) => `<div><dt>${esc(l)}</dt><dd>${v}</dd></div>`).join("")}</dl>`
+const add = (label, form) => `<button class="tint" data-form="${form}">${ico(P.plus)}${label}</button>`
+function secHead(title, n, acts = []){
+  return `<div class="sec-h"><h3>${title}</h3>${n === null ? "" : `<span class="n">${n}</span>`}<span class="sp"></span><span class="acts">${acts.join("")}</span></div>`
+}
+// a table on a desk, blocks on a phone
+function table(cols, rows, kind, opts = {}){
+  if (rows.length === 0) return `<div class="empty-line">${opts.empty}</div>`
+  if (phone()) {
+    return `<div class="mcards">${rows.map((r, i) => `<div class="mcard" data-open="${kind}:${i}"><div class="ft">${cols[0].cell(r)}</div><dl>${cols.slice(1).map((c) => `<div><dt>${c.l}</dt><dd>${c.cell(r)}</dd></div>`).join("")}</dl></div>`).join("")}</div>`
+  }
+  return `<div class="mt">${opts.cap ? `<div class="cap">${opts.cap}</div>` : ""}<table><colgroup>${cols.map((c) => `<col${c.w ? ` style="width:${c.w}px"` : ""}>`).join("")}</colgroup>
+    <thead><tr>${cols.map((c) => `<th>${c.l}</th>`).join("")}</tr></thead>
+    <tbody>${rows.map((r, i) => `<tr class="row" data-open="${kind}:${i}">${cols.map((c) => `<td>${c.cell(r)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`
+}
+const two = (a, b) => `<span class="nm">${a}</span>${b ? `<span class="q">${b}</span>` : ""}`
+
+const COLS = {
+  documents:(narrow) => [
+    {l:"Paper", cell:(r) => two(esc(r.paper), r.sub && esc(r.sub))},
+    {l:"Number", w:narrow ? 150 : 200, cell:(r) => esc(r.number)},
+    {l:"Valid until", w:150, cell:(r) => esc(r.until)},
+  ],
+  contracts:(narrow) => [
+    {l:"Contract", cell:(r) => two(esc(r.what), esc(r.sub))},
+    {l:"With", w:narrow ? 190 : 210, cell:(r) => esc(r.with)},
+    ...(narrow ? [] : [{l:"Period", w:190, cell:(r) => esc(r.period)}]),
+    {l:"Status", w:150, cell:(r) => st(r.st)},
+  ],
+  tasks:(narrow) => [
+    {l:"Task", cell:(r) => `<span class="nm">${esc(r.task)}</span>`},
+    {l:"Every", w:120, cell:(r) => esc(r.every)},
+    {l:"Next due", w:narrow ? 164 : 140, cell:(r) => esc(r.next)},
+    ...(narrow ? [] : [{l:"By", w:200, cell:(r) => esc(r.by)}]),
+  ],
+  inspections:(narrow) => [
+    {l:"Inspected", w:140, cell:(r) => esc(r.on)},
+    {l:"Findings", cell:(r) => esc(r.found)},
+    ...(narrow ? [] : [{l:"By", w:200, cell:(r) => esc(r.by)}]),
+    {l:"Result", w:140, cell:(r) => st(r.result)},
+  ],
+  repairs:(narrow) => [
+    {l:"Repair", cell:(r) => two(esc(r.what), r.sub && esc(r.sub))},
+    {l:"Failed on", w:130, cell:(r) => esc(r.on)},
+    ...(narrow ? [] : [{l:"Vendor", w:200, cell:(r) => esc(r.vendor)}]),
+    {l:"Status", w:150, cell:(r) => st(r.st)},
+  ],
+  history:(narrow) => [
+    {l:"Date", w:130, cell:(r) => esc(r.on)},
+    {l:"What happened", cell:(r) => two(r.what, r.sub && esc(r.sub))},
+    ...(narrow ? [] : [{l:"By", w:180, cell:(r) => esc(r.by)}]),
+  ],
+}
+
+// the sections, in Hari's order
+function sections(narrow = false, factCols = ""){
+  const a = A()
+  const live = a.repairs.filter((r) => r.st[0] === "warn").length
+  return {
+    figures:{html:`<div class="kpis">${a.figures.map(([l, v, t]) => `<div class="kpi"><span class="l">${l}</span><span class="v ${t || ""}">${v}</span></div>`).join("")}</div>`},
+    identity:{t:"Identity", html:`<section data-sec="identity">${secHead("Identity", null)}${facts([...a.identity, ...a.bought], factCols)}</section>`},
+    location:{t:"Location & holder", html:`<section data-sec="location">${secHead("Location & holder", null)}${facts(a.location, factCols)}</section>`},
+    documents:{t:"Documents", n:a.documents.length, html:`<section data-sec="documents">${secHead("Documents", a.documents.length, [add("Attach", "attach")])}${table(COLS.documents(narrow), a.documents, "documents", {empty:"No papers yet."})}</section>`},
+    contracts:{t:"Contracts", n:a.contracts.length, html:`<section data-sec="contracts">${secHead("Contracts", a.contracts.length, [add("Contract", "contract")])}${table(COLS.contracts(narrow), a.contracts, "contracts", {empty:"No contracts yet."})}</section>`},
+    schedule:{t:"Schedule", n:a.tasks.length + a.inspections.length, dot:a.inspections.some((i) => i.result[0] === "warn"), html:`<section data-sec="schedule">${secHead("Service schedule & inspections", null, [add("Task", "task"), add("Inspection", "inspection")])}${table(COLS.tasks(narrow), a.tasks, "tasks", {empty:"No recurring task yet.", cap:`Schedule <span>${a.tasks.length}</span>`})}${table(COLS.inspections(narrow), a.inspections, "inspections", {empty:"No inspection yet.", cap:`Inspections <span>${a.inspections.length}</span>`})}</section>`},
+    repairs:{t:"Repairs", n:a.repairs.length, dot:live > 0, html:`<section data-sec="repairs">${secHead("Repairs", a.repairs.length, [add("Repair", "repair")])}${table(COLS.repairs(narrow), a.repairs, "repairs", {empty:"No repairs yet."})}</section>`},
+    history:{t:"Moves & disposal", n:a.history.length, html:`<section data-sec="history">${secHead("Moves, replacement & disposal", a.history.length)}${table(COLS.history(narrow), a.history, "history", {empty:"Nothing yet."})}</section>`},
+  }
+}
+const ORDER = ["identity", "location", "documents", "contracts", "schedule", "repairs", "history"]
+
+function sheetHead(){
+  const a = A()
+  return `<header class="sh-head">${phone() ? '<span class="grip"></span>' : ""}
+    <div class="crumb"><a>Assets</a><span class="sep">/</span>${a.number}</div>
+    <div class="titlerow"><h2>${esc(a.name)}</h2><span class="pill">${a.status}</span></div>
+    <div class="caption">${esc(a.caption)}</div>
+    <button class="xbtn" aria-label="Close">${ico(P.x)}</button></header>`
+}
+function sheetFoot(){
+  if (S.editing) return `<footer class="sh-foot"><button class="b red" data-edit="cancel">Cancel</button><button class="b primary" data-edit="save">Save changes</button></footer>`
+  if (phone()) return `<footer class="sh-foot"><button class="b ghost sq" data-form="actions" aria-label="More">${ico(P.more)}</button><button class="b ghost" data-form="move">Move</button><button class="b primary" data-edit="start">Edit</button></footer>`
+  return `<footer class="sh-foot"><button class="b ghost" data-form="move">Move</button><button class="b ghost" data-form="replace">Replace</button><button class="b ghost" data-form="dispose">Request disposal</button><button class="b primary" data-edit="start">Edit</button></footer>`
+}
+
+function bodyFor(){
+  const o = S.opt
+  if (S.editing) return editBody()
+  if (o === "A" || (phone() && o !== "now")) {
+    const s = sections(phone())
+    return [s.figures.html, ...ORDER.map((k) => s[k].html)].join("")
+  }
+  if (o === "B") {
+    const a = A()
+    const s = sections(true, "c2")
+    const docs = `<section data-sec="documents">${secHead("Documents", a.documents.length, [add("Attach", "attach")])}<div class="docs-list">${a.documents.map((d, i) => `<div class="dl" data-open="documents:${i}"><span><span class="nm" style="font-weight:500">${esc(d.paper)}</span><span class="q" style="display:block;color:var(--body)">${esc(d.number)}</span></span><span class="w">${esc(d.until)}</span></div>`).join("")}</div></section>`
+    return `${s.figures.html}<div class="sides"><div>${s.identity.html}${s.location.html}${docs}</div><div>${s.contracts.html}${s.schedule.html}${s.repairs.html}${s.history.html}</div></div>`
+  }
+  if (o === "C") {
+    const s = sections(true, "c3")
+    return `${s.figures.html}<div class="withindex"><nav class="index">${ORDER.map((k) => `<button data-jump="${k}" class="${S.active === k ? "on" : ""}">${s[k].dot ? '<span class="dot"></span>' : ""}${s[k].t}${s[k].n !== undefined ? `<span class="n">${s[k].n}</span>` : ""}</button>`).join("")}</nav><div class="cstack">${ORDER.map((k) => s[k].html).join("")}</div></div>`
+  }
+}
+
+function editBody(){
+  const a = A()
+  const field = ([l, v]) => `<div class="fld"><label>${esc(l)}</label><input class="box" value="${esc(String(v).replace(/<[^>]+>/g, ""))}"></div>`
+  return `<section>${secHead("Identity", null)}<div class="form" style="grid-template-columns:${phone() ? "1fr" : "repeat(4,1fr)"}">${a.identity.map(field).join("")}</div></section>
+    <section>${secHead("Location & holder", null)}<div class="form" style="grid-template-columns:${phone() ? "1fr" : "repeat(4,1fr)"}">${a.location.slice(0, 3).map(([l, v]) => l === "Site" || l === "Area" ? `<div class="fld"><label>${l}</label><div class="locked">${ico(P.lock)}${esc(v)}<span class="q">· changes through Move</span></div></div>` : field([l, v])).join("")}</div></section>`
+}
+
+// Now: today's sheet — tabs, two statuses, verbs in the body
+function nowSheet(){
+  const a = A()
+  const tabs = [["detail","Detail"],["documents","Documents"],["history","History"],["accounts","Class accounts"]]
+  let body = ""
+  if (S.nowTab === "detail") {
+    const base = [["Type", a.identity[0][1]],["Class", a.identity[1][1]],["Site", a.location[0][1]],["Area", a.location[1][1]],["Holder", a.location[2][1]],["Condition","Good"],["Serial / plate", a === ASSETS.avanza ? "—" : "DKN-FTKC50-0101"],["Acquired", a.bought[0][1]],["Purchase bill", a.bought[1][1].replace(/<[^>]+>/g, "")],["Finance status","CAPITALIZE"]]
+    body = `<div class="nsec"><h4>Detail</h4>${facts(base, phone() ? "" : "c2")}</div>
+      <div class="nsec"><h4>Detail ${a.identity[0][1].toLowerCase()}</h4>${facts(a.identity.slice(2), phone() ? "" : "c2")}</div>
+      <div class="nsec"><h4>Actions</h4><div style="display:flex;gap:8px;flex-wrap:wrap"><span class="b soft">Move</span><span class="b soft">Replace</span><span class="b soft">Request disposal</span></div></div>`
+  } else if (S.nowTab === "documents") {
+    body = `<ul class="nhist">${a.documents.map((d) => `<li><span style="flex:1">${esc(d.paper)}</span><span class="sub">${esc(d.until)}</span></li>`).join("")}</ul><div><span class="b soft">Attach</span></div>`
+  } else if (S.nowTab === "history") {
+    body = `<ul class="nhist">${a.history.map((h) => `<li><span class="sub" style="width:100px;flex:none">${esc(h.on)}</span><span>${h.what}<span class="sub" style="display:block">${esc(h.by)}</span></span></li>`).join("")}</ul>`
+  } else {
+    body = facts(S.asset === "avanza" ? [["Asset account","1510 · Kendaraan"],["Depreciation","6510 · Penyusutan kendaraan"],["Accumulated","1519 · Akum. penyusutan kendaraan"]] : [["Asset account","1530 · Peralatan teknik"],["Depreciation","6530 · Penyusutan peralatan"],["Accumulated","1539 · Akum. penyusutan peralatan"]], "c2")
+  }
+  return `<div class="sheet" id="base">${phone() ? '<span class="grip"></span>' : ""}
+    <header class="sh-head" style="border-bottom:0;padding-bottom:12px">
+      <div class="crumb">${a.number}</div>
+      <div class="titlerow"><h2>${esc(a.name)}</h2><span class="badges"><span class="npill">Registered</span><span class="npill">Assessed by Finance</span></span></div>
+      <div class="caption">${esc(a.caption.replace("Bought on ", ""))}</div>
+      <button class="xbtn" aria-label="Close">${ico(P.x)}</button></header>
+    <nav class="ntabs">${tabs.map(([v, l]) => `<button data-nowtab="${v}" class="${S.nowTab === v ? "on" : ""}">${l}</button>`).join("")}</nav>
+    <div class="sh-body">${body}</div>
+    <footer class="sh-foot"><button class="b ghost">Close</button></footer></div>`
+}
+
+function baseSheet(){
+  if (S.opt === "now") return nowSheet()
+  return `<div class="sheet" id="base">${sheetHead()}<div class="sh-body" id="body">${bodyFor()}</div>${sheetFoot()}</div>`
+}
+
+// ---------- the hub behind ----------
+const RAIL = [P.search, '<path d="M6 6h15l-2 8H8z"/><circle cx="9" cy="20" r="1"/><circle cx="18" cy="20" r="1"/>', '<path d="M3 7h11v9H3zM14 10h4l3 3v3h-7z"/>', '<path d="m3 11 15-6v14L3 13z"/>', '<path d="M4 9h16l-1-4H5zM5 9v11h14V9"/>', '<path d="M3 21h18M5 21V10M19 21V10M12 3 3 8h18z"/>', '<circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/>', '<path d="M4 5h12v9H8l-4 3z"/><path d="M8 17h8l4 3V9h-4"/>', '<path d="M4 4h7a3 3 0 0 1 3 3v13a2 2 0 0 0-2-2H4z"/>']
+const LIST = [["Laptop GA — Lenovo ThinkPad E14","IT hardware","DC"],["AC split toko 01 — Daikin 2 PK","Technical","Store 01 · Area penjualan"],["Mobil box pengiriman — Mitsubishi L300","Vehicles","DC"],["Toyota Avanza 1.5 G — B 1234 ABC","Vehicles","DC · Parkir DC"],["Meja kerja staf HO (8 unit)","Furniture & fixtures","DC"],["Rak Display store-01","Furniture & fixtures","Store 01"],["AC Split Ruang Toko store-02","Technical","Store 02"],["Printer struk lama toko 01","IT hardware","Store 01 · Gudang toko"]]
+function hubBehind(){
+  const sel = A().name
+  return `<nav class="rail">${RAIL.map((d, i) => `<div class="ri ${i === 7 ? "on" : ""}">${ico(d)}</div>`).join("")}</nav>
+    <aside class="panel"><h2>GA</h2><div class="nav"><div class="nr">Overview</div><hr><div class="nr">Supply Requests</div><div class="nr">Repairs</div><div class="nr">Service Schedule</div><hr><div class="nr on">Assets</div><div class="nr">Contracts</div><div class="nr">Sites</div><div class="nr">Suppliers</div><hr><div class="nr">Letters</div><div class="nr">Files</div></div></aside>
+    <main class="page"><div class="ph"><h1>Assets</h1><span class="b primary">${ico(P.plus)}Register asset</span></div><div class="lb">${LIST.map(([n, k, l]) => `<div class="ghostrow ${n === sel ? "sel" : ""}"><b style="flex:1">${n}</b><span style="width:180px">${k}</span><span style="width:220px">${l}</span></div>`).join("")}</div></main>`
+}
+
+function draw(){
+  $("#opts").innerHTML = OPTIONS.map((o) => `<button data-o="${o.id}" class="${o.id === S.opt ? "on" : ""}">${o.id === "now" ? "Now" : `<b>${o.id}</b>${o.t}`}${o.star ? '<span class="star">★</span>' : ""}</button>`).join("")
+  $("#assets").innerHTML = [["avanza","Avanza"],["ac","AC"]].map(([v, l]) => `<button data-a="${v}" class="${S.asset === v ? "on" : ""}">${l}</button>`).join("")
+  $("#devices").innerHTML = [["desk","Desk"],["phone","Phone"]].map(([v, l]) => `<button data-d="${v}" class="${S.device === v ? "on" : ""}">${l}</button>`).join("")
+  $("#note").innerHTML = OPTIONS.find((o) => o.id === S.opt).note
+  const stage = $("#stage")
+  if (phone()) {
+    stage.innerHTML = `<div class="phone m-phone" id="frame"><div class="pbar"><span>9:41</span><span>●●●</span></div><div class="plist"><h1>Assets</h1>${LIST.slice(0, 6).map(([n, k]) => `<div class="ghostrow" style="padding:0"><b style="flex:1">${n}</b></div>`).join("")}</div><div class="scrim"></div>${baseSheet()}</div>`
+  } else {
+    stage.innerHTML = `<div class="app" id="frame">${hubBehind()}<div class="scrim"></div>${baseSheet()}</div>`
+  }
+  const body = $("#body")
+  if (body && S.opt === "C" && !phone()) body.addEventListener("scroll", spy, {passive:true})
+  fit()
+}
+function fit(){
+  document.documentElement.style.setProperty("--nh", $("#note").offsetHeight + "px")
+  const wrap = $("#stagewrap"), frame = $("#frame")
+  const w = phone() ? 434 : 1440, h = phone() ? 944 : 900
+  const z = Math.min(1, wrap.clientWidth / w, wrap.clientHeight / h)
+  frame.style.zoom = z
+}
+// C: the index follows the scroll
+function spy(){
+  const body = $("#body"), top = body.getBoundingClientRect().top
+  let here = ORDER[0]
+  for (const k of ORDER) { const el = body.querySelector(`[data-sec="${k}"]`); if (el && el.getBoundingClientRect().top - top < 120) here = k }
+  if (body.scrollTop + body.clientHeight >= body.scrollHeight - 4) here = ORDER[ORDER.length - 1]
+  if (here !== S.active) { S.active = here; body.querySelectorAll(".index button").forEach((b) => b.classList.toggle("on", b.dataset.jump === here)) }
+}
+
+// ---------- layers: a record or a form over the sheet, the asset already chosen ----------
+const layers = []
+function lockedAsset(){ const a = A(); return `<div class="locked">${ico(P.lock)}${esc(a.name)}<span class="q">· ${a.number}</span></div>` }
+const fld = (label, inner, full) => `<div class="fld ${full ? "full" : ""}"><label>${label}</label>${inner}</div>`
+const input = (ph = "", v = "", main = false) => `<input class="box" placeholder="${esc(ph)}" value="${esc(v)}"${main ? " data-main" : ""}>`
+const select = (opts) => `<select class="box">${opts.map((o) => `<option>${esc(o)}</option>`).join("")}</select>`
+const today = "17 Oct 2026"
+
+function formFor(kind){
+  const a = A()
+  const asset = fld("Asset", lockedAsset(), true)
+  switch (kind) {
+    case "repair": return {title:"New repair", save:"Save repair", rail:true, body:`<div class="form">${asset}${fld("Site", `<div class="locked">${ico(P.lock)}${a.site}</div>`)}${fld("Object", `<div class="locked">${ico(P.lock)}${a.repairObject}</div>`)}${fld("What broke", input("Front brake pads", "", true), true)}${fld("Vendor", select(["Auto2000 Cibubur","Bengkel Jaya Ban","CV Sejuk Abadi"]))}${fld("Failed on", input("", today))}${fld('Estimate <span class="opt">(optional)</span>', input("Rp 0"), true)}</div>`, push:(v) => a.repairs.unshift({on:today, what:v[0] || "New repair", vendor:"Auto2000 Cibubur", st:["warn","Open"]})}
+    case "contract": return {title:"New contract", save:"Save contract", rail:true, body:`<div class="form">${fld("Covers", `<div class="chips"><span class="chip">${esc(a.name)}</span><button class="tint">${ico(P.plus)}Add asset</button></div>`, true)}${fld("Type", select(S.asset === "avanza" ? ["Vehicle insurance","STNK / KIR","Maintenance contract"] : ["Maintenance contract","Property insurance"]))}${fld("With", select(S.asset === "avanza" ? ["Asuransi Astra","Samsat Jakarta Timur","Auto2000 Cibubur"] : ["CV Sejuk Abadi"]))}${fld("Starts", input("", "1 Jan 2027"))}${fld("Ends", input("", "31 Dec 2027"))}${fld('Number <span class="opt">(on the paper)</span>', input(""), true)}</div>`, push:() => a.contracts.push({what:S.asset === "avanza" ? "Vehicle insurance" : "Maintenance contract", sub:"Renewal", with:S.asset === "avanza" ? "Asuransi Astra" : "CV Sejuk Abadi", period:"1 Jan – 31 Dec 2027", st:["","Starts 1 Jan"]})}
+    case "task": return {title:"New recurring task", save:"Save task", rail:true, body:`<div class="form">${asset}${fld("Task", input("Periodic service", "", true), true)}${fld("Every", `<div style="display:flex;gap:8px">${input("", "3")}${select(["Months","Days","Km"])}</div>`)}${fld("Next due", input("", "17 Jan 2027"))}${fld("By", select(S.asset === "avanza" ? ["Auto2000 Cibubur","Yusuf Ramadhan"] : ["CV Sejuk Abadi"]), true)}</div>`, push:(v) => a.tasks.push({task:v[0] || "New task", every:"3 months", next:"17 Jan 2027", by:S.asset === "avanza" ? "Auto2000 Cibubur" : "CV Sejuk Abadi"})}
+    case "inspection": return {title:"New inspection", save:"Save inspection", rail:true, body:`<div class="form">${asset}${fld("Inspected", input("", today))}${fld("By", input("", "Nina Oktaviani"))}${fld("Result", `<div class="segpick" data-seg><button class="on">Good</button><button>Attention</button><button>Broken</button></div>`, true)}${fld("Findings", `<textarea class="box" placeholder="What was found"></textarea>`, true)}<div class="fld full"><div class="switchrow"><span class="sw" data-sw></span>Make a repair from this finding</div></div></div>`, push:() => a.inspections.unshift({on:today, by:"Nina Oktaviani", result:["","Good"], found:"—"})}
+    case "attach": return {title:"Attach a paper", save:"Attach", rail:true, body:`<div class="form">${asset}${fld("File", `<div class="drop">${ico(P.file)} Drop a PDF or photo</div>`, true)}${fld("Paper", select(S.asset === "avanza" ? ["STNK","BPKB","Insurance policy","KIR","Photo","Other"] : ["Warranty card","Service report","Photo","Other"]))}${fld("Number", input(""))}${fld('Valid until <span class="opt">(empty = no expiry)</span>', input(""), true)}</div>`, push:() => a.documents.push({paper:S.asset === "avanza" ? "STNK" : "Warranty card", number:"—", until:"No expiry"})}
+    case "move": return {title:"Move", save:"Move", rail:true, body:`<div class="form">${asset}${fld("To site", select(["Store 01","Store 02","DC"]))}${fld("Area", input(""))}${fld("New holder", input(""))}${fld("Date moved", input("", today))}${fld("Reason", `<textarea class="box" placeholder="Goes into the asset's history"></textarea>`, true)}</div>`, push:() => a.history.unshift({on:today, what:`Moved: ${a.site} → Store 01`, by:"Nina Oktaviani"})}
+    case "replace": return {title:"Propose a replacement", save:"Propose", rail:true, body:`<div class="form">${asset}${fld("Reason for replacement", `<textarea class="box"></textarea>`, true)}${fld("Related repair", select(["None", ...a.repairs.map((r) => `${r.on} · ${r.what}`)]), true)}${fld('Vendor <span class="opt">(optional)</span>', select(["Not chosen yet","Auto2000 Cibubur","CV Sejuk Abadi"]))}${fld("Date proposed", input("", today))}</div>`, push:() => a.history.unshift({on:today, what:"Replacement proposed", by:"Nina Oktaviani"})}
+    case "dispose": return {title:"Request disposal", save:"Request", red:true, rail:true, body:`<div class="form">${asset}${fld("Method", select(["Sell","Scrap","Donate","Write off"]))}${fld('Sale proceeds <span class="opt">(when sold)</span>', input("Rp 0"))}${fld("Reason", `<textarea class="box"></textarea>`, true)}</div>`, push:() => a.history.unshift({on:today, what:"Disposal requested", by:"Nina Oktaviani"})}
+    case "actions": return {title:"More", rail:true, body:`<div class="docs-list">${[["replace","Replace"],["dispose","Request disposal"],["attach","Attach a paper"]].map(([f, l]) => `<div class="dl" data-form="${f}"><span>${l}</span></div>`).join("")}</div>`, noSave:true}
+  }
+}
+
+// a record opened from a row: the same record its own menu opens
+function recordFor(key){
+  const a = A()
+  const [kind, i] = key.split(":")
+  const r = a[kind]?.[+i]
+  const assetLink = `<span class="rlink" data-back>${esc(a.name)}</span>`
+  switch (kind) {
+    case "repairs": return {crumb:`Repairs / RPR-2610-0${12 + +i}`, title:r.what, status:r.st, body:facts([["Asset", assetLink],["Site", a.site],["Object", a.repairObject],["Vendor", esc(r.vendor)],["Failed on", esc(r.on)],["Completed", r.st[1] === "Completed" ? "Same week" : "—"],["Estimate","Rp 850.000"],["Approved by", r.st[1] === "Completed" ? "Hendra Wijaya" : "—"]], "c2") + (r.sub ? `<section>${secHead("Came from", null)}<div class="docs-list"><div class="dl" data-open="inspections:0"><span>Inspection · ${esc(a.inspections[0]?.on || "")}</span><span class="w">${esc(a.inspections[0]?.found || "")}</span></div></div></section>` : ""), foot:`<button class="b primary">Edit</button>`}
+    case "contracts": return {crumb:`Contracts / ${r.what === "Vehicle insurance" ? "Insurance" : "Maintenance"} / CTR-26-00${4 + +i}`, title:`${r.what} · ${r.with}`, status:r.st, body:facts([["Covers", r.sub.includes("all stores") ? "All stores · 13 ACs" : assetLink],["With", esc(r.with)],["Period", esc(r.period)],["Reminder","60 days before"],["Signed","Yes · Hendra Wijaya"],["Number", ["01-GO-26-001234","PKB-0312-2026","SVC-A2000-118"][+i] || "—"]], "c2"), foot:`<button class="b primary">Edit</button>`}
+    case "tasks": return {crumb:`Service Schedule / ${esc(r.task)}`, title:r.task, status:["","Active"], body:facts([["For", assetLink],["Every", esc(r.every)],["Next due", esc(r.next)],["By", esc(r.by)]], "c2"), foot:`<button class="b ghost">Pause</button><button class="b primary">Record done</button>`}
+    case "inspections": return {crumb:`Service Schedule / Inspection ${esc(r.on)}`, title:`Inspection · ${r.on}`, status:r.result, body:facts([["Asset", assetLink],["Inspected by", esc(r.by)],["Result", st(r.result)],["Findings", esc(r.found)]], "c2"), foot:`<button class="b primary">Edit</button>`}
+    case "documents": return {crumb:`Files / ${esc(r.paper)}`, title:`${r.paper} · ${r.number}`, status:null, body:`<div class="drop" style="height:220px">${ico(P.file)} ${esc(r.paper)}.pdf</div>` + facts([["Linked to", assetLink],["Valid until", esc(r.until)]], "c2"), foot:`<button class="b ghost">Download</button><button class="b primary">Replace file</button>`}
+    case "history": return {crumb:`${a.number} / History`, title:r.what.replace(/<[^>]+>/g, ""), status:null, body:facts([["Date", esc(r.on)],["Recorded by", esc(r.by)],["Reason", esc(r.sub || "—")]], "c2"), foot:""}
+    case "bill": return {crumb:"Finance / Bills", title:a.caption.replace("Bought on ", "").split(" · ")[0], status:["","Posted"], body:facts([["Supplier", S.asset === "avanza" ? "Toyota Astra Motor" : "PT Daikin Airconditioning"],["Bill date", a.bought[0][1]],["Asset", assetLink]], "c2"), foot:""}
+    case "old": return {crumb:"Assets / AST-GA-002", title:"AC split toko 01 (lama)", status:["done","Replaced"], body:facts([["Kind","Technical"],["Serial","SAM-AR18-0101"],["Replaced by", assetLink],["Reason","Compressor dead"]], "c2"), foot:""}
+  }
+}
+
+function openLayer(spec, kind){
+  const frame = $("#frame")
+  frame.insertAdjacentHTML("beforeend", `<div class="scrim" data-layer-scrim data-close style="z-index:${30 + layers.length * 2};background:transparent;backdrop-filter:none;-webkit-backdrop-filter:none"></div>`)
+  const scrim = frame.lastElementChild
+  // the sheet under it dims in place; the new veil is clear
+  const under = layers.length ? layers[layers.length - 1].el : $("#base")
+  under.insertAdjacentHTML("beforeend", `<div class="dimmer" style="position:absolute;inset:0;background:var(--scrim);border-radius:inherit;z-index:5"></div>`)
+  const foot = spec.form
+    ? (spec.noSave ? "" : `<footer class="sh-foot"><button class="b red" data-close>Cancel</button><button class="b ${spec.red ? "red" : "primary"}" data-save>${spec.save}</button></footer>`)
+    : (spec.foot ? `<footer class="sh-foot">${spec.foot}</footer>` : `<footer class="sh-foot"><button class="b ghost" data-close>Close</button></footer>`)
+  frame.insertAdjacentHTML("beforeend", `<div class="sheet layer s-rail" style="z-index:${31 + layers.length * 2}">
+    <header class="sh-head">${phone() ? '<span class="grip"></span>' : ""}<div class="crumb">${spec.crumb ?? `${A().number}<span class="sep">/</span>${spec.title}`}</div>
+      <div class="titlerow"><h2>${esc(spec.title)}</h2>${spec.status ? `<span class="pill ${spec.status[0] === "" ? "" : ""}">${esc(spec.status[1])}</span>` : ""}</div>
+      <button class="xbtn" data-close aria-label="Close">${ico(P.x)}</button></header>
+    <div class="sh-body">${spec.body}</div>${foot}</div>`)
+  const el = frame.lastElementChild
+  const layer = {el, scrim, under, spec, kind}
+  layers.push(layer)
+  el.getBoundingClientRect()
+  el.classList.add("in")
+}
+function closeLayer(){
+  const top = layers.pop()
+  if (!top) return
+  top.el.classList.remove("in"); top.el.classList.add("out")
+  top.under.querySelector(":scope > .dimmer:last-of-type")?.remove()
+  setTimeout(() => { top.el.remove(); top.scrim?.remove() }, 210)
+}
+function toast(text){
+  const frame = $("#frame")
+  frame.insertAdjacentHTML("beforeend", `<div class="toast"><span class="ok">${ico(P.check)}</span>${esc(text)}</div>`)
+  const t = frame.lastElementChild
+  t.getBoundingClientRect(); t.classList.add("show")
+  setTimeout(() => { t.classList.remove("show"); setTimeout(() => t.remove(), 400) }, 2400)
+}
+function redrawBody(){
+  const body = $("#body"); if (!body) return
+  const top = body.scrollTop
+  body.innerHTML = bodyFor(); body.scrollTop = top
+}
+
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("[data-o],[data-a],[data-d],[data-nowtab],[data-form],[data-open],[data-close],[data-save],[data-jump],[data-edit],[data-back],[data-seg] button,[data-sw]")
+  if (!t) return
+  const d = t.dataset
+  if (d.o || d.a || d.d) {
+    if (d.o) { S.opt = d.o; store.set("ad-opt", d.o) }
+    if (d.a) { S.asset = d.a; store.set("ad-asset", d.a) }
+    if (d.d) { S.device = d.d; store.set("ad-dev", d.d) }
+    S.editing = false; S.active = "identity"; layers.length = 0
+    history.replaceState(null, "", `?o=${S.opt}&a=${S.asset}&d=${S.device}`)
+    draw(); return
+  }
+  if (d.nowtab) { S.nowTab = d.nowtab; draw(); return }
+  if (t.parentElement?.dataset.seg !== undefined) { t.parentElement.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b === t)); return }
+  if (d.sw !== undefined) { t.classList.toggle("on"); return }
+  if (d.back !== undefined) { while (layers.length) closeLayer(); return }
+  if (d.close !== undefined) { closeLayer(); return }
+  if (d.save !== undefined) {
+    const top = layers[layers.length - 1]
+    const main = top.el.querySelector("[data-main]")?.value.trim()
+    top.spec.push?.([main])
+    closeLayer()
+    toast(`${top.spec.title.replace(/^New |^Propose an? |^Request /, "").replace(/^./, (c) => c.toUpperCase())} saved`)
+    setTimeout(redrawBody, 220)
+    return
+  }
+  if (d.form) {
+    if (layers.length && layers[layers.length - 1].spec.noSave) closeLayer()
+    const f = formFor(d.form); f.form = true; openLayer(f, d.form); return
+  }
+  if (d.open) { const r = recordFor(d.open); if (r) openLayer(r, d.open); return }
+  if (d.jump) { const body = $("#body"), el = body.querySelector(`.cstack [data-sec="${d.jump}"]`); body.scrollTo({top: el.offsetTop - 12}); return }
+  if (d.edit) {
+    const body = $("#body")
+    body.classList.add("swapping")
+    setTimeout(() => {
+      if (d.edit === "start") S.editing = true
+      else { S.editing = false; if (d.edit === "save") toast("Changes saved") }
+      body.innerHTML = bodyFor(); body.scrollTop = 0
+      $("#base .sh-foot").outerHTML = sheetFoot()
+      body.classList.remove("swapping")
+    }, 100)
+    return
+  }
+})
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") { if (layers.length) closeLayer(); else if (S.editing) $('[data-edit="cancel"]')?.click() } })
+addEventListener("resize", fit)
+document.fonts?.ready.then(fit)
+draw()
+</script>
+</body>
+</html>

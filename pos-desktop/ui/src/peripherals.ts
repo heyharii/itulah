@@ -32,6 +32,9 @@ export type Peripherals = {
   readonly r3_read_ms?: number
   /// The weakest signal a read of the pad keeps, in dBm.
   readonly r3_min_rssi_dbm?: number
+  /// The counter's check tag: the EPC of a tag fixed at the pad, never sold
+  /// and never in a read's tags. Null: none.
+  readonly r3_canary_epc?: string | null
   /// `PRINTER_PULSE` or `MANUAL`. Null: no drawer.
   readonly cash_drawer: string | null
   /// `USB_KEYBOARD` or `SERIAL`. Null: no scanner.
@@ -56,8 +59,9 @@ export const DEFAULT_PERIPHERALS: Peripherals = {
   customer_display_on_start: false,
   desk_reader: null,
   r3_power_dbm: 15,
-  r3_read_ms: 500,
+  r3_read_ms: 2000,
   r3_min_rssi_dbm: -70,
+  r3_canary_epc: null,
   cash_drawer: "PRINTER_PULSE",
   scanner: null,
   receipt_printer: "ADDRESS",

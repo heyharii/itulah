@@ -65,6 +65,10 @@ pub struct CashMovementRequest {
     /// Signed. Money into the drawer is positive, out is negative — a
     /// magnitude plus a direction column is the same number written twice, and
     /// the two disagree the first time somebody writes a negative payout.
+    ///
+    /// Two exceptions (client, 24 Oct 2026): a `FLOAT_RETURN` is the float
+    /// handed over, read as money out whatever its sign; and a `DROP` may be
+    /// nought, its amount left for the Kepala toko to write on the slip.
     pub amount_minor: i64,
     pub reason: String,
     #[serde(default)]
@@ -77,8 +81,9 @@ pub struct CashMovementRequest {
     #[serde(default)]
     pub received_by: Option<String>,
     /// The handful the movement was counted from, one row per note or coin.
-    /// Optional, and only for a `DROP` or a `PICKUP`; when it is sent it must
-    /// add up to the amount exactly, the way the close's sheet does.
+    /// Optional, and only for a `DROP`, a `PICKUP` or a `FLOAT_RETURN`; when it
+    /// is sent it must add up to the amount exactly, the way the close's sheet
+    /// does.
     #[serde(default)]
     pub counted: Vec<CashCount>,
     pub idempotency_key: String,
@@ -286,6 +291,17 @@ pub struct ShiftReport {
     pub non_cash_refunds_minor: i64,
     pub cash_movements_minor: i64,
     pub movements: Vec<CashMovementView>,
+    /// "Setor modal" (client, 24 Oct 2026): the float handed back to the
+    /// Kepala toko while the shift stays open — every `FLOAT_RETURN`, as a
+    /// positive figure, nought until it has been. Already inside the signed
+    /// movements above; carried on its own so the till and the closing paper
+    /// can say "Modal disetor" without adding movements up themselves.
+    #[serde(default)]
+    pub float_returned_minor: i64,
+    /// Who took the float back, by name, for the paper's "Penerima". Null
+    /// until it has been returned.
+    #[serde(default)]
+    pub float_returned_to: Option<String>,
     /// Float + cash taken − change − cash refunded + signed movements.
     #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     pub expected_cash_minor: i64,
@@ -300,6 +316,27 @@ pub struct ShiftReport {
     /// True when the figures above were withheld from a cashier.
     #[serde(default)]
     pub blind: bool,
+    /// The slip a PICKUP or a DROP just handed out — only on the reply to
+    /// that movement (client, 23 Oct 2026).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub slip: Option<CashSlip>,
+}
+
+/// The slip for "Tambah modal kasir" (PICKUP, `TM-0001`), "Setoran
+/// sementara" (DROP, `ST-0001`) or "Setor modal" (FLOAT_RETURN, `SM-0001`,
+/// client 24 Oct 2026).
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct CashSlip {
+    pub slip_no: String,
+    /// What moved, as a positive figure. Null on a drop sent without an
+    /// amount: the Kepala toko writes it on the paper.
+    #[serde(default)]
+    pub amount_minor: Option<i64>,
+    pub given_by_name: String,
+    pub received_by_name: String,
+    pub at: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -310,7 +347,41 @@ pub struct TenderTotal {
     pub amount_minor: i64,
 }
 
-const CASH_KINDS: [&str; 5] = ["OPENING_FLOAT", "DROP", "PAYOUT", "PICKUP", "CORRECTION"];
+/// `FLOAT_RETURN` is "Setor modal" (client, 24 Oct 2026): the float going back
+/// to the Kepala toko's hands with the shift still open. Its own kind rather
+/// than a DROP with a flag, because the two are different papers with their
+/// own numbers (SM, ST) and the closing paper asks only for the first.
+const CASH_KINDS: [&str; 6] = [
+    "OPENING_FLOAT",
+    "DROP",
+    "PAYOUT",
+    "PICKUP",
+    "CORRECTION",
+    "FLOAT_RETURN",
+];
+
+/// Teach `cash_movement` and `cash_slip` the word `FLOAT_RETURN` (`0089`).
+///
+/// Both CHECKs were written before it, and SQLite widens a CHECK only by
+/// rebuilding the table — done once, from the live definition, while the word
+/// is missing (`payment_methods::widen_check`, foreign keys off around the
+/// swap, so the count sheets and slips that point at a movement stay put).
+pub(crate) fn apply_float_return_schema(connection: &Connection) -> Result<(), EdgeError> {
+    super::payment_methods::widen_check(
+        connection,
+        "cash_movement",
+        "'CORRECTION')",
+        "'CORRECTION','FLOAT_RETURN')",
+        "FLOAT_RETURN",
+    )?;
+    super::payment_methods::widen_check(
+        connection,
+        "cash_slip",
+        "'DROP'))",
+        "'DROP', 'FLOAT_RETURN'))",
+        "FLOAT_RETURN",
+    )
+}
 
 /// What a till is told when it tries to open a shift in a store head office
 /// has not opened yet.
@@ -478,7 +549,7 @@ pub fn open_shift(
     now: DateTime<Utc>,
 ) -> Result<ShiftReport, EdgeError> {
     let terminal = request.terminal_id.trim();
-    check_opening(tx, terminal, request.opening_float_minor, &request.actor_id)?;
+    check_opening(tx, terminal, request.opening_float_minor, &request.actor_id, now)?;
     if let Some(existing) = open_shift_id(tx, terminal)? {
         return Err(EdgeError::Conflict(format!(
             "{} is held by another shift ({existing}); take it over to sit there",
@@ -508,7 +579,7 @@ pub fn take_over(
 ) -> Result<TakeOverOutcome, EdgeError> {
     let terminal = request.terminal_id.trim();
     let actor = request.actor_id.trim();
-    check_opening(tx, terminal, request.opening_float_minor, actor)?;
+    check_opening(tx, terminal, request.opening_float_minor, actor, now)?;
     let ended = match open_shift_id(tx, terminal)? {
         Some(held) => {
             let running = report(tx, &held)?;
@@ -547,6 +618,7 @@ fn check_opening(
     terminal: &str,
     opening_float_minor: i64,
     actor: &str,
+    now: DateTime<Utc>,
 ) -> Result<(), EdgeError> {
     if terminal.is_empty() {
         return Err(EdgeError::Validation("terminal_id is required".into()));
@@ -567,8 +639,11 @@ fn check_opening(
     if !crate::edge::site_profile::own_store_is_open(tx) {
         return Err(EdgeError::Conflict(STORE_NOT_OPEN_YET.into()));
     }
+    // Head office's stops (0990): the store, the person, or the seat's till.
+    crate::edge::pos_stop::refuse_opening(tx, actor, terminal)?;
     require_seat(tx, terminal)?;
-    require_free_person(tx, actor, terminal)
+    require_free_person(tx, actor, terminal)?;
+    refuse_closed_today(tx, actor, terminal, now)
 }
 
 fn insert_shift(
@@ -698,7 +773,22 @@ fn require_holder(holder: &str, actor: &str, supervising: bool) -> Result<(), Ed
 /// Never another person's drawer. Before seats, this was the oldest open shift
 /// on the node, which with two counters put one cashier's money in the other's
 /// count.
+///
+/// Refused when, at `at`, head office had stopped the store, the person or
+/// the drawer's till (`pos_stop::refuse_selling`, 0990). A sale rung before
+/// the stop still lands; a refused one stays in the till's outbox for a
+/// supervisor, so nothing that left the shop goes unrecorded.
 pub fn shift_for_sale(
+    connection: &Connection,
+    actor: &str,
+    at: DateTime<Utc>,
+) -> Result<Option<String>, EdgeError> {
+    let shift = shift_held_at(connection, actor, at)?;
+    crate::edge::pos_stop::refuse_selling(connection, actor, shift.as_deref(), at)?;
+    Ok(shift)
+}
+
+fn shift_held_at(
     connection: &Connection,
     actor: &str,
     at: DateTime<Utc>,
@@ -833,7 +923,8 @@ pub fn shift_sales(
         let mut statement = connection
             .prepare_cached(
                 "SELECT s.id,s.completed_at,s.actor_id,s.status,s.total_minor,s.change_minor,
-                        COALESCE((SELECT SUM(r.refund_minor) FROM sale_return r WHERE r.sale_id = s.id),0)
+                        COALESCE((SELECT SUM(r.refund_minor) FROM sale_return r WHERE r.sale_id = s.id),0),
+                        (SELECT k.receipt_no FROM sale_receipt k WHERE k.sale_id = s.id)
                    FROM sale s
                   WHERE s.shift_id=?1
                   ORDER BY s.completed_at, s.id",
@@ -843,8 +934,10 @@ pub fn shift_sales(
             .query_map([shift_id], |row| {
                 let sale_id: String = row.get(0)?;
                 let completed_at: String = row.get(1)?;
+                let kept: Option<String> = row.get(7)?;
                 Ok(ShiftSale {
-                    receipt_no: receipt_number(site_id, &sale_id, &completed_at),
+                    receipt_no: kept
+                        .unwrap_or_else(|| receipt_number(site_id, &sale_id, &completed_at)),
                     sale_id,
                     completed_at,
                     cashier: row.get(2)?,
@@ -948,7 +1041,10 @@ pub fn record_cash_movement(
             "unknown cash movement kind {kind}"
         )));
     }
-    if request.amount_minor == 0 {
+    // A drop may come without an amount (client, 24 Oct 2026): the Kepala toko
+    // counts what he was handed and writes it on the ST slip. It still needs
+    // his name, below. Every other kind is a figure or it is nothing.
+    if request.amount_minor == 0 && kind != "DROP" {
         return Err(EdgeError::Validation(
             "a cash movement of zero records nothing".into(),
         ));
@@ -958,6 +1054,17 @@ pub fn record_cash_movement(
             "a cash movement needs a reason".into(),
         ));
     }
+    // The till sends "Setor modal" as the float it hands over, a positive
+    // figure, the way it sends a PICKUP; in the drawer's signed ledger it is
+    // money out, whichever sign it came with.
+    let amount_minor = if kind == "FLOAT_RETURN" {
+        -request
+            .amount_minor
+            .checked_abs()
+            .ok_or_else(|| EdgeError::Validation("the amount is too large".into()))?
+    } else {
+        request.amount_minor
+    };
     check_movement_count(&kind, request)?;
     require_open(tx, shift_id)?;
     require_holder(
@@ -965,10 +1072,18 @@ pub fn record_cash_movement(
         request.actor_id.trim(),
         request.supervising,
     )?;
+    if kind == "FLOAT_RETURN" {
+        check_float_left(tx, shift_id, -amount_minor)?;
+    }
 
-    // Money leaving the drawer is the direction somebody steals in. A drop
-    // into the safe is money still in the shop; a payout is money gone.
-    let approved_by = if matches!(kind.as_str(), "PAYOUT" | "CORRECTION") {
+    // Money leaving the drawer is the direction somebody steals in. A payout
+    // is money gone. Since 23 Oct 2026 (client) modal only grows and every
+    // hand-over has two names: a PICKUP's supervisor gives, a DROP's and a
+    // FLOAT_RETURN's receives.
+    let approved_by = if matches!(
+        kind.as_str(),
+        "PAYOUT" | "CORRECTION" | "PICKUP" | "DROP" | "FLOAT_RETURN"
+    ) {
         Some(
             verify_supervisor(tx, request.supervisor.as_ref()).map_err(|error| match error {
                 EdgeError::Validation(_) => {
@@ -986,7 +1101,13 @@ pub fn record_cash_movement(
         .received_by
         .as_deref()
         .map(str::trim)
-        .filter(|name| !name.is_empty());
+        .filter(|name| !name.is_empty())
+        // A drop's cash, and a returned float, go into the supervisor's hands.
+        .or(if matches!(kind.as_str(), "DROP" | "FLOAT_RETURN") {
+            approved_by.as_deref()
+        } else {
+            None
+        });
     tx.prepare_cached("INSERT INTO cash_movement(id,idempotency_key,shift_id,kind,amount_minor,reason,actor_id,approved_by,received_by,occurred_at)
          VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)"
     ).map_err(db)?.execute(
@@ -995,7 +1116,7 @@ pub fn record_cash_movement(
             request.idempotency_key,
             shift_id,
             kind,
-            request.amount_minor,
+            amount_minor,
             request.reason.trim(),
             request.actor_id.trim(),
             approved_by,
@@ -1012,18 +1133,103 @@ pub fn record_cash_movement(
         .execute(params![movement_id, line.value_minor, line.pieces])
         .map_err(db)?;
     }
-    report(tx, shift_id)
+    let slip = match (kind.as_str(), approved_by.as_deref()) {
+        ("PICKUP" | "DROP" | "FLOAT_RETURN", Some(supervisor)) => Some(record_slip(
+            tx,
+            &movement_id,
+            &kind,
+            amount_minor,
+            request.actor_id.trim(),
+            supervisor,
+            now,
+        )?),
+        _ => None,
+    };
+    let mut answer = report(tx, shift_id)?;
+    answer.slip = slip;
+    Ok(answer)
+}
+
+/// "Setor modal" hands back at most the float this drawer was given — the
+/// opening float and every Tambah modal — less what has gone back already. A
+/// second tap on the button is then refused rather than recorded as the float
+/// leaving twice, which would put the drawer short by a float at the close.
+fn check_float_left(
+    tx: &Transaction<'_>,
+    shift_id: &str,
+    returning: i64,
+) -> Result<(), EdgeError> {
+    let left: i64 = tx
+        .prepare_cached(
+            "SELECT COALESCE(SUM(amount_minor), 0) FROM cash_movement
+              WHERE shift_id=?1 AND kind IN ('OPENING_FLOAT','PICKUP','FLOAT_RETURN')",
+        )
+        .map_err(db)?
+        .query_row([shift_id], |row| row.get(0))
+        .map_err(db)?;
+    if left <= 0 {
+        return Err(EdgeError::Conflict("Modal sudah disetor semua".into()));
+    }
+    if returning > left {
+        return Err(EdgeError::Validation(format!(
+            "Modal tersisa Rp {}; tidak bisa setor Rp {}",
+            escpos::rupiah(left),
+            escpos::rupiah(returning)
+        )));
+    }
+    Ok(())
+}
+
+/// Number and write the slip for a PICKUP (the supervisor gives, the cashier
+/// receives), a DROP or a FLOAT_RETURN (the cashier gives, the supervisor
+/// receives). Each kind keeps its own run of numbers.
+fn record_slip(
+    tx: &Transaction<'_>,
+    movement_id: &str,
+    kind: &str,
+    amount_minor: i64,
+    cashier: &str,
+    supervisor: &str,
+    now: DateTime<Utc>,
+) -> Result<CashSlip, EdgeError> {
+    let (prefix, given_by, received_by) = match kind {
+        "PICKUP" => ("TM", supervisor, cashier),
+        "FLOAT_RETURN" => ("SM", cashier, supervisor),
+        _ => ("ST", cashier, supervisor),
+    };
+    let seq: i64 = tx
+        .prepare_cached("SELECT COALESCE(MAX(seq), 0) + 1 FROM cash_slip WHERE kind=?1")
+        .map_err(db)?
+        .query_row([kind], |row| row.get(0))
+        .map_err(db)?;
+    let slip_no = format!("{prefix}-{seq:04}");
+    tx.prepare_cached(
+        "INSERT INTO cash_slip(movement_id,kind,seq,slip_no,given_by,received_by)
+         VALUES(?1,?2,?3,?4,?5,?6)",
+    )
+    .map_err(db)?
+    .execute(params![movement_id, kind, seq, slip_no, given_by, received_by])
+    .map_err(db)?;
+    Ok(CashSlip {
+        slip_no,
+        // Null for a drop sent without an amount, not "Rp 0": the paper
+        // leaves the line for the Kepala toko's pen.
+        amount_minor: amount_minor.checked_abs().filter(|amount| *amount > 0),
+        given_by_name: display_name_of(tx, given_by)?,
+        received_by_name: display_name_of(tx, received_by)?,
+        at: stamp(now),
+    })
 }
 
 /// The sheet a movement was counted from has to be a sheet: denominations that
 /// are real, none twice, and adding up to the amount that left or entered the
-/// drawer. Only cash handled by hand — a drop or a pickup — has one; a payout
-/// or a correction is an amount and a reason.
+/// drawer. Only cash handled by hand — a drop, a pickup or a returned float —
+/// has one; a payout or a correction is an amount and a reason.
 fn check_movement_count(kind: &str, request: &CashMovementRequest) -> Result<(), EdgeError> {
     if request.counted.is_empty() {
         return Ok(());
     }
-    if !matches!(kind, "DROP" | "PICKUP") {
+    if !matches!(kind, "DROP" | "PICKUP" | "FLOAT_RETURN") {
         return Err(EdgeError::Validation(format!(
             "a {kind} is not counted note by note"
         )));
@@ -1075,6 +1281,7 @@ pub fn close_shift(
 ) -> Result<ShiftReport, EdgeError> {
     check_declaration(request)?;
     require_open(tx, shift_id)?;
+    require_no_held(tx, shift_id, now)?;
     // Only the person who counted the float in counts the drawer out — or a
     // supervisor. Anybody else closing it would be declaring money they never
     // held.
@@ -1328,6 +1535,22 @@ pub fn report(connection: &Connection, shift_id: &str) -> Result<ShiftReport, Ed
             movements.push(movement);
         }
     }
+    // "Setor modal": what went back, and to whom — the last hand that took
+    // it, which is the name the closing paper signs for.
+    let float_returned_minor: i64 = movements
+        .iter()
+        .filter(|movement| movement.kind == "FLOAT_RETURN")
+        .map(|movement| -movement.amount_minor)
+        .sum();
+    let float_returned_to = match movements
+        .iter()
+        .rev()
+        .find(|movement| movement.kind == "FLOAT_RETURN")
+        .and_then(|movement| movement.received_by.as_deref().or(movement.approved_by.as_deref()))
+    {
+        Some(username) => Some(display_name_of(connection, username)?),
+        None => None,
+    };
 
     // Only cash is in the drawer. Change handed back left it, and a cash
     // refund left it; a card refund never touched it.
@@ -1377,6 +1600,8 @@ pub fn report(connection: &Connection, shift_id: &str) -> Result<ShiftReport, Ed
         non_cash_refunds_minor,
         cash_movements_minor,
         movements,
+        float_returned_minor,
+        float_returned_to,
         expected_cash_minor,
         declared_cash_minor: declared,
         // Recomputed for an open shift so the number moves with the evening;
@@ -1390,6 +1615,7 @@ pub fn report(connection: &Connection, shift_id: &str) -> Result<ShiftReport, Ed
         note: head.9,
         counted,
         blind: false,
+        slip: None,
     })
 }
 
@@ -1748,7 +1974,37 @@ pub fn record_return(
             total.checked_add(line.charged_minor)
         })
         .ok_or_else(|| EdgeError::Validation("refund total overflow".into()))?;
+    record_return_valued(
+        tx,
+        return_id,
+        request,
+        approved_by,
+        shift_id,
+        movement_group_id,
+        lines,
+        refund_minor,
+        occurred_at,
+    )
+}
 
+/// [`record_return`] with the header's `refund_minor` given rather than summed.
+///
+/// An exchange (`EXCHANGE`) gives back only the credit the replacement used:
+/// returned pieces worth more than the replacement leave nothing to hand back
+/// (owner, 23 Oct 2026), so the header says what was spent while each line
+/// still says what that piece was charged on its own receipt.
+#[allow(clippy::too_many_arguments)]
+pub fn record_return_valued(
+    tx: &Transaction<'_>,
+    return_id: &str,
+    request: &ReturnRequest,
+    approved_by: &str,
+    shift_id: Option<&str>,
+    movement_group_id: &str,
+    lines: &[(SoldLine, String)],
+    refund_minor: i64,
+    occurred_at: DateTime<Utc>,
+) -> Result<ReturnResult, EdgeError> {
     tx.prepare_cached(
         "INSERT INTO sale_return(id,idempotency_key,sale_id,refund_minor,refund_method,
                                  refund_reference,reason,actor_id,approved_by,shift_id,
@@ -1818,6 +2074,62 @@ pub fn record_return(
         lines: returned,
         remaining_lines,
     })
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Exchange: a return that pays for the replacement
+// ════════════════════════════════════════════════════════════════════════════
+
+/// Pieces from one receipt come back and replacement pieces go out, with no
+/// money back (owner, 23 Oct 2026). A dearer replacement is topped up with
+/// ordinary tenders; a cheaper or equal one costs nothing and returns nothing.
+/// The Kepala toko authorises it, exactly as for a return.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ExchangeRequest {
+    /// The receipt the returned pieces were sold on.
+    pub sale_id: String,
+    /// Each a piece sold on `sale_id` and not yet returned. Back to the floor.
+    pub returned_epcs: Vec<String>,
+    /// Each a piece on this shop's floor.
+    pub replacement_epcs: Vec<String>,
+    /// The difference only, when the replacement is dearer. Empty otherwise.
+    #[serde(default)]
+    pub tenders: Vec<crate::tender::SaleTender>,
+    #[serde(default)]
+    pub reason: Option<String>,
+    pub supervisor: Supervisor,
+    #[serde(default)]
+    pub actor_id: String,
+    pub idempotency_key: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ExchangeResult {
+    /// The replacement sale.
+    pub sale_id: String,
+    pub receipt_no: String,
+    /// The return of the pieces that came back (`refund_method = EXCHANGE`).
+    pub return_id: String,
+    pub original_sale_id: String,
+    /// What the returned pieces were charged on their own receipt.
+    pub returned_minor: i64,
+    /// What the replacement comes to.
+    pub replacement_minor: i64,
+    /// `min(returned, replacement)`: the credit tender on the replacement sale.
+    pub credit_minor: i64,
+    /// `max(0, replacement − returned)`: what the shopper's tenders covered.
+    pub owed_minor: i64,
+    /// `max(0, returned − replacement)`: value left behind, not handed back.
+    pub unused_credit_minor: i64,
+    /// What the shopper's own tenders came to (the credit not included).
+    pub paid_minor: i64,
+    pub change_minor: i64,
+    pub approved_by: String,
+    pub occurred_at: String,
+    pub sale: super::contracts::SaleResult,
+    pub returned: ReturnResult,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -1953,6 +2265,39 @@ pub fn receipt_document(
             lines.push(line);
         }
     }
+    {
+        // What sold that this shop's stock could not give (owner, 23 Oct
+        // 2026): on the paper like any line, by the catalogue's name, or the
+        // Kepala toko's for an unknown item.
+        let mut statement = connection
+            .prepare(
+                "SELECT u.sku_code, u.unit_price_minor, u.line_total_minor,
+                        COALESCE(c.name, u.name, u.sku_code)
+                   FROM unmatched_sale_line u
+              LEFT JOIN catalog_item c ON c.sku_code = u.sku_code
+                  WHERE u.sale_id = ?1
+                  ORDER BY u.line_no",
+            )
+            .map_err(db)?;
+        let rows = statement
+            .query_map([sale_id], |row| {
+                let unit_price_minor: i64 = row.get(1)?;
+                Ok(ReceiptLine {
+                    sku_code: row.get::<_, Option<String>>(0)?.unwrap_or_default(),
+                    name: row.get::<_, Option<String>>(3)?.unwrap_or_default(),
+                    quantity: 1,
+                    unit_price_minor,
+                    line_total_minor: row.get(2)?,
+                    base_unit_price_minor: Some(unit_price_minor),
+                })
+            })
+            .map_err(db)?;
+        for row in rows {
+            let line = row.map_err(db)?;
+            subtotal_minor += line.base_unit_price_minor.unwrap_or(line.line_total_minor);
+            lines.push(line);
+        }
+    }
 
     let mut tenders = Vec::new();
     {
@@ -1996,7 +2341,7 @@ pub fn receipt_document(
         shop_line_2: None,
         site_id: site_id.to_string(),
         sale_id: sale_id.to_string(),
-        receipt_no: receipt_number(site_id, sale_id, &head.5),
+        receipt_no: receipt_no_of(connection, site_id, sale_id, &head.5)?,
         completed_at: head.5.clone(),
         cashier: head.4,
         lines,
@@ -2018,7 +2363,7 @@ pub fn receipt_document(
 /// day, and the last six of the sale id — short, unambiguous within a shop's
 /// day, and derived rather than allocated, which means no counter to keep and
 /// nothing to get out of step after a restore.
-fn receipt_number(site_id: &str, sale_id: &str, completed_at: &str) -> String {
+pub(crate) fn receipt_number(site_id: &str, sale_id: &str, completed_at: &str) -> String {
     let day: String = completed_at
         .chars()
         .filter(char::is_ascii_digit)
@@ -2038,6 +2383,471 @@ fn receipt_number(site_id: &str, sale_id: &str, completed_at: &str) -> String {
         site_id.to_ascii_uppercase(),
         tail.to_ascii_uppercase()
     )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Held sales — Tunda (client, 23 Oct 2026)
+// ════════════════════════════════════════════════════════════════════════════
+
+/// `POST /api/v1/store/held`: put a basket aside on this node.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct HoldSaleRequest {
+    /// The till's own basket, kept as it was sent and handed back on resume.
+    #[cfg_attr(feature = "ts", ts(type = "unknown"))]
+    pub basket: serde_json::Value,
+    pub total_minor: i64,
+    pub pcs: i64,
+    /// The seat it was held at. Optional: the holder's open shift says so.
+    #[serde(default)]
+    pub terminal_id: Option<String>,
+    /// Set by the router from the session.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(skip))]
+    pub actor_id: String,
+}
+
+/// The answer to a hold.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct HeldSaleCreated {
+    pub id: String,
+    pub held_by_name: String,
+    pub held_at: String,
+}
+
+/// One held basket, as `GET /api/v1/store/held` lists it and resume returns it.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct HeldSale {
+    pub id: String,
+    pub terminal_id: Option<String>,
+    pub held_by: String,
+    pub held_by_name: String,
+    pub held_at: String,
+    pub business_date: String,
+    pub total_minor: i64,
+    pub pcs: i64,
+    #[cfg_attr(feature = "ts", ts(type = "unknown"))]
+    pub basket: serde_json::Value,
+}
+
+/// `DELETE /api/v1/store/held/{id}`: thrown away, with the Kepala toko's yes.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct DropHeldRequest {
+    pub supervisor: Supervisor,
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(skip))]
+    pub actor_id: String,
+}
+
+fn display_name_of(connection: &Connection, username: &str) -> Result<String, EdgeError> {
+    Ok(connection
+        .prepare_cached("SELECT display_name FROM edge_user WHERE username=?1")
+        .map_err(db)?
+        .query_row([username], |row| row.get::<_, Option<String>>(0))
+        .optional()
+        .map_err(db)?
+        .flatten()
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| username.to_string()))
+}
+
+/// Put a basket aside for today. Any till of the store may resume it.
+pub fn hold_sale(
+    tx: &Transaction<'_>,
+    request: &HoldSaleRequest,
+    now: DateTime<Utc>,
+) -> Result<HeldSaleCreated, EdgeError> {
+    let actor = request.actor_id.trim();
+    if actor.is_empty() {
+        return Err(EdgeError::Validation("actor_id is required".into()));
+    }
+    if request.total_minor < 0 || request.pcs < 0 {
+        return Err(EdgeError::Validation(
+            "a held basket cannot come to less than nothing".into(),
+        ));
+    }
+    if request.basket.is_null() {
+        return Err(EdgeError::Validation("a held sale needs its basket".into()));
+    }
+    let terminal = match request
+        .terminal_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|terminal| !terminal.is_empty())
+    {
+        Some(terminal) => Some(terminal.to_string()),
+        None => match open_shift_of(tx, actor)? {
+            Some(shift_id) => tx
+                .prepare_cached("SELECT terminal_id FROM cash_shift WHERE id=?1")
+                .map_err(db)?
+                .query_row([&shift_id], |row| row.get::<_, String>(0))
+                .optional()
+                .map_err(db)?,
+            None => None,
+        },
+    };
+    let id = Uuid::new_v4().to_string();
+    let held_at = stamp(now);
+    let basket = serde_json::to_string(&request.basket)
+        .map_err(|error| EdgeError::Validation(error.to_string()))?;
+    tx.prepare_cached(
+        "INSERT INTO held_sale(id,terminal_id,held_by,held_at,business_date,basket_json,
+                               total_minor,pcs)
+         VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
+    )
+    .map_err(db)?
+    .execute(params![
+        id,
+        terminal,
+        actor,
+        held_at,
+        local_date(tx, now),
+        basket,
+        request.total_minor,
+        request.pcs
+    ])
+    .map_err(db)?;
+    Ok(HeldSaleCreated {
+        id,
+        held_by_name: display_name_of(tx, actor)?,
+        held_at,
+    })
+}
+
+fn held_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<(HeldSale, String)> {
+    Ok((
+        HeldSale {
+            id: row.get(0)?,
+            terminal_id: row.get(1)?,
+            held_by: row.get(2)?,
+            held_by_name: String::new(),
+            held_at: row.get(3)?,
+            business_date: row.get(4)?,
+            total_minor: row.get(6)?,
+            pcs: row.get(7)?,
+            basket: serde_json::Value::Null,
+        },
+        row.get(5)?,
+    ))
+}
+
+const HELD_COLUMNS: &str =
+    "SELECT id,terminal_id,held_by,held_at,business_date,basket_json,total_minor,pcs
+       FROM held_sale";
+
+fn finish_held(
+    connection: &Connection,
+    (mut held, basket): (HeldSale, String),
+) -> Result<HeldSale, EdgeError> {
+    held.held_by_name = display_name_of(connection, &held.held_by)?;
+    held.basket = serde_json::from_str(&basket)
+        .map_err(|error| EdgeError::Persistence(error.to_string()))?;
+    Ok(held)
+}
+
+/// Today's held baskets, every cashier's, oldest first. One from an earlier
+/// business day has expired and is not listed.
+pub fn held_sales(connection: &Connection, now: DateTime<Utc>) -> Result<Vec<HeldSale>, EdgeError> {
+    let rows = {
+        let mut statement = connection
+            .prepare(&format!(
+                "{HELD_COLUMNS} WHERE status='HELD' AND business_date=?1 ORDER BY held_at, id"
+            ))
+            .map_err(db)?;
+        let rows = statement
+            .query_map([local_date(connection, now)], held_row)
+            .map_err(db)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(db)?
+    };
+    rows.into_iter()
+        .map(|row| finish_held(connection, row))
+        .collect()
+}
+
+/// The held basket `id`, still held today — or why not.
+fn open_held(
+    connection: &Connection,
+    id: &str,
+    now: DateTime<Utc>,
+) -> Result<HeldSale, EdgeError> {
+    let row = connection
+        .prepare_cached(&format!("{HELD_COLUMNS} WHERE id=?1 AND status='HELD'"))
+        .map_err(db)?
+        .query_row([id], held_row)
+        .optional()
+        .map_err(db)?
+        .ok_or_else(|| EdgeError::NotFound(format!("held sale {id}")))?;
+    if row.0.business_date != local_date(connection, now) {
+        return Err(EdgeError::Conflict(
+            "transaksi tunda ini sudah kedaluwarsa".into(),
+        ));
+    }
+    finish_held(connection, row)
+}
+
+fn close_held(
+    tx: &Transaction<'_>,
+    id: &str,
+    status: &str,
+    by: &str,
+    now: DateTime<Utc>,
+) -> Result<(), EdgeError> {
+    let changed = tx
+        .prepare_cached(
+            "UPDATE held_sale SET status=?2, closed_by=?3, closed_at=?4
+              WHERE id=?1 AND status='HELD'",
+        )
+        .map_err(db)?
+        .execute(params![id, status, by, stamp(now)])
+        .map_err(db)?;
+    if changed == 1 {
+        Ok(())
+    } else {
+        Err(EdgeError::NotFound(format!("held sale {id}")))
+    }
+}
+
+/// Take a held basket back to a till: it leaves the list, and the till gets
+/// the basket it sent.
+pub fn resume_held(
+    tx: &Transaction<'_>,
+    id: &str,
+    actor: &str,
+    now: DateTime<Utc>,
+) -> Result<HeldSale, EdgeError> {
+    let held = open_held(tx, id, now)?;
+    close_held(tx, id, "RESUMED", actor.trim(), now)?;
+    Ok(held)
+}
+
+/// Throw a held basket away, with the Kepala toko's finger or password.
+pub fn drop_held(
+    tx: &Transaction<'_>,
+    id: &str,
+    request: &DropHeldRequest,
+    now: DateTime<Utc>,
+) -> Result<HeldSale, EdgeError> {
+    let held = open_held(tx, id, now)?;
+    let approved_by = verify_supervisor(tx, Some(&request.supervisor))?;
+    close_held(tx, id, "DROPPED", &approved_by, now)?;
+    Ok(held)
+}
+
+/// Refuse to close a drawer while its seat has a basket held today.
+fn require_no_held(
+    connection: &Connection,
+    shift_id: &str,
+    now: DateTime<Utc>,
+) -> Result<(), EdgeError> {
+    let held: i64 = connection
+        .prepare_cached(
+            "SELECT COUNT(*) FROM held_sale h
+               JOIN cash_shift s ON s.id=?1
+              WHERE h.status='HELD' AND h.business_date=?2
+                AND (h.terminal_id=s.terminal_id
+                     OR (h.terminal_id IS NULL AND h.held_by=s.opened_by))",
+        )
+        .map_err(db)?
+        .query_row(params![shift_id, local_date(connection, now)], |row| {
+            row.get(0)
+        })
+        .map_err(db)?;
+    if held > 0 {
+        return Err(EdgeError::Conflict(format!(
+            "Masih ada {held} transaksi tunda"
+        )));
+    }
+    Ok(())
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// A cashier who closed is done for the day at that till (client, 23 Oct 2026)
+// ════════════════════════════════════════════════════════════════════════════
+
+/// Refuse `actor` at `terminal` when they closed a shift there today:
+/// "{name} sudah tutup kasir hari ini". A shift taken over from them is not a
+/// close of theirs.
+pub fn refuse_closed_today(
+    connection: &Connection,
+    actor: &str,
+    terminal: &str,
+    now: DateTime<Utc>,
+) -> Result<(), EdgeError> {
+    let actor = actor.trim();
+    let terminal = terminal.trim();
+    if actor.is_empty() || terminal.is_empty() {
+        return Ok(());
+    }
+    let closed: i64 = connection
+        .prepare_cached(
+            "SELECT COUNT(*) FROM cash_shift
+              WHERE opened_by=?1 AND terminal_id=?2 AND status='CLOSED'
+                AND taken_over_by IS NULL AND business_date=?3",
+        )
+        .map_err(db)?
+        .query_row(params![actor, terminal, local_date(connection, now)], |row| {
+            row.get(0)
+        })
+        .map_err(db)?;
+    if closed > 0 {
+        return Err(EdgeError::Forbidden(format!(
+            "{} sudah tutup kasir hari ini",
+            display_name_of(connection, actor)?
+        )));
+    }
+    Ok(())
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// The 7-letter transaction number (client, 23 Oct 2026)
+// ════════════════════════════════════════════════════════════════════════════
+
+/// Four letters' worth of numbers: 26⁴.
+const RECEIPT_SPACE: u64 = 26 * 26 * 26 * 26;
+
+/// The till's running number scrambled into four letters:
+/// `x = ((n mod 26⁴) × 214013 + 97151) mod 26⁴`, written base-26 with A = 0.
+/// 214013 shares no factor with 26⁴, so no two numbers in a cycle meet.
+pub(crate) fn scrambled_letters(n: u64) -> String {
+    let mut x = ((n % RECEIPT_SPACE) * 214_013 + 97_151) % RECEIPT_SPACE;
+    let mut letters = [b'A'; 4];
+    for slot in letters.iter_mut().rev() {
+        // `x % 26` is below 26, so the cast cannot truncate.
+        #[allow(clippy::cast_possible_truncation)]
+        let digit = (x % 26) as u8;
+        *slot = b'A' + digit;
+        x /= 26;
+    }
+    String::from_utf8_lossy(&letters).into_owned()
+}
+
+/// The store's two letters: the first two letters of the site's name,
+/// uppercase — its id's when the name has fewer, `X` after that.
+pub(crate) fn store_letters(connection: &Connection) -> String {
+    let site = super::site_profile::own(connection);
+    let name = site.as_ref().map(|site| site.name.clone()).unwrap_or_default();
+    let id = site.map(|site| site.site_id).unwrap_or_default();
+    let mut letters: String = name
+        .chars()
+        .chain(id.chars())
+        .filter(char::is_ascii_alphabetic)
+        .take(2)
+        .collect::<String>()
+        .to_ascii_uppercase();
+    while letters.len() < 2 {
+        letters.push('X');
+    }
+    letters
+}
+
+/// A = the store's first till (`KASIR-1`), B the second… Z past 26, and for an
+/// id from before seats.
+pub(crate) fn till_letter(terminal_id: &str) -> char {
+    terminal_id
+        .strip_prefix(SEAT_PREFIX)
+        .and_then(|number| number.parse::<u32>().ok())
+        .filter(|number| (1..=26).contains(number))
+        .and_then(|number| char::from_u32(u32::from(b'A') + number - 1))
+        .unwrap_or('Z')
+}
+
+/// The seat a sale was rung at: its shift's, else the store's first.
+fn receipt_seat(connection: &Connection, shift_id: Option<&str>) -> Result<String, EdgeError> {
+    let seat: Option<String> = match shift_id {
+        Some(shift_id) => connection
+            .prepare_cached("SELECT terminal_id FROM cash_shift WHERE id=?1")
+            .map_err(db)?
+            .query_row([shift_id], |row| row.get(0))
+            .optional()
+            .map_err(db)?,
+        None => None,
+    };
+    Ok(seat.unwrap_or_else(|| format!("{SEAT_PREFIX}1")))
+}
+
+/// The next number at a seat, and what it reads as — not yet taken.
+fn next_receipt(connection: &Connection, seat: &str) -> Result<(i64, String), EdgeError> {
+    let last: i64 = connection
+        .prepare_cached("SELECT COALESCE(MAX(n), 0) FROM sale_receipt WHERE terminal_id=?1")
+        .map_err(db)?
+        .query_row([seat], |row| row.get(0))
+        .map_err(db)?;
+    let prefix = format!("{}{}", store_letters(connection), till_letter(seat));
+    let mut n = last + 1;
+    // On a clash take the next n — at most once round the four letters.
+    for _ in 0..RECEIPT_SPACE {
+        let receipt_no = format!(
+            "{prefix}{}",
+            scrambled_letters(u64::try_from(n).unwrap_or(0))
+        );
+        let taken: i64 = connection
+            .prepare_cached("SELECT COUNT(*) FROM sale_receipt WHERE receipt_no=?1")
+            .map_err(db)?
+            .query_row([&receipt_no], |row| row.get(0))
+            .map_err(db)?;
+        if taken == 0 {
+            return Ok((n, receipt_no));
+        }
+        n += 1;
+    }
+    Err(EdgeError::Conflict(format!(
+        "till {seat} has used every transaction number"
+    )))
+}
+
+/// Give a sale its 7-letter number, inside the sale's own transaction (after
+/// its `sale` row). The unique index on `receipt_no` does the final refusing.
+pub(crate) fn allocate_receipt(
+    tx: &Transaction<'_>,
+    sale_id: &str,
+    shift_id: Option<&str>,
+) -> Result<String, EdgeError> {
+    let seat = receipt_seat(tx, shift_id)?;
+    let (n, receipt_no) = next_receipt(tx, &seat)?;
+    tx.prepare_cached(
+        "INSERT INTO sale_receipt(sale_id, terminal_id, n, receipt_no) VALUES(?1,?2,?3,?4)",
+    )
+    .map_err(db)?
+    .execute(params![sale_id, seat, n, receipt_no])
+    .map_err(db)?;
+    Ok(receipt_no)
+}
+
+/// What the next sale by this person would be numbered — for the quote, so
+/// the till can show it before Bayar. Not reserved: another sale at the same
+/// seat first takes it, and the sale's own reply is the one that counts.
+pub(crate) fn peek_receipt(
+    connection: &Connection,
+    actor: &str,
+) -> Result<Option<String>, EdgeError> {
+    if actor.trim().is_empty() {
+        return Ok(None);
+    }
+    let Some(shift_id) = open_shift_of(connection, actor)? else {
+        return Ok(None);
+    };
+    let seat = receipt_seat(connection, Some(&shift_id))?;
+    next_receipt(connection, &seat).map(|(_, receipt_no)| Some(receipt_no))
+}
+
+/// A sale's number: the one it was given, or — for a sale from before
+/// 7-letter numbers — the derived one it always printed.
+pub(crate) fn receipt_no_of(
+    connection: &Connection,
+    site_id: &str,
+    sale_id: &str,
+    completed_at: &str,
+) -> Result<String, EdgeError> {
+    let kept: Option<String> = connection
+        .prepare_cached("SELECT receipt_no FROM sale_receipt WHERE sale_id=?1")
+        .map_err(db)?
+        .query_row([sale_id], |row| row.get(0))
+        .optional()
+        .map_err(db)?;
+    Ok(kept.unwrap_or_else(|| receipt_number(site_id, sale_id, completed_at)))
 }
 
 /// The receipt exactly as a printer receives it: ESC/POS for this paper, the
@@ -2093,6 +2903,422 @@ pub struct RenderReceiptRequest {
     pub drawer: Option<String>,
     #[serde(default)]
     pub copy: bool,
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// A member tied to a sale already rung (client, 24 Oct 2026)
+// ════════════════════════════════════════════════════════════════════════════
+
+/// `POST /api/v1/store/sales/member`: F5 "Daftar member" with a struk number.
+/// The shopper who paid without a card registers at the counter, and the sale
+/// on that struk becomes theirs.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct AttachMemberRequest {
+    /// The 7-letter number on the struk, `SPAPODH`. Spaces and case do not
+    /// matter.
+    pub receipt_no: String,
+    /// The member's number, as the enrolment answered it.
+    pub member_id: String,
+}
+
+/// The sale as it now stands: whose it is, and what it earned them.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct AttachMemberResult {
+    pub sale_id: String,
+    pub receipt_no: String,
+    pub member_id: String,
+    /// Head office's name for them; their number when head office could not
+    /// be asked.
+    pub member_name: String,
+    /// The sale's points for this member. Spendable once head office has the
+    /// sale and this, the same as points earned at the till.
+    pub points_earned: i64,
+}
+
+/// How an attach came out, before the router answers.
+pub enum MemberAttach {
+    /// Tied on now, or before to the same member: the same answer each time.
+    Attached(AttachMemberResult),
+    /// Already somebody else's sale. Their name when this node holds it; the
+    /// router asks head office otherwise.
+    Taken {
+        receipt_no: String,
+        member_id: String,
+        member_name: Option<String>,
+    },
+}
+
+/// A member's number as head office keeps it: the digits of a phone however
+/// it was typed, anything else as it is (head office's `relay_member_id`).
+fn member_key(raw: &str) -> String {
+    let trimmed = raw.trim();
+    let digits: String = trimmed.chars().filter(char::is_ascii_digit).collect();
+    if !digits.is_empty()
+        && trimmed
+            .chars()
+            .all(|c| c.is_ascii_digit() || " -.·".contains(c))
+    {
+        digits
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// Tie a member to the sale on struk `receipt_no`, so they earn its points as
+/// if they had been on it at the till.
+///
+/// Refused before anything is written: `Struk … tidak ada`, `… sudah di-void`,
+/// `… sudah ditukar` (an exchange came back against it) and `… sudah diretur`
+/// (a refund did) — goods that came back would otherwise earn. A sale rung
+/// with a member, or tied to one here before, stays that member's: the same
+/// member again is the same answer and nothing new travels, anybody else is
+/// [`MemberAttach::Taken`].
+///
+/// Written once per sale (`sale_member`, `0089`), and told to head office as
+/// `sales.member_attached` in the same transaction — behind the sale's own
+/// fact on this node's stream, so it lands after the sale whether the sale
+/// has reached head office yet or not.
+pub fn attach_member(
+    tx: &Transaction<'_>,
+    site_id: &str,
+    request: &AttachMemberRequest,
+    member_name: Option<&str>,
+    actor: &str,
+    now: DateTime<Utc>,
+) -> Result<MemberAttach, EdgeError> {
+    let receipt_no: String = request
+        .receipt_no
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect::<String>()
+        .to_ascii_uppercase();
+    if receipt_no.is_empty() {
+        return Err(EdgeError::Validation("Nomor struk belum diisi".into()));
+    }
+    let member_id = member_key(&request.member_id);
+    if member_id.is_empty() {
+        return Err(EdgeError::Validation("Nomor member belum diisi".into()));
+    }
+    let sale: Option<(String, String, String)> = tx
+        .prepare_cached(
+            "SELECT s.id, s.status, s.completed_at
+               FROM sale_receipt r JOIN sale s ON s.id = r.sale_id
+              WHERE r.receipt_no = ?1",
+        )
+        .map_err(db)?
+        .query_row([&receipt_no], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .optional()
+        .map_err(db)?;
+    let Some((sale_id, status, completed_at)) = sale else {
+        return Err(EdgeError::NotFound(format!("Struk {receipt_no} tidak ada")));
+    };
+    if status == "VOIDED" {
+        return Err(EdgeError::Conflict(format!("{receipt_no} sudah di-void")));
+    }
+    let returns: Vec<String> = {
+        let mut statement = tx
+            .prepare_cached("SELECT refund_method FROM sale_return WHERE sale_id=?1")
+            .map_err(db)?;
+        let rows = statement
+            .query_map([&sale_id], |row| row.get(0))
+            .map_err(db)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(db)?
+    };
+    if returns.iter().any(|method| method == "EXCHANGE") {
+        return Err(EdgeError::Conflict(format!("{receipt_no} sudah ditukar")));
+    }
+    if !returns.is_empty() {
+        return Err(EdgeError::Conflict(format!("{receipt_no} sudah diretur")));
+    }
+
+    // Tied on here before.
+    let kept: Option<(String, Option<String>, i64)> = tx
+        .prepare_cached(
+            "SELECT member_id, member_name, points_earned FROM sale_member WHERE sale_id=?1",
+        )
+        .map_err(db)?
+        .query_row([&sale_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .optional()
+        .map_err(db)?;
+    if let Some((kept_id, kept_name, points_earned)) = kept {
+        if kept_id != member_id {
+            return Ok(MemberAttach::Taken {
+                receipt_no,
+                member_id: kept_id,
+                member_name: kept_name,
+            });
+        }
+        return Ok(MemberAttach::Attached(AttachMemberResult {
+            sale_id,
+            receipt_no,
+            member_name: kept_name
+                .or_else(|| member_name.map(str::to_string))
+                .unwrap_or_else(|| kept_id.clone()),
+            member_id: kept_id,
+            points_earned,
+        }));
+    }
+    // Rung with a member: the sale's own fact says who, and what it earned.
+    let rung = rung_sale_fact(tx, &sale_id)?;
+    let rung_member = rung
+        .as_ref()
+        .and_then(|fact| fact.get("customer_id"))
+        .and_then(serde_json::Value::as_str)
+        .map(member_key)
+        .filter(|id| !id.is_empty());
+    if let Some(rung_member) = rung_member {
+        if rung_member != member_id {
+            return Ok(MemberAttach::Taken {
+                receipt_no,
+                member_id: rung_member,
+                member_name: None,
+            });
+        }
+        let points_earned = rung
+            .as_ref()
+            .and_then(|fact| fact.get("points_earned"))
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(0);
+        return Ok(MemberAttach::Attached(AttachMemberResult {
+            sale_id,
+            receipt_no,
+            member_name: member_name.map_or_else(|| member_id.clone(), str::to_string),
+            member_id,
+            points_earned,
+        }));
+    }
+
+    let (points_earned, lines) = member_points(
+        tx,
+        site_id,
+        &sale_id,
+        &completed_at,
+        &member_id,
+        rung.as_ref(),
+    )?;
+    tx.prepare_cached(
+        "INSERT INTO sale_member(sale_id,member_id,member_name,points_earned,attached_by,attached_at)
+         VALUES(?1,?2,?3,?4,?5,?6)",
+    )
+    .map_err(db)?
+    .execute(params![
+        sale_id,
+        member_id,
+        member_name,
+        points_earned,
+        actor,
+        stamp(now)
+    ])
+    .map_err(db)?;
+    // Each line's share of the award, as a sale fact carries it: a later
+    // return at head office takes back what that piece earned, not nought.
+    let held: Vec<serde_json::Value> = lines
+        .iter()
+        .filter_map(|(line, points)| match line {
+            PricedAgain::Held(subject_id) => Some(serde_json::json!({
+                "subject_id": subject_id,
+                "points_earned": points,
+            })),
+            PricedAgain::Unmatched(_) => None,
+        })
+        .collect();
+    let unmatched: Vec<serde_json::Value> = lines
+        .iter()
+        .filter_map(|(line, points)| match line {
+            PricedAgain::Unmatched(id) => Some(serde_json::json!({
+                "id": id,
+                "points_earned": points,
+            })),
+            PricedAgain::Held(_) => None,
+        })
+        .collect();
+    super::sync::enqueue_fact(
+        tx,
+        Uuid::new_v4(),
+        crate::cloud::domain::FACT_SALES_MEMBER_ATTACHED,
+        &serde_json::json!({
+            "sale_id": sale_id,
+            "site_id": site_id,
+            "receipt_no": receipt_no,
+            "customer_id": member_id,
+            "points_earned": points_earned,
+            "lines": held,
+            "unmatched": unmatched,
+            "actor_id": actor,
+            "attached_at": stamp(now),
+        }),
+    )
+    .map_err(db)?;
+    Ok(MemberAttach::Attached(AttachMemberResult {
+        sale_id,
+        receipt_no,
+        member_name: member_name.map_or_else(|| member_id.clone(), str::to_string),
+        member_id,
+        points_earned,
+    }))
+}
+
+/// The sale's own `sales.completed` as the till wrote it, while this node
+/// keeps it (`SYNC_RETENTION_DAYS` after head office has it). The node holds
+/// who a sale was rung for, and which codes came off it, nowhere else.
+fn rung_sale_fact(
+    tx: &Transaction<'_>,
+    sale_id: &str,
+) -> Result<Option<serde_json::Value>, EdgeError> {
+    let payload: Option<String> = tx
+        .prepare_cached(
+            "SELECT payload FROM sync_fact_log WHERE event_id=?1 AND event_type=?2
+              ORDER BY seq DESC LIMIT 1",
+        )
+        .map_err(db)?
+        .query_row(
+            params![sale_id, crate::cloud::domain::FACT_SALES_COMPLETED],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(db)?;
+    Ok(payload.and_then(|text| serde_json::from_str(&text).ok()))
+}
+
+/// One line of a sale handed to the engine again: a held piece by its
+/// subject, or an unmatched line by its id.
+enum PricedAgain {
+    Held(String),
+    Unmatched(String),
+}
+
+/// The sale's points had the member been on it at the till.
+///
+/// Its basket — every line that names a SKU, the held pieces and the ones the
+/// shop's stock could not give — priced again by this node's engine at the
+/// instant it was rung, with the member, and with the codes that came off it
+/// and their holds (read from the sale's own fact while the node keeps it).
+/// So the earning rule is the very one that would have run. The award the till
+/// recorded then cannot simply be handed over: a members-only "1 poin per
+/// Rp 10.000" gave the anonymous sale nought. Only the points are kept; what
+/// was paid stands as it was paid, and nothing here counts as a promotion's
+/// use.
+///
+/// The book is the one in force now, not the sale's: one replaced since
+/// prices the basket as it is today. A struk is tied on at its own counter,
+/// minutes after it was rung, which is why that is close enough.
+fn member_points(
+    tx: &Transaction<'_>,
+    site_id: &str,
+    sale_id: &str,
+    completed_at: &str,
+    member_id: &str,
+    rung: Option<&serde_json::Value>,
+) -> Result<(i64, Vec<(PricedAgain, i64)>), EdgeError> {
+    let mut basket: Vec<(PricedAgain, String)> = Vec::new();
+    {
+        let mut statement = tx
+            .prepare_cached(
+                "SELECT subject_id, sku_code FROM sale_line WHERE sale_id=?1 ORDER BY rowid",
+            )
+            .map_err(db)?;
+        let rows = statement
+            .query_map([sale_id], |row| {
+                Ok((PricedAgain::Held(row.get(0)?), row.get::<_, String>(1)?))
+            })
+            .map_err(db)?;
+        for row in rows {
+            basket.push(row.map_err(db)?);
+        }
+    }
+    {
+        // An unknown item is outside the points, as it was at the till.
+        let mut statement = tx
+            .prepare_cached(
+                "SELECT id, sku_code FROM unmatched_sale_line
+                  WHERE sale_id=?1 AND sku_code IS NOT NULL AND kind <> 'UNKNOWN'
+                  ORDER BY line_no",
+            )
+            .map_err(db)?;
+        let rows = statement
+            .query_map([sale_id], |row| {
+                Ok((PricedAgain::Unmatched(row.get(0)?), row.get::<_, String>(1)?))
+            })
+            .map_err(db)?;
+        for row in rows {
+            basket.push(row.map_err(db)?);
+        }
+    }
+    if basket.is_empty() {
+        return Ok((0, Vec::new()));
+    }
+    let at = DateTime::parse_from_rfc3339(completed_at)
+        .map(|at| at.with_timezone(&Utc))
+        .map_err(|error| {
+            EdgeError::Persistence(format!("sale {sale_id} has an unreadable time: {error}"))
+        })?;
+    let sku_codes: Vec<String> = basket.iter().map(|(_, sku)| sku.clone()).collect();
+    let mut codes: Vec<String> = Vec::new();
+    let mut holds: Vec<pricing_engine::CouponAuthorization> = Vec::new();
+    let promotions = rung
+        .and_then(|fact| fact.get("promotions"))
+        .and_then(serde_json::Value::as_array);
+    for promotion in promotions.into_iter().flatten() {
+        let Some(code) = promotion
+            .get("coupon_code")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|code| !code.is_empty())
+        else {
+            continue;
+        };
+        if !codes.iter().any(|known| known == code) {
+            codes.push(code.to_string());
+        }
+        if let Some(held) = promotion
+            .get("coupon_authorization_id")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+        {
+            holds.push(pricing_engine::CouponAuthorization {
+                code: code.to_string(),
+                authorization_id: held.to_string(),
+            });
+        }
+    }
+    let price = |codes: &[String], holds: &[pricing_engine::CouponAuthorization]| {
+        super::pricing::quote_with_coupon_holds(
+            tx,
+            site_id,
+            super::pricing::STORE_CHANNEL,
+            at,
+            &sku_codes,
+            codes,
+            Some(member_id),
+            &[],
+            holds,
+        )
+    };
+    let quote = match price(&codes, &holds) {
+        Ok(quote) => quote,
+        // A code the book has dropped since is refused outright; the basket
+        // is then priced without the codes rather than not at all.
+        Err(EdgeError::Validation(_)) if !codes.is_empty() => price(&[], &[])?,
+        Err(error) => return Err(error),
+    };
+    // No book in force: the till earned nothing on it either.
+    let Some(quote) = quote else {
+        return Ok((0, Vec::new()));
+    };
+    if quote.lines.len() != basket.len() {
+        return Err(EdgeError::Persistence(
+            "the price book answered for a different number of lines than were rung".into(),
+        ));
+    }
+    let lines = basket
+        .into_iter()
+        .zip(quote.lines.iter())
+        .map(|((line, _), quoted)| (line, quoted.points_earned.max(0)))
+        .collect();
+    Ok((quote.points_earned.max(0), lines))
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -2157,10 +3383,15 @@ pub fn shift_fact(
         .map_err(db)?
         .ok_or_else(|| EdgeError::NotFound(format!("shift {shift_id}")))?;
 
+    // A drop sent without an amount (client, 24 Oct 2026) moved nothing this
+    // node can count, and head office refuses a zero movement as no fact —
+    // refusing it there stops this node's whole sales lane. It stays here, on
+    // its slip, and does not travel.
     let mut statement = connection
         .prepare(
             "SELECT id,kind,amount_minor,reason,actor_id,approved_by,occurred_at
-               FROM cash_movement WHERE shift_id=?1 ORDER BY occurred_at,id",
+               FROM cash_movement WHERE shift_id=?1 AND amount_minor <> 0
+              ORDER BY occurred_at,id",
         )
         .map_err(db)?;
     let movements = statement

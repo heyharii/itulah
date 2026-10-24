@@ -1,0 +1,759 @@
+<title>Central Soft Cards</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+/* frontend-hub, All white look — values measured off the running hub (:5350, /procurement/orders, 20 Oct) */
+:root {
+  --stone: #e8ebf0;
+  --ink: #1d1d1f;
+  --body: #6e6e73;
+  --faint: #c7c7cc;
+  --hair: #e8e8ec;
+  --hair-2: #dcdce1;
+  --row: #eeeef1;
+  --soft: #fafafb;
+  --soft-2: #f2f2f5;
+  --soft-3: #f5f5f7;
+  --accent: #2862dc;
+  --accent-bg: #eef3fc;
+  --ok-fg: #248a3d;
+  --ok: #36b827;
+  --bad: #d70015;
+  --rail-text: #344054;
+  --rail-mute: #8a92a0;
+  --panel-ink: #1d2939;
+  --r-inner: 8px;
+  --r-card: 10px;
+  --r-sheet: 16px;
+  --shadow-page: 0 0 0 1px rgb(0 0 0 / 5%), 0 2px 8px rgb(0 0 0 / 4%), 0 24px 72px rgb(0 0 0 / 8%);
+  --shadow-panel: 0 0 0 1px rgb(0 0 0 / 5%), 0 2px 6px rgb(0 0 0 / 4%);
+  --shadow-rail-tile: 0 0 0 1px rgb(16 24 40 / 7%), 0 1px 2px rgb(16 24 40 / 8%);
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --font: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* matte: the Deep icon's blue, and Gojek's family colours */
+  --m-top: #4a80ea;
+  --m-foot: #2155c8;
+}
+* { box-sizing: border-box; margin: 0; }
+html, body { min-height: 100%; }
+body { font-family: var(--font); font-size: 15px; line-height: 20px; color: var(--ink); background: #d9dce2; -webkit-font-smoothing: antialiased; }
+button { font: inherit; color: inherit; border: 0; background: none; padding: 0; cursor: pointer; }
+h1, h2, h3, p { font: inherit; }
+svg { display: block; flex: none; }
+.ln { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+body[data-chrome="off"] .proto-picker { display: none; }
+
+#stage { padding: 112px 16px 48px; display: flex; justify-content: center; }
+body[data-chrome="off"] #stage { padding-top: 16px; }
+.deskwrap { position: relative; flex: none; border-radius: 14px; overflow: hidden; box-shadow: 0 20px 60px rgb(0 0 0 / 18%); }
+.desk { position: absolute; left: 0; top: 0; width: 1440px; height: 900px; transform-origin: 0 0; }
+
+/* ── the matte pictures (as the phone grid draws them): pastel square top-left, picture stepping out ── */
+.mpic { position: relative; display: block; width: var(--s); height: var(--s); flex: none; }
+.mpic-bg { position: absolute; left: 0; top: 0; width: 78%; height: 78%; border-radius: 30%; background: var(--cb); }
+.mpic svg { position: absolute; left: 23%; top: 19%; width: 77%; height: 77%; overflow: visible; }
+.mpic.bare .mpic-bg { display: none; }
+.mpic.bare svg { left: 0; top: 0; width: 100%; height: 100%; }
+.mpic .b { fill: var(--gb); } .mpic .d { fill: var(--gd); } .mpic .l { fill: var(--gl); }
+.mpic .b[stroke] { stroke: var(--gb); } .mpic .d[stroke] { stroke: var(--gd); }
+.mpic .w { fill: #f4f2ee; } .mpic .a { fill: var(--ac, #f7b928); } .mpic .hl { display: none; }
+.mpic .sa { fill: none; stroke: var(--ac, #f7b928); stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; }
+.mpic .sd { fill: none; stroke: var(--cd); stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
+.mpic .sw { fill: none; stroke: #fff; stroke-opacity: .55; stroke-width: 2.4; stroke-linecap: round; }
+
+/* ═════════ DESK ═════════ */
+.shell { display: flex; width: 1440px; height: 900px; padding: 12px 12px 12px 0; background: var(--stone); }
+.rail { position: relative; width: 68px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 2px; padding-top: 0; margin-top: -12px; }
+.rail .rb { position: relative; display: grid; place-items: center; width: 40px; height: 40px; border-radius: var(--r-inner); color: var(--rail-mute); }
+.rail .rb svg.ln { width: 20px; height: 20px; }
+.rail .rb.search { margin: 12px 0 10px; color: var(--rail-text); border-radius: 10px; }
+.rail .rb.on { background: #fff; color: var(--ink); box-shadow: var(--shadow-rail-tile); }
+.rail .rb .dot { position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--bad); box-shadow: 0 0 0 2px var(--stone); }
+.rail .rb.on .dot { box-shadow: 0 0 0 2px #fff; }
+.orb { position: absolute; bottom: 16px; left: 18px; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: var(--accent-bg); color: var(--accent); font-weight: 600; box-shadow: 0 0 0 2px var(--accent); }
+.orb i { position: absolute; top: -8px; right: -12px; height: 18px; min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--bad); color: #fff; font-style: normal; font-size: 12px; line-height: 18px; font-weight: 600; }
+
+.panel { width: 216px; flex: none; margin-right: 12px; border-radius: var(--r-sheet); background: #fff; box-shadow: var(--shadow-panel); padding: 12px 10px; }
+.panel-head { display: flex; align-items: center; justify-content: space-between; height: 28px; padding: 0 6px; margin-bottom: 22px; }
+.panel-head h2 { font-size: 20px; line-height: 28px; font-weight: 600; letter-spacing: -0.01em; color: var(--panel-ink); }
+.panel-head svg { width: 18px; height: 18px; color: var(--rail-mute); }
+.plink { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border-radius: var(--r-inner); color: var(--rail-text); margin-bottom: 2px; }
+.plink.on { background: var(--accent-bg); color: var(--accent); font-weight: 600; }
+.plink .cnt { margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--bad); color: #fff; font-size: 13px; line-height: 20px; font-weight: 600; text-align: center; }
+
+.page { flex: 1; min-width: 0; display: flex; flex-direction: column; border-radius: var(--r-sheet); background: #fff; box-shadow: var(--shadow-page); overflow: hidden; }
+.page-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; height: 84px; flex: none; padding: 0 40px 0 28px; border-bottom: 1px solid var(--hair); }
+.page-head h1 { display: flex; align-items: center; gap: 12px; font-size: 17px; line-height: 24px; font-weight: 600; }
+.btn-primary { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 12px 0 10px; border-radius: var(--r-inner); background: var(--accent); color: #fff; font-weight: 600; box-shadow: 0 1px 2px rgb(20 50 100 / 10%); }
+.btn-primary svg { width: 18px; height: 18px; }
+.page-body { flex: 1; min-height: 0; overflow: auto; padding: 16px 40px 0 28px; display: flex; flex-direction: column; }
+
+.kpis { display: flex; align-items: stretch; margin-bottom: 32px; }
+.kpi { display: flex; flex-direction: column; padding: 0 24px; border-left: 1px solid var(--hair); }
+.kpi:first-child { padding-left: 0; border-left: 0; }
+.kpi > div { display: flex; flex-direction: column; }
+.kpi .k-l { color: var(--body); }
+.kpi .k-v { padding-top: 6px; font-size: 16px; line-height: 22px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+
+.tabs { display: flex; gap: 20px; border-bottom: 1px solid var(--hair); margin-bottom: 16px; }
+.tab { position: relative; padding: 8px 0 11px; font-weight: 500; color: var(--body); white-space: nowrap; }
+.tab .n { color: var(--body); font-weight: 400; margin-left: 4px; }
+.tab.on { color: var(--ink); }
+.tab.on::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--ink); border-radius: 2px; }
+
+.bar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.field { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 10px; border: 1px solid var(--hair-2); border-radius: var(--r-inner); background: #fff; color: #8e8e93; }
+.field svg { width: 16px; height: 16px; }
+.field.search { width: 280px; }
+.field.date { min-width: 136px; justify-content: space-between; gap: 16px; white-space: nowrap; }
+.toggle { white-space: nowrap; display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; border: 1px solid var(--hair-2); border-radius: var(--r-inner); color: var(--ink); }
+.toggle i { width: 30px; height: 18px; border-radius: 9px; background: #e5e5ea; position: relative; }
+.toggle i::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgb(0 0 0 / 15%); }
+.ghost { display: flex; align-items: center; gap: 6px; height: 36px; padding: 0 12px; border: 1px solid var(--hair-2); border-radius: var(--r-inner); font-weight: 500; margin-left: auto; }
+.ghost svg { width: 16px; height: 16px; }
+
+.tbl { width: 100%; border-collapse: separate; border-spacing: 0; }
+.tbl th { position: sticky; top: 0; z-index: 1; height: 40px; padding: 0 16px; background: var(--soft); box-shadow: inset 0 -1px 0 var(--hair); text-align: left; font-weight: 500; color: var(--body); white-space: nowrap; }
+.tbl td { padding: 12px 16px; border-bottom: 1px solid var(--row); white-space: nowrap; vertical-align: middle; }
+.tbl .r { text-align: right; }
+.tbl tr.body:hover td { background: #fafafc; }
+.po-name { font-weight: 500; }
+.po-sub { color: var(--body); }
+.po-sub .id { font-family: var(--mono); font-size: 14px; letter-spacing: -0.01em; }
+.num { display: flex; flex-direction: column; align-items: flex-end; line-height: 24px; font-variant-numeric: tabular-nums; }
+.num b { font-weight: 500; }
+.num span { color: var(--body); }
+.st { display: inline-flex; align-items: center; gap: 7px; color: var(--ok-fg); }
+.st::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.late { color: var(--bad); }
+.pc-top .who em.late { color: var(--bad); }
+.rc { display: inline-flex; align-items: center; gap: 6px; height: 28px; margin: -4px 0; padding: 0 8px; border-radius: var(--r-inner); background: var(--accent); color: #fff; font-weight: 600; white-space: nowrap; box-shadow: 0 1px 2px rgb(20 50 100 / 10%); transition: transform 160ms var(--ease-out); }
+.rc:active { transform: scale(0.97); }
+.rc svg.ln { width: 15px; height: 15px; stroke-width: 2; }
+.pc-foot .rc { height: 44px; margin: -8px 0; padding: 0 14px; }
+.tfoot td { position: sticky; bottom: 0; background: var(--soft); box-shadow: inset 0 1px 0 var(--hair); border: 0; font-variant-numeric: tabular-nums; }
+.tfoot .num b { font-weight: 600; }
+
+/* ═════════ PHONE ═════════ */
+.phone { position: relative; width: 414px; height: 896px; flex: none; border-radius: 52px; padding: 10px; background: #1d1d1f; box-shadow: 0 20px 60px rgb(0 0 0 / 22%); }
+.ps { position: relative; width: 100%; height: 100%; border-radius: 42px; overflow: hidden; background: #fff; }
+.p-status { position: absolute; z-index: 5; inset: 0 0 auto; height: 47px; display: flex; justify-content: space-between; align-items: center; padding: 4px 30px 0 36px; font-family: -apple-system, "SF Pro Text", var(--font); font-size: 16px; font-weight: 600; background: rgb(255 255 255 / 90%); }
+.p-status .isl { position: absolute; left: 50%; top: 10px; width: 120px; height: 34px; margin-left: -60px; border-radius: 20px; background: #000; }
+.p-scroll { position: absolute; inset: 0; overflow-y: auto; padding: 47px 0 190px; scrollbar-width: none; }
+.p-title { display: flex; align-items: center; gap: 10px; padding: 14px 16px 10px; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; }
+.p-sum { padding: 0 16px 16px; color: var(--body); line-height: 24px; border-bottom: 1px solid var(--hair); }
+.p-sum b { color: var(--bad); font-weight: 600; }
+.p-cards { display: flex; flex-direction: column; gap: 12px; padding: 16px; }
+.pc { border: 1px solid var(--hair); border-radius: var(--r-card); background: #fff; }
+.pc-top { display: flex; justify-content: space-between; gap: 12px; padding: 16px 16px 14px; }
+.pc-top .who { min-width: 0; display: flex; flex-direction: column; gap: 2px; line-height: 22px; }
+.pc-top .who b { font-weight: 600; }
+.pc-top .who span { color: var(--body); }
+.pc-top .who span em { font-style: normal; color: var(--ink); }
+.pc-top .fig { display: flex; flex-direction: column; align-items: flex-end; line-height: 22px; font-variant-numeric: tabular-nums; }
+.pc-top .fig b { font-size: 24px; line-height: 30px; font-weight: 700; letter-spacing: -0.02em; }
+.pc-top .fig b small { font-size: 15px; font-weight: 400; color: var(--body); letter-spacing: 0; margin-left: 3px; }
+.pc-top .fig span { color: var(--body); }
+.pc-foot { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-top: 1px solid var(--hair); color: var(--body); }
+.dock { position: absolute; z-index: 6; left: 8px; right: 8px; bottom: 68px; display: flex; align-items: center; gap: 6px; padding: 6px; border-radius: 999px; background: rgb(255 255 255 / 88%); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); box-shadow: 0 0 0 1px rgb(0 0 0 / 5%), 0 8px 24px rgb(0 0 0 / 10%); }
+.chip { display: flex; align-items: center; gap: 6px; height: 40px; padding: 0 12px 0 16px; border-radius: 999px; background: var(--soft-2); font-weight: 500; white-space: nowrap; }
+.chip svg { width: 16px; height: 16px; color: var(--body); }
+.dsearch { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px; border-radius: 999px; background: var(--soft-2); color: #8e8e93; }
+.dsearch span { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dsearch svg { width: 17px; height: 17px; }
+.round { display: grid; place-items: center; width: 40px; height: 40px; flex: none; border-radius: 50%; background: var(--soft-2); color: var(--body); }
+.round svg { width: 18px; height: 18px; }
+.plusb { display: grid; place-items: center; width: 44px; height: 44px; flex: none; border-radius: 50%; background: var(--accent); color: #fff; }
+.plusb svg { width: 22px; height: 22px; stroke-width: 2; }
+.tabbar { position: absolute; z-index: 6; left: 0; right: 0; bottom: 0; height: 60px; display: grid; grid-template-columns: repeat(4, 1fr); background: rgb(255 255 255 / 92%); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); box-shadow: inset 0 1px 0 var(--hair); padding-bottom: 4px; }
+.tb { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: #8e8e93; font-weight: 500; }
+.tb svg.ln { width: 22px; height: 22px; }
+.tb.on { color: var(--accent); background: var(--accent-bg); }
+.tb.on::before { content: ""; position: absolute; top: 0; left: 30%; right: 30%; height: 3px; border-radius: 0 0 3px 3px; background: var(--accent); }
+.tb .bd { position: absolute; top: 8px; left: calc(50% + 8px); width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.porb { position: absolute; z-index: 7; right: 8px; bottom: 128px; width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; background: #fff; box-shadow: 0 0 0 2px var(--accent), 0 8px 20px rgb(0 0 0 / 14%); }
+.porb span { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; background: var(--accent-bg); color: var(--accent); font-size: 18px; font-weight: 600; }
+.porb i { position: absolute; top: -6px; right: -4px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--bad); color: #fff; font-style: normal; font-size: 13px; line-height: 20px; font-weight: 600; }
+
+/* ═════════ MATTE levels ═════════ */
+/* Touch and up: the one solid button is matte — tones top → foot, a soft coloured shadow, no inner shine */
+.m .btn-primary, .m .plusb { background: linear-gradient(180deg, var(--m-top), var(--m-foot)); box-shadow: 0 1px 1px rgb(16 40 110 / 10%), 0 8px 16px -8px rgb(33 85 200 / 65%); }
+.m .rail .rb .mpic { --s: 26px; }
+.m .rail .rb.on { box-shadow: var(--shadow-rail-tile); }
+.m .tb .mpic { --s: 26px; }
+.m .rc { background: linear-gradient(180deg, var(--m-top), var(--m-foot)); box-shadow: 0 1px 1px rgb(16 40 110 / 10%), 0 6px 12px -6px rgb(33 85 200 / 60%); }
+.soft .rc { height: 32px; margin: -6px 0; padding: 0 12px 0 10px; border-radius: 10px; }
+.soft .pc-foot .rc { height: 44px; border-radius: 12px; }
+.m .orb, .m .porb span { background: linear-gradient(180deg, #e6eefc, #cddcf8); }
+
+/* Matte and up: pictures on the head, the panel, the figures */
+.kpis.pics .kpi { flex-direction: row; align-items: center; gap: 12px; }
+.kpis.pics .kpi > div { display: flex; flex-direction: column; }
+.plink .mpic { --s: 22px; }
+.page-head .mpic { --s: 30px; }
+.p-title .mpic { --s: 30px; }
+.p-sum.pic { display: flex; gap: 12px; align-items: flex-start; }
+
+/* Soft: the boldest — a pastel ground, cards that float instead of hairlines, a segmented strip */
+:is(.soft, .softdesk) .shell { background: linear-gradient(180deg, #eef2fb, #e3eaf7); }
+:is(.soft, .softdesk) .rail .rb .dot { box-shadow: 0 0 0 2px #e9eef9; }
+.soft .rail .rb { width: 44px; height: 44px; border-radius: 12px; }
+.soft .rail .rb.on { background: #fff; }
+:is(.soft, .softdesk) .panel, :is(.soft, .softdesk) .page { box-shadow: 0 1px 2px rgb(24 50 120 / 6%), 0 18px 48px -20px rgb(24 60 150 / 22%); }
+:is(.soft, .softdesk) .plink.on { background: #e3ebfb; }
+:is(.soft, .softdesk) .tabs { border: 0; gap: 2px; padding: 3px; border-radius: 10px; background: #f1f4fa; width: max-content; }
+:is(.soft, .softdesk) .tab { padding: 6px 14px; border-radius: 8px; }
+:is(.soft, .softdesk) .tab.on { background: #fff; box-shadow: 0 1px 2px rgb(24 50 120 / 10%), 0 2px 6px rgb(24 50 120 / 6%); }
+:is(.soft, .softdesk) .tab.on::after { display: none; }
+.soft .kpis.pics { gap: 12px; }
+.soft .kpis.pics .kpi { padding: 12px 18px 12px 12px; border: 0; border-radius: 14px; background: #f6f8fc; }
+:is(.soft, .softdesk) :is(.field, .toggle, .ghost) { border-color: transparent; background: #f1f4fa; }
+:is(.soft, .softdesk) .tbl th { background: #f6f8fc; }
+:is(.soft, .softdesk) .tfoot td { background: #f6f8fc; }
+/* Soft cards on a desk: Soft's figures as soft cards, with no pictures (the desk keeps Touch's icons) */
+.softdesk .kpis { gap: 12px; }
+/* the table's head and totals as rounded bands (owner, 20 Oct: "tambahin radius di footer dan header table") */
+.softdesk .tbl thead th:first-child { border-top-left-radius: 12px; } .softdesk .tbl thead th:last-child { border-top-right-radius: 12px; }
+.softdesk .tbl thead th { box-shadow: none; }
+.softdesk .tfoot td { box-shadow: none; } .softdesk .tfoot td:first-child { border-radius: 12px 0 0 12px; } .softdesk .tfoot td:last-child { border-radius: 0 12px 12px 0; }
+.softdesk .kpis .kpi { padding: 10px 18px; border: 0; border-radius: 14px; background: #f6f8fc; }
+:is(.soft, .softcard) .ps { background: #f4f6fb; }
+:is(.soft, .softcard) .p-status { background: rgb(244 246 251 / 90%); }
+:is(.soft, .softcard) .p-sum { border: 0; margin: 0 16px; padding: 14px; border-radius: 16px; background: #fff; box-shadow: 0 1px 2px rgb(24 50 120 / 6%); }
+:is(.soft, .softcard) .pc { border: 0; border-radius: 16px; box-shadow: 0 1px 2px rgb(24 50 120 / 6%), 0 10px 24px -14px rgb(24 60 150 / 25%); }
+:is(.soft, .softcard) .pc-foot { border-top-color: #f0f2f7; }
+.soft .chip, .soft .dsearch, .soft .round { background: #eef2fa; }
+/* Soft cards: Soft's phone cards, everything else as today. The button is today's thin one (28px, solid blue);
+   a 44px hit area stands invisibly round it, as the hub's own row buttons do. Desk stays as today. */
+.softcard .pc-foot .rc { position: relative; height: 28px; margin: -4px 0; padding: 0 8px; }
+.softcard .pc-foot .rc::after { content: ""; position: absolute; inset: -8px -4px; }
+
+
+/* ═════════ SHEETS: the order's detail and the New PO form (measured off :5350, 20 Oct) ═════════ */
+.shell { position: relative; }
+.scrim { position: absolute; z-index: 20; inset: 0; background: rgb(208 208 213 / 48%); }
+.sheet { position: absolute; z-index: 21; top: 12px; right: 12px; bottom: 12px; width: 1040px; display: flex; flex-direction: column; border-radius: var(--r-sheet); background: #fff; box-shadow: 0 0 0 1px rgb(0 0 0 / 5%), 0 2px 8px rgb(0 0 0 / 5%), 0 24px 64px rgb(0 0 0 / 14%); overflow: hidden; }
+.sh-head { display: flex; justify-content: space-between; gap: 16px; flex: none; padding: 28px 36px 20px; border-bottom: 1px solid var(--hair); }
+.crumb { color: var(--body); }
+.crumb i { font-style: normal; margin: 0 6px; color: var(--faint); }
+.sh-title { display: flex; align-items: center; gap: 10px; margin-top: 6px; font-size: 17px; line-height: 24px; font-weight: 600; }
+.sh-title .st { font-size: 15px; font-weight: 500; }
+.rlink { color: var(--accent); }
+.x { display: grid; place-items: center; width: 32px; height: 32px; border-radius: var(--r-inner); color: var(--body); }
+.x svg { width: 16px; height: 16px; }
+.sh-body { flex: 1; min-height: 0; overflow: auto; padding: 28px 36px 32px; scrollbar-width: none; }
+.sh-foot { display: flex; justify-content: flex-end; gap: 8px; flex: none; padding: 14px 36px; border-top: 1px solid var(--hair); background: #fff; }
+.sh-foot .btn-primary, .sh-foot .btn-red, .sh-foot .btn-line { padding: 0 16px; }
+.btn-red { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 16px; border-radius: var(--r-inner); background: var(--bad); color: #fff; font-weight: 600; }
+.btn-line { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 16px; border-radius: var(--r-inner); border: 1px solid var(--hair-2); background: #fff; color: var(--accent); font-weight: 600; }
+.btn-line svg, .btn-red svg { width: 16px; height: 16px; }
+.btn-primary.dim { opacity: .45; }
+.facts { display: flex; margin-bottom: 36px; }
+.fact { display: flex; flex-direction: column; gap: 5px; padding: 0 24px; border-left: 1px solid var(--hair); }
+.fact:first-child { padding-left: 0; border-left: 0; }
+.fact span { color: var(--body); }
+.fact b { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+.items { border: 1px solid var(--hair); border-radius: var(--r-card); overflow: hidden; }
+.itbl { width: 100%; border-collapse: separate; border-spacing: 0; }
+.itbl th { height: 40px; padding: 0 16px; background: var(--soft); text-align: left; font-weight: 500; color: var(--body); white-space: nowrap; }
+.itbl td { padding: 14px 16px; border-top: 1px solid var(--hair); vertical-align: middle; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.itbl .r { text-align: right; }
+.itbl .act { width: 84px; }
+.itbl .act span { display: inline-flex; gap: 4px; color: var(--body); }
+.itbl .act svg { width: 32px; height: 32px; padding: 8px; border-radius: var(--r-inner); }
+.item { display: flex; align-items: center; gap: 12px; }
+.item > div { display: flex; flex-direction: column; line-height: 22px; }
+.item > div span { color: var(--body); }
+.item > div span.rlink { color: var(--accent); }
+.thumb { display: grid; place-items: center; width: 40px; height: 40px; flex: none; border-radius: 8px; background: var(--soft-2); }
+.thumb svg { width: 30px; height: 30px; }
+.totals { width: 340px; margin: 16px 0 0 auto; font-variant-numeric: tabular-nums; }
+.totals > div { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 40px; }
+.totals .gt { border-top: 1px solid var(--hair); font-weight: 600; }
+.seg { display: flex; padding: 2px; border-radius: 9px; background: #f2f2f4; }
+.seg span { padding: 5px 12px; border-radius: 7px; color: var(--body); }
+.seg span.on { background: #fff; color: var(--ink); box-shadow: 0 1px 3px rgb(0 0 0 / 12%); }
+.disc { display: flex; gap: 8px; align-items: center; }
+.notes h4, .fsec h4 { font-weight: 600; }
+.notes { margin-top: 40px; }
+.notes h4 { font-weight: 400; color: var(--body); margin-bottom: 12px; }
+.activity { display: flex; align-items: center; gap: 8px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--hair); color: var(--body); }
+.activity svg { width: 14px; height: 14px; }
+.fsec { padding-bottom: 28px; margin-bottom: 28px; border-bottom: 1px solid var(--hair); }
+.fsec:last-child { border-bottom: 0; margin-bottom: 0; }
+.fsec-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.fsec > h4 { margin-bottom: 16px; }
+.fgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 28px; }
+.fl { display: flex; flex-direction: column; gap: 8px; }
+.fl > span:first-child i { font-style: normal; color: var(--bad); margin-left: 2px; }
+.inp { display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 40px; padding: 0 12px; border: 1px solid var(--hair-2); border-radius: var(--r-inner); background: #fff; }
+.inp svg { width: 16px; height: 16px; color: var(--body); }
+.inp.ph { color: #8e8e93; }
+.inp.area { height: 88px; align-items: flex-start; padding-top: 10px; }
+.inp.num { width: 128px; height: 34px; color: #8e8e93; }
+.fgrid.one { grid-template-columns: 1fr; }
+
+/* phone: the same records as bottom sheets */
+.psheet { position: absolute; z-index: 8; left: 0; right: 0; top: 54px; bottom: 0; display: flex; flex-direction: column; border-radius: 14px 14px 0 0; background: #fff; box-shadow: 0 -8px 30px rgb(0 0 0 / 12%); overflow: hidden; }
+.pscrim { position: absolute; z-index: 7; inset: 0; background: rgb(0 0 0 / 22%); }
+.grab { width: 36px; height: 5px; margin: 8px auto 0; border-radius: 3px; background: #d1d1d6; flex: none; }
+.psheet .sh-head { padding: 14px 16px 14px; }
+.psheet .sh-body { padding: 20px 16px 24px; }
+.psheet .sh-foot { padding: 12px 16px 28px; }
+.psheet .sh-foot > * { height: 44px; }
+.pfacts { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 16px; margin-bottom: 24px; }
+.pfacts div { display: flex; flex-direction: column; gap: 2px; }
+.pfacts span { color: var(--body); }
+.pfacts b { font-size: 16px; font-weight: 600; }
+.plines { border-top: 1px solid var(--hair); }
+.pline { padding: 16px; border-bottom: 1px solid var(--hair); }
+.pline .item { align-items: flex-start; margin-bottom: 14px; }
+.pline-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 16px; padding-bottom: 12px; border-bottom: 1px solid var(--hair); }
+.pline-grid span { color: var(--body); }
+.pline-amt { display: flex; justify-content: space-between; padding-top: 12px; }
+.pline-amt span { color: var(--body); }
+.pline-amt b { font-weight: 600; }
+.pline .tools { display: flex; gap: 4px; margin-left: auto; color: var(--body); }
+.pline .tools svg { width: 36px; height: 36px; padding: 9px; }
+.psheet .totals { width: auto; margin-top: 8px; }
+.psheet .fgrid { grid-template-columns: 1fr; }
+.psheet .inp { height: 44px; }
+.psheet .inp.num { width: 120px; height: 36px; }
+.psheet .notes { margin-top: 24px; }
+
+/* Soft cards on a desk: the sheet takes the list page's soft ground pieces; buttons stay today's */
+.softdesk .sheet { border-radius: 20px; box-shadow: 0 1px 2px rgb(24 50 120 / 6%), 0 24px 64px -16px rgb(24 60 150 / 30%); }
+.softdesk .scrim { background: rgb(214 222 240 / 50%); }
+.softdesk .sh-head, .softdesk .sh-foot { border-color: #eef0f5; }
+.softdesk .facts { gap: 12px; }
+.softdesk .fact { padding: 10px 18px; border: 0; border-radius: 14px; background: #f6f8fc; }
+.softdesk .items { border: 0; border-radius: 0; }
+.softdesk .itbl th { background: #f6f8fc; }
+.softdesk .itbl th:first-child { border-radius: 12px 0 0 12px; } .softdesk .itbl th:last-child { border-radius: 0 12px 12px 0; }
+.softdesk .itbl tr:first-child td { border-top: 0; }
+.softdesk .itbl td { border-color: var(--row); }
+.softdesk .totals { padding: 4px 16px; border-radius: 12px; background: #f6f8fc; }
+.softdesk .totals .gt { border-color: #e6e9f1; }
+.softdesk .notes { padding: 14px 18px; border-radius: 14px; background: #f6f8fc; }
+.softdesk .notes h4 { margin-bottom: 6px; }
+.softdesk .activity { border: 0; padding-top: 0; }
+.softdesk .fsec { border: 0; padding: 0; margin-bottom: 36px; }
+.softdesk .inp { border-color: transparent; background: #f1f4fa; border-radius: 10px; }
+.softdesk .seg { background: #eef2fa; }
+.softdesk .totals .inp { background: #fff; }
+.softdesk .thumb { background: #eef1f7; border-radius: 10px; }
+
+/* Soft cards on a phone: a tinted sheet, every block a white card that floats */
+.softcard .psheet, .softcard .psheet .sh-foot { background: #f4f6fb; }
+.softcard .psheet .sh-head { border-color: transparent; }
+.softcard .psheet .sh-foot { border-color: transparent; background: rgb(244 246 251 / 92%); }
+.softcard .pfacts, .softcard .pline, .softcard .psheet .totals, .softcard .psheet .notes, .softcard .psheet .fsec { padding: 16px; border: 0; border-radius: 16px; background: #fff; box-shadow: 0 1px 2px rgb(24 50 120 / 6%), 0 10px 24px -14px rgb(24 60 150 / 25%); }
+.softcard .plines { border: 0; display: flex; flex-direction: column; gap: 12px; }
+.softcard .pline-grid { border-color: #f0f2f7; }
+.softcard .psheet .totals { margin-top: 12px; padding: 4px 16px; }
+.softcard .psheet .totals .gt { border-color: #f0f2f7; }
+.softcard .psheet .notes { margin-top: 12px; }
+.softcard .psheet .notes h4 { margin-bottom: 4px; }
+.softcard .psheet .activity { border: 0; padding: 4px 4px 0; }
+.softcard .psheet .fsec { margin-bottom: 12px; }
+/* the lines are cards already: their section is no card of its own, so nothing nests */
+.softcard .psheet .fsec.lines-sec { padding: 4px 0 0; background: transparent; box-shadow: none; }
+.softcard .psheet .lines-sec .fsec-head { padding: 0 4px; }
+.softcard .psheet .inp { border-color: transparent; background: #f1f4fa; border-radius: 12px; }
+.softcard .psheet .seg { background: #eef2fa; }
+.softcard .thumb { background: #eef1f7; border-radius: 10px; }
+
+/* the matte levels give the red button the same matte treatment */
+.m .btn-red { background: linear-gradient(180deg, #ee3c47, #c00f1c); box-shadow: 0 1px 1px rgb(110 10 20 / 10%), 0 8px 16px -8px rgb(200 20 35 / 60%); }
+
+/* ── picker chrome (prototype skill, verbatim) ── */
+.proto-picker { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 2147483647; display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: 999px; background: rgba(10, 10, 10, 0.82); -webkit-backdrop-filter: blur(12px) saturate(1.4); backdrop-filter: blur(12px) saturate(1.4); box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset, 0 8px 24px rgba(0, 0, 0, 0.24), 0 2px 6px rgba(0, 0, 0, 0.12); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 13px; line-height: 1; -webkit-font-smoothing: antialiased; user-select: none; -webkit-user-select: none; }
+.proto-picker-highlight { position: absolute; top: 4px; left: 0; height: 28px; border-radius: 999px; background: rgba(255, 255, 255, 0.12); will-change: transform; }
+.proto-picker[data-ready] .proto-picker-highlight { transition: transform 250ms cubic-bezier(0.23, 1, 0.32, 1), width 250ms cubic-bezier(0.23, 1, 0.32, 1); }
+@media (prefers-reduced-motion: reduce) { .proto-picker[data-ready] .proto-picker-highlight { transition: none; } }
+.proto-picker-item { position: relative; display: flex; align-items: center; height: 28px; padding: 0 12px; border: 0; border-radius: 999px; background: transparent; color: rgba(255, 255, 255, 0.55); font: inherit; cursor: pointer; transition: color 150ms ease-out; }
+.proto-picker-item:hover { color: rgba(255, 255, 255, 0.85); }
+.proto-picker-item:active { transform: scale(0.97); }
+.proto-picker-item:focus-visible { outline: 2px solid rgba(255, 255, 255, 0.4); outline-offset: 2px; }
+.proto-picker-item[data-active] { color: #fff; }
+.proto-picker-divider { width: 1px; height: 16px; margin: 0 4px; background: rgba(255, 255, 255, 0.12); }
+.proto-picker[data-position="top"] { bottom: auto; top: 24px; }
+.proto-picker.proto-states { top: 64px; white-space: nowrap; }
+.proto-picker.proto-screens { top: 104px; white-space: nowrap; }
+.proto-picker.proto-icons { top: 144px; white-space: nowrap; display: none; }
+body[data-icons] #icons, body[data-layout] #layout { display: flex; }
+#stage { padding-top: 152px; }
+body:is([data-icons], [data-layout]) #stage { padding-top: 192px; }
+body[data-chrome="off"] .proto-picker.proto-icons { display: none !important; }
+body[data-chrome="off"]:is([data-icons], [data-layout]) #stage { padding-top: 16px; }
+@media (max-width: 767px) { .proto-picker[data-position="top"] { top: 8px; } .proto-picker.proto-states { top: 44px; } .proto-picker.proto-screens { top: 80px; } .proto-picker.proto-icons { top: 116px; } .proto-picker-item { padding: 0 9px; } #stage { padding-top: 124px; } body:is([data-icons], [data-layout]) #stage { padding-top: 160px; } }
+
+/* client preview: the look is fixed beyond Now/Soft; the page fits a phone; pills clear the notch */
+#icons, #layout { display: none !important; }
+body:is([data-icons], [data-layout]) #stage { padding-top: 152px; }
+.proto-picker[data-position="top"] { margin-top: env(safe-area-inset-top, 0px); }
+@media (max-width: 767px) { body:is([data-icons], [data-layout]) #stage { padding-top: 124px; } }
+@media (max-width: 480px) {
+  .phone { width: 100%; height: 812px; padding: 0; border-radius: 0; background: none; box-shadow: none; }
+  .ps { border-radius: 18px; box-shadow: 0 0 0 1px rgb(0 0 0 / 6%), 0 12px 32px rgb(0 0 0 / 12%); }
+}
+</style>
+<div id="stage"></div>
+
+<nav class="proto-picker" id="variants" data-position="top" aria-label="Look">
+  <span class="proto-picker-highlight" aria-hidden="true"></span>
+  <button class="proto-picker-item">Now</button>
+  <button class="proto-picker-item">Soft</button>
+</nav>
+<nav class="proto-picker proto-icons" id="icons" data-position="top" aria-label="Phone icons">
+  <span class="proto-picker-highlight" aria-hidden="true"></span>
+  <button class="proto-picker-item">Line</button>
+  <button class="proto-picker-item">Matte</button>
+  <button class="proto-picker-item">Active only</button>
+</nav>
+<nav class="proto-picker proto-icons" id="layout" data-position="top" aria-label="Desk layout">
+  <span class="proto-picker-highlight" aria-hidden="true"></span>
+  <button class="proto-picker-item">Today</button>
+  <button class="proto-picker-item">Soft</button>
+</nav>
+<nav class="proto-picker proto-screens" id="screens" data-position="top" aria-label="Screen">
+  <span class="proto-picker-highlight" aria-hidden="true"></span>
+  <button class="proto-picker-item">List</button>
+  <button class="proto-picker-item">Detail</button>
+  <button class="proto-picker-item">New PO</button>
+</nav>
+<nav class="proto-picker proto-states" id="states" data-position="top" aria-label="Device">
+  <span class="proto-picker-highlight" aria-hidden="true"></span>
+  <button class="proto-picker-item">Desk</button>
+  <button class="proto-picker-item">Phone</button>
+</nav>
+
+<script>
+/* ── line icons (lucide, as the hub draws them) ── */
+const L = {
+  search: `<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>`,
+  buying: `<circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/>`,
+  merchandise: `<path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z"/>`,
+  ops: `<path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/>`,
+  inventory: `<path d="M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z"/><path d="m7 16.5-4.74-2.85M7 16.5l5-3M7 16.5v5.17M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3ZM17 16.5l-5-3M17 16.5l4.74-2.85M17 16.5v5.17M7.97 4.42A2 2 0 0 0 7 6.13v4.37l5 3 5-3V6.13a2 2 0 0 0-.97-1.71l-3-1.8a2 2 0 0 0-2.06 0l-3 1.8ZM12 8 7.26 5.15M12 8l4.74-2.85M12 13.5V8"/>`,
+  marketing: `<path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>`,
+  selling: `<path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4M2 7h20M22 7v3a2 2 0 0 1-2 2 2.7 2.7 0 0 1-2-1 2.7 2.7 0 0 1-4 0 2.7 2.7 0 0 1-4 0 2.7 2.7 0 0 1-4 0 2.7 2.7 0 0 1-2 1 2 2 0 0 1-2-2V7"/>`,
+  finance: `<path d="M3 22h18M6 18v-7M10 18v-7M14 18v-7M18 18v-7"/><path d="M12 2 20 7H4z"/>`,
+  hr: `<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>`,
+  ga: `<path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/>`,
+  system: `<path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>`,
+  chevL: `<path d="m15 18-6-6 6-6"/>`,
+  chevD: `<path d="m6 9 6 6 6-6"/>`,
+  cal: `<rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>`,
+  cols: `<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18M15 3v18"/>`,
+  plus: `<path d="M5 12h14M12 5v14"/>`,
+  refresh: `<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8M21 3v5h-5M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16M8 16H3v5"/>`,
+  filter: `<path d="M3 6h18M7 12h10M10 18h4"/>`,
+  home: `<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>`,
+  orders: `<rect width="8" height="4" x="8" y="2" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>`,
+  suppliers: `<rect width="16" height="20" x="4" y="2" rx="2"/><path d="M9 22v-4h6v4M8 6h.01M16 6h.01M12 6h.01M12 10h.01M12 14h.01M16 10h.01M16 14h.01M8 10h.01M8 14h.01"/>`,
+  returns: `<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5 5.5 5.5 0 0 1-5.5 5.5H11"/>`,
+};
+const ln = (k, cls = "ln") => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${L[k]}</svg>`;
+
+/* ── matte pictures, 48 box: .b base · .d shade · .l light · .w off-white · .a one yellow accent ── */
+const ART = {
+  buying: `<rect class="a" x="20" y="4" width="14" height="12" rx="2.5" transform="rotate(-10 27 10)"/><path class="sd" d="M3 9 H9 L11 14"/><path class="b" d="M11 14 H43 L38.5 31 H15.5 Z" stroke="#000" stroke-width="3" stroke-linejoin="round"/><path class="sw" d="M21 18 V27 M28 18 V27 M35 18 V27"/><path class="sd" d="M15.5 31 L17 36 H38"/><circle class="d" cx="19" cy="40" r="4"/><circle class="d" cx="36" cy="40" r="4"/><circle class="w" cx="19" cy="40" r="1.5"/><circle class="w" cx="36" cy="40" r="1.5"/>`,
+  merchandise: `<path class="b" d="M17 6 L9 9.5 L2.5 18 L9 23.5 L12 21 V41 A2.5 2.5 0 0 0 14.5 43.5 H33.5 A2.5 2.5 0 0 0 36 41 V21 L39 23.5 L45.5 18 L39 9.5 L31 6 C30 9.5 27.5 11.5 24 11.5 C20.5 11.5 18 9.5 17 6 Z" stroke="#000" stroke-width="1.5" stroke-linejoin="round"/><path class="d" d="M17 6 C18 9.5 20.5 11.5 24 11.5 C27.5 11.5 30 9.5 31 6 C29 7.6 26.8 8.4 24 8.4 C21.2 8.4 19 7.6 17 6 Z"/><rect class="a" x="12" y="25" width="24" height="5"/>`,
+  ops: `<rect class="b" x="2" y="10" width="27" height="23" rx="3"/><rect class="l" x="2" y="15" width="27" height="3"/><path class="d" d="M29 17 H37.5 A3 3 0 0 1 40 18.4 L45 26 V33 H29 Z"/><path class="w" d="M31.5 20 H37 L40.5 25.5 H31.5 Z" fill-opacity=".9"/><rect class="d" x="2" y="31" width="43" height="4.5" rx="2"/><circle cx="13" cy="37" r="5.2" fill="#1d1d1f"/><circle cx="36" cy="37" r="5.2" fill="#1d1d1f"/><circle class="w" cx="13" cy="37" r="2"/><circle class="w" cx="36" cy="37" r="2"/><rect class="a" x="42.5" y="27.5" width="2.5" height="3.5" rx="1"/>`,
+  inventory: `<rect class="b" x="3" y="23" width="21" height="20" rx="2.5"/><rect class="d" x="24" y="23" width="21" height="20" rx="2.5"/><rect class="l" x="13" y="5" width="22" height="18" rx="2.5"/><rect class="a" x="11.5" y="23" width="4" height="8"/><rect class="a" x="32.5" y="23" width="4" height="8"/><rect class="b" x="22" y="5" width="4" height="8"/>`,
+  marketing: `<path class="sa" d="M39 15 Q42.5 22 39 29"/><path class="sa" d="M43.5 11 Q49 22 43.5 33"/><rect class="l" x="4" y="16" width="8" height="12" rx="3"/><path class="b" d="M11 16.5 L31 7 V37 L11 27.5 Z" stroke="#000" stroke-width="3" stroke-linejoin="round"/><ellipse class="d" cx="32" cy="22" rx="3.6" ry="15"/><path class="d" d="M14 27.5 L18 38.5 A2 2 0 0 0 19.9 40 H22.5 A1.6 1.6 0 0 0 24 37.8 L20.8 30.4 Z"/>`,
+  selling: `<rect class="l" x="6" y="19" width="36" height="24" rx="2.5"/><rect class="b" x="3" y="8" width="42" height="12" rx="3"/><rect class="w" x="11.4" y="8" width="8.4" height="12" fill-opacity=".9"/><rect class="w" x="28.2" y="8" width="8.4" height="12" fill-opacity=".9"/><circle class="b" cx="7.2" cy="20" r="4.2"/><circle class="w" cx="15.6" cy="20" r="4.2"/><circle class="b" cx="24" cy="20" r="4.2"/><circle class="w" cx="32.4" cy="20" r="4.2"/><circle class="b" cx="40.8" cy="20" r="4.2"/><rect class="d" x="19.5" y="29" width="9" height="14" rx="1.5"/><rect class="a" x="10" y="29" width="7" height="7" rx="1.5"/><rect class="w" x="31" y="29" width="7" height="7" rx="1.5"/>`,
+  finance: `<path class="d" d="M24 3 L44 13.5 V17 H4 V13.5 Z" stroke="#000" stroke-width="2" stroke-linejoin="round"/><circle class="a" cx="24" cy="11" r="2.8"/><rect class="l" x="5" y="17" width="38" height="3" rx="1"/><rect class="b" x="8" y="21" width="5.5" height="15" rx="1.5"/><rect class="b" x="17" y="21" width="5.5" height="15" rx="1.5"/><rect class="b" x="25.5" y="21" width="5.5" height="15" rx="1.5"/><rect class="b" x="34.5" y="21" width="5.5" height="15" rx="1.5"/><rect class="d" x="5" y="36" width="38" height="4" rx="1.5"/><rect class="b" x="2.5" y="40" width="43" height="4" rx="1.5"/>`,
+  hr: `<circle class="l" cx="32.5" cy="13.5" r="6.5"/><path class="l" d="M21 38 C21 29.5 26 24.5 32.5 24.5 C39 24.5 44 29.5 44 38 V39 A2 2 0 0 1 42 41 H23 A2 2 0 0 1 21 39 Z"/><circle class="b" cx="18.5" cy="16.5" r="7.5"/><path class="b" d="M5 41 C5 32 11 26.5 18.5 26.5 C26 26.5 32 32 32 41 V42 A2 2 0 0 1 30 44 H7 A2 2 0 0 1 5 42 Z"/><path class="a" d="M16 26.8 L18.5 33 L21 26.8 Z"/>`,
+  ga: `<path class="l" d="M18 4 H40 A5 5 0 0 1 45 9 V22 A5 5 0 0 1 40 27 V32 L34 27 H18 A5 5 0 0 1 13 22 V9 A5 5 0 0 1 18 4 Z"/><path class="b" d="M8 15 H30 A5 5 0 0 1 35 20 V33 A5 5 0 0 1 30 38 H15 L8 44.5 V38 A5 5 0 0 1 3 33 V20 A5 5 0 0 1 8 15 Z"/><rect class="w" x="8.5" y="22" width="19" height="3" rx="1.5"/><rect class="w" x="8.5" y="28.5" width="12" height="3" rx="1.5"/><circle class="a" cx="40" cy="9" r="3"/>`,
+  system: `<rect class="d" x="10" y="5" width="30" height="38" rx="3"/><rect class="w" x="13" y="8" width="26" height="34" rx="2"/><rect class="b" x="8" y="4" width="27" height="36" rx="3"/><rect class="d" x="8" y="4" width="5.5" height="36" rx="2.5"/><rect class="l" x="18" y="11" width="12" height="6" rx="1.5"/><path class="a" d="M27 38 V46 L30 43.5 L33 46 V38 Z"/>`,
+  orders: `<rect class="b" x="7" y="7" width="32" height="38" rx="3.5"/><rect class="w" x="11" y="12" width="24" height="29" rx="1.5"/><rect class="d" x="16" y="3.5" width="14" height="7" rx="2.5"/><rect class="l" x="15" y="18" width="16" height="3.2" rx="1.6"/><rect class="l" x="15" y="25" width="12" height="3.2" rx="1.6"/><rect class="a" x="15" y="32" width="9" height="3.2" rx="1.6"/>`,
+  openbox: `<path class="d" d="M6 19 H42 V40 A3 3 0 0 1 39 43 H9 A3 3 0 0 1 6 40 Z"/><path class="b" d="M6 25 H42 V40 A3 3 0 0 1 39 43 H9 A3 3 0 0 1 6 40 Z"/><path class="l" d="M6 19 L1.5 11 H19 L24 19 Z"/><path class="l" d="M42 19 L46.5 11 H29 L24 19 Z"/><rect class="a" x="19" y="30" width="10" height="4" rx="2"/>`,
+  clock: `<circle class="d" cx="25.5" cy="26" r="18"/><circle class="b" cx="24" cy="24" r="18"/><circle class="w" cx="24" cy="24" r="13.5"/><path class="sd" d="M24 15 V24 L30.5 28"/><circle class="a" cx="24" cy="24" r="2.4"/>`,
+  coins: `<ellipse class="d" cx="19" cy="38" rx="14" ry="5"/><rect class="d" x="5" y="31" width="28" height="7"/><ellipse class="b" cx="19" cy="31" rx="14" ry="5"/><ellipse class="d" cx="19" cy="27" rx="14" ry="5"/><rect class="d" x="5" y="20" width="28" height="7"/><ellipse class="l" cx="19" cy="20" rx="14" ry="5"/><circle class="a" cx="36" cy="31" r="9"/><circle cx="36" cy="31" r="5.2" fill="#000" opacity=".1"/>`,
+  house: `<path class="b" d="M8 20 L24 7 L40 20 V41 A3 3 0 0 1 37 44 H11 A3 3 0 0 1 8 41 Z"/><path class="d" d="M24 3.5 L45.5 21 L42.5 24.5 L24 9.5 L5.5 24.5 L2.5 21 Z"/><rect class="l" x="19" y="28" width="10" height="16" rx="2"/><rect class="a" x="31" y="23" width="5.5" height="5.5" rx="1.2"/>`,
+  factory: `<path class="b" d="M4 43 V22 L15 15.5 V22 L26 15.5 V22 L37 15.5 V43 Z"/><rect class="d" x="36" y="5" width="7.5" height="38" rx="1.5"/><rect class="l" x="9" y="28" width="6" height="6" rx="1"/><rect class="l" x="19" y="28" width="6" height="6" rx="1"/><rect class="a" x="29" y="28" width="5" height="6" rx="1"/><rect class="d" x="2" y="41" width="44" height="3.5" rx="1.75"/>`,
+  returnbox: `<path class="d" d="M8 22 L24 30 V46 L8 38 Z"/><path class="b" d="M40 22 L24 30 V46 L40 38 Z"/><path class="l" d="M8 22 L24 14 L40 22 L24 30 Z"/><path class="sa" d="M13 8.5 H27 A5.5 5.5 0 0 1 27 19.5"/><path class="a" d="M16.5 3.5 L10.5 8.5 L16.5 13.5 Z"/>`,
+};
+/* Gojek's few colours, sampled (the phone grid's Family palette) — base, shade, light, ground */
+const FAM = {
+  G: ["#30a830", "#1e7a22", "#4cc03c", "#def6cc"],
+  R: ["#ec2d3a", "#9c2a30", "#f2525c", "#fcdede"],
+  B: ["#00a8cc", "#00799a", "#22bfe0", "#d2f0f6"],
+  O: ["#f08c1a", "#b5620c", "#f6a640", "#fdead2"],
+  K: ["#b4b4ba", "#8e8e93", "#d8d8dc", "#f2f2f5"], // grey: an inactive picture keeps its shape, drops its colour
+  D: ["#2f63d8", "#183f9c", "#7fa3f0", "#e3ebfb"], // the Deep icon's blue
+};
+const mixHex = (a, b, t) => {
+  const p = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const A = p(a), B = p(b);
+  return "#" + A.map((v, i) => Math.round(v * t + B[i] * (1 - t)).toString(16).padStart(2, "0")).join("");
+};
+let mu = 0;
+function pic(art, fam, size, { bare = false } = {}) {
+  const [c, cd, cl, cb] = FAM[fam];
+  const u = "mp" + ++mu;
+  const g = (k, stops) => `<linearGradient id="${u}${k}" x1="0" y1="0" x2=".25" y2="1">${stops.map(([o, col]) => `<stop offset="${o}" stop-color="${col}"/>`).join("")}</linearGradient>`;
+  const defs = g("b", [[0, mixHex(c, cl, 0.78)], [0.45, c], [1, mixHex(c, cd, 0.45)]]) + g("d", [[0, mixHex(cd, c, 0.8)], [1, mixHex(cd, "#000000", 0.72)]]) + g("l", [[0, cl], [1, mixHex(cl, c, 0.5)]]);
+  const accent = fam === "K" ? "--ac:#d1d1d6;" : "";
+  return `<span class="mpic${bare ? " bare" : ""}" style="${accent}--cd:${cd};--cb:${cb};--gb:url(#${u}b);--gd:url(#${u}d);--gl:url(#${u}l);--s:${size}px"><span class="mpic-bg"></span><svg viewBox="0 0 48 48" aria-hidden="true"><defs>${defs}</defs><ellipse cx="26" cy="46" rx="16" ry="2.4" fill="${cd}" opacity=".3"/>${ART[art]}</svg></span>`;
+}
+
+/* ── the hub's own data (Active PO, 20 Oct, from :5350) ── */
+const POS = [
+  ["Garmen Mitra Sentosa, PT", "PO-151026-001", "1 item", "20 Oct 2026", 300, "58.000.000"],
+  ["Sepatu Sejahtera, CV", "PO-141026-001", "1 item", "28 Nov 2026", 12, "1.800.000"],
+  ["Sepatu Sejahtera, CV", "PO-0002-REC1", "2 items", "20 Oct 2026", 18, "2.310.000", [18, "2.310.000"]],
+  ["Sepatu Sejahtera, CV", "PO-0002-OPE6", "3 items", "19 Nov 2026", 36, "4.470.000"],
+  ["Sepatu Sejahtera, CV", "PO-0002-OPE5", "2 items", "13 Nov 2026", 30, "4.710.000"],
+  ["Sepatu Sejahtera, CV", "PO-0002-OPE4", "3 items", "07 Nov 2026", 36, "4.980.000"],
+  ["Sepatu Sejahtera, CV", "PO-0002-OPE3", "2 items", "01 Nov 2026", 24, "1.980.000"],
+  ["Sepatu Sejahtera, CV", "PO-0002-OPE2", "3 items", "26 Oct 2026", 36, "3.420.000"],
+  ["Garmen Nusantara, PT", "PO-0001-REC3", "2 items", "31 Oct 2026", 24, "1.698.000"],
+  ["Garmen Nusantara, PT", "PO-0001-REC2", "3 items", "25 Oct 2026", 36, "2.118.000"],
+  ["Garmen Nusantara, PT", "PO-0001-REC1", "2 items", "19 Oct 2026", 18, "1.080.000", [16, "960.000"], true],
+  ["Garmen Nusantara, PT", "PO-0001-OPE7", "2 items", "24 Nov 2026", 18, "1.230.000"],
+  ["Garmen Nusantara, PT", "PO-0001-OPE5", "2 items", "12 Nov 2026", 30, "2.844.000"],
+  ["Garmen Nusantara, PT", "PO-0001-OPE4", "3 items", "06 Nov 2026", 36, "3.012.000"],
+];
+/* The hub's sort: an order with a count waiting stands above everything else (owner, 2026-10-05). */
+POS.sort((a, b) => (b[6] ? 1 : 0) - (a[6] ? 1 : 0));
+const CLIPCHECK = `<svg class="ln" viewBox="0 0 24 24" aria-hidden="true"><rect width="8" height="4" x="8" y="2" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></svg>`;
+/* Review Count: the one solid button in a row, standing where the status word would.
+   Matte and Soft give it the clipboard-check glyph, so it reads as a button before it is read. */
+const PICS = () => level === 2 || level === 3;
+const reviewBtn = () => `<button class="rc">${PICS() ? CLIPCHECK : ""}Review Count</button>`;
+const RAIL = [["Procurement", "buying", "G", 0], ["Merchandise", "merchandise", "R", 1], ["Ops", "ops", "G", 1], ["Inventory", "inventory", "G", 1], ["Marketing", "marketing", "R", 0], ["Sales", "selling", "R", 0], ["Finance", "finance", "B", 1], ["HR", "hr", "B", 1], ["GA", "ga", "B", 0], ["Master", "system", "O", 1]];
+const KPIS = [["Orders", "14", "orders", "G"], ["Still open", "14", "openbox", "G"], ["Overdue", "1", "clock", "R"], ["On order", "Rp 93,7 M", "coins", "B"]];
+
+/* level: 0 Now · 1 Touch · 2 Matte · 3 Soft */
+/* Soft cards, phone only: the tab bar's icons — 0 today's line icons · 1 matte, all in colour · 2 matte, colour only on the tab you are on */
+/* Soft cards, desk only: 0 today's ground and layout · 1 Soft's (owner, 20 Oct: "background dan layoutnya versi soft kecuali buttonnya") */
+let level = 0, device = 0, icons = 1, deskLayout = 1;
+
+/* A department's mark on the rail / tab bar: the hub's line icon, or a matte picture.
+   Touch: colour only on the department you are in; the rest stay grey. Matte and Soft: all in colour. */
+function deptIcon(dept, fam, on, size) {
+  if (level === 0) return ln(dept);
+  /* Soft cards on a desk: Touch's icons (owner, 20 Oct: "kalo di desk iconnya touch saja") — buttons stay today's */
+  const touch = level === 1 || level === 4;
+  return pic(dept, touch && !on ? "K" : fam, size, { bare: level !== 3 });
+}
+
+function desk() {
+  const rail = RAIL.map(([label, dept, fam, dot], i) => `<button class="rb${i === 0 ? " on" : ""}" aria-label="${label}">${deptIcon(dept, fam, i === 0, level === 3 ? 30 : 26)}${dot ? `<span class="dot"></span>` : ""}</button>`).join("");
+  const links = [["Purchase Orders", "orders", "G", true], ["Suppliers", "factory", "B", false], ["Return PO", "returnbox", "R", false]]
+    .map(([t, art, fam, on]) => `<div class="plink${on ? " on" : ""}">${PICS() ? pic(art, on ? fam : "K", 22, { bare: true }) : ""}<span>${t}</span>${t === "Return PO" ? `<span class="cnt">3</span>` : ""}</div>`).join("");
+  const kpis = `<div class="kpis${PICS() ? " pics" : ""}">${KPIS.map(([l, v, art, fam]) => `<div class="kpi">${PICS() ? pic(art, fam, 44) : ""}<div><span class="k-l">${l}</span><span class="k-v">${v}</span></div></div>`).join("")}</div>`;
+  const rows = POS.map(([sup, id, items, date, pcs, rp, counted, late]) => `<tr class="body">
+      <td><div class="po-name">${sup}</div><div class="po-sub"><span class="id">${id}</span> · ${items}</div></td>
+      <td${late ? ' class="late"' : ""}>${date}</td>
+      <td class="r"><span class="num"><b>${pcs} pcs</b><span>Rp ${rp}</span></span></td>
+      <td class="r"><span class="num">${counted ? `<b style="font-weight:400">${counted[0]} pcs</b><span>Rp ${counted[1]}</span>` : `<b style="font-weight:400">0 pcs</b>`}</span></td>
+      <td style="padding-right:36px">${counted ? reviewBtn() : `<span class="st">Active</span>`}</td></tr>`).join("");
+  return `<div class="shell">
+    <nav class="rail"><button class="rb search" aria-label="Search">${ln("search")}</button>${rail}<span class="orb">A<i>99+</i></span></nav>
+    <nav class="panel"><div class="panel-head"><h2>Procurement</h2>${ln("chevL")}</div>${links}</nav>
+    <section class="page">
+      <header class="page-head"><h1>${PICS() ? pic("buying", "G", 30, { bare: true }) : ""}Purchase Orders</h1><button class="btn-primary">${ln("plus")}New order</button></header>
+      <div class="page-body">
+        ${kpis}
+        <div class="tabs"><span class="tab on">Active PO<span class="n">14</span></span><span class="tab">Completed PO<span class="n">21</span></span><span class="tab">Cancelled PO<span class="n">13</span></span></div>
+        <div class="bar"><span class="field search">${ln("search")}Search orders</span><span class="field date">Created at${ln("cal")}</span><span class="field date">Delivery date${ln("cal")}</span><span class="toggle"><i></i>Group by supplier</span><span class="ghost">${ln("cols")}Columns</span></div>
+        <table class="tbl">
+          <colgroup><col style="width:36%"><col style="width:12.5%"><col style="width:16%"><col style="width:16%"><col></colgroup>
+          <thead><tr><th>PO</th><th>Delivery Date</th><th class="r">Ordered</th><th class="r">Received</th><th>Status</th></tr></thead>
+          <tbody>${rows}</tbody>
+          <tbody class="tfoot"><tr><td>14 orders</td><td></td><td class="r"><span class="num"><b>654 pcs</b><span>Rp 93.652.000</span></span></td><td class="r"><span class="num"><b>34 pcs</b><span>Rp 3.270.000</span></span></td><td></td></tr></tbody>
+        </table>
+      </div>
+    </section>
+    ${screen === 1 ? deskDetail() : screen === 2 ? deskForm() : ""}
+  </div>`;
+}
+
+function phone() {
+  const tabs = [["Home", "home", "house", "O"], ["Orders", "orders", "orders", "G"], ["Suppliers", "suppliers", "factory", "B"], ["Return PO", "returns", "returnbox", "R"]];
+  const tabbar = tabs.map(([t, lineKey, art, fam], i) => {
+    const on = i === 1;
+    const line = level === 0 || (level === 4 && icons === 0);
+    const grey = level === 1 || (level === 4 && icons === 2);
+    const icon = line ? (on ? `<svg viewBox="0 0 24 24" aria-hidden="true" style="width:22px;height:22px"><rect width="8" height="4" x="8" y="2" rx="1" fill="currentColor"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" fill="currentColor"/></svg>` : ln(lineKey)) : pic(art, grey && !on ? "K" : fam, 26, { bare: true });
+    return `<div class="tb${on ? " on" : ""}">${icon}<span>${t}</span>${i === 3 ? `<span class="bd"></span>` : ""}</div>`;
+  }).join("");
+  const cards = POS.slice(0, 6).map(([sup, id, items, date, pcs, rp, counted, late]) => `<article class="pc">
+      <div class="pc-top"><div class="who"><b>${sup}</b><span>${id} · ${items}</span><span>Delivery <em${late ? ' class="late"' : ""}>${date}</em></span></div>
+      <div class="fig"><b>${pcs}<small>pcs</small></b><span>Rp ${rp}</span></div></div>
+      <div class="pc-foot"><span>Received ${counted ? counted[0] : 0} pcs</span>${counted ? reviewBtn() : `<span class="st">Active</span>`}</div></article>`).join("");
+  const sum = `Hi Administrator, <b>1 order is late</b>. 2 in review. 14 orders are active, Rp 93,7 M in total.`;
+  return `<div class="phone"><div class="ps">
+    <div class="p-status"><span>9:41</span><span class="isl"></span><span>●●●</span></div>
+    <div class="p-scroll">
+      <h1 class="p-title">${PICS() ? pic("buying", "G", 30, { bare: true }) : ""}Purchase Orders</h1>
+      ${PICS() ? `<div class="p-sum pic">${pic("clock", "R", 40)}<p>${sum}</p></div>` : `<p class="p-sum">${sum}</p>`}
+      <div class="p-cards">${cards}</div>
+    </div>
+    <div class="porb"><span>A</span><i>99+</i></div>
+    <div class="dock"><span class="chip">Active${ln("chevD")}</span><span class="dsearch">${ln("search")}<span>Search Orders</span>${ln("filter")}</span><span class="round">${ln("refresh")}</span><span class="plusb">${ln("plus")}</span></div>
+    <nav class="tabbar">${tabbar}</nav>
+    ${screen === 1 ? phoneDetail() : screen === 2 ? phoneForm() : ""}
+  </div></div>`;
+}
+
+
+/* ── the order's detail and the New PO form: PO-0002-OPE6 as the hub shows it ── */
+let screen = 0;
+Object.assign(L, {
+  x: `<path d="M18 6 6 18M6 6l12 12"/>`,
+  printer: `<path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect width="12" height="8" x="6" y="14"/>`,
+  chevR: `<path d="m9 18 6-6-6-6"/>`,
+  pencil: `<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/>`,
+  trash: `<path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>`,
+});
+const THUMB = {
+  shoe: `<svg viewBox="0 0 40 40" aria-hidden="true"><path d="M4 27c0-4 2.5-6.5 6.5-6.5h5c2.5 0 4.2-1.6 5.3-3.6l1.2-2.4c2.6 4 6.6 6 11.4 6.8 2 .4 2.6 1.9 2.6 3.7V28H4z" fill="#c7c7cc"/><rect x="4" y="27" width="32" height="2.6" rx="1.2" fill="#aeaeb2"/></svg>`,
+  bag: `<svg viewBox="0 0 40 40" aria-hidden="true"><path d="M15 15v-3a5 5 0 0 1 10 0v3" fill="none" stroke="#aeaeb2" stroke-width="2.2"/><path d="M10.5 15h19l1.8 18.5a1.5 1.5 0 0 1-1.5 1.5H10.2a1.5 1.5 0 0 1-1.5-1.5z" fill="#c7c7cc"/></svg>`,
+};
+const LINES = [
+  ["Sneakers Kanvas Low", "Sandal Sepatu · Sepatu", 18, "145.000", "2.610.000", "shoe"],
+  ["Flat Shoes Wanita", "Sandal Sepatu · Sepatu", 6, "120.000", "720.000", "shoe"],
+  ["Tas Selempang Kanvas", "Tas · Aksesori", 12, "95.000", "1.140.000", "bag"],
+];
+const FACTS = [["Delivery Date", "19 Nov 2026"], ["Payment", "Giro"], ["Ordered", "36 pcs"], ["Grand Total", "Rp 4.470.000"]];
+const itemCell = ([name, sub, , , , th], link = true) => `<div class="item"><span class="thumb">${THUMB[th]}</span><div>${link ? `<span class="rlink">${name}</span>` : `<span style="color:var(--ink)">${name}</span>`}<span>${sub}</span></div></div>`;
+const headOf = (title, crumbTail) => `<header class="sh-head"><div><div class="crumb">Purchase Orders${crumbTail ? `<i>/</i>${crumbTail}` : ""}</div><div class="sh-title">${title}</div></div><button class="x" aria-label="Close">${ln("x")}</button></header>`;
+const discount = () => `<div><span>Discount</span><span class="disc"><span class="seg"><span>%</span><span class="on">Rp</span></span><span class="inp num">Rp</span></span></div>`;
+
+function deskDetail() {
+  const rows = LINES.map((l) => `<tr><td>${itemCell(l)}</td><td class="r">${l[2]} pcs</td><td class="r">Rp ${l[3]} / pc</td><td class="r"><b>Rp ${l[4]}</b></td></tr>`).join("");
+  return `<div class="scrim"></div><aside class="sheet">
+    ${headOf(`<span class="rlink">Sepatu Sejahtera, CV</span><span class="st">Active</span>`, "PO-0002-OPE6")}
+    <div class="sh-body">
+      <div class="facts">${FACTS.map(([l, v]) => `<div class="fact"><span>${l}</span><b>${v}</b></div>`).join("")}</div>
+      <div class="items"><table class="itbl"><thead><tr><th>Item</th><th class="r">Ordered</th><th class="r">Unit Price</th><th class="r">Amount</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="totals"><div><span>Total · 36 pcs</span><span>Rp 4.470.000</span></div><div class="gt"><span>Grand Total</span><span>Rp 4.470.000</span></div></div>
+      <section class="notes"><h4>Notes</h4><p>Pesanan demo</p></section>
+      <div class="activity">${ln("chevR")}Activity <span>(1)</span></div>
+    </div>
+    <footer class="sh-foot"><button class="btn-line">${ln("printer")}Print</button><button class="btn-red">Cancel order</button></footer>
+  </aside>`;
+}
+function formFields() {
+  return `<div class="fgrid">
+      <label class="fl"><span>Supplier<i>*</i></span><span class="inp">Sepatu Sejahtera, CV${ln("chevD")}</span></label>
+      <label class="fl"><span>Delivery Date<i>*</i></span><span class="inp">19 Nov 2026${ln("cal")}</span></label>
+      <label class="fl"><span>Payment Terms</span><span class="inp">None${ln("chevD")}</span></label>
+      <label class="fl"><span>Payment Method<i>*</i></span><span class="inp">Giro${ln("chevD")}</span></label>
+    </div>`;
+}
+const moreInfo = () => `<div class="fgrid one"><label class="fl"><span>Notes</span><span class="inp area">Pesanan demo</span></label><label class="fl"><span>Terms and Conditions</span><span class="inp area ph">Add terms for the supplier</span></label></div>`;
+function deskForm() {
+  const rows = LINES.map((l) => `<tr><td>${itemCell(l, false)}</td><td class="r">${l[2]} pcs</td><td class="r">Rp ${l[3]} / pc</td><td class="r"><b>Rp ${l[4]}</b></td><td class="act r"><span>${ln("pencil")}${ln("trash")}</span></td></tr>`).join("");
+  return `<div class="scrim"></div><aside class="sheet">
+    ${headOf("New purchase order")}
+    <div class="sh-body">
+      <section class="fsec"><h4>Order details</h4>${formFields()}</section>
+      <section class="fsec"><div class="fsec-head"><h4>Order items</h4><button class="btn-primary">${ln("plus")}Add item</button></div>
+        <div class="items"><table class="itbl"><thead><tr><th>Item</th><th class="r">Quantity</th><th class="r">Unit Price</th><th class="r">Amount</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+        <div class="totals"><div><span>Total · 36 pcs</span><span>Rp 4.470.000</span></div>${discount()}<div class="gt"><span>Grand Total</span><span>Rp 4.470.000</span></div></div>
+      </section>
+      <section class="fsec"><h4>Additional information</h4>${moreInfo()}</section>
+    </div>
+    <footer class="sh-foot"><button class="btn-red">Cancel</button><button class="btn-primary">Review order</button></footer>
+  </aside>`;
+}
+function phoneDetail() {
+  const lines = LINES.map((l) => `<div class="pline">${itemCell(l)}<div class="pline-grid"><span>Ordered</span><span>Unit Price</span><b style="font-weight:400">${l[2]} pcs</b><b style="font-weight:400">Rp ${l[3]} / pc</b></div><div class="pline-amt"><span>Amount</span><b>Rp ${l[4]}</b></div></div>`).join("");
+  return `<div class="pscrim"></div><div class="psheet"><div class="grab"></div>
+    ${headOf(`<span class="rlink">Sepatu Sejahtera, CV</span><span class="st">Active</span>`, "PO-0002-OPE6")}
+    <div class="sh-body">
+      <div class="pfacts">${FACTS.map(([l, v]) => `<div><span>${l}</span><b>${v}</b></div>`).join("")}</div>
+      <div class="plines">${lines}</div>
+      <div class="totals"><div><span>Total · 36 pcs</span><span>Rp 4.470.000</span></div><div class="gt"><span>Grand Total</span><span>Rp 4.470.000</span></div></div>
+      <section class="notes"><h4>Notes</h4><p>Pesanan demo</p></section>
+      <div class="activity">${ln("chevR")}Activity <span>(1)</span></div>
+    </div>
+    <footer class="sh-foot"><button class="btn-line">${ln("printer")}Print</button><button class="btn-red">Cancel order</button></footer>
+  </div>`;
+}
+function phoneForm() {
+  const lines = LINES.map((l) => `<div class="pline"><div class="item">${itemCell(l, false).replace(/^<div class="item">|<\/div>$/g, "")}<span class="tools">${ln("pencil")}${ln("trash")}</span></div><div class="pline-grid"><span>Quantity</span><span>Unit Price</span><b style="font-weight:400">${l[2]} pcs</b><b style="font-weight:400">Rp ${l[3]} / pc</b></div><div class="pline-amt"><span>Amount</span><b>Rp ${l[4]}</b></div></div>`).join("");
+  return `<div class="pscrim"></div><div class="psheet"><div class="grab"></div>
+    ${headOf("New purchase order")}
+    <div class="sh-body">
+      <section class="fsec"><h4>Order details</h4>${formFields()}</section>
+      <section class="fsec lines-sec"><div class="fsec-head"><h4>Order items</h4><button class="btn-primary">${ln("plus")}Add item</button></div><div class="plines">${lines}</div>
+        <div class="totals"><div><span>Total · 36 pcs</span><span>Rp 4.470.000</span></div>${discount()}<div class="gt"><span>Grand Total</span><span>Rp 4.470.000</span></div></div></section>
+      <section class="fsec"><h4>Additional information</h4>${moreInfo()}</section>
+    </div>
+    <footer class="sh-foot"><button class="btn-red">Cancel</button><button class="btn-primary">Review order</button></footer>
+  </div>`;
+}
+
+/* ── harness ── */
+const stage = document.getElementById("stage");
+function fit() {
+  const wrap = stage.querySelector(".deskwrap");
+  if (!wrap) return;
+  const k = Math.min(1, (stage.clientWidth - 32) / 1440);
+  wrap.style.width = 1440 * k + "px";
+  wrap.style.height = 900 * k + "px";
+  wrap.firstElementChild.style.transform = `scale(${k})`;
+}
+function mount() {
+  mu = 0;
+  document.body.className = ["now", "m touch", "m matte", "m soft", "now softcard"][level] + (level === 4 && device === 0 && deskLayout === 1 ? " softdesk" : "");
+  const showIcons = level === 4 && device === 1;
+  const showLayout = level === 4 && device === 0;
+  document.body.toggleAttribute("data-icons", showIcons);
+  document.body.toggleAttribute("data-layout", showLayout);
+  if (showIcons) iconsPick.move();
+  if (showLayout) layoutPick.move();
+  stage.innerHTML = device === 0 ? `<div class="deskwrap"><div class="desk">${desk()}</div></div>` : phone();
+  fit();
+}
+window.addEventListener("resize", fit);
+
+function makePicker(nav, param, count, onChange, def = 0) {
+  const highlight = nav.querySelector(".proto-picker-highlight");
+  const items = [...nav.querySelectorAll(".proto-picker-item")];
+  let at = 0;
+  const move = () => { const el = items[at]; highlight.style.width = el.offsetWidth + "px"; highlight.style.transform = `translateX(${el.offsetLeft}px)`; };
+  function set(i) {
+    if (i < 0 || i >= count) return;
+    at = i;
+    items.forEach((el, j) => { el.toggleAttribute("data-active", j === i); if (j === i) el.setAttribute("aria-current", "true"); else el.removeAttribute("aria-current"); });
+    move();
+    const url = new URL(location); url.searchParams.set(param, i + 1); history.replaceState(null, "", url);
+    onChange(i);
+  }
+  items.forEach((el, i) => el.addEventListener("click", () => set(i)));
+  window.addEventListener("resize", move);
+  const start = (parseInt(new URLSearchParams(location.search).get(param), 10) || def + 1) - 1;
+  return { set, move, start: () => set(start), get at() { return at; }, ready: () => nav.setAttribute("data-ready", "") };
+}
+let booted = false;
+const picker = makePicker(document.getElementById("variants"), "v", 2, (i) => { level = [0, 4][i]; if (booted) mount(); });
+const screensPick = makePicker(document.getElementById("screens"), "s", 3, (i) => { screen = i; if (booted) mount(); });
+const states = makePicker(document.getElementById("states"), "d", 2, (i) => { device = i; if (booted) mount(); });
+const iconsPick = makePicker(document.getElementById("icons"), "i", 3, (i) => { icons = i; if (booted) mount(); }, 1);
+const layoutPick = makePicker(document.getElementById("layout"), "l", 2, (i) => { deskLayout = i; if (booted) mount(); }, 1);
+document.addEventListener("keydown", (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const n = parseInt(e.key, 10);
+  if (n >= 1 && n <= 2) picker.set(n - 1);
+  else if (e.key === "ArrowRight") picker.set((picker.at + 1) % 2);
+  else if (e.key === "ArrowLeft") picker.set((picker.at + 1) % 2);
+  else if (e.key === "p" || e.key === "P" || e.key === "s" || e.key === "S") states.set((states.at + 1) % 2);
+  else if (e.key === "h" || e.key === "H") document.body.dataset.chrome = document.body.dataset.chrome === "off" ? "" : "off";
+});
+states.start();
+iconsPick.start();
+layoutPick.start();
+screensPick.start();
+picker.start();
+booted = true;
+mount();
+requestAnimationFrame(() => requestAnimationFrame(() => { picker.ready(); states.ready(); iconsPick.ready(); layoutPick.ready(); screensPick.ready(); }));
+</script>

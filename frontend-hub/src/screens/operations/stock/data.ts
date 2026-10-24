@@ -39,6 +39,9 @@ import { supplierLabel } from "@/screens/procurement/supplier-format"
 /// - **Allotted** — Unpicked is the warehouse pool's allotted figure, split by
 ///   store from the allotment book's per-destination rollup; Picked, Packed and
 ///   Dispatch are the outbound leaf pools, each already per destination store.
+/// - **In transit** — Out: the warehouse's in-transit pool, by store from the
+///   allotment book. In: each store's own in-transit pool, what it sent back.
+///   On the road, so in neither the warehouse's total nor a store's.
 /// - **Return stock** — the head-office pools that hold what each store sent
 ///   back (`STORE_REJECT`, kept per store of origin).
 /// - **To supplier** — over-delivery from `purchase-returns`, and the returns
@@ -126,6 +129,8 @@ export interface ArticleLine {
   readonly code: string
   readonly pcs: number
   readonly store?: string
+  /// The pool's site, for a line read off one (`usePoolLines`).
+  readonly siteId?: string
 }
 
 const NO_DIVISION = "Other"
@@ -382,7 +387,8 @@ export function useStock() {
       pools: pickAreaPools.map((p) => ({ id: p.id, name: p.label })),
     }
     const packedPools = leafStage(["PACKED"])
-    const dispatchPools = leafStage(["SHIPMENT", "LOADED", "IN_TRANSIT"])
+    // On the yard. Once the truck has left the pieces are In transit, below.
+    const dispatchPools = leafStage(["SHIPMENT", "LOADED"])
     const unpickedStores: StoreQty[] = (book.data?.by_destination ?? [])
       .filter((d) => d.destination_type === "STORE")
       .map((d) => ({
@@ -420,6 +426,48 @@ export function useStock() {
       },
     }
     const allotted = STAGES.reduce((sum, s) => sum + stages[s].figure.pcs, 0)
+
+    // ── In transit ────────────────────────────────────────────────────────
+    // Out: the warehouse's in-transit pool, by store from the allotment
+    // book (what each store still has to count in). In: each
+    // store's own in-transit pool — what it sent back, not yet counted here.
+    const outPools = fleet.filter(
+      (p) => isWarehouse(p) && p.pool_code === "IN_TRANSIT"
+    )
+    const outStores: StoreQty[] = (book.data?.by_destination ?? [])
+      .filter((d) => d.destination_type === "STORE")
+      .map((d) => ({
+        id: d.destination_id,
+        name: d.destination_name ?? storeName(d.destination_id),
+        pcs: d.to_receive_qty ?? 0,
+      }))
+      .filter((s) => s.pcs > 0)
+      .sort((a, b) => a.name.localeCompare(b.name))
+    const inPools = fleet.filter(
+      (p) => p.site_kind === "STORE" && p.pool_code === "IN_TRANSIT"
+    )
+    const inByStore = new Map<string, number>()
+    for (const p of inPools)
+      inByStore.set(p.site_id, (inByStore.get(p.site_id) ?? 0) + p.on_hand)
+    const transit = {
+      out: {
+        figure: figure(
+          outPools.reduce((sum, p) => sum + p.on_hand, 0),
+          outPools
+        ),
+        stores: outStores,
+      },
+      in: {
+        figure: figure(
+          inPools.reduce((sum, p) => sum + p.on_hand, 0),
+          inPools
+        ),
+        stores: [...inByStore.entries()]
+          .map(([id, pcs]) => ({ id, name: storeName(id), pcs }))
+          .filter((s) => s.pcs > 0)
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      },
+    }
 
     // ── Return stock ──────────────────────────────────────────────────────
     const returnPools = fleet.filter(
@@ -499,6 +547,7 @@ export function useStock() {
       stages,
       pickArea,
       allotted,
+      transit,
       returnStock,
       overDelivery: { pcs: total(overDelivery), rows: overDelivery },
       returns: { pcs: total(returns), rows: returns },
@@ -549,7 +598,7 @@ export function useStockStatus() {
 
 /// The articles in one or more pools, per store of origin.
 export function usePoolLines(
-  pools: readonly { id: string; name: string }[],
+  pools: readonly { id: string; name: string; siteId?: string }[],
   enabled: boolean
 ) {
   const reads = useQueries({
@@ -570,9 +619,91 @@ export function usePoolLines(
           code: item.sku_code,
           pcs: item.on_hand_qty,
           store: pools[at]!.name,
+          siteId: pools[at]!.siteId,
         })
   })
   return { lines, pending: reads.some((r) => r.isPending) && enabled }
+}
+
+/// Why a piece in a store's Return pool came back: which pocket of the
+/// store's To be returned it left from (0986) — its reject, its Over
+/// delivery or its Return HO. The pool does not say; the return allotment
+/// that brought it does, by where its line was picked. A return raised from
+/// the store's shelves before the pockets is HO's.
+export type ReturnReason = "reject" | "over" | "ho"
+
+export const REASON_LABEL: Readonly<Record<ReturnReason, string>> = {
+  reject: "Reject item",
+  over: "Over delivery",
+  ho: "Return HO",
+}
+
+export const REASONS: readonly ReturnReason[] = ["reject", "over", "ho"]
+
+function reasonOfPool(poolId: string): ReturnReason {
+  const pool = poolId.split(":")[0]!
+  if (pool.endsWith(".to-return.over")) return "over"
+  if (pool.endsWith(".reject")) return "reject"
+  return "ho"
+}
+
+/// `store|sku` → the reasons the stores' returns carried that SKU for. Reads
+/// the detail of each return allotment from those stores that reached HO.
+export function useReturnReasons(storeIds: readonly string[], enabled: boolean) {
+  const book = useBook()
+  const asks = (book.data?.items ?? []).filter(
+    (row) =>
+      // The cloud's word since the DC became the warehouse; the old one stays.
+      ((row.type as string) === "RETURN_TO_WAREHOUSE" ||
+        row.type === "RETURN_TO_DC") &&
+      row.total_in_transit_quantity > 0 &&
+      (row.source_site_ids ?? []).some((id) => storeIds.includes(id))
+  )
+  const reads = useQueries({
+    queries: asks.map((row) => ({
+      queryKey: inventoryKeys.allotment(row.id),
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        allotmentDetail(row.id, signal),
+      enabled,
+    })),
+  })
+  const reasons = new Map<string, Set<ReturnReason>>()
+  for (const read of reads)
+    for (const line of read.data?.lines ?? []) {
+      if (line.in_transit_quantity === 0) continue
+      const key = `${line.source_site_id}|${line.sku_code}`
+      const set = reasons.get(key) ?? new Set<ReturnReason>()
+      set.add(reasonOfPool(line.source_pool_id))
+      reasons.set(key, set)
+    }
+  return reasons
+}
+
+/// Each store's Return pool split by why its pieces came back — the pockets
+/// inside it (owner, 23 Oct 2026). A SKU that came back for more than one
+/// reason is counted under the first, in the order Reject item, Over
+/// delivery, Return HO; one no return names is Return HO's.
+export function useReturnSplit(
+  stores: readonly { id: string; name: string; poolIds: readonly string[] }[]
+) {
+  const pools = stores.flatMap((s) =>
+    s.poolIds.map((id) => ({ id, name: s.name, siteId: s.id }))
+  )
+  const { lines } = usePoolLines(pools, pools.length > 0)
+  const reasons = useReturnReasons(
+    stores.map((s) => s.id),
+    pools.length > 0
+  )
+  const split = new Map<string, Record<ReturnReason, number>>()
+  for (const line of lines) {
+    const store = line.siteId ?? ""
+    const known = reasons.get(`${store}|${line.code}`)
+    const reason = REASONS.find((one) => known?.has(one)) ?? "ho"
+    const row = split.get(store) ?? { reject: 0, over: 0, ho: 0 }
+    row[reason] += line.pcs
+    split.set(store, row)
+  }
+  return split
 }
 
 /// One card on the outbound board's terms: an allotment's pieces for one

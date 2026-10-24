@@ -13,10 +13,12 @@ import {
   Tags,
   TrendingUp,
   Truck,
+  Unlink,
   UserRound,
 } from "lucide-react"
 
 import type { AppModule } from "@/lib/navigation"
+import { useUnmatchedCount } from "@/lib/queries/unmatched"
 
 /// **Sales** — what anybody actually paid, and everything that follows from it.
 ///
@@ -146,6 +148,23 @@ export const salesNav: AppModule = {
           label: "Purchase order",
           short: "PO",
           icon: ClipboardList,
+        },
+      ],
+    },
+    {
+      // Sales a till could not take from its own store's stock, waiting for
+      // head office to pair them with a piece (owner, 23 Oct 2026,
+      // `unmatched-sales-prototype.html`): one row after the three groups,
+      // with how many are still to match as its grey count.
+      items: [
+        {
+          path: "/sales/unmatched",
+          label: "Unmatched sales",
+          short: "Unmatched",
+          icon: Unlink,
+          useCount: useUnmatchedCount,
+          // A figure beside the word, not a notification: grey, no pill.
+          badge: "quiet",
         },
       ],
     },

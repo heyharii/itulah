@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jenis diskon di kasir</title>
+<style>
+:root{--ink:#1d1d1f;--body:#6e6e73;--line:#c7c7cc;--ok:#248a3d;--okbg:#e7f6ea;--accent:#2862dc;--accbg:#eef3fc;--warn:#a66c1f;--warnbg:#faeacd}
+*{box-sizing:border-box}
+body{margin:0;background:#fff;color:var(--ink);font:15px/1.45 -apple-system,BlinkMacSystemFont,"Inter",system-ui,sans-serif;padding:28px 32px 48px}
+h1{font-size:22px;margin:0 0 4px;letter-spacing:-.02em}
+p.sub{margin:0 0 22px;color:var(--body)}
+.wire{border:1.5px solid var(--ink);border-radius:6px;overflow:hidden}
+.top{display:flex;justify-content:space-between;align-items:flex-end;padding:14px 18px;border-bottom:1.5px solid var(--ink)}
+.top .rp{font-size:20px}.top .big{font-size:44px;font-weight:700;letter-spacing:-.03em;line-height:1}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+th,td{border-bottom:1px solid var(--line);padding:9px 12px;vertical-align:top}
+thead th{font-size:13px;letter-spacing:.04em;text-transform:uppercase;color:var(--body);font-weight:600;background:#fafafa;text-align:left;border-bottom:1.5px solid var(--ink)}
+th.c,td.c{text-align:center}th.r,td.r{text-align:right}
+td.d{color:var(--ok)}td.mute{color:var(--line)}
+.tag{display:inline-block;margin:4px 4px 0 0;padding:0 7px;border-radius:5px;background:var(--okbg);color:var(--ok);font-size:13px;font-weight:600}
+.tag.n{background:#f2f2f5;color:var(--body)}
+.tag.new{background:var(--warnbg);color:var(--warn)}
+tr.free td{border-bottom:1px dashed var(--line);background:#fbfdfb;padding-top:5px;padding-bottom:5px}
+tr.free .g{font-weight:700;color:var(--ok);letter-spacing:.03em}
+tr.sep td{background:#fafafa;font-size:13px;font-weight:600;color:var(--body);letter-spacing:.04em;text-transform:uppercase;border-bottom:1.5px solid var(--ink)}
+.foot{display:grid;grid-template-columns:1fr 380px;border-top:1.5px solid var(--ink)}
+.foot .note{padding:14px 18px;border-right:1px solid var(--line);color:var(--body)}
+.foot dl{margin:0;padding:12px 18px;display:grid;grid-template-columns:1fr auto;row-gap:6px}
+.foot dt{color:var(--body)}.foot dd{margin:0;text-align:right}.foot dd.d{color:var(--ok)}
+.foot .tot{border-top:1.5px solid var(--ink);padding-top:8px;margin-top:4px;font-weight:700;font-size:18px;color:var(--ink)}
+h2{font-size:17px;margin:30px 0 10px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.card{border:1px solid var(--line);border-radius:6px;padding:12px 14px}
+.card b{display:block;margin-bottom:4px}.card span{color:var(--body);font-size:14px}
+.card.todo{border-style:dashed}
+</style>
+</head>
+<body>
+<h1>Jenis diskon di kasir — model kita</h1>
+<p class="sub">Satu kolom Diskon (total potongan baris). Promo apa saja yang kena = label di bawah nama barang. Persen ditulis di labelnya. Barang gratis tampil sebagai baris "GRATIS".</p>
+
+<div class="wire">
+  <div class="top"><span class="rp">Rp.</span><span class="big">1.307.400</span></div>
+  <table>
+    <colgroup><col style="width:60px"><col><col style="width:120px"><col style="width:120px"><col style="width:130px"><col style="width:170px"></colgroup>
+    <thead><tr><th class="c">Jml</th><th>Barang</th><th class="r">Harga</th><th class="r">Diskon</th><th class="r">Subtotal</th><th>Keterangan</th></tr></thead>
+    <tbody>
+      <tr class="sep"><td colspan="6">Diskon per barang</td></tr>
+      <tr><td class="c">1</td><td>Nadhira Tunik Seri WRN · Sage · M<br><span class="tag">Gajian Oktober 30%</span></td><td class="r">129.000</td><td class="r d">−38.700</td><td class="r">90.300</td><td></td></tr>
+      <tr><td class="c">1</td><td>Lavon PLS Cutbray 2199 · Marun · 27<br><span class="tag">Harga spesial Rp 99.000</span></td><td class="r">144.000</td><td class="r d">−45.000</td><td class="r">99.000</td><td></td></tr>
+      <tr><td class="c">1</td><td>Andeska STL Koko TPJ · Navy · 10/12<br><span class="tag">Potongan Rp 20.000</span></td><td class="r">207.000</td><td class="r d">−20.000</td><td class="r">187.000</td><td></td></tr>
+      <tr><td class="c">2</td><td>Picasso KOB TPD 25 · Putih · 25<br><span class="tag">Beli 1 gratis 1</span></td><td class="r">94.000</td><td class="r d">−94.000</td><td class="r">94.000</td><td></td></tr>
+      <tr class="free"><td class="c">↳ 1</td><td><span class="g">GRATIS</span> · Picasso KOB TPD 25 · Putih · 25</td><td class="r mute">94.000</td><td class="r d">−94.000</td><td class="r">0</td><td>tag …0007</td></tr>
+      <tr><td class="c">3</td><td>Kiddo Polo Stripe · Merah · 8<br><span class="tag">Beli 2 gratis 1</span></td><td class="r">68.000</td><td class="r d">−68.000</td><td class="r">136.000</td><td></td></tr>
+      <tr class="free"><td class="c">↳ 1</td><td><span class="g">GRATIS</span> · Kiddo Polo Stripe · Merah · 8 <span class="tag n">termurah</span></td><td class="r mute">68.000</td><td class="r d">−68.000</td><td class="r">0</td><td>tag …0003</td></tr>
+      <tr><td class="c">1</td><td>Grandkids CPD Jeans · Biru · 6<br><span class="tag">Gajian Oktober 30%</span><span class="tag">Member 5%</span></td><td class="r">137.000</td><td class="r d">−45.895</td><td class="r">91.105</td><td>dua promo ditumpuk</td></tr>
+      <tr><td class="c">1</td><td>Rafaela Kulot Linen · Krem · All size<br><span class="tag n">Harga turun</span></td><td class="r"><s style="color:var(--body)">104.000</s><br>89.000</td><td class="r mute">—</td><td class="r">89.000</td><td>markdown, bukan diskon</td></tr>
+      <tr><td class="c">1</td><td>Kantong kertas besar<br><span class="tag">Gratis</span></td><td class="r">2.000</td><td class="r d">−2.000</td><td class="r">0</td><td></td></tr>
+      <tr><td class="c">2</td><td>MH Platinum Sweat Sweater · Abu-abu · L<br><span class="tag">Beli 1, pcs ke-2 −50%</span></td><td class="r">189.000</td><td class="r d">−94.500</td><td class="r">283.500</td><td></td></tr>
+      <tr class="sep"><td colspan="6">Diskon per transaksi — di ringkasan, bukan di baris</td></tr>
+    </tbody>
+  </table>
+  <div class="foot">
+    <div class="note">Voucher, gift card, refund dan saldo karyawan <b>bukan diskon</b> — itu cara bayar di layar Bayar.<br><br>Di struk: tiap barang dengan potongannya, label promo di bawahnya, lalu "Total Disc".</div>
+    <dl>
+      <dt>Total 12 pcs</dt><dd>1.495.000</dd>
+      <dt>Diskon barang</dt><dd class="d">−312.095</dd>
+      <dt><span class="tag">Member Hemat</span> belanja ≥ 250.000</dt><dd class="d">−25.000</dd>
+      <dt><span class="tag">Kupon HEMAT50</span> belanja ≥ 300.000</dt><dd class="d">−50.000</dd>
+      <dt><span class="tag">Tukar poin</span> 10.000 poin</dt><dd class="d">−50.000</dd>
+      <dt><span class="tag">Return</span> kredit struk 02765</dt><dd class="d">−0</dd>
+      <dt class="tot">Total bayar</dt><dd class="tot">1.057.905</dd>
+      <dt>Poin didapat (1 / Rp 10.000)</dt><dd>+105</dd>
+    </dl>
+  </div>
+</div>
+
+<h2>Jenis diskon di sistem kita</h2>
+<div class="grid">
+  <div class="card"><b>Persen</b><span>Diskon % per barang, per artikel/divisi/semua. ✅ ada</span></div>
+  <div class="card"><b>Harga spesial</b><span>Barang jadi Rp X. ✅ ada</span></div>
+  <div class="card"><b>Potongan Rp</b><span>Per barang atau per transaksi. ✅ ada</span></div>
+  <div class="card"><b>Beli X gratis Y</b><span>Beli 1 gratis 1, beli 2 gratis 1, dst; yang gratis = termurah, tampil baris GRATIS. ✅ ada</span></div>
+  <div class="card"><b>Member saja</b><span>Promo apa pun bisa dibatasi untuk member. ✅ ada</span></div>
+  <div class="card"><b>Kupon</b><span>Kode kupon, batas pemakaian, masa berlaku. ✅ ada</span></div>
+  <div class="card"><b>Minimal belanja / jumlah</b><span>Syarat minimal Rp atau minimal pcs. ✅ ada</span></div>
+  <div class="card"><b>Hari & jam</b><span>Promo hanya hari/jam tertentu (mis. Jumat 17–21). ✅ ada</span></div>
+  <div class="card"><b>Markdown</b><span>Harga turun per toko, harga normal dicoret. ✅ ada</span></div>
+  <div class="card"><b>Poin & tukar poin</b><span>1 poin / Rp 10.000, bonus poin, tukar poin dengan kode. ✅ ada</span></div>
+  <div class="card"><b>Pcs ke-2 −50%</b><span>Beli X dapat Y setengah harga (versi beli-dapat dengan potongan %). ✅ ada</span></div>
+  <div class="card"><b>Hadiah barang lain</b><span>Beli A dapat B gratis (barang berbeda). ✅ ada di mesin harga, cek menu Marketing</span></div>
+  <div class="card todo"><b>Bundle / paket</b><span>Barang A + B = Rp X. ⚠️ belum ada</span></div>
+</div>
+</body>
+</html>

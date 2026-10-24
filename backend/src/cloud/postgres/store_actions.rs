@@ -108,9 +108,11 @@ pub fn action_label(key: &str) -> &'static str {
         ACTION_SYNC_NOW => "Sync now",
         ACTION_UPDATE_SERVER => "Update server",
         ACTION_TEST_PRINT => "Test print",
-        ACTION_SUSPEND_DEVICE => "Suspend",
-        ACTION_REACTIVATE_DEVICE => "Reactivate",
-        ACTION_REVOKE_DEVICE => "Revoke",
+        // One word per idea with the store's Tills tab (0990): a suspended
+        // till reads "Stopped", a revoked one "Removed".
+        ACTION_SUSPEND_DEVICE => "Stop",
+        ACTION_REACTIVATE_DEVICE => "Resume",
+        ACTION_REVOKE_DEVICE => "Remove",
         _ => "Action",
     }
 }
@@ -579,20 +581,20 @@ fn build_menu(
         if device.status == wire::STATUS_ACTIVE {
             items.push(option(
                 ACTION_SUSPEND_DEVICE,
-                format!("Suspend {label}? It stops working until head office reactivates it."),
+                format!("Stop {label}? It stops working until head office resumes it."),
                 true,
             ));
         }
         if device.status == wire::STATUS_SUSPENDED {
             items.push(option(
                 ACTION_REACTIVATE_DEVICE,
-                format!("Reactivate {label}?"),
+                format!("Resume {label}?"),
                 false,
             ));
         }
         items.push(option(
             ACTION_REVOKE_DEVICE,
-            format!("Revoke {label} for good? To be used again it must join the store afresh."),
+            format!("Remove {label} for good? To be used again it must join the store afresh."),
             true,
         ));
     }

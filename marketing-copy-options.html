@@ -1,0 +1,915 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Marketing labels</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&display=swap" rel="stylesheet">
+<style>
+/* frontend-hub tokens, All white look (styles/white.css) */
+:root {
+  --ink: #1d1d1f;
+  --body: #6e6e73;
+  --faint: #c7c7cc;
+  --canvas: #ffffff;
+  --soft: #fafafb;
+  --soft-2: #f2f2f5;
+  --soft-3: #f5f5f7;
+  --hairline: #e8e8ec;
+  --hairline-2: #dcdce1;
+  --accent: #2862dc;
+  --accent-bg: #eef3fc;
+  --warn-fg: #a66c1f;
+  --warn-bg: #fbf1e1;
+  --bad-fg: #d70015;
+  --good: #2f9e55;
+  --r-inner: 8px;
+  --r-card: 10px;
+  --r-sheet: 16px;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --font: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+* { box-sizing: border-box; margin: 0; }
+body {
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 22px;
+  color: var(--ink);
+  background: var(--soft-3);
+  -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
+}
+button { font: inherit; color: inherit; border: 0; background: none; padding: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+h1, h2, h3, p { font: inherit; }
+
+.board { max-width: 1180px; margin: 0 auto; padding: 32px 24px 120px; }
+
+.head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+.head h1 { font-size: 22px; line-height: 28px; font-weight: 600; letter-spacing: -0.01em; }
+.head .figs { display: flex; gap: 28px; }
+.fig .l { color: var(--body); }
+.fig .v { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* tabs (SubTabs) */
+.tabs { display: flex; gap: 22px; border-bottom: 1px solid var(--hairline); margin-bottom: 16px; overflow-x: auto; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab { position: relative; padding: 10px 0 12px; color: var(--body); font-weight: 500; white-space: nowrap; }
+.tab .n { margin-left: 6px; color: var(--body); font-weight: 400; font-variant-numeric: tabular-nums; }
+.tab[aria-selected="true"] { color: var(--ink); }
+.tab[aria-selected="true"]::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; border-radius: 2px; background: var(--ink); }
+
+.bar[hidden] { display: none; }
+.bar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.seg { display: inline-flex; padding: 3px; border-radius: var(--r-inner); background: var(--soft-2); }
+.seg button { height: 30px; padding: 0 12px; border-radius: 6px; color: var(--body); font-weight: 500; transition: background-color 160ms var(--ease-out), color 160ms var(--ease-out); }
+.seg button[aria-pressed="true"] { background: var(--canvas); color: var(--ink); box-shadow: 0 1px 2px rgb(0 0 0 / 8%), 0 0 0 1px rgb(0 0 0 / 4%); }
+.legend { margin-left: auto; color: var(--body); }
+.legend b { color: var(--accent); font-weight: 600; }
+
+.card { background: var(--canvas); border-radius: var(--r-card); box-shadow: 0 0 0 1px rgb(0 0 0 / 5%); overflow: clip; margin-bottom: 16px; }
+.card h2 { padding: 14px 20px; font-weight: 600; border-bottom: 1px solid var(--hairline); background: var(--soft); }
+
+table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+th { text-align: left; font-weight: 500; color: var(--body); padding: 10px 20px; border-bottom: 1px solid var(--hairline); }
+td { padding: 12px 20px; border-bottom: 1px solid var(--hairline); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+col.c-kind { width: 13%; }
+col.c-now { width: 22%; }
+col.c-shows { width: 29%; }
+.kind { color: var(--body); }
+.now { font-weight: 500; }
+.now.fine { font-weight: 400; color: var(--body); }
+.shows { color: var(--body); }
+.note { display: block; margin-top: 4px; color: var(--warn-fg); }
+
+.opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.opt { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 4px 11px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--hairline-2); color: var(--ink); text-align: left; transition: box-shadow 160ms var(--ease-out), background-color 160ms var(--ease-out), color 160ms var(--ease-out), transform 120ms var(--ease-out); }
+.opt:active { transform: scale(0.97); }
+.opt .star { color: var(--accent); font-size: 13px; line-height: 1; }
+.opt.keep { color: var(--body); }
+.opt[aria-pressed="true"] { background: var(--accent); color: #fff; box-shadow: none; }
+.opt[aria-pressed="true"] .star { color: #fff; }
+@media (hover: hover) { .opt:hover:not([aria-pressed="true"]) { box-shadow: inset 0 0 0 1px var(--faint); background: var(--soft); } }
+.ok { color: var(--good); }
+
+/* glossary */
+.gl td.word { font-weight: 600; }
+.gl .old { color: var(--body); text-decoration: line-through; text-decoration-color: var(--faint); }
+
+/* foot */
+.foot { position: fixed; left: 50%; bottom: max(16px, env(safe-area-inset-bottom)); transform: translateX(-50%); display: flex; align-items: center; gap: 14px; padding: 8px 8px 8px 18px; border-radius: 999px; background: var(--ink); color: #fff; box-shadow: 0 12px 32px rgb(0 0 0 / 22%); }
+.foot[hidden] { display: none; }
+.foot .count { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.foot button { height: 36px; padding: 0 16px; border-radius: 999px; background: var(--accent); color: #fff; font-weight: 500; white-space: nowrap; }
+.foot button.ghost { background: rgb(255 255 255 / 12%); }
+
+@media (max-width: 760px) {
+  .board { padding: 20px 16px 120px; }
+  .head .figs { gap: 20px; }
+  .legend { margin-left: 0; width: 100%; }
+  table, tbody, tr, td { display: block; width: 100%; }
+  thead, colgroup { display: none; }
+  tr { padding: 14px 16px; border-bottom: 1px solid var(--hairline); }
+  tr:last-child { border-bottom: 0; }
+  td { padding: 0; border: 0; }
+  td.kind { margin-bottom: 2px; }
+  td.shows { margin: 2px 0 10px; }
+  .card h2 { padding: 12px 16px; }
+  .gl td[data-l] { margin-top: 6px; }
+  .gl td[data-l]::before { content: attr(data-l); display: block; color: var(--ink); font-weight: 500; }
+}
+@media (prefers-reduced-motion: reduce) { .opt, .seg button { transition: none; } .opt:active { transform: none; } }
+</style>
+</head>
+<body>
+<div class="board">
+  <div class="head">
+    <h1>Marketing labels</h1>
+    <div class="figs">
+      <div class="fig"><div class="l">Labels</div><div class="v" id="f-all">—</div></div>
+      <div class="fig"><div class="l">To rename</div><div class="v" id="f-ren">—</div></div>
+      <div class="fig"><div class="l">Picked</div><div class="v" id="f-pick">0</div></div>
+    </div>
+  </div>
+  <div class="tabs" role="tablist" id="tabs"></div>
+  <div class="bar">
+    <div class="seg" id="view">
+      <button data-v="rename" aria-pressed="true">To rename</button>
+      <button data-v="all" aria-pressed="false">All labels</button>
+    </div>
+    <div class="legend"><b>★</b> my pick · tap an option to choose it</div>
+  </div>
+  <div id="out"></div>
+</div>
+<div class="foot" id="foot" hidden>
+  <span class="count" id="foot-n">0 picked</span>
+  <button class="ghost" id="clear">Clear</button>
+  <button id="copy">Copy picks</button>
+</div>
+
+<script>
+/*
+  Every visible label on the Marketing screens (frontend-hub/src/screens/commercial),
+  20 Oct 2026. Row: [kind, label today, what it sits over, ...options].
+  The first option is the recommended one. No options = the label is fine.
+  An option starting with "!" is a note (a bug in the words, not a rename).
+*/
+const SCREENS = [
+{ id: "glossary", title: "Same word everywhere", glossary: [
+  // [one word, instead of, means, where the rest of the hub already says it]
+  ["Transactions", "uses · Baskets · Baskets touched", "Sales a promotion or campaign was applied to", "Sales, Executive"],
+  ["Max. transactions", "Transactions limit · Transactions (as the cap) · Max Uses", "The cap on transactions", ""],
+  ["Transactions allowed", "Transactions (a store's share)", "A store's share of the cap", ""],
+  ["Discount given", "Given away · Given Away · Spent (campaigns)", "Money the promotions took off at the till", "Sales says Discount"],
+  ["Budget", "Discount budget", "Most discount it may give; Budget used · Budget used up · No budget", ""],
+  ["Applied", "In service", "A store's tills run it; also the date column of a list of applied stores", ""],
+  ["Applied at", "Stores (as 2 / 3 on a list)", "Stores that applied it, of all", ""],
+  ["At the stores", "Rollout · In service at", "A sheet section listing each store's progress", ""],
+  ["Behind", "Not updated yet", "A store still on an older price book", "Stores, System"],
+  ["Waiting", "Sent, not applied · Sent · pending · Sending", "One price book sent to a store, not applied yet", "HR, Finance"],
+  ["Not sent", "No report · Not sent yet", "Nothing has reached the store", "Procurement"],
+  ["Last update", "When · Since (lists with mixed states)", "The store's latest report", ""],
+  ["Stores", "Where · Reaches · Applied to · Applies to (Pricelist)", "Which stores a price or change covers", "Sales, Allotment"],
+  ["Dates", "Period · Valid · From … until", "The dates something is on", "HR"],
+  ["Schedule", "When?", "The dates section of a form", ""],
+  ["Live", "Active (Price changes) · Running (Overview)", "On, and inside its dates", ""],
+  ["Ends", "Price ends", "The last day", "Contracts, HR"],
+  ["Problem", "Trouble · Why · need attention", "Failed, or ended with stores waiting", ""],
+  ["Base price", "Company price · Pricelist (as a price)", "The one price the company sets", ""],
+  ["Markdown price", "Sale price · Sale prices", "A temporary cut off the normal price", ""],
+  ["On markdown", "Markdown (as a count) · On Sale", "Articles or SKUs with a markdown", ""],
+  ["Shelf price", "Charged", "What the tag says, markdown included", ""],
+  ["Price now", "Charged now · Current price · Price (Article sheet)", "What a shopper pays today, promotions included", ""],
+  ["Next price", "Upcoming · Changes 01 Nov", "The price after this one", ""],
+  ["On … · With …", "Markdown (as a count) · Store price (as a count) · Upcoming (as a count)", "Pricelist counts: On promotion · On markdown · With a store price · With a next price", ""],
+  ["Comes from", "Set by", "Where a price comes from", ""],
+  ["Rules loaded", "Rules Taken · Offers (store table) · prices (History line)", "Price rules a store's tills loaded", ""],
+  ["Open to", "Shoppers", "Everyone or Members only", ""],
+  ["Max. per member", "Per shopper · Max. per shopper", "Transactions one member may have", ""],
+  ["Minimum items · Minimum spend", "Min. items in basket · Min. matching items · Minimum basket · Min. basket value · Min. matching value", "The two minimums", ""],
+  ["Conditions", "Rules · Limits (fold)", "Who, sale items, other offers, minimums", ""],
+  ["Benefit", "Discount (form) · Does", "What the shopper gets", ""],
+  ["Promotion", "Offer · Offers · New offer · offers", "The thing in Promotions", ""],
+  ["At a glance", "Offer (promotion sheet) · Campaign (campaign sheet)", "First block of a promotion or campaign sheet", ""],
+  ["Kind", "Type · What kind of price?", "Kind of change, voucher, activity or price", "HR, Finance, System"],
+  ["Outstanding", "Still owed · What the business still owes", "Money left on unspent vouchers", "Finance, Procurement"],
+  ["Written off", "Cancelled (as money)", "Voucher money cancelled", "Finance"],
+  ["Issued value · Expired value", "Issued (as money) · Expired (as money)", "Money totals, so the words stay free for the date and the status", ""],
+  ["Face value", "Value", "What a voucher was issued for", ""],
+  ["Code", "Voucher (column) · Needs code", "A voucher or coupon code", "HR, Finance, Master"],
+  ["Date · Entry · Amount · Balance", "When · What · Left", "Ledger columns", "Finance"],
+  ["No end · No budget · No limit · Always on", "Open (no end date) · open ended · → open · no limit (as a budget) · Unlimited · unlimited · Always · always", "Blank end date · no money cap · no transactions cap · no dates", ""],
+  ["01–31 Oct 2026", "14 Oct 2026 → 20 Oct 2026 · 01 Nov – 30 Nov 2026", "One way to write a date range (lib/format span)", ""],
+  ["Show", "Status (phone drawer that switches the list)", "Title of a drawer that picks a view", ""],
+  ["Price updates", "History (page) · Prices (Overview card)", "Stores loading price books", ""],
+  ["Plan", "Activities", "What a campaign runs · Activity stays the who-did-what log", ""],
+]},
+
+{ id: "promotions", title: "Promotions", groups: [
+  { name: "List", rows: [
+    ["KPI", "Live", "Promotions running now · 23"],
+    ["KPI", "Scheduled", "On, start date ahead · 1"],
+    ["KPI", "Transactions", "All-time sales any promotion was applied to · 4.812"],
+    ["KPI", "Given away", "All-time discount of every promotion · Rp 543.900", "Discount given", "Discounts"],
+    ["KPI", "Over budget", "Promotions at or past their budget · 2", "Budget used up", "Out of budget", "At budget"],
+    ["Tabs", "Live · Paused · Scheduled · Ended · All", "Phases with counts"],
+    ["Search", "Search promotions", "Name, id or coupon code"],
+    ["Chip", "Campaign: Lebaran 2026", "List narrowed to one campaign"],
+    ["Filter", "Stores", "Stores that applied it · is at least 1", "Applied at"],
+    ["Filter", "Transactions", "is 0 times"],
+    ["Column", "Promotion", "Name · Diskon 15% Sandal & Sepatu"],
+    ["Column", "Benefit", "20% off · Rp 50.000 off the basket"],
+    ["Column", "Status", "Live · Paused · Scheduled · Ended"],
+    ["Column", "Stores", "Stores applied of all · 2 / 3", "Applied at", "Live at"],
+    ["Column", "Transactions", "All-time · 120"],
+    ["Cell", "None", "No transactions yet, in a number column", "0", "Not used"],
+    ["Column", "Ends", "Last day · 31 Oct 2026"],
+    ["Cell", "No end", "No end date"],
+    ["Cell", "1 stores", "Before the store total loads", "!Plural is wrong: 1 store"],
+    ["Phone card", "Never used · 1 use · 120 uses", "Same count as Transactions", "No transactions · 1 transaction · 120 transactions"],
+    ["Phone card", "1 failed", "Stores that could not apply it", "1 store failed"],
+    ["Phone card", "Edit", "Opens the read-only sheet, not the form", "Open", "View"],
+    ["Phone search", "Search Promotions", "Same box as desk", "Search promotions"],
+  ]},
+  { name: "Status words", rows: [
+    ["Status", "Live", "On and inside its dates"],
+    ["Status", "Paused", "Switched off · a draft shows as Paused too", "!A draft is not paused: show Draft"],
+    ["Status", "Scheduled", "Start date ahead"],
+    ["Status", "Ended", "End date passed or ended by hand"],
+    ["Store", "In service", "The store's tills run it", "Applied", "Running"],
+    ["Store", "Sent, not applied", "Sent, no answer yet", "Waiting", "Not applied yet"],
+    ["Store", "No report", "Nothing has reached the store", "Not sent", "No reply"],
+    ["Store", "Failed", "The store could not apply it"],
+  ]},
+  { name: "Promotion sheet", rows: [
+    ["Tab", "Details", "Offer · Conditions · Performance"],
+    ["Tab", "Stores (13)", "Every store, applied or not · the tally under it says 2 applied · 1 waiting"],
+    ["Tab", "Activity", "Who did what"],
+    ["Badge", "Needs code LEBARAN25", "Only with a coupon", "Coupon LEBARAN25", "Code LEBARAN25"],
+    ["Section", "Offer", "Benefit, scope, dates, campaign", "At a glance"],
+    ["Field", "Benefit", "15% off"],
+    ["Field", "Applies to", "Sandal dan Sepatu · 12 articles"],
+    ["Field", "Period", "Always on · 01–31 Oct 2026", "Dates", "Runs"],
+    ["Field", "Campaign", "Pekan Sepatu"],
+    ["Value", "On its own", "No campaign", "No campaign", "None"],
+    ["Field", "Last changed", "Start of the price book carrying it · 14 Oct 2026, 05:19", "Published", "Live since"],
+    ["Section", "Rules", "Who, sale items, other offers, limits", "Conditions", "Terms"],
+    ["Field", "Shoppers", "Everyone · Members", "Open to", "Customers"],
+    ["Field", "Items already on sale", "Sale items too · Not on sale items", "Marked-down items", "Sale items"],
+    ["Field", "Other offers", "Blocks every other offer", "Combines with", "With other offers"],
+    ["Field", "Minimum items", "2"],
+    ["Field", "Minimum basket", "Value of the matching items · Rp 150.000", "Minimum spend"],
+    ["Field", "Code", "LEBARAN25", "Coupon code"],
+    ["Field", "Budget", "Most discount it may give · Rp 5.000.000"],
+    ["Field", "Transactions limit", "Stops after · 500", "Max. transactions"],
+    ["Field", "Per shopper", "Most transactions for one member · 1", "Max. per member"],
+    ["Field", "Priority", "Order tried, lower first · 2"],
+    ["Section", "Performance", "Money and transactions so far"],
+    ["Field", "Spent · No budget", "Discount given · Rp 109.200", "Discount given · No budget"],
+    ["Gauge", "Budget used", "Rp 1.250.000 / Rp 5.000.000 · 25%"],
+    ["Field", "Transactions", "120 / 500 · 24%"],
+    ["Section", "Split between stores", "Limit shared out per store", "Per-store limits", "Share among stores"],
+    ["Column", "Store", "Cikupa"],
+    ["Column", "Allowance", "Budget given to that store · Rp 400.000", "Budget share", "Store budget"],
+    ["Column", "Given away", "That store's discount · Rp 385.000", "Discount given"],
+    ["Column", "Transactions", "Transactions granted to that store · 40", "Transactions allowed", "Allowed"],
+    ["Column", "Used", "That store's transactions · 38", "Transactions", "Used so far"],
+    ["Line", "Not yet granted: Rp 2.500.000", "Budget not shared out", "Unassigned:", "Not shared out:"],
+    ["Line", "Transactions not yet granted: 250", "Transactions not shared out", "Transactions unassigned:"],
+    ["Stores tab", "2 in service · 1 pending", "Tally under the heading", "2 applied · 1 waiting"],
+    ["Column", "Store", "rig store-02"],
+    ["Column", "Status", "Applied · Waiting · Failed", "Till status", "At the till"],
+    ["Column", "When", "Applied, sent or failed time · 20 Oct 2026, 13:34", "Last update", "Reported"],
+  ]},
+  { name: "New / Change promotion", rows: [
+    ["Title", "New promotion · Change promotion · Duplicate promotion", "Form title"],
+    ["Section", "Promotion", "Holds Name and Campaign", "Basics", "About"],
+    ["Field", "Name", "Kemeja Lebaran 20%", "Promotion name"],
+    ["Field", "Campaign", "Optional · Lebaran 2026"],
+    ["Section", "Discount", "Offer type and amount, Points too", "Benefit", "Offer"],
+    ["Option", "Percent off · Amount off · Fixed price", "Offer tiles"],
+    ["Option", "Buy X get Y", "Bundle offer", "Buy & get", "Bundle deal"],
+    ["Option", "Points", "Earn points per rupiah", "Earn points"],
+    ["Field", "Buy · Get", "Units per bundle · 2 · 1"],
+    ["Suffix", "items", "Says 1 items", "!Plural is wrong: 1 item"],
+    ["Field", "Discount on the items you get", "% off the reward units · 100% = free", "Off the free items", "Reward discount"],
+    ["Field", "Amount off the basket · Price each", "Rp 50.000 · Rp 99.000"],
+    ["Field", "Spend per point", "Spend that earns 1 point · Rp 10.000", "Spend for 1 point", "Rupiah per point"],
+    ["Question", "With a better points offer", "When a better points rate also applies", "If a better rate applies", "Against other points offers"],
+    ["Option", "Best rate only · Add the extra · Multiply", "Answers to the question above", "Keep the best · Add on top · Multiply", "Best only · Add · Multiply"],
+    ["Section", "Applies to", "Scope tiles"],
+    ["Option", "SKUs", "One colour in one size", "Sizes & colours", "Single SKUs"],
+    ["Option", "Articles · Divisions · Tags · Whole basket", "Scope tiles"],
+    ["Section", "Schedule", "Starts · Ends"],
+    ["Field", "Starts · Ends", "01 Nov 2026 · 30 Nov 2026"],
+    ["Section", "Rules", "Who, sale items, other offers", "Conditions", "Terms"],
+    ["Question", "Shoppers", "Everyone · Members only", "Open to", "Customers"],
+    ["Question", "Items already on sale", "Not on sale items · Sale items too", "Marked-down items", "Sale items"],
+    ["Answer", "Not on sale items · Sale items too", "Under Items already on sale", "Leave out · Include", "Exclude · Include"],
+    ["Question", "Other offers", "Blocks every other offer · Blocks offers on its items", "Combines with", "With other offers"],
+    ["Fold", "Limits · 2 set", "Also holds code, minimums, priority", "More conditions", "Limits & code"],
+    ["Field", "Coupon code", "LEBARAN25"],
+    ["Field", "Min. items in basket", "2", "Minimum items"],
+    ["Field", "Min. matching items", "Same field, scope not the basket", "Minimum items"],
+    ["Field", "Min. basket value · Min. matching value", "Rp 150.000", "Minimum spend"],
+    ["Field", "Budget", "Rp 5.000.000"],
+    ["Field", "Max. transactions", "500"],
+    ["Field", "Max. per shopper", "1", "Max. per member"],
+    ["Field", "Priority", "0–99", "!Say lower goes first"],
+    ["Section", "Summary", "Read-back of the form"],
+    ["Summary", "Period", "01 Nov – 30 Nov 2026", "Dates", "!Write the range 01–30 Nov 2026"],
+    ["Summary", "Shoppers", "Members", "Open to"],
+    ["Summary", "On sale items", "Not on sale items", "Marked-down items"],
+    ["Summary", "Other offers", "Blocks every other offer", "Combines with"],
+    ["Summary", "Minimum basket", "Rp 150.000", "Minimum spend"],
+    ["Summary", "Code", "LEBARAN25", "Coupon code"],
+    ["Summary", "Budget", "Rp 5.000.000"],
+    ["Summary", "Transactions", "The cap · 500", "Max. transactions"],
+    ["Summary", "Per shopper", "1", "Max. per member"],
+    ["Summary", "Priority", "2"],
+    ["Preview", "Total · sample", "Till preview on a stand-in price"],
+    ["Preview", "Points earned", "19"],
+    ["Button", "Publish", "Saves and sends to stores"],
+  ]},
+]},
+
+{ id: "pricelist", title: "Pricelist", groups: [
+  { name: "Page", rows: [
+    ["Tabs", "Prices · Price changes", "The two lists"],
+    ["Phone drawer", "Status", "Title over Prices / Price changes", "Show", "View"],
+    ["KPI", "Articles", "1.240"],
+    ["KPI", "On promotion", "Articles a promotion prices · 38"],
+    ["KPI", "Markdown", "Articles marked down somewhere · 12", "On markdown", "Marked down"],
+    ["KPI", "Store price", "Articles a store prices its own way · 5", "With a store price", "Own store price"],
+    ["KPI", "Upcoming", "Articles whose price will change · 9", "With a next price", "Changing soon"],
+    ["KPI", "Stock at a discount", "1.320 pcs"],
+    ["KPI", "Below cost", "2"],
+    ["Toolbar", "By article · By store", "How the table is read"],
+    ["Toolbar", "All stores", "Store picker"],
+    ["Button", "Show · 2", "Filters by where the price comes from", "Only with", "Price kind"],
+    ["Menu", "Only articles with", "Heading over Promotion / Markdown / Store price"],
+    ["Filter", "Division · Tag · Price", "Menswear · New arrival · Rp 100.000"],
+    ["Filter word", "include any of", "Tag include any of", "is any of", "has any of"],
+    ["Line", "50 of 1.240 articles", "Table foot"],
+    ["Button", "Change price", "Opens Change price for the ticked articles"],
+    ["Phone search", "Search Pricelist", "Phone search box", "Search articles", "Search prices"],
+  ]},
+  { name: "By store grid", rows: [
+    ["Column", "Article", "Photo, name, code · division, tags"],
+    ["Column", "All stores", "Price most stores share · Rp 219.000 · 84 pcs", "Most stores", "Usual price"],
+    ["Column", "(store name)", "Toko Bandung"],
+    ["Line", "Not updated yet", "Under a store: tills on an older price book", "Behind", "Waiting for update"],
+    ["Cell", "Not sold", "The store does not sell it"],
+    ["Cell", "3 prices", "Sizes cost different amounts"],
+    ["Tag", "Promo", "Price from a promotion", "Promotion"],
+    ["Tag", "Markdown · Below cost", "Price source flags"],
+    ["Tag", "Changes 01 Nov", "First day of the next price", "Next price 01 Nov", "Next 01 Nov"],
+  ]},
+  { name: "By article table", rows: [
+    ["Column", "Article", "Name, code"],
+    ["Column", "Current price", "Price now at most stores · Rp 175.000 −20% · Markdown", "Price now"],
+    ["Cell", "Not sold here", "Picked store does not sell it"],
+    ["Column", "Ends", "Last day of the current price · 31 Oct"],
+    ["Column", "Next price", "Rp 219.000 · Base price"],
+    ["Column", "Stock", "Pieces in stores · 84"],
+    ["Column", "Stores", "Stores with another price", "Store exceptions", "Exceptions"],
+    ["Cell", "Different at Toko Bandung", "Opens the stores that differ"],
+    ["Cell", "Not at Toko Medan · All stores", "Stores not selling it · every store the same"],
+  ]},
+  { name: "Hover card", rows: [
+    ["Field", "Base price", "Rp 219.000"],
+    ["Field", "Store price", "The store's own price · Rp 229.000"],
+    ["Field", "Markdown −20%", "The cut on top, with dates"],
+    ["Field", "Charged now", "What a non-member pays today · Rp 175.000", "Price now"],
+    ["Field", "Stock", "Pieces at this store · 12"],
+    ["Line", "Waiting for Toko Bandung to update · Ramadan Pricing", "Store on an older price book", "Toko Bandung is behind · Ramadan Pricing"],
+  ]},
+  { name: "Phone cards", rows: [
+    ["Line", "KMJ-0012 · 6 SKU", "Code and SKU count"],
+    ["Line", "Cost Rp 95.000 · Markup 130%", "Unit cost and markup"],
+    ["Button", "Change", "Change price of this article"],
+  ]},
+  { name: "Price sheet (one article, one store)", rows: [
+    ["Field", "Store", "Toko Bandung"],
+    ["Field", "SKUs", "6"],
+    ["Field", "Shelf price", "Top price before promotions · Rp 219.000"],
+    ["Field", "Set by", "Source · change · Store price · Ramadan Pricing", "Comes from", "Source"],
+    ["Word list", "Company price · Sale price · Typed in · Member tier", "Source words under Comes from", "Base price · Markdown price · Set by hand · Member price"],
+    ["Section", "At the till", "Checkout sum for one piece"],
+    ["Row", "Pricelist", "List price before cuts · Rp 219.000", "Base price", "Normal price"],
+    ["Row", "Sale price", "Markdown price · Rp 175.000", "Markdown price"],
+    ["Row", "Tax on top", "Rp 16.000"],
+    ["Row", "Walk-in pays · 57% markup", "What a non-member pays · Rp 148.750", "Non-member pays", "Customer pays"],
+    ["Row", "Member pays", "Rp 133.875 · Member Week"],
+    ["Section", "Did not come off · saves Rp 20.000", "Offers that matched but did not apply", "Not applied", "Offers not used"],
+    ["Section", "Why this shelf price", "Prices ranked under this one", "Why this price", "Price layers"],
+    ["Column", "Comes from", "Store price · Ramadan Pricing"],
+    ["Column", "Applies to", "Every store · 3 stores · raw store code", "Stores", "!Shows a store code, show the name"],
+    ["Column", "SKUs · Price", "4 of 6 · Rp 219.000"],
+    ["Section", "Upcoming", "Store still updating and/or next price", "Next price", "Coming next"],
+    ["Section", "How it got here · KMJ-0012-M, 1 of 6", "Price history of the first SKU"],
+    ["Column", "From · until 30 Sep 2026 · still in force", "When each price ran", "Dates"],
+    ["Column", "Set by", "Source · change · person", "Comes from", "!Shows the login: show the person's name"],
+    ["Column", "Change", "Difference from before · +Rp 10.000", "Difference", "+/−"],
+    ["Column", "Price", "Rp 219.000"],
+    ["Section", "In service at · Ramadan Pricing", "Store tills running the change", "At the stores", "Applied at"],
+    ["Column", "Store", "Raw store code · Unsited", "!Shows a code, show the name"],
+    ["Column", "Since · told us 09:20", "When the till switched / when we heard", "Applied", "Applied on"],
+    ["Column", "Rules Taken", "Price rules the till loaded · 1.240", "Rules loaded", "Prices loaded"],
+  ]},
+  { name: "Article sheet (every store)", rows: [
+    ["Section", "Sizes S–L · Base price Rp 219.000", "One table per size group"],
+    ["Column", "Store", "Toko Bandung"],
+    ["Column", "Price", "Charged now, promotions included · Rp 175.000 −20%", "Price now"],
+    ["Column", "Set by", "Base price · Markdown · a promo name", "Comes from"],
+    ["Column", "Dates", "01 Oct – 31 Oct · from 01 Oct"],
+    ["Cell", "not sold", "Lowercase", "Not sold"],
+  ]},
+  { name: "Store sheet", rows: [
+    ["Section", "On the shelf · 3.120 SKUs · 520 articles", "What the store sells"],
+    ["Column", "Article", "Name · code"],
+    ["Column", "Pricelist", "Normal price before markdown", "Base price"],
+    ["Column", "On Sale", "SKUs marked down · 2 of 6", "On markdown", "Marked down"],
+    ["Column", "Charged", "After markdown, before promotions · Rp 175.000", "Shelf price"],
+  ]},
+  { name: "Change price sheet", rows: [
+    ["Section", "What kind of price?", "New price · Markdown", "Kind", "Price kind"],
+    ["Option", "New price · Markdown", "Replace the price · cut it for a while"],
+    ["Section", "Applied to", "Which stores", "Stores"],
+    ["Option", "All stores · Stores on the base price · Choose stores", "Store choice"],
+    ["Section", "Sizes", "All sizes · Choose sizes"],
+    ["Section", "Markdown price · New price", "Over the amount"],
+    ["Field", "% off · % change", "20"],
+    ["Field", "Price", "The result in Rp · 175.000", "New price", "Price after"],
+    ["Section", "When?", "Starts · Ends", "Schedule", "Dates"],
+    ["Field", "Starts · Ends", "21 Oct 2026 · 31 Oct 2026"],
+    ["Hint", "Empty = no end", "Under Ends", "Leave empty for no end", "Blank = no end"],
+    ["Section", "After publish", "What each store will charge", "Preview", "After publishing"],
+    ["Column", "Store · Now · After", "Toko Bandung · Rp 219.000 · → Rp 175.000"],
+    ["Line", "8 prices change", "Foot"],
+    ["Button", "Publish to 8 stores", "Publishes"],
+  ]},
+]},
+
+{ id: "changes", title: "Price changes", groups: [
+  { name: "List", rows: [
+    ["Search", "Search changes", "Search box"],
+    ["Phone search", "Search Changes", "Capital C", "Search changes"],
+    ["Toggle", "Include settled", "Adds finished changes", "Show finished", "Include finished"],
+    ["Filter", "Period", "Scheduled · Active · Ended", "Status", "Stage"],
+    ["Status words", "Scheduled · Active · Ended", "Filter options, phone label, sheet pill · Promotions says Live", "Scheduled · Live · Ended"],
+    ["Filter", "Kind", "Regular price change · Markdown · Clearance · Correction"],
+    ["Filter", "Published by", "Login · andi", "!Show the person's name, not the login"],
+    ["Filter", "Articles · Stores outstanding · Stores failed", "12 · 2 · 1", "Articles · Stores waiting · Stores failed"],
+    ["Column", "Number", "PC-041", "Change no.", "No."],
+    ["Column", "Change", "Name · Markdown · Kemeja Katun Slim", "Name", "Change name"],
+    ["Column", "Kind", "Markdown · Unclassified"],
+    ["Column", "Articles", "12"],
+    ["Column", "Stores", "8 · Every store"],
+    ["Column", "Starts · Ends", "21 Oct 2026 · 31 Oct 2026"],
+    ["Column", "Status", "Scheduled · Failed · 5 of 8 · Sending · 5 of 8 · Active · Ended"],
+    ["Value", "Sending · 5 of 8", "Still going out, 5 of 8 applied", "Waiting · 5 of 8", "Rolling out · 5 of 8"],
+    ["Column", "Published", "18 Oct 2026"],
+    ["Value", "Every store", "Same value the sheet calls All stores", "All stores"],
+    ["Phone card", "PC-041 · Markdown · 5/8 stores", "Number · kind · stores applied"],
+    ["Phone card", "Failed · Waiting", "Needs-someone flag"],
+  ]},
+  { name: "Change sheet", rows: [
+    ["Field", "Kind", "Markdown"],
+    ["Field", "Period", "21 Oct 2026 – 31 Oct 2026 · onwards", "Dates", "!Write the range 21–31 Oct 2026"],
+    ["Field", "Published", "18 Oct 2026 · andi", "!Shows the login: show the person's name"],
+    ["Field", "Reaches", "All stores · 8 stores", "Stores", "Sent to"],
+    ["Section", "Rollout · 5 of 8 in service", "Store progress", "At the stores · 5 of 8 applied", "Stores · 5 of 8 applied"],
+    ["Column", "Store", "Store name, failure reason in red"],
+    ["Column", "State", "In service · Sent · Not sent yet · Failed", "Till status", "Status"],
+    ["Status", "In service", "Tills run it", "Applied"],
+    ["Status", "Sent", "No answer yet", "Waiting"],
+    ["Status", "Not sent yet", "Nothing sent", "Not sent"],
+    ["Column", "Since", "Store's last report · 21 Oct 2026, 09:14", "Last update", "Reported"],
+    ["Section", "Sale prices · 12 rows", "Markdowns in this change", "Markdown prices · 12", "Markdowns · 12"],
+    ["Column", "Article", "Code only · KMJ-0012", "!Show the name over the code"],
+    ["Column", "Where", "Toko Bandung · 3 stores · All stores", "Stores"],
+    ["Column", "Price", "Rp 175.000"],
+    ["Section", "New prices · 12 rows", "New normal prices", "New prices · 12"],
+    ["Column", "SKU · Where · Price", "Name + SKU · store · Rp 199.000", "SKU · Stores · Price"],
+  ]},
+]},
+
+{ id: "campaigns", title: "Campaigns", groups: [
+  { name: "List", rows: [
+    ["Search", "(no placeholder)", "Desk search box is blank", "Search campaigns"],
+    ["KPI", "Live · Scheduled", "12 · 3"],
+    ["KPI", "Spent", "All-time discount of every campaign · Rp 482.300.000", "Discount given"],
+    ["KPI", "Transactions", "All-time sales a campaign's promotions applied to · 18.402"],
+    ["KPI", "Near budget", "Campaigns at 90% of budget or more · 2", "Budget almost used"],
+    ["Tabs", "Live · Scheduled · Paused · Ended · Draft · Cancelled · All", "Phases with counts"],
+    ["Filter", "Objective · Status · Ends", "Clear inventory · Live · 20 Oct 2026"],
+    ["Filter", "Stores", "Stores that applied it · = 0", "Applied at"],
+    ["Filter chip", "Ends is null", "Open-ended campaigns · the chip words come from the shared kit", "Ends: no end date", "!Kit-wide: every list's chips change"],
+    ["Column", "Campaign", "Back to School"],
+    ["Column", "Objective", "Clear inventory"],
+    ["Cell", "Not stated", "No goal set, amber"],
+    ["Column", "Status", "Live · Paused · Starts 25 Oct 2026 · Ended"],
+    ["Column", "Budget used", "72%"],
+    ["Cell", "No limit", "No budget set", "No budget"],
+    ["Column", "Stores", "Stores that applied it of all · 8 / 13", "Applied at", "Live at"],
+    ["Column", "Ends", "20 Oct 2026"],
+    ["Cell", "Open", "No end date", "No end"],
+    ["Phone card", "Clear inventory · ≥ 80% sell-through", "Goal line", "!Drops 'a day' and shows only a band's low end"],
+    ["Phone card", "of Rp 50.000.000 · 72%", "Budget line"],
+    ["Phone card", "no limit", "No budget, lowercase", "No budget"],
+    ["Phone card", "3 offers · 8 / 13 stores", "Promotions and stores applied", "3 promotions · 8 / 13 stores"],
+    ["Phone card", "14 Oct 2026 → 20 Oct 2026 · always · open", "Dates; always / open with none", "14–20 Oct 2026 · Always on · No end"],
+    ["Phone card", "Edit", "Opens the read-only sheet", "Open", "View"],
+    ["Phone search", "Search Campaigns", "Capital C", "Search campaigns"],
+  ]},
+  { name: "Campaign sheet", rows: [
+    ["Button", "Change · Duplicate · Pause · Resume", "Head actions"],
+    ["Button", "End now", "Stops it for good · it then sits under Cancelled", "!Ends up under Cancelled; Promotions' End now lands in Ended"],
+    ["Section", "Stores (8)", "Stores that applied it", "Applied at (8)", "Stores 8/13"],
+    ["Section", "Activity", "Who did what"],
+    ["Section", "Next steps", "Checklist while it has no promotion or goal"],
+    ["Step", "Add an offer · Set a goal · Plan activities · Set a budget", "Checklist items", "Add a promotion · Set a goal · Make a plan · Set a budget", "!Set a budget opens Limits, not Budget"],
+    ["Section", "Campaign", "Status, dates, stores, money", "At a glance", "Overview"],
+    ["Field", "Status", "Live — same as the pill in the head", "!Already in the head: drop it"],
+    ["Field", "Period", "14 Oct 2026 → 20 Oct 2026", "Dates", "!Write the range 14–20 Oct 2026"],
+    ["Value", "Always · Open", "No start · no end", "Always on · No end"],
+    ["Field", "Stores", "Stores it is limited to · Everywhere · 6", "!The ones that applied it sit under Applied at"],
+    ["Field", "Given away · No budget", "Rp 12.500.000 · No budget", "Discount given · No budget"],
+    ["Field", "Budget used", "Rp 36.000.000 / Rp 50.000.000 · 72%"],
+    ["Field", "Transactions", "1.284 / 5.000 · 25,68%"],
+    ["Section", "Split between stores", "Limit shared out per store", "Per-store limits", "Share among stores"],
+    ["Column", "Allowance", "Budget given to that store", "Budget share", "Store budget"],
+    ["Column", "Given away", "That store's discount", "Discount given"],
+    ["Column", "Transactions", "Transactions granted to that store", "Transactions allowed", "Allowed"],
+    ["Column", "Used", "That store's transactions", "Transactions", "Used so far"],
+    ["Line", "Not yet granted: · Transactions not yet granted:", "Budget and transactions not shared out", "Unassigned: · Transactions unassigned:"],
+    ["Section", "Offers", "Promotions in this campaign", "Promotions"],
+    ["Button", "New offer", "Opens New promotion", "New promotion"],
+    ["Column", "Promotion", "Promotion name and its status"],
+    ["Column", "Applies to", "Everything · 3 articles · Menswear"],
+    ["Column", "Does", "20% off · Buy 2, get 1 at 100% off", "Benefit"],
+    ["Section", "Goal", "What it is for, target, progress"],
+    ["Button", "Change", "Edits only the goal", "Edit goal", "Change goal"],
+    ["Field", "(objective word)", "Clear inventory · ≥ 80% sell-through"],
+    ["Field", "Notes · Progress", "Free text · 64% / ≥ 80%"],
+    ["Section", "Results", "What it did over its dates · 01 Oct – 20 Oct 2026"],
+    ["Field", "Sales", "Baskets a promotion touched · Rp 182.450.000", "Promo sales"],
+    ["Field", "Given away", "Discounts and clearance markdowns · Rp 21.300.000", "Discount given"],
+    ["Field", "Transactions", "Sales a promotion touched · 1.284"],
+    ["Field", "Gross profit", "Rp 64.200.000"],
+    ["Field", "Against", "The campaign to beat · Back to School 2025", "Compared with"],
+    ["Line", "was Rp 150.000.000 · +21.6%", "Comparison rows", "!Decimal point: write 21,6%"],
+    ["Section", "Activities", "Things the campaign runs · sits next to Activity", "Plan", "To run"],
+    ["Pill", "Poster or banner", "Activity kind"],
+    ["Status", "not published", "Promotion filed under another campaign", "Not in this campaign", "Not live"],
+    ["Section", "Not in the plan", "Promotions missing from the plan"],
+    ["Section", "Reach", "Where it is declared to run · same word as a goal option", "Targeting", "Audience"],
+    ["Button", "Declare", "Edit the declaration", "Edit", "Set targeting"],
+    ["Value", "Everywhere.", "Nothing declared"],
+    ["Field", "Add", "Dimension dropdown · Stores · Channels · Segments", "Target by"],
+    ["Field", "Value", "Code to add · no placeholder", "Code", "!Show an example: store-01"],
+    ["Button", "Use the published stores", "Copies the published stores in"],
+    ["Line", "Declared, not published: store-04", "In targeting, not live", "Targeted, not live:"],
+    ["Line", "Published, not declared: store-02", "Live, not in targeting", "Live, not targeted:"],
+    ["Section", "Limits", "Lines it must not cross"],
+    ["Button", "Check now", "Measures now"],
+    ["Value", "Stops it", "This limit pauses the campaign", "Pauses it"],
+    ["Line", "Given away, a day crossed", "Breach title", "Daily discount crossed"],
+    ["Line", "… against a line of … — the campaign was stopped", "Breach detail", "… over the limit of … — campaign paused"],
+    ["Button", "Acknowledge", "Dismisses the breach", "Got it", "Dismiss"],
+    ["Section", "Poster", "What shoppers see"],
+    ["Field", "Headline", "Back to School – up to 30% off"],
+    ["Field", "Image URL", "Banner image link", "Image link"],
+    ["Field", "Terms", "Shopper small print", "Small print"],
+    ["Button", "Submit", "Sends the poster to stores", "Send to stores", "Save"],
+    ["Column", "Store", "Grand Indonesia"],
+    ["Column", "Since", "When the store applied it · 14 Oct 2026, 09:12", "Applied", "Applied on"],
+    ["Column", "Offers", "Price rules the store loaded · 42", "Rules loaded"],
+  ]},
+  { name: "Goal editor", rows: [
+    ["Field", "Objective", "Drive sales · Clear inventory …"],
+    ["Field", "Metric", "What it is scored on · Sell-through", "Measured by", "Score on"],
+    ["Field", "Measured as", "How the target counts", "Target type", "Goal type"],
+    ["Option", "Reach · Keep below · Reach per day · Beat the precedent · Stay within a band", "Target types", "Reach · Stay under · Reach each day · Beat a past campaign · Stay between", "At least · At most · Per day · Beat · Between"],
+    ["Field", "Target (at least) · Target (at most)", "Says at least even for Keep below", "Target", "!The direction comes from the type, not the metric"],
+    ["Field", "From · To", "Band ends", "Lowest · Highest"],
+    ["Field", "Compared with", "Back to School 2025"],
+    ["Option", "Nothing", "No comparison", "None", "No comparison"],
+    ["Button", "Submit", "Saves the goal", "Save goal", "Save"],
+  ]},
+  { name: "Plan forms", rows: [
+    ["Field", "Kind", "Activity kind"],
+    ["Option", "Clearance drop", "A markdown", "Clearance markdown", "Markdown"],
+    ["Option", "Promotion · Coupon set · Poster or banner · Email or push", "Activity kinds"],
+    ["Field", "Name", "Mall banner – Grand Indonesia", "Activity name"],
+    ["Field", "Reference", "Promotion id, markdown id or coupon code"],
+    ["Field", "Cost · Starts · Ends", "Rp 2.500.000 · dates"],
+    ["Button", "Submit", "Adds the activity", "Add activity", "Save"],
+    ["Field", "Measure", "What is watched"],
+    ["Field", "Limit", "Rp 5.000.000 · 25%"],
+    ["Field", "When it is crossed", "What happens", "If crossed", "Then"],
+    ["Option", "Say so here", "Warn only", "Warn only", "Show a warning"],
+    ["Option", "Stop the campaign", "Actually pauses it", "Pause the campaign"],
+    ["Option", "Given away, in total · Given away, a day · Discount rate, at most · Margin, at least · Average basket, at least", "Measures · direction said twice next to ≤ ≥", "Discount given · Discount given per day · Discount rate · Margin · Average basket"],
+    ["Button", "Set the limit", "Saves the limit"],
+  ]},
+  { name: "New / Change campaign", rows: [
+    ["Section", "Campaign", "Name and status", "Basics", "About"],
+    ["Field", "Name", "Back to School", "Campaign name"],
+    ["Field", "Status", "Draft · Scheduled · Live · Paused", "Publish as", "Start as"],
+    ["Section", "Schedule and budget", "Dates and caps"],
+    ["Field", "Starts · Ends", "Dates · Ends blank means no end", "!Say it: Blank = no end"],
+    ["Field", "Budget", "Cap on discount across its promotions"],
+    ["Field", "Transactions limit", "Most transactions across stores", "Max. transactions"],
+    ["Section", "Stores · Everywhere", "Stores it is limited to"],
+    ["Fold", "Poster · 2 set", "Headline · Terms · Image URL", "Poster · 2 set (Headline · Small print · Image link)"],
+    ["Summary", "Status", "Live", "Publish as"],
+    ["Summary", "Period", "14 Oct 2026 – 20 Oct 2026", "Dates", "!Write the range 14–20 Oct 2026"],
+    ["Summary", "Transactions", "The cap · 5.000", "Max. transactions"],
+    ["Summary", "Budget", "Rp 50.000.000"],
+    ["Foot", "Live · 14 Oct → open · unlimited", "Read-back line", "Live · 14 Oct → No end · No budget"],
+    ["Foot", "· Stays paused", "Shown even after Status is set to Live", "!Contradicts Status: hide when Live is chosen"],
+    ["Picker", "Choose one", "Phone picker title on every dropdown", "!Kit-wide: use the field's own label"],
+  ]},
+]},
+
+{ id: "vouchers", title: "Vouchers", groups: [
+  { name: "List", rows: [
+    ["Button", "Coupons · New voucher", "Head actions"],
+    ["KPI", "Outstanding", "Money left on unspent vouchers · Rp 12.450.000"],
+    ["KPI line", "84 live", "Vouchers holding it"],
+    ["KPI", "Issued", "Face value ever issued — money, while Issued is also the date column · Rp 48.000.000", "Issued value", "Total issued"],
+    ["KPI", "Spent", "Rp 33.100.000"],
+    ["KPI", "Cancelled", "Money written off by cancelling, while Cancelled is also a tab · Rp 2.450.000", "Written off"],
+    ["KPI", "Expired", "Money on vouchers past their date, while Expired is also a status · Rp 1.250.000", "Expired value", "Past expiry"],
+    ["KPI line", "6 vouchers", "How many are past their date"],
+    ["Tab", "Live", "Active vouchers, past-date ones too · Live 84", "!Counts vouchers nobody can spend any more"],
+    ["Tabs", "Used up · Cancelled · All", "Other states"],
+    ["Search", "Search vouchers", "Code or member"],
+    ["Line", "84 vouchers", "Matches"],
+    ["Filter", "Balance · Status · Issued", "Money left · Live / Expired / Used up / Cancelled · issue date"],
+    ["Column", "Voucher", "The code · 7KQ2M9XDH4PR", "Code", "Voucher code"],
+    ["Column", "Kind", "Gift card · Refund · Goodwill"],
+    ["Column", "Member", "Siti Rahma · Anyone"],
+    ["Column", "Balance", "Rp 150.000 · amber under 25%"],
+    ["Column", "Status", "Live · Live · Expired"],
+    ["Column", "Issued", "06 Oct 2026"],
+    ["Phone card", "left of Rp 500.000 · Issued 06 Oct 2026", "Balance and date lines"],
+    ["Phone search", "Search Vouchers", "Capital V", "Search vouchers"],
+  ]},
+  { name: "Voucher sheet", rows: [
+    ["Title", "Gift card · Rp 150.000", "Kind and money left, not face value", "Gift card · Rp 150.000 left"],
+    ["Button", "Spend · Cancel voucher", "Head actions"],
+    ["Dialog", "Reason", "Why it was cancelled"],
+    ["Dialog", "Keep", "Closes without cancelling", "Keep voucher", "Don't cancel"],
+    ["Section", "Voucher", "Facts block"],
+    ["Field", "Kind · Code · Status · Member", "Gift card · 7KQ2M9XDH4PR · Live · Siti Rahma"],
+    ["Field", "Issued · Expires", "06 Oct 2026 · 31 Dec 2026 · Never"],
+    ["Field", "Issued by", "Login of who issued it · hari", "!Show the person's name, not the login"],
+    ["Field", "Store", "Raw store id · store-02", "Issued at", "!Show the store name"],
+    ["Section", "Balance", "Rp 150.000 of Rp 500.000"],
+    ["Field", "Face value · Spent", "Rp 500.000 · Rp 350.000"],
+    ["Section", "Note · Spend", "Note typed at issue · spend form"],
+    ["Field", "Amount", "Amount to take off now · 50.000"],
+    ["Field", "Sale ID", "Till sale it paid for", "Sale number", "Receipt no."],
+    ["Button", "Spend Rp 50.000", "Confirms the spend"],
+    ["Section", "Ledger (3)", "Every change to the balance"],
+    ["Column", "When", "06 Oct 2026, 14:28", "Date", "Time"],
+    ["Column", "What", "Issued · Spent · Cancelled", "Entry", "Kind"],
+    ["Link", "Sale", "Opens the sale it paid for", "Open sale", "View sale"],
+    ["Column", "Amount", "Signed · +Rp 500.000 · −Rp 50.000"],
+    ["Column", "Left", "Balance after the line · Rp 450.000", "Balance", "Balance after"],
+    ["Section", "Activity", "Who did what", "!Spend and cancel read as 'created this record'"],
+  ]},
+  { name: "New voucher", rows: [
+    ["Section", "Voucher", "Kind, value, expiry", "Basics"],
+    ["Option", "Gift card · Refund", "Paid for · given instead of a refund"],
+    ["Option", "Goodwill", "Given free", "Complimentary", "Free"],
+    ["Field", "Value", "Face value · 500.000", "Face value"],
+    ["Field", "Expires", "Blank means never · nothing says so", "!Say it: Blank = never"],
+    ["Field", "Member (optional)", "Empty means anyone can use it"],
+    ["Section", "Details", "Holds Code and Note", "Code & note", "More"],
+    ["Field", "Code", "Own code for pre-printed cards · else made for you", "!Say it: leave empty to make one"],
+    ["Field", "Note", "Free text"],
+    ["Button", "Submit", "Issues the voucher", "Issue voucher", "Issue"],
+  ]},
+  { name: "Coupons sheet", rows: [
+    ["Line", "18 codes", "Under the title"],
+    ["Column", "Code", "EIDSALE25 · Inactive"],
+    ["Column", "Unlocks", "The promotion it opens · 25% off outerwear", "Promotion", "Opens"],
+    ["Column", "Member", "Raw customer id · 880012345 · Anyone", "!Show the member name, not the id"],
+    ["Column", "Valid", "01 Oct 2026 – 31 Oct 2026 · Always", "Dates"],
+    ["Value", "Always", "No dates", "Always on"],
+    ["Column", "Max Uses", "500 · Unlimited", "Max. transactions", "Max. uses"],
+    ["Value", "Unlimited", "No cap", "No limit"],
+  ]},
+]},
+
+{ id: "overview", title: "Overview", groups: [
+  { name: "KPIs", rows: [
+    ["KPI", "Given away", "Promotion discounts, last 30 days · Rp 18.700.000", "Discount given"],
+    ["KPI line", "+12.5% vs previous 30 days", "Change against the 30 days before", "!Write 12,5% and a real minus"],
+    ["KPI", "Baskets touched", "Sales a promotion applied to · 1.284", "Transactions", "Promo transactions"],
+    ["KPI line", "23 promotions earning", "Promotions in the report", "from 23 promotions"],
+    ["KPI", "Campaigns running", "Live and inside their dates · 4", "Campaigns live", "Live campaigns"],
+    ["KPI line", "3 not running", "Paused, scheduled, ended", "3 not live"],
+    ["KPI", "Vouchers outstanding", "Same as Vouchers › Outstanding · Rp 12.450.000"],
+    ["KPI line", "84 cards", "Live vouchers", "84 live vouchers"],
+    ["KPI", "Changes need attention", "Failed, or ended with stores waiting · 2", "Changes with a problem"],
+    ["KPI line", "of 9 outstanding", "Unfinished price changes · Outstanding means voucher money elsewhere", "of 9 in progress"],
+    ["KPI", "Stores behind on prices", "3"],
+    ["KPI line", "1 never reported", "Stores that never loaded a price book", "1 never updated"],
+  ]},
+  { name: "Cards", rows: [
+    ["Section", "What the offers gave away", "Discount per day by campaign", "Discount given per day", "Discount by campaign"],
+    ["Chart", "10/06", "Date under each bar, month/day", "!Write 06 Oct"],
+    ["Chart", "All offers", "Tooltip total", "All promotions"],
+    ["Phone section", "Gave away most", "Top 3 promotions", "Top discounts"],
+    ["Phone card", "312 baskets", "Sales it applied to", "312 transactions"],
+    ["Section", "Campaigns · Show ended (3) · Open Campaigns", "Campaign cards"],
+    ["Pill", "Running · Not in window", "Campaign card status · Live everywhere else", "Live · Outside dates"],
+    ["Card", "No banner", "No poster image"],
+    ["Card", "Given away", "This campaign's discount · Rp 6.100.000", "Discount given"],
+    ["Card", "Promo sales", "Rp 41.000.000"],
+    ["Card", "Baskets", "Sales it touched · 512", "Transactions"],
+    ["Card", "72% of Rp 10.000.000", "Budget used, no label", "Budget used 72% of Rp 10.000.000"],
+    ["Section", "Promotions doing the work", "Top 8 promotions by discount", "Top promotions"],
+    ["Column", "Promotion", "Name, campaign"],
+    ["Column", "Shape", "Small line of daily discount", "Trend", "Last 30 days"],
+    ["Column", "Given Away", "Rp 4.200.000", "Discount given"],
+    ["Column", "Baskets", "312", "Transactions"],
+    ["Section", "What the business still owes", "Voucher money", "Vouchers outstanding"],
+    ["Line", "84 live cards of 230 issued", "Counts", "84 live of 230 issued"],
+    ["Legend", "Still owed · Spent · Written off", "Split of the money", "Outstanding · Spent · Written off"],
+    ["Section", "Prices", "Store price updates and unfinished changes", "Price updates"],
+    ["Link", "Open Prices", "Goes to Pricelist", "Open Pricelist"],
+    ["Link", "Open Changes", "Goes to Pricelist › Price changes", "Open Price changes"],
+    ["Legend", "Up to date · Behind · Never reported", "Store counts", "Up to date · Behind · Never updated"],
+    ["Line", "2 price changes behind · 18 Oct 2026, 09:12", "Time is the last update, unlabelled", "2 price changes behind · last update 18 Oct 2026, 09:12"],
+    ["Column", "Unfinished", "Change name · kind · start", "Price change"],
+    ["Column", "Why", "Reported a failure · Closed, stores waiting", "Problem"],
+    ["Value", "Closed, stores waiting", "Ended with stores not updated", "Ended, stores waiting"],
+    ["Column", "Stores", "Stores updated of targeted · 11/13", "Applied at"],
+  ]},
+]},
+
+{ id: "history", title: "History", groups: [
+  { name: "Page", rows: [
+    ["Title", "History", "Log of price-book events only", "Price updates", "Price history"],
+    ["Tab", "Everything", "All events", "All"],
+    ["Tab", "Published", "Head office published"],
+    ["Tab", "In service", "A store's tills loaded it", "Applied"],
+    ["Tab", "Trouble", "Failed and expired", "Problems", "Failed"],
+    ["Phone sheet", "Status", "Title over the event tabs", "Show"],
+    ["Button", "Cikupa · show every store", "Store filter on"],
+    ["Line", "12 entries", "Lines loaded · says 1 entries", "!Plural is wrong: 1 entry"],
+    ["Heading", "06 Oct 2026", "Day heading"],
+  ]},
+  { name: "Log line", rows: [
+    ["Event", "Published", "Head office published a book"],
+    ["Event", "Sent to shop", "Sent, not loaded yet · the only label saying shop", "Sent to store", "Sent"],
+    ["Event", "In service", "The store's tills loaded it", "Applied"],
+    ["Event", "Failed", "Store could not load it"],
+    ["Event", "Expired", "The book reached its end date", "Ended"],
+    ["Line", "13 stores · 1.240 prices", "Stores and rules loaded", "13 stores · 1.240 rules loaded"],
+    ["Line", "hari", "Person, unlabelled login", "!Show the person's name, not the login"],
+  ]},
+]},
+];
+
+/* ---------- picks ---------- */
+const KEY = "marketing-copy-picks-v2";
+let picks = {};
+try { picks = JSON.parse(localStorage.getItem(KEY) || "{}") || {}; } catch (e) { picks = {}; }
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(picks)); } catch (e) {} };
+
+let screen = "promotions";
+let view = "rename";
+try { const s = localStorage.getItem(KEY + ":tab"); if (s && SCREENS.some(x => x.id === s)) screen = s; } catch (e) {}
+
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]).replace(/Rp /g, "Rp&nbsp;");
+const options = (row) => row.slice(3).filter(o => !o.startsWith("!") && o !== row[1]);
+const notes = (row) => row.slice(3).filter(o => o.startsWith("!")).map(o => o.slice(1));
+const toRename = (row) => row.length > 3;
+const idOf = (s, g, i) => `${s}|${g}|${i}`;
+
+function counts(sc) {
+  let all = 0, ren = 0;
+  for (const g of sc.groups || []) for (const r of g.rows) { all++; if (toRename(r)) ren++; }
+  return { all, ren };
+}
+
+function renderTabs() {
+  const el = document.getElementById("tabs");
+  el.innerHTML = SCREENS.map(sc => {
+    const n = sc.glossary ? sc.glossary.length : counts(sc).ren;
+    return `<button class="tab" role="tab" data-s="${sc.id}" aria-selected="${sc.id === screen}">${esc(sc.title)}<span class="n">${n}</span></button>`;
+  }).join("");
+}
+
+function renderFigures() {
+  let all = 0, ren = 0;
+  for (const sc of SCREENS) { const c = counts(sc); all += c.all; ren += c.ren; }
+  document.getElementById("f-all").textContent = all.toLocaleString("id-ID");
+  document.getElementById("f-ren").textContent = ren.toLocaleString("id-ID");
+  const n = Object.keys(picks).length;
+  document.getElementById("f-pick").textContent = n.toLocaleString("id-ID");
+  document.getElementById("foot").hidden = n === 0;
+  document.getElementById("foot-n").textContent = `${n} picked`;
+}
+
+function finalOf(row) { return options(row)[0] ?? row[1]; }
+const clean = (t) => t.replace(/\s*\(\d+\)$/, "").replace(/\s*\d+\s*\/\s*\d+$/, "").replace(/:$/, "").trim().toLowerCase();
+function landsIn(word) {
+  const wanted = word.split(" · ").map(w => w.toLowerCase());
+  const hits = [];
+  for (const sc of SCREENS) {
+    if (!sc.groups) continue;
+    const found = sc.groups.some(g => g.rows.some(r => finalOf(r).split(" · ").map(clean).some(x => wanted.includes(x))));
+    if (found) hits.push(sc.title);
+  }
+  return hits.join(" · ") || "—";
+}
+function renderGlossary(sc) {
+  return `<div class="card gl"><table>
+    <colgroup><col style="width:19%"><col style="width:25%"><col style="width:22%"><col style="width:20%"><col></colgroup>
+    <thead><tr><th>One word</th><th>Instead of</th><th>Means</th><th>In Marketing</th><th>Hub already says it</th></tr></thead>
+    <tbody>${sc.glossary.map(([w, old, m, hub]) => `<tr><td class="word">${esc(w)}</td><td data-l="Instead of"><span class="old">${esc(old)}</span></td><td class="shows" data-l="Means">${esc(m)}</td><td class="shows" data-l="In Marketing">${esc(landsIn(w))}</td><td class="shows" data-l="Hub already says it">${esc(hub || "—")}</td></tr>`).join("")}</tbody>
+  </table></div>`;
+}
+
+function renderRows(sc) {
+  return sc.groups.map((g, gi) => {
+    const rows = g.rows.map((r, i) => ({ r, i })).filter(({ r }) => view === "all" || toRename(r));
+    if (rows.length === 0) return "";
+    return `<div class="card"><h2>${esc(g.name)}</h2><table>
+      <colgroup><col class="c-kind"><col class="c-now"><col class="c-shows"><col></colgroup>
+      <thead><tr><th>Kind</th><th>Today</th><th>Shows</th><th>Options</th></tr></thead>
+      <tbody>${rows.map(({ r, i }) => {
+        const id = idOf(sc.id, gi, i);
+        const opts = options(r);
+        const picked = picks[id]?.to;
+        const chips = opts.length === 0 ? (notes(r).length ? "" : `<span class="ok">Fine</span>`) : [
+          ...opts.map((o, k) => `<button class="opt" data-id="${esc(id)}" data-to="${esc(o)}" aria-pressed="${picked === o}">${k === 0 ? '<span class="star">★</span>' : ""}${esc(o)}</button>`),
+          `<button class="opt keep" data-id="${esc(id)}" data-to="__keep" aria-pressed="${picked === "__keep"}">Keep</button>`,
+        ].join("");
+        return `<tr>
+          <td class="kind">${esc(r[0])}</td>
+          <td class="now ${toRename(r) ? "" : "fine"}">${esc(r[1])}</td>
+          <td class="shows">${esc(r[2])}${notes(r).map(n => `<span class="note">${esc(n)}</span>`).join("")}</td>
+          <td><div class="opts">${chips}</div></td>
+        </tr>`;
+      }).join("")}</tbody></table></div>`;
+  }).join("") || `<div class="card"><h2>Nothing to rename here</h2></div>`;
+}
+
+function render() {
+  renderTabs();
+  renderFigures();
+  const sc = SCREENS.find(x => x.id === screen);
+  document.querySelector(".bar").hidden = !!sc.glossary;
+  document.getElementById("out").innerHTML = sc.glossary ? renderGlossary(sc) : renderRows(sc);
+}
+
+document.getElementById("tabs").addEventListener("click", (e) => {
+  const b = e.target.closest(".tab"); if (!b) return;
+  screen = b.dataset.s; try { localStorage.setItem(KEY + ":tab", screen); } catch (err) {}
+  render(); window.scrollTo({ top: 0 });
+});
+document.getElementById("view").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  view = b.dataset.v;
+  for (const x of document.querySelectorAll("#view button")) x.setAttribute("aria-pressed", String(x === b));
+  render();
+});
+document.getElementById("out").addEventListener("click", (e) => {
+  const b = e.target.closest(".opt"); if (!b) return;
+  const id = b.dataset.id, to = b.dataset.to;
+  if (picks[id]?.to === to) delete picks[id];
+  else {
+    const [s, g, i] = id.split("|");
+    const sc = SCREENS.find(x => x.id === s); const grp = sc.groups[+g]; const row = grp.rows[+i];
+    picks[id] = { to, where: `${sc.title} › ${grp.name} › ${row[0]}`, now: row[1] };
+  }
+  save();
+  for (const x of document.querySelectorAll(`.opt[data-id="${CSS.escape(id)}"]`)) x.setAttribute("aria-pressed", String(picks[id]?.to === x.dataset.to));
+  renderFigures();
+});
+document.getElementById("clear").addEventListener("click", () => { picks = {}; save(); render(); });
+document.getElementById("copy").addEventListener("click", async () => {
+  const lines = Object.values(picks).map(p => p.to === "__keep" ? `${p.where}: ${p.now} — keep` : `${p.where}: ${p.now} → ${p.to}`);
+  const text = lines.join("\n");
+  const btn = document.getElementById("copy");
+  try { await navigator.clipboard.writeText(text); btn.textContent = "Copied"; }
+  catch (err) {
+    const t = document.createElement("textarea"); t.value = text; document.body.appendChild(t); t.select();
+    try { document.execCommand("copy"); btn.textContent = "Copied"; } catch (e2) { btn.textContent = "Copy failed"; }
+    t.remove();
+  }
+  setTimeout(() => { btn.textContent = "Copy picks"; }, 1400);
+});
+render();
+</script>
+</body>
+</html>

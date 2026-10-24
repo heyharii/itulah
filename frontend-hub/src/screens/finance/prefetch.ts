@@ -29,7 +29,7 @@ import {
   creditNotesQuery,
   dimensionResultsQuery,
   dimensionsQuery,
-  edcTerminalsQuery,
+  edcMachinesQuery,
   expenseCategoriesQuery,
   financeSettingsQuery,
   giroBoardQueries,
@@ -201,6 +201,7 @@ export const prefetch: PrefetchMap = {
     Promise.all([
       warmQuery(client, unitsQuery()),
       warmQuery(client, paymentMethodsQuery()),
+      warmQuery(client, edcMachinesQuery()),
     ]),
   "/finance/setup/dimensions": (client) => warmQuery(client, dimensionsQuery()),
   "/finance/setup/journal-templates": (client) =>
@@ -210,7 +211,6 @@ export const prefetch: PrefetchMap = {
     ]),
   "/finance/setup/giro-templates": (client) =>
     warmQuery(client, giroPrintTemplatesQuery()),
-  "/finance/setup/edc-mdr": (client) => warmQuery(client, edcTerminalsQuery()),
   "/finance/setup/periods": (client) => warmQuery(client, periodsQuery()),
   // The roles and the matrix: the same two reads whether or not a role's
   // sheet is open (`?mapping=`), which is only a panel over them.

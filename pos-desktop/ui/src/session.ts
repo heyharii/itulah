@@ -28,8 +28,8 @@
 
 import { useEffect, useSyncExternalStore } from "react"
 
-import { claimFinger, claimPin, login, logout, me, roster, type Me } from "@/api"
-import { identifyFinger, NODE_MOVED } from "@/edge"
+import { setSignInTerminal, claimFinger, claimPin, login, logout, me, openOnBehalf, roster, type Me } from "@/api"
+import { identifyFinger, NODE_MOVED, type FingerWait } from "@/edge"
 import type { Peripherals } from "@/peripherals"
 import { isWeb } from "@/edition"
 import { webConfig, webSetConfig } from "@/web"
@@ -189,6 +189,7 @@ const watchers = new Set<() => void>()
 
 function put(change: Partial<Held>): void {
   held = { ...held, ...change }
+  if (change.config !== undefined) setSignInTerminal(held.config?.terminal_id ?? null)
   for (const watcher of watchers) watcher()
 }
 
@@ -198,6 +199,9 @@ function watch(watcher: () => void): () => void {
 }
 
 const snapshot = (): Held => held
+
+/// The node's last refusal while signing in, for a screen whose sign-in answers only yes or no.
+export const lastSignInProblem = (): string | null => held.problem
 
 let opening: Promise<void> | null = null
 
@@ -308,12 +312,19 @@ async function signIn(username: string, password: string): Promise<boolean> {
 /// against them, then tell the node which enrolment matched and let it decide
 /// what that is worth.
 ///
+/// `only` narrows the roster to one person: the Kasir pop-up proves that the
+/// finger on the scanner is the signed-in user's own before their drawer opens,
+/// so somebody else's finger is "not recognised" rather than a sign-in as them.
+///
 /// The matching is local because the scanner and its matcher are on the
 /// counter; the node has neither. That is also what lets a till be opened while
 /// head office is unreachable. What stops any machine on the shop wifi from
 /// simply claiming to be a supervisor is the pairing secret the shell signs
 /// with — see `edge_signed_call`.
-async function signInWithFinger(): Promise<string | null> {
+async function signInWithFinger(
+  only?: string,
+  wait?: FingerWait & { onPlaced?: () => void },
+): Promise<string | null> {
   await open()
   const config = held.config
   if (config === null) {
@@ -322,29 +333,39 @@ async function signInWithFinger(): Promise<string | null> {
 
   const book = await roster()
   if (!book.ok) return book.problem
-  const fingers = book.body?.items ?? []
+  const fingers = (book.body?.items ?? []).filter(
+    (one) => only === undefined || one.username === only,
+  )
   if (fingers.length === 0) {
-    return "No fingerprints are enrolled at this store yet. Enrol one first from an admin account."
+    return only === undefined
+      ? "Belum ada sidik jari terdaftar di toko ini. Daftarkan dulu di Perangkat kasir → Sidik jari."
+      : "Sidik jari Anda belum terdaftar di toko ini. Minta kepala toko mendaftarkannya."
   }
 
+  // Matched by enrolment, so the node is told which finger it was.
   const seen = await identifyFinger(
     fingers.map((one) => ({
-      actor_id: one.username,
+      actor_id: one.finger_id,
+      username: one.username,
       template_base64: one.template_base64,
     })),
+    wait,
   )
   if (!seen.bound) return seen.detail
+  // Nobody pressed: nothing to claim, nothing to write down.
+  if (!seen.placed) return NO_FINGER
+  wait?.onPlaced?.()
 
   // A no-match is still reported to the node, and the node writes it down. A
   // finger tried repeatedly at one terminal late in the evening is the shape a
   // table of successes could never show.
-  const matched = fingers.find((one) => one.username === seen.actor_id) ?? null
+  const matched = fingers.find((one) => one.finger_id === seen.actor_id) ?? null
   const claimed = await claimFinger(
     matched?.finger_id ?? null,
     "SESSION",
     seen.score,
   )
-  if (!claimed.ok) return claimed.problem
+  if (!claimed.ok) return matched === null ? "Jari tidak dikenali" : claimed.problem
 
   const token = claimed.body?.token ?? ""
   if (token === "") {
@@ -360,6 +381,10 @@ async function signInWithFinger(): Promise<string | null> {
   put({ config: saved.value, me: who.body, problem: null })
   return null
 }
+
+/// What a finger sign-in or a supervisor's finger answers when nobody pressed
+/// before the wait ran out.
+export const NO_FINGER = "Tidak ada jari yang terbaca"
 
 /// Open the counter with a PIN.
 ///
@@ -402,7 +427,9 @@ async function signInWithPin(username: string, pin: string): Promise<string | nu
 /// presses a finger, and walks away. What comes back is single-use and expires
 /// in three minutes — long enough to get back to their own counter, short
 /// enough that it is not a spare key left lying on this one.
-export async function supervisorByFinger(): Promise<{
+export async function supervisorByFinger(
+  wait?: FingerWait & { onPlaced?: () => void },
+): Promise<{
   readonly authorization: string | null
   readonly username: string | null
   readonly problem: string | null
@@ -416,24 +443,28 @@ export async function supervisorByFinger(): Promise<{
     return {
       authorization: null,
       username: null,
-      problem:
-        "No supervisor fingerprints are enrolled at this store yet. " +
-        "Use a username and password.",
+      problem: "Belum ada sidik jari kepala toko yang terdaftar di toko ini.",
     }
   }
 
   const seen = await identifyFinger(
     supervisors.map((one) => ({
-      actor_id: one.username,
+      actor_id: one.finger_id,
+      username: one.username,
       template_base64: one.template_base64,
     })),
+    wait,
   )
   if (!seen.bound) {
     return { authorization: null, username: null, problem: seen.detail }
   }
+  if (!seen.placed) {
+    return { authorization: null, username: null, problem: NO_FINGER }
+  }
+  wait?.onPlaced?.()
 
   const matched =
-    supervisors.find((one) => one.username === seen.actor_id) ?? null
+    supervisors.find((one) => one.finger_id === seen.actor_id) ?? null
   const claimed = await claimFinger(
     matched?.finger_id ?? null,
     "SUPERVISOR",
@@ -494,6 +525,33 @@ export async function supervisorByPin(
     username: claimed.body?.username ?? null,
     problem: null,
   }
+}
+
+/// "Buka atas nama" (owner, 23 Oct 2026): the Kepala toko is signed in here,
+/// and the till is handed over to the cashier she picked. The node answers
+/// with that cashier's session and ends the head's, so the shell's token is
+/// replaced at once.
+///
+/// Returns the node's own refusal text, or null when the till is the cashier's.
+async function openFor(username: string): Promise<string | null> {
+  await open()
+  const config = held.config
+  if (config === null) {
+    return held.problem ?? "The terminal settings cannot be read from here."
+  }
+  const reply = await openOnBehalf(username)
+  if (!reply.ok) return reply.problem
+  const token = reply.body?.token ?? ""
+  if (token === "") return "The node opened the till but sent no token."
+  const saved = await hand({ ...config, token })
+  if (!saved.ok) return saved.problem
+  const who = await me()
+  if (!who.ok) {
+    put({ config: saved.value, problem: who.problem })
+    return who.problem
+  }
+  put({ config: saved.value, me: who.body, problem: null })
+  return null
 }
 
 /// Hand the terminal back to nobody.
@@ -656,8 +714,13 @@ export type Session = {
   /// True when the node accepted, which is the only thing that opens a counter.
   readonly signIn: (username: string, password: string) => Promise<boolean>
   /// Returns the node's own refusal text, or null when the counter is open.
-  readonly signInWithFinger: () => Promise<string | null>
+  readonly signInWithFinger: (
+    only?: string,
+    wait?: FingerWait & { onPlaced?: () => void },
+  ) => Promise<string | null>
   readonly signInWithPin: (username: string, pin: string) => Promise<string | null>
+  /// The Kepala toko hands the till to a cashier — see `openFor`.
+  readonly openFor: (username: string) => Promise<string | null>
   readonly signOut: () => Promise<void>
 }
 
@@ -676,6 +739,7 @@ export function useSession(): Session {
     signIn,
     signInWithFinger,
     signInWithPin,
+    openFor,
     signOut,
   }
 }

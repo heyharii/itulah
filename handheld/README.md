@@ -165,19 +165,29 @@ format has already paid for once — see `backend/src/cloud/domain/identity.rs`.
   `writeDataToEpc(pwd, bank, ptr, len, filter, epc)`. This app does not write
   tags; the note is here because the next person to add it will need it.
 - **The SDK lets go of the module behind our back, and says nothing.** When
-  another app opens the UHF module the SDK broadcasts `UHF_POWER_OFF` and our
-  instance frees itself; when the screen goes off it frees itself too, and on
-  unlock it opens the module again by itself — at the module's defaults, with
-  none of our power or radio profile. So `Reader` trusts a held instance only
-  while `isPowerOn()` is true and the SDK has reported no open we did not make
-  (`setConnectionStatusCallback`); otherwise the next `init` frees it and opens
-  it properly, and a refused `startInventoryTag` re-opens once and retries. The
-  screen is kept on while a sweep is live.
+  another app opens the UHF module it broadcasts `UHF_POWER_OFF`, and our
+  instance frees itself. The SDK registers that receiver on every open,
+  exported (`RECEIVER_EXPORTED` on API 34+), so any app's broadcast does it —
+  one carrying no `apiId` at all included — and a `free()` powers the module
+  off. So `Reader` trusts a held instance only while `isPowerOn()` is true and
+  the SDK has reported no open we did not make (`setConnectionStatusCallback`);
+  otherwise the next `init` frees it and opens it properly, and a refused
+  `startInventoryTag` re-opens once and retries. The screen is kept on while a
+  sweep is live.
+- **The screen does not free the module**, whatever an earlier note here said.
+  `UhfBase.ScreenReceiver` never registers in DeviceAPI_ver20251103:
+  `isMonitorScreen` is only ever assigned false, in the `UhfBase` constructor
+  (javap, 22 Oct 2026). The watch for an open we did not make stays anyway: an
+  SDK update that does watch the screen would open the module again at its
+  defaults, without a word.
 - **One `Reader` per process**, like the SDK's own instance: shared by the
   activity and the view model, and closed only when the last activity really
   finishes. One per activity closed the module under a live sweep on any
-  configuration change. The saved radio profile is handed to it before the
-  module opens (`useProfile`), so every open applies it, whoever makes it.
+  configuration change. The fixed production recipe is handed to it before the
+  module opens (`useProductionRecipe`); old per-phone radio preferences are ignored.
+  See [the conservative recipe](../docs/rfid-conservative-recipe.md): S0, TagFocus/FastID
+  off, link 1, 25 dBm requested, with read-back checked before inventory. Lab
+  overrides are memory-only, and production settings have no power slider.
 - From an audit of the decompiled SDK and its native library (R = read in the
   code, I = inferred):
   - `stopInventory()` on a module that is not inventorying waits about 2.5 s
@@ -191,13 +201,54 @@ format has already paid for once — see `backend/src/cloud/domain/identity.rs`.
     not a tag or a stop: any other command fails after about 1.2 s, and
     `getPower` returns garbage. Nothing else is asked mid-sweep. (R)
   - A start is never acknowledged; a tag frame is the only proof it took. (R)
-  - EPC-only mode drops frames stronger than −25 dBm (a native filter), so a
-    tag pressed against the antenna can be missed. (R)
+  - **The −25 dBm window.** In EPC-only mode — ours — `UHF_GetReceived_EX`
+    drops every tag frame outside −120..−25 dBm: no log line, no error code,
+    and `readTagFromBuffer()` returns null. A tag pressed against the antenna
+    is the one tag this reader cannot hear. A frame that carries phase or
+    frequency-point bytes takes the one branch with no window, and
+    `H.parseUHFTag` decodes them: phase a big-endian u16, frequency 24-bit
+    big-endian kHz. Lab › Start frame asks for them (`82 FF FF`, `82 FF FE`);
+    whether firmware E710_V7.10.1 appends them is the bench question. Count
+    the drops from logcat tag `DeviceAPI`, line `UHF_StopGet: okcnt=…`:
+    dropped ≈ okcnt − frames − 1. (R)
+  - **Every open is a cold boot.** `free()` writes the module's GPIO pins off
+    (`UHF_Free`), and `init()` powers them on, waits 200 ms, opens the UART,
+    waits 500 ms, sends a stop, waits 20 ms and pings: at least ~0.73 s native,
+    plus 200 ms in Java, all compiled in. A power change and a cleared filter
+    both re-open the module, so both pay it; keeping it open is the only
+    saving. (R)
+  - **`setFreHop(MHz)` replaces the hop table with ONE channel.** It sends
+    `14 [01][kHz, 3 bytes BE]` — a table of N = 1 — and computes the kHz as
+    `(int)(MHz × 1000f)`, which truncates: 920.1 becomes 920099 kHz. It never
+    adds a channel. Narrowing to the legal channels is the N-channel form,
+    `14 [N][F1..FN]`, sent raw at rest — and only once Indonesia's band is
+    confirmed. (R)
   - The SDK creates its callback thread only if `setInventoryCallback` is set
     BEFORE the start — likely why the callback "never fired". (R)
-  - The SDK's reader thread busy-loops during inventory, one core at 100%. (I)
+  - The SDK's reader thread busy-loops during inventory: no sleep, on a
+    non-blocking descriptor (R), so likely one core at 100% (I).
   - `setPower` and `setRFLink` frames carry a save byte, so each call probably
     writes the module's flash: set them only when the value changes. (I)
+- **Lab › SDK knobs**, bench builds only. Nothing is saved, and the floor's
+  profile is never touched:
+  - *Start frame*: Normal `82 00 00`, Phase `82 FF FF`, Freq `82 FF FE`, for
+    the next start. After each sweep: the frames handed over, those stronger
+    than −25 dBm (possible only outside the window), those carrying phase or
+    frequency, and the last of each. *Count drops* reads the last
+    `UHF_StopGet` line from the app's own log.
+  - *Power mid-sweep*: `setDynamicDistance` (`30 01 P`, no reply) during a
+    sweep, with no re-open; the RSSI of the busiest tag before, after, and
+    after putting it back.
+  - *Module at rest*: region (named from the vendor table), fast inventory,
+    work/wait (`UHFGetPwm`, status 0 = OK), temperature, hardware, power
+    read-back. *Raw N* sends `10 00 01 RP RP WP WP` — option byte 00 where
+    the SDK always sends 02 — through `UHFUnvarnishedTransmission`, and shows
+    the status byte and the read-back. *Re-open* is the way back from all of
+    it. *UHF_POWER_OFF ignored* unregisters the SDK's receiver after every
+    open; while it is on, no other UHF app can make this one let go.
+  - The Lab file takes the same: `startmode phase|freq|normal`, `frames`,
+    `drops`, `dynpower N`, `knobs`, `rawpower N`, `reopen`,
+    `poweroff ignore|obey`.
 
 ## Design
 

@@ -16,5 +16,10 @@ export const SIM_SECRET: string = import.meta.env.VITE_SIM_PASSWORD ?? ""
 
 export const SIMULATED = SIM_FINGERS.length > 0 && SIM_SECRET !== ""
 
+/// Whose finger the head's sensor stands for: `VITE_SIM_HEAD`, else the last
+/// simulated person.
+export const SIM_HEAD: string =
+  import.meta.env.VITE_SIM_HEAD ?? SIM_FINGERS[SIM_FINGERS.length - 1] ?? ""
+
 export const titled = (name: string) =>
   name.charAt(0).toUpperCase() + name.slice(1)

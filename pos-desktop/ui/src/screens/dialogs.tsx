@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react"
 
 import * as api from "@/api"
 import { Icon } from "@/icons"
+import { viaPointer } from "@/shortcuts"
 import { articleId, sku } from "@/sku"
 import { money } from "@itulah/contract/money"
 
@@ -47,6 +48,8 @@ export function Sheet({
   // Focus moves into the sheet so the keyboard and a screen reader land where
   // the eye does; the till puts it back on the scan field when it closes.
   const box = useRef<HTMLElement>(null)
+  // Opened by a tap it pops in; opened by its key it is simply there.
+  const [enter] = useState(viaPointer)
   useEffect(() => {
     const first = box.current?.querySelector<HTMLElement>(
       ".sheet-body button:not(:disabled), .sheet-body input, .sheet-foot button:not(:disabled)",
@@ -55,7 +58,7 @@ export function Sheet({
   }, [])
   return (
     <div
-      className="sheet-wrap"
+      className={enter ? "sheet-wrap enter" : "sheet-wrap"}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose()
       }}
@@ -76,7 +79,7 @@ export function Sheet({
       >
         <header className="sheet-head">
           <h2>{title}</h2>
-          <button className="icon-btn" onClick={onClose} aria-label="Close">
+          <button className="icon-btn" onClick={onClose} aria-label="Tutup">
             <Icon name="x" />
           </button>
         </header>
@@ -96,10 +99,10 @@ export function Sheet({
 /// to tell a counter that cancels two baskets a week from one that cancels
 /// twenty. The field underneath takes the fifth thing, which happens daily.
 const REASONS = [
-  "The customer changed their mind",
-  "Item scanned by mistake",
-  "Price in dispute",
-  "Item not available",
+  "Pelanggan berubah pikiran",
+  "Barang salah scan",
+  "Harga dipertanyakan",
+  "Barang tidak tersedia",
 ] as const
 
 /// Throwing away a basket, out loud.
@@ -128,44 +131,68 @@ export function CancelSale({
 }) {
   const [picked, setPicked] = useState<string | null>(null)
   const [typed, setTyped] = useState("")
+  const [enter] = useState(viaPointer)
 
   // Typed beats picked. Somebody who kept typing after tapping a chip has said
   // the more particular thing, and the chip they brushed on the way past is not
   // what should end up written down.
   const reason = typed.trim() !== "" ? typed.trim() : picked
 
+  // The card takes the caret when it opens (F7), so 1–4 pick a reason and
+  // nothing typed here reaches the scan field behind it.
+  const card = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    card.current?.focus()
+  }, [])
+
   return (
-    <div className="overlay">
+    <div className={enter ? "overlay enter" : "overlay"}>
       <div
+        ref={card}
+        tabIndex={-1}
+        style={{ outline: "none" }}
         className="overlay-card"
         role="dialog"
         aria-modal="true"
-        aria-label="Cancel sale"
+        aria-label="Batalkan transaksi"
+        onKeyDown={(event) => {
+          const inField = event.target instanceof HTMLInputElement
+          const one = REASONS[Number(event.key) - 1]
+          if (!inField && one !== undefined && /^[1-4]$/.test(event.key)) {
+            event.preventDefault()
+            setPicked(picked === one ? null : one)
+          } else if (event.key === "Enter" && reason !== null) {
+            event.preventDefault()
+            onConfirm(reason)
+          }
+        }}
       >
         <span className="seal warn">
           <Icon name="trash" />
         </span>
-        <h3>Cancel this sale?</h3>
-        <p className="muted num" style={{ fontSize: 12.5 }}>
-          {units} {units === 1 ? "item" : "items"} · {money(totalMinor, currency)}
+        <h3>Batalkan transaksi ini?</h3>
+        <p className="muted num" style={{ fontSize: 15 }}>
+          {units} barang · {money(totalMinor, currency)}
         </p>
         <div className="chips" style={{ width: "100%" }}>
-          {REASONS.map((one) => (
+          {REASONS.map((one, index) => (
             <button
               key={one}
               className={picked === one ? "chip on" : "chip"}
+              style={{ fontSize: 15, height: 40 }}
               onClick={() => setPicked(picked === one ? null : one)}
             >
+              <span className="kbd">{index + 1}</span>
               {one}
             </button>
           ))}
         </div>
         <label className="field" style={{ width: "100%", textAlign: "left" }}>
-          Another reason
+          Alasan lain
           <input
             value={typed}
             onChange={(event) => setTyped(event.target.value)}
-            placeholder="Write a reason"
+            placeholder="Tulis alasan"
             autoComplete="off"
             maxLength={120}
           />
@@ -176,14 +203,14 @@ export function CancelSale({
           disabled={reason === null}
           onClick={() => reason !== null && onConfirm(reason)}
         >
-          Cancel sale
+          Batalkan
         </button>
         <button
           className="btn ghost"
           style={{ width: "100%" }}
           onClick={onBack}
         >
-          Back to basket
+          Lanjutkan transaksi
         </button>
       </div>
     </div>
@@ -228,31 +255,50 @@ export function HoldList({
   // happens on the row itself — a dialog over a dialog would be one more thing
   // to dismiss with somebody waiting.
   const [dropping, setDropping] = useState<string | null>(null)
+  // The caret starts on row 1's Lanjutkan, so Enter brings it back; Hapus is
+  // only ever its own button. (This runs after the Sheet's own focus.)
+  const firstResume = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    firstResume.current?.focus()
+  }, [])
+  // 1–9 brings that one back, no mouse needed.
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      const one = held[Number(event.key) - 1]
+      if (event.target instanceof HTMLInputElement) return
+      if (one === undefined || !canResume || !/^[1-9]$/.test(event.key)) return
+      event.preventDefault()
+      onResume(one.id)
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  })
 
   return (
-    <Sheet title="Held sales" onClose={onBack}>
+    <Sheet title="Transaksi ditunda" onClose={onBack}>
         {!canResume && held.length > 0 && (
           <div className="notice warn">
-            Finish or hold the basket that is open first.
+            Selesaikan atau tunda dulu transaksi yang sedang berjalan.
           </div>
         )}
 
         {held.length === 0 ? (
           <div className="empty">
             <Icon name="hold" />
-            <h3>No held sales</h3>
+            <h3>Tidak ada transaksi ditunda</h3>
           </div>
         ) : (
           <div className="rows">
-            {held.map((one) => (
+            {held.map((one, index) => (
               <div className="row-item" key={one.id}>
                 <div className="grow">
                   <h3>
-                    {one.units} {one.units === 1 ? "item" : "items"} ·{" "}
-                    <span className="num">{money(one.totalMinor)}</span>
+                    <span className="num">
+                      {index + 1} · {one.units} barang · {money(one.totalMinor)}
+                    </span>
                   </h3>
                   <p>
-                    Held {one.at}
+                    Ditunda {one.at}
                     {one.customerId !== null && (
                       <> · member {one.customerId}</>
                     )}
@@ -264,7 +310,7 @@ export function HoldList({
                       className="btn ghost"
                       onClick={() => setDropping(null)}
                     >
-                      Cancel
+                      Batal
                     </button>
                     <button
                       className="btn danger"
@@ -273,7 +319,7 @@ export function HoldList({
                         onDrop(one.id)
                       }}
                     >
-                      Yes, discard
+                      Ya, hapus
                     </button>
                   </>
                 ) : (
@@ -282,14 +328,15 @@ export function HoldList({
                       className="btn ghost"
                       onClick={() => setDropping(one.id)}
                     >
-                      Discard
+                      Hapus
                     </button>
                     <button
+                      ref={index === 0 ? firstResume : undefined}
                       className="btn primary"
                       disabled={!canResume}
                       onClick={() => onResume(one.id)}
                     >
-                      Resume
+                      Lanjutkan
                     </button>
                   </>
                 )}
@@ -499,7 +546,7 @@ function readDocument(body: unknown): Document | null {
 function refusal(reply: api.EdgeReply<unknown>): string {
   return (
     reply.problem ??
-    `The store node refused with status ${reply.status} and gave no reason.`
+    `Server toko menolak dengan status ${reply.status} tanpa alasan.`
   )
 }
 
@@ -579,7 +626,7 @@ export function ReceiptPreview({
       if (read === null) {
         setDoc(null)
         setTrouble(
-          "The node answered, but it is not a receipt document. Check the sale ID.",
+          "Server toko menjawab, tapi bukan dokumen struk. Cek ID penjualan.",
         )
         return
       }
@@ -603,23 +650,23 @@ export function ReceiptPreview({
 
   return (
     <Sheet
-      title="Receipt preview"
+      title="Pratinjau struk"
       onClose={onBack}
       foot={
         <>
           <button className="btn" onClick={onBack}>
-            Close
+            Tutup
           </button>
           <button className="btn primary" disabled={doc === null} onClick={onPrint}>
             <Icon name="print" />
-            Print
+            Cetak
           </button>
         </>
       }
     >
         {asking && (
           <div className="empty">
-            <h3>Loading receipt…</h3>
+            <h3>Memuat struk…</h3>
             <p className="num">{saleId}</p>
           </div>
         )}
@@ -655,13 +702,13 @@ export function ReceiptPreview({
                 </span>
               </div>
               <div className="kv">
-                <span className="muted">Receipt number</span>
+                <span className="muted">Nomor struk</span>
                 <strong className="num">
                   <Text value={doc.receiptNo} />
                 </strong>
               </div>
               <div className="kv">
-                <span className="muted">Sale ID</span>
+                <span className="muted">ID penjualan</span>
                 <span className="num">
                   <Text value={doc.saleId} />
                 </span>
@@ -670,13 +717,13 @@ export function ReceiptPreview({
                   ke waktu lokal saat mencetak; mengubahnya di sini juga berarti
                   dua tempat yang memformat satu waktu. */}
               <div className="kv">
-                <span className="muted">Time</span>
+                <span className="muted">Waktu</span>
                 <span className="num">
                   <Text value={doc.completedAt} />
                 </span>
               </div>
               <div className="kv">
-                <span className="muted">Cashier</span>
+                <span className="muted">Kasir</span>
                 <span>
                   <Text value={doc.cashier} />
                 </span>
@@ -684,9 +731,9 @@ export function ReceiptPreview({
             </div>
 
             <div>
-              <span className="label">Items</span>
+              <span className="label">Barang</span>
               {doc.lines.length === 0 ? (
-                <p className="muted">No item lines.</p>
+                <p className="muted">Tidak ada baris barang.</p>
               ) : (
                 <div className="receipt-lines" style={{ marginTop: 10 }}>
                   {doc.lines.map((line, at) => (
@@ -694,11 +741,11 @@ export function ReceiptPreview({
                       <span>
                         {line.name ??
                           (line.skuCode === null
-                            ? "No name on the receipt"
+                            ? "Tanpa nama di struk"
                             : sku(line.skuCode))}{" "}
                         <small className="num muted">
                           {line.skuCode === null
-                            ? "no SKU"
+                            ? "tanpa SKU"
                             : `${articleId(null, line.skuCode)} · ${sku(line.skuCode)}`}
                         </small>
                         {line.quantity !== null && line.quantity !== 1 && (
@@ -715,14 +762,14 @@ export function ReceiptPreview({
                           line.unitPriceMinor !== line.lineTotalMinor && (
                             <small className="num muted">
                               {" "}
-                              · each {money(line.unitPriceMinor, currency)}
+                              · per pcs {money(line.unitPriceMinor, currency)}
                             </small>
                           )}
                         {line.baseUnitPriceMinor !== null &&
                           line.baseUnitPriceMinor !== line.lineTotalMinor && (
                             <small className="muted">
                               {" "}
-                              · normal price{" "}
+                              · harga normal{" "}
                               {money(line.baseUnitPriceMinor, currency)}
                             </small>
                           )}
@@ -736,7 +783,7 @@ export function ReceiptPreview({
               )}
               {doc.unreadable > 0 && (
                 <p className="error">
-                  {doc.unreadable} entries could not be read.
+                  {doc.unreadable} baris tidak bisa dibaca.
                 </p>
               )}
             </div>
@@ -751,31 +798,31 @@ export function ReceiptPreview({
                 </span>
               </div>
               <div className="kv">
-                <span className="muted">Discount</span>
+                <span className="muted">Diskon</span>
                 <span className="num">
                   <Money value={doc.discountMinor} currency={currency} />
                 </span>
               </div>
               <div className="kv">
-                <span className="muted">Items total</span>
+                <span className="muted">Total barang</span>
                 <strong className="num">
                   <Money value={doc.totalMinor} currency={currency} />
                 </strong>
               </div>
               <div className="kv">
-                <span className="muted">Paid</span>
+                <span className="muted">Dibayar</span>
                 <span className="num">
                   <Money value={doc.paidMinor} currency={currency} />
                 </span>
               </div>
               <div className="kv">
-                <span className="muted">Change</span>
+                <span className="muted">Kembalian</span>
                 <span className="num">
                   <Money value={doc.changeMinor} currency={currency} />
                 </span>
               </div>
               <div className="kv">
-                <span className="muted">Points</span>
+                <span className="muted">Poin</span>
                 <span className="num">
                   {doc.pointsEarned === null ? (
                     <Missing />
@@ -793,9 +840,9 @@ export function ReceiptPreview({
                 keterangan bahwa 0 pada struk tidak berarti nol poin. */}
 
             <div>
-              <span className="label">Payment</span>
+              <span className="label">Pembayaran</span>
               {doc.tenders.length === 0 ? (
-                <p className="muted">No payment data.</p>
+                <p className="muted">Tidak ada data pembayaran.</p>
               ) : (
                 <div className="receipt-lines" style={{ marginTop: 10 }}>
                   {doc.tenders.map((one, at) => (
@@ -817,18 +864,18 @@ export function ReceiptPreview({
 
             {gap !== null && gap !== 0 && (
               <div className="notice warn">
-                Difference <strong className="num">{money(gap, currency)}</strong>{" "}
-                (charges such as bags are not listed on the receipt)
+                Selisih <strong className="num">{money(gap, currency)}</strong>{" "}
+                (biaya seperti kantong tidak tercantum di struk)
               </div>
             )}
 
             {doc.footer !== null && (
-              <p className="muted">Receipt footer: {doc.footer}</p>
+              <p className="muted">Footer struk: {doc.footer}</p>
             )}
 
             {doc.strange.length > 0 && (
               <div>
-                <span className="label">Other data</span>
+                <span className="label">Data lain</span>
                 <div className="chips">
                   {doc.strange.map(([key, value]) => (
                     <span className="chip" key={key}>
@@ -902,6 +949,18 @@ export const BAGS: readonly Charge[] = [
   },
 ]
 
+/// What the counter reads for a bag. `description` above is what is written onto
+/// the sale and printed, so it stays as it is; this is only what the screen says.
+const BAG_WORDS: Readonly<Record<string, string>> = {
+  "Small paper bag": "Tas kertas kecil",
+  "Large paper bag": "Tas kertas besar",
+  "Small plastic bag": "Kantong plastik kecil",
+  "Large plastic bag": "Kantong plastik besar",
+}
+
+export const bagName = (bag: { readonly description: string }): string =>
+  BAG_WORDS[bag.description] ?? bag.description
+
 /// Charging for a bag.
 ///
 /// A bag is not a basket line and cannot be made into one. The basket holds
@@ -923,7 +982,7 @@ export function BagPicker({
   onBack: () => void
 }) {
   return (
-    <Sheet title="Shopping bags" onClose={onBack}>
+    <Sheet title="Kantong belanja" onClose={onBack}>
         <div className="pick-list">
           {BAGS.map((bag) => (
             <button
@@ -933,10 +992,10 @@ export function BagPicker({
             >
               <Icon name="bag" />
               <div className="grow">
-                <strong>{bag.description}</strong>
+                <strong>{bagName(bag)}</strong>
               </div>
               {bag.amount_minor === 0 ? (
-                <span className="badge ok">Free</span>
+                <span className="badge ok">Gratis</span>
               ) : (
                 <strong className="num">
                   {money(bag.amount_minor, currency)}

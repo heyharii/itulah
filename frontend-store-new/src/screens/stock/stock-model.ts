@@ -2,7 +2,7 @@ import type { CatalogRow, SkuStockRow } from "@itulah/contract"
 
 import { sku as skuText } from "@/lib/format"
 import { shapeBook, swatchBackground } from "@/lib/variants"
-import { matches, type PlaceCode } from "@/screens/stock/shared"
+import { matches, placeLabel, type PlaceCode } from "@/screens/stock/shared"
 
 /// Stock's list, joined once: each article with its "Colour Size" rows and
 /// what each holds in the shop's three places — from the price book (names)
@@ -15,7 +15,13 @@ export interface Counts {
   readonly floor: number
   readonly warehouse: number
   readonly reject: number
+  /// To be returned's other two pockets (`{site}.to-return.over` / `.ho`).
+  readonly over: number
+  readonly ho: number
 }
+
+/// One of the figures a row carries: a place, or a pocket of To be returned.
+export type Figure = keyof Counts
 
 export interface StockSku extends Counts {
   readonly sku: string
@@ -35,7 +41,11 @@ export interface StockArticle {
 /// The node's rows carry the floor and the store room; a reject count rides
 /// along when it says one. Absent, it is nought here and the KPI reads the
 /// reject pool instead.
-type Held = SkuStockRow & { readonly reject?: number }
+type Held = SkuStockRow & {
+  readonly reject?: number
+  readonly over_delivery?: number
+  readonly return_ho?: number
+}
 
 export function articlesOf(
   rows: readonly CatalogRow[],
@@ -64,6 +74,8 @@ export function articlesOf(
           floor: has?.floor ?? 0,
           warehouse: has?.warehouse ?? 0,
           reject: has?.reject ?? 0,
+          over: has?.over_delivery ?? 0,
+          ho: has?.return_ho ?? 0,
         })
       }
     }
@@ -90,6 +102,8 @@ export function articlesOf(
           floor: has.floor,
           warehouse: has.warehouse,
           reject: has.reject ?? 0,
+          over: has.over_delivery ?? 0,
+          ho: has.return_ho ?? 0,
         },
       ],
     })
@@ -100,20 +114,19 @@ export function articlesOf(
 export const SHOWS = [
   ["stock", "In stock"],
   ["all", "Everything"],
-  ["gap", "Not on the sales floor"],
-  ["reject", "Has return"],
+  ["gap", "Not in Store"],
 ] as const
 
 export type Show = (typeof SHOWS)[number][0]
 
-export function held(sku: Counts, show: Show): boolean {
+/// Whether a row is listed: "In stock" asks only of the places on screen, so
+/// the Warehouse slice lists what the warehouse holds and nothing else.
+export function held(sku: Counts, show: Show, pools: readonly Figure[]): boolean {
   switch (show) {
     case "stock":
-      return sku.floor + sku.warehouse + sku.reject > 0
+      return pools.some((pool) => sku[pool] > 0)
     case "gap":
       return sku.floor === 0 && sku.warehouse > 0
-    case "reject":
-      return sku.reject > 0
     case "all":
       return true
   }
@@ -126,13 +139,14 @@ export function narrow(
   needle: string,
   division: string,
   show: Show,
+  pools: readonly Figure[],
 ): StockArticle[] {
   const out: StockArticle[] = []
   for (const article of articles) {
     if (division !== "" && article.division !== division) continue
     const skus = article.skus.filter(
       (one) =>
-        held(one, show) &&
+        held(one, show, pools) &&
         matches(
           needle,
           `${article.name} ${one.label}`,
@@ -145,6 +159,18 @@ export function narrow(
   return out
 }
 
-export function sum(skus: readonly Counts[], pool: Pool): number {
+export function sum(skus: readonly Counts[], pool: Figure): number {
   return skus.reduce((total, one) => total + one[pool], 0)
+}
+
+/// What a figure is called on a heading: a place's name, or a pocket's.
+export function figureLabel(figure: Figure): string {
+  switch (figure) {
+    case "over":
+      return "Over delivery"
+    case "ho":
+      return "Return HO"
+    default:
+      return placeLabel(figure)
+  }
 }

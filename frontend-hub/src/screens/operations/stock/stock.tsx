@@ -13,9 +13,12 @@ import { SHOW_MISSING } from "@/lib/features"
 import { useMissingRows } from "@/screens/inventory/missing-data"
 import { MissingList } from "@/screens/inventory/missing-list"
 import {
+  REASONS,
+  REASON_LABEL,
   STAGES,
   STAGE_LABEL,
   due,
+  useReturnSplit,
   useStock,
   useStockStatus,
   type Figure,
@@ -34,8 +37,9 @@ import { OrderSheet } from "@/screens/procurement/purchase-orders"
 ///
 /// Pool · On hand · Seen · Last count, in the order the goods travel: On order
 /// · Unidentified · Unallotted · Allotted (Unpicked · Picked · Packed ·
-/// Dispatch, each by store) · Return stock · To supplier · Missing. The warehouse
-/// total leaves out On order (not here yet) and Missing (not in a pool).
+/// Dispatch, each by store) · In transit (Out · In, each by store) · Return
+/// stock · To supplier · Missing. The warehouse total leaves out On order (not
+/// here yet), In transit (on the road) and Missing (not in a pool).
 ///
 /// Five rows fold their own detail behind a chevron at the far right — On
 /// order, Unidentified (by PO, its articles under each), Unallotted,
@@ -173,6 +177,7 @@ function ViewAll({
 export function Stock() {
   const status = useStockStatus()
   const data = useStock()
+  const returnSplit = useReturnSplit(data.returnStock.stores)
   const [tab, setTab] = useState("stock")
   const [folded, setFolded] = useState<ReadonlySet<string>>(new Set())
   const [view, setView] = useState<View | null>(null)
@@ -437,20 +442,66 @@ export function Stock() {
 
               <Line
                 tier="head"
+                label="In transit"
+                pcs={data.transit.out.figure.pcs + data.transit.in.figure.pcs}
+              />
+              {(
+                [
+                  ["Out", data.transit.out],
+                  ["In", data.transit.in],
+                ] as const
+              ).map(([word, way]) => (
+                <Fragment key={word}>
+                  <Line
+                    tier="sub"
+                    indent={1}
+                    label={word}
+                    pcs={way.figure.pcs}
+                    figure={way.figure}
+                  />
+                  {way.stores.map((store) => (
+                    <Line
+                      key={store.id}
+                      tier="leaf"
+                      indent={2}
+                      label={store.name}
+                      pcs={store.pcs}
+                    />
+                  ))}
+                </Fragment>
+              ))}
+
+              <Line
+                tier="head"
                 label="Return stock"
                 pcs={data.returnStock.figure.pcs}
                 figure={data.returnStock.figure}
                 onOpen={() => go({ kind: "return-stock" })}
               />
               {data.returnStock.stores.map((store) => (
-                <Line
-                  key={store.id}
-                  tier="leaf"
-                  indent={1}
-                  label={store.name}
-                  pcs={store.pcs}
-                  onOpen={() => go({ kind: "return-stock", storeId: store.id })}
-                />
+                <Fragment key={store.id}>
+                  <Line
+                    tier="leaf"
+                    indent={1}
+                    label={store.name}
+                    pcs={store.pcs}
+                    onOpen={() => go({ kind: "return-stock", storeId: store.id })}
+                  />
+                  {/* The pockets inside each store's Return: why it came back. */}
+                  {REASONS.map((reason) => {
+                    const pcs = returnSplit.get(store.id)?.[reason] ?? 0
+                    return pcs > 0 ? (
+                      <Line
+                        key={reason}
+                        tier="leaf"
+                        indent={2}
+                        label={REASON_LABEL[reason]}
+                        pcs={pcs}
+                        onOpen={() => go({ kind: "return-stock", storeId: store.id })}
+                      />
+                    ) : null
+                  })}
+                </Fragment>
               ))}
 
               <Line tier="head" label="To supplier" pcs={data.toSupplier} />

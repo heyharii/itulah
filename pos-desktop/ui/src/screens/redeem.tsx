@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import {
   confirmRedeemRequest,
@@ -7,8 +7,12 @@ import {
   type FoundRedeemRequest,
 } from "@/redeem"
 import { Icon } from "@/icons"
+import { viaPointer } from "@/shortcuts"
+import { sound } from "@/sound"
 import { Topbar } from "@/till"
 import { money } from "@itulah/contract/money"
+
+import "../exchange-d.css"
 
 /// The other half of a pairing code's conversation.
 ///
@@ -36,20 +40,20 @@ import { money } from "@itulah/contract/money"
 function refusal(reply: { readonly problem: string | null; readonly status: number }): string {
   return (
     reply.problem ??
-    `The store node refused with status ${reply.status} and gave no reason.`
+    `Server toko menolak dengan status ${reply.status} tanpa alasan.`
   )
 }
 
 function statusLabel(status: string | undefined): string {
   switch (status) {
     case "PENDING":
-      return "Waiting"
+      return "Menunggu"
     case "CONFIRMED":
-      return "Redeemed"
+      return "Sudah ditukar"
     case "EXPIRED":
-      return "Expired"
+      return "Kedaluwarsa"
     case "CANCELLED":
-      return "Cancelled"
+      return "Dibatalkan"
     default:
       return status ?? "—"
   }
@@ -75,7 +79,7 @@ export function RedeemScreen({
     const typed = code.trim()
     if (member === "" || typed.length !== 6) {
       setProblem(
-        "Enter the member number and the six-digit code — the code is what the customer shows on their app screen.",
+        "Ketik nomor member dan kode 6 angka.",
       )
       return
     }
@@ -112,19 +116,19 @@ export function RedeemScreen({
           <div className="page-inner">
             <div className="page-head">
               <div>
-                <span className="label">Points redeemed</span>
+                <span className="label">Poin ditukar</span>
                 <h1 className="num">
                   {done.voucher_code ?? "—"}
                 </h1>
-                <p>Use this code at payment → Voucher.</p>
+                <p>Pakai kode ini saat bayar → Voucher.</p>
               </div>
               <button className="btn primary" onClick={onBack}>
-                Done
+                Selesai
               </button>
             </div>
             <div>
               <div className="kv">
-                <span className="muted">Points used</span>
+                <span className="muted">Poin terpakai</span>
                 <span className="num">{done.points_spent ?? "—"}</span>
               </div>
               <div className="kv">
@@ -136,12 +140,12 @@ export function RedeemScreen({
                 </strong>
               </div>
               <div className="kv">
-                <span className="muted">Member points left</span>
+                <span className="muted">Sisa poin member</span>
                 <span className="num">{done.balance_points ?? "—"}</span>
               </div>
             </div>
             {done.replayed === true && (
-              <div className="notice">The same voucher (already confirmed before).</div>
+              <div className="notice">Voucher yang sama (sudah dikonfirmasi sebelumnya).</div>
             )}
           </div>
         </div>
@@ -156,18 +160,18 @@ export function RedeemScreen({
         <div className="page-inner">
           <div className="page-head">
             <div>
-              <span className="label">Redeem points</span>
-              <h1>Redeem points for a voucher</h1>
+              <span className="label">Tukar poin</span>
+              <h1>Tukar poin dengan voucher</h1>
             </div>
             <button className="btn ghost" onClick={onBack}>
               <Icon name="back" />
-              Back to counter
+              Kembali ke kasir
             </button>
           </div>
 
           <div className="steps">
             <span className={found === null ? "active" : undefined}>
-              1 · Find the request
+              1 · Cari permintaan
             </span>
             <span className={found !== null ? "active" : undefined}>
               2 · Konfirmasi
@@ -182,31 +186,31 @@ export function RedeemScreen({
             }}
           >
             <label className="field">
-              Member number
+              Nomor member
               <input
                 value={memberId}
                 onChange={(event) => setMemberId(event.target.value)}
-                placeholder="Number on the card…"
+                placeholder="Nomor di kartu…"
                 autoComplete="off"
                 spellCheck={false}
                 autoFocus
               />
             </label>
             <label className="field">
-              Six-digit code
+              Kode 6 angka
               <input
                 value={code}
                 onChange={(event) =>
                   setCode(event.target.value.replace(/\D/g, "").slice(0, 6))
                 }
-                placeholder="Read from the customer's screen…"
+                placeholder="Dari layar pelanggan…"
                 autoComplete="off"
                 spellCheck={false}
                 inputMode="numeric"
               />
             </label>
             <button className="btn" type="submit" disabled={looking}>
-              {looking ? "Looking…" : "Find request"}
+              {looking ? "Mencari…" : "Cari permintaan"}
             </button>
           </form>
           {problem !== null && found === null && (
@@ -219,7 +223,7 @@ export function RedeemScreen({
               <span className="label">Permintaan ditemukan</span>
               <div>
                 <div className="kv">
-                  <span className="muted">Points requested</span>
+                  <span className="muted">Poin diminta</span>
                   <strong className="num">{found.points ?? "—"}</strong>
                 </div>
                 <div className="kv">
@@ -234,12 +238,199 @@ export function RedeemScreen({
                 disabled={busy}
                 onClick={() => void confirm()}
               >
-                {busy ? "Sending to the node…" : "Confirm redemption"}
+                {busy ? "Mengirim ke server toko…" : "Konfirmasi penukaran"}
               </button>
             </>
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+/// A refusal in the counter's words: a node that has no such route says so
+/// once, plainly; anything else is the node's own sentence.
+function redeemRefusal(reply: { readonly problem: string | null; readonly status: number }, code: string): string {
+  if (reply.status === 405 || (reply.status === 404 && reply.problem === null)) {
+    return "Server toko ini belum bisa tukar poin."
+  }
+  if (reply.status === 404 || /no live redemption|not found|no such/i.test(reply.problem ?? "")) {
+    return `Kode ${code} tidak ada untuk member ini.`
+  }
+  if (reply.status === 401 || reply.status === 403) return "Server toko menolak tukar poin dari kasir ini."
+  if (reply.status === 0 || reply.status === 502 || reply.status === 503 || reply.status === 504) {
+    return "Kantor pusat tidak terjangkau — coba lagi sebentar."
+  }
+  return reply.problem ?? `Server toko menolak (${reply.status}).`
+}
+
+/// F11 · Tukar poin as a dialog over the counter — the prototype's
+/// `redeemView`: the member from the sale already filled in, the 6-digit code
+/// from the shopper's app, Enter to find it, Enter again to tukar; Esc closes.
+/// What comes out is a voucher code, keyed into Bayar → Voucher.
+export function RedeemDialog({
+  memberId,
+  onClose,
+  onDone,
+}: {
+  memberId: string | null
+  onClose: () => void
+  onDone: (text: string) => void
+}) {
+  const [enter] = useState(viaPointer)
+  const [member, setMember] = useState(memberId ?? "")
+  const [code, setCode] = useState("")
+  const [found, setFound] = useState<FoundRedeemRequest | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const memberBox = useRef<HTMLInputElement>(null)
+  const codeBox = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    ;(memberId !== null && memberId !== "" ? codeBox : memberBox).current?.focus()
+    // Only on opening.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key !== "Escape") return
+      event.preventDefault()
+      onClose()
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  })
+
+  function say(text: string | null) {
+    setError(text)
+    if (text !== null) sound.no()
+  }
+
+  async function go() {
+    if (busy) return
+    const who = member.trim()
+    if (found === null) {
+      if (who === "") {
+        say("Ketik nomor member.")
+        memberBox.current?.focus()
+        return
+      }
+      if (code.length !== 6) {
+        say("Kode redeem itu 6 angka dari aplikasi member.")
+        codeBox.current?.focus()
+        return
+      }
+      setBusy(true)
+      say(null)
+      const reply = await lookupRedeemRequest(who, code)
+      setBusy(false)
+      if (!reply.ok) {
+        say(redeemRefusal(reply, code))
+        return
+      }
+      if (reply.body?.status !== undefined && reply.body.status !== "PENDING") {
+        say(`Kode ${code} ${statusLabel(reply.body.status).toLowerCase()}.`)
+        return
+      }
+      setFound(reply.body)
+      return
+    }
+    if (found.request_id === undefined) return
+    setBusy(true)
+    say(null)
+    const reply = await confirmRedeemRequest(found.request_id)
+    setBusy(false)
+    if (!reply.ok) {
+      say(redeemRefusal(reply, code))
+      return
+    }
+    const done = reply.body
+    onDone(
+      `Poin ditukar · ${done.points_spent ?? found.points ?? "—"} poin → voucher ${done.voucher_code ?? "—"}` +
+        (done.voucher_value_minor === undefined ? "" : ` senilai ${money(done.voucher_value_minor)}`) +
+        ". Pakai di Bayar → Voucher.",
+    )
+  }
+
+  const keyEnter = (event: React.KeyboardEvent) => {
+    if (event.key !== "Enter") return
+    event.preventDefault()
+    void go()
+  }
+
+  return (
+    <div className={enter ? "xchd enter" : "xchd"} onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section className="dlg xc-find" role="dialog" aria-modal="true" aria-label="Tukar poin">
+        <div className="dlg-head">
+          <p className="ttl">Tukar poin</p>
+          <button type="button" className="x-btn" aria-label="Tutup" onClick={onClose}>
+            <Icon name="x" />
+          </button>
+        </div>
+        <div className="dlg-body">
+          <label className="xc-scan sm idle">
+            <span className="mem-k" style={{ margin: 0, minWidth: 72 }}>Member</span>
+            <input
+              ref={memberBox}
+              value={member}
+              onChange={(event) => {
+                setMember(event.target.value)
+                setFound(null)
+                setError(null)
+              }}
+              onKeyDown={keyEnter}
+              placeholder="Nomor member"
+              autoComplete="off"
+              spellCheck={false}
+              aria-label="Nomor member"
+            />
+          </label>
+          <label className={error !== null ? "xc-scan bad" : "xc-scan"}>
+            <Icon name="search" />
+            <input
+              ref={codeBox}
+              value={code}
+              onChange={(event) => {
+                setCode(event.target.value.replace(/\D/g, "").slice(0, 6))
+                setFound(null)
+                setError(null)
+              }}
+              onKeyDown={keyEnter}
+              placeholder="Scan atau ketik kode redeem 6 angka"
+              inputMode="numeric"
+              autoComplete="off"
+              spellCheck={false}
+              aria-label="Kode redeem"
+            />
+          </label>
+          {error !== null && (
+            <p className="xc-err" role="alert">
+              {error}
+            </p>
+          )}
+          {found !== null && (
+            <div className="mem on" style={{ cursor: "default" }}>
+              <span className="kbd">✓</span>
+              <span>
+                <b>{member.trim()}</b>
+                <span>{found.points ?? "—"} poin · {statusLabel(found.status)}</span>
+              </span>
+              <span className="pts">{code}</span>
+            </div>
+          )}
+        </div>
+        <div className="dlg-foot">
+          <span className="sp" />
+          <button type="button" className="ds-btn ds-btn--ghost" onClick={onClose}>
+            Batal
+          </button>
+          <button type="button" className="ds-btn ds-btn--primary" disabled={busy} onClick={() => void go()}>
+            <span>{busy ? "Menanyakan…" : found !== null ? `Tukar ${found.points ?? ""} poin` : "Cari"}</span>
+            <span className="kbd">Enter</span>
+          </button>
+        </div>
+      </section>
     </div>
   )
 }

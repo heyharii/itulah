@@ -81,9 +81,9 @@ export function CustomerScreen() {
   // only sentence that stays true through every one of them.
   if (view === null || view.stage === "idle") {
     return (
-      <Frame name={name} foot="Happy shopping">
+      <Frame name={name} foot="Selamat berbelanja">
         <div className="empty" style={{ gap: 16 }}>
-          <h3 style={{ fontSize: 46, color: "var(--ink)" }}>Welcome</h3>
+          <h3 style={{ fontSize: 46, color: "var(--ink)" }}>Selamat datang</h3>
         </div>
       </Frame>
     )
@@ -92,13 +92,13 @@ export function CustomerScreen() {
   if (view.stage === "change") {
     const owed = view.changeMinor > 0
     return (
-      <Frame name={name} foot="Thank you for shopping with us">
+      <Frame name={name} foot="Terima kasih sudah berbelanja">
         <div className="empty" style={{ gap: 14 }}>
-          <h3 style={{ fontSize: 40, color: "var(--ink)" }}>Thank you</h3>
+          <h3 style={{ fontSize: 40, color: "var(--ink)" }}>Terima kasih</h3>
           <p style={{ fontSize: 19, maxWidth: 540 }}>
             {owed
-              ? "Please take your change."
-              : "Exact amount, no change."}
+              ? "Silakan ambil kembalian Anda."
+              : "Uang pas, tanpa kembalian."}
           </p>
         </div>
         <div className="totals" style={PANEL}>
@@ -112,7 +112,7 @@ export function CustomerScreen() {
             </div>
           )}
           <div className="grand" style={owed ? undefined : FLUSH}>
-            <span style={LEAD}>{owed ? "CHANGE" : "PAID"}</span>
+            <span style={LEAD}>{owed ? "KEMBALIAN" : "DIBAYAR"}</span>
             <strong
               className="num"
               style={owed ? { ...HUGE, color: "var(--green)" } : HUGE}
@@ -130,7 +130,7 @@ export function CustomerScreen() {
   return (
     <Frame
       name={name}
-      foot={`${view.lines.length} ${view.lines.length === 1 ? "item" : "items"} at the counter`}
+      foot={`${view.lines.length} barang di kasir`}
     >
       {/* Lines stack up from the bottom, so the tag just scanned always lands
           in the same place: immediately above the total, where somebody
@@ -148,7 +148,7 @@ export function CustomerScreen() {
       >
         {earlier > 0 && (
           <p className="muted" style={{ fontSize: 16, marginBottom: 12 }}>
-            + {earlier} earlier items
+            + {earlier} barang sebelumnya
           </p>
         )}
         <div className="pay-items" style={{ gap: 13 }}>
@@ -158,7 +158,7 @@ export function CustomerScreen() {
               its own, so position is all a key has to be here. */}
           {shown.map((one, at) => (
             <div key={at} className="pay-item" style={ROW}>
-              <span>{one.name ?? "Item"}</span>
+              <span>{one.name ?? "Barang"}</span>
               <span className="num">
                 {one.priceMinor === null
                   ? "—"
@@ -179,7 +179,7 @@ export function CustomerScreen() {
         {view.provisional && (
           <div className="total-line">
             <span className="muted" style={{ fontSize: 15 }}>
-              Still being calculated — the figure that counts is the one printed on the receipt.
+              Masih dihitung — angka yang berlaku adalah yang tercetak di struk.
             </span>
           </div>
         )}

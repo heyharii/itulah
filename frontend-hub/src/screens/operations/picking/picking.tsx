@@ -10,7 +10,6 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Dialog } from "@/components/ui/dialog"
-import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
@@ -63,6 +62,7 @@ import { toast } from "@/lib/toast"
 import { useActor } from "@/screens/inventory/shared"
 import { useSeenOnOpen } from "@/lib/operations/acknowledge"
 import { PickLines } from "@/screens/operations/picking/pick-lines"
+import { ScanPick } from "@/screens/operations/picking/scan-pick"
 import {
   DEFAULT_PICK_PAPER,
   PrintPickPapers,
@@ -130,8 +130,6 @@ export function Picking() {
   const source = pool.value ?? pools[0]?.id ?? null
 
   const picks = useArticlePicks(toPick.data)
-  const pieces = picks.reduce((total, pick) => total + pick.pieces, 0)
-
   /// The shops with something still to pick, in the order the node already
   /// sorted them — busiest shop's oldest allotment first.
   const byShop = useMemo(() => {
@@ -154,10 +152,6 @@ export function Picking() {
       ),
     [picklists.data]
   )
-  const pickedToday = rounds.filter((round) =>
-    isToday(round.session.started_at)
-  )
-  const stillToPack = rounds.filter((round) => round.waiting > 0)
 
   // Completed or Closed short: the picklist alone only says what came off the
   // racks, so what the warehouse later wrote off comes from the Close short list.
@@ -226,13 +220,6 @@ export function Picking() {
         sub="A picklist exists as soon as an allotment is here — one per allotment, per shop. Open one and accept it; that is the pick."
       />
 
-      <KpiStrip className="grid-cols-2 md:grid-cols-4 xl:grid-cols-4">
-        <Kpi label="Picklists to pick" value={count(picks.length)} />
-        <Kpi label="Pcs to pick" value={count(pieces)} />
-        <Kpi label="Picked today" value={count(pickedToday.length)} />
-        <Kpi label="To pack" value={count(stillToPack.length)} />
-      </KpiStrip>
-
       {pools.length === 0 && !answer.isPending && (
         <Banner tone="bad" className="mb-5">
           This node owns no warehouse pool, so there is nothing to pick from.
@@ -278,6 +265,7 @@ export function Picking() {
             <EmptyState>Nothing is waiting to be picked right now.</EmptyState>
           ) : (
             <div className="flex flex-col">
+              <ScanPick picks={picks} source={source} canAccept={canAccept} />
               {shopIds.map((shopId) => (
                 <ShopGroup
                   key={shopId}
@@ -540,17 +528,6 @@ function StatusPill({ short, known }: { short: number; known: boolean }) {
     <Pill tone="warn">Closed short</Pill>
   ) : (
     <Pill tone="ok">Completed</Pill>
-  )
-}
-
-function isToday(iso: string | null): boolean {
-  if (iso === null) return false
-  const at = new Date(iso)
-  const now = new Date()
-  return (
-    at.getFullYear() === now.getFullYear() &&
-    at.getMonth() === now.getMonth() &&
-    at.getDate() === now.getDate()
   )
 }
 

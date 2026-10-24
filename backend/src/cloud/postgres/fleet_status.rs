@@ -29,6 +29,14 @@
 //! of the parts that can be judged, grey only when none can. When a store's
 //! server is silent its parts go grey — nobody can say what a till is doing
 //! through a dead line — and the server and sync parts carry the news.
+//!
+//! # A removed store
+//!
+//! A store head office removed (`unit.status = 'CLOSED'`, 0990) keeps its
+//! server connected until somebody disconnects it, so the sales it had not
+//! sent still arrive. Its row still answers its own page; it leaves the
+//! status page and the sync list, writes no history, and raises no incident
+//! for its server, tills or devices — what was open for it is closed.
 
 use super::notifications::{raise_notification, NewNotification};
 use crate::cloud::application::AppError;
@@ -553,6 +561,8 @@ struct NodeRow {
     received_at: Option<DateTime<Utc>>,
     version: Option<String>,
     status: Option<NodeStatus>,
+    /// Its store was removed (`unit.status = 'CLOSED'`, 0990).
+    unit_closed: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -2162,6 +2172,12 @@ pub struct FleetRow {
     /// Minutes east of UTC on the store's clock, for its sentences.
     #[serde(skip)]
     pub offset_minutes: i32,
+    /// Its store was removed (`unit.status = 'CLOSED'`, 0990). Its server may
+    /// still be sending what it had not, so the row still answers the store's
+    /// own page (`fleet_status_of`); it leaves the lists, writes no history
+    /// and raises no incident, and what was open for it is closed.
+    #[serde(skip)]
+    pub removed: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -2177,7 +2193,8 @@ async fn load_nodes(pool: &PgPool) -> Result<Vec<(NodeRow, bool)>, AppError> {
         "SELECT c.origin_id, c.label, s.id AS site_id, s.name AS site_name, s.kind AS site_kind,
                 s.code AS site_code, s.unit_id, u.code AS unit_code, u.name AS unit_name,
                 h.received_at, h.version, h.status,
-                COALESCE(sn.origin_id = c.origin_id, true) AS is_primary
+                COALESCE(sn.origin_id = c.origin_id, true) AS is_primary,
+                COALESCE(u.status = 'CLOSED', false) AS unit_closed
            FROM sync_origin_credential c
            JOIN site s ON s.id = c.site_id
            LEFT JOIN unit u ON u.id = s.unit_id
@@ -2206,6 +2223,7 @@ async fn load_nodes(pool: &PgPool) -> Result<Vec<(NodeRow, bool)>, AppError> {
                 received_at: row.try_get("received_at")?,
                 version: row.try_get("version")?,
                 status,
+                unit_closed: row.try_get("unit_closed")?,
             },
             row.try_get("is_primary")?,
         ));
@@ -2457,6 +2475,7 @@ pub async fn evaluate_fleet(
             parts,
             freshness,
             offset_minutes: offset,
+            removed: node.unit_closed,
         });
     }
     // The gudang first, then the stores by code.
@@ -2512,7 +2531,9 @@ async fn record_parts(
             "detail": part.detail,
         }));
     };
-    for row in &evaluation.rows {
+    // A removed store writes no history: its parts leave the page in a day,
+    // like any part nobody reports.
+    for row in evaluation.rows.iter().filter(|row| !row.removed) {
         for part in &row.parts {
             push(&row.site_id, row.origin_id.as_deref(), part);
         }
@@ -2757,6 +2778,12 @@ async fn run_alerts(
         .map(|(subject, component, since)| ((subject, component), since))
         .collect();
 
+    let removed: HashSet<&str> = evaluation
+        .rows
+        .iter()
+        .filter(|row| row.removed)
+        .map(|row| row.site_id.as_str())
+        .collect();
     let mut wanted: Vec<Wanted> = Vec::new();
     // Every part present now, with its colour: what closes an incident.
     let mut present: HashMap<(String, String), &'static str> = HashMap::new();
@@ -2784,7 +2811,9 @@ async fn run_alerts(
             });
         }
     };
-    for row in &evaluation.rows {
+    // A removed store's parts are not considered, so nothing opens for it and
+    // what is open is closed below as no longer reported.
+    for row in evaluation.rows.iter().filter(|row| !row.removed) {
         let title = row_title(row);
         for part in &row.parts {
             consider(
@@ -2895,6 +2924,9 @@ async fn run_alerts(
             if told.is_some() && !told_to.is_empty() {
                 let recovered = match present.get(&key) {
                     Some(_) => format!("Recovered after {}.", span(now - opened_at)),
+                    None if removed.contains(subject.as_str()) => {
+                        "The store was removed; closed.".to_owned()
+                    }
                     None => "No longer reported; closed.".to_owned(),
                 };
                 let notification = raise_notification(
@@ -3448,6 +3480,7 @@ pub async fn fleet_status_page(pool: &PgPool) -> Result<FleetStatusPage, AppErro
     let stores: Vec<FleetRowView> = evaluation
         .rows
         .iter()
+        .filter(|row| !row.removed)
         .map(|row| row_view(row, &stored, &spans, now, false))
         .collect();
     let head_office = head_office_view(&evaluation, &stored, &spans, false);
@@ -3555,6 +3588,7 @@ pub async fn fleet_sync(pool: &PgPool) -> Result<Value, AppError> {
     let stores: Vec<Value> = evaluation
         .rows
         .iter()
+        .filter(|row| !row.removed)
         .map(|row| {
             let mut value = serde_json::to_value(&row.freshness).unwrap_or_else(|_| json!({}));
             if let Value::Object(map) = &mut value {
@@ -3573,7 +3607,7 @@ pub async fn fleet_sync(pool: &PgPool) -> Result<Value, AppError> {
         evaluation
             .rows
             .iter()
-            .filter(|row| row.freshness.state == state)
+            .filter(|row| !row.removed && row.freshness.state == state)
             .count()
     };
     Ok(json!({

@@ -21,6 +21,8 @@ import { Bk4Return, BK4_BEATS as K4, BK4_LEN } from "./film/back/Bk4Return"
 import { Bk5Locked, BK5_BEATS as K5, BK5_LEN } from "./film/back/Bk5Locked"
 import { BackCut, BACK_LEN } from "./film/back/BackCut"
 import { LayersFilm, LAYERS_LEN } from "./film/layers/LayersFilm"
+import { PosOpen, POS_LEN } from "./film/pos/PosOpen"
+import { PosShots, POS_SHOTS } from "./film/pos/PosShots"
 
 /* The one place the frame rate lives (see timing.ts). 30 while drafting;
    the release renders at 60 and nothing else changes. */
@@ -130,6 +132,8 @@ export const RemotionRoot = () => (
     <Composition id="Guide" component={GuideCut} durationInFrames={at(GUIDE_LEN)} {...HD} />
     <Composition id="OutboundGuide" component={OutboundCut} durationInFrames={at(OUTBOUND_LEN)} {...HD} />
     <Composition id="BatasMundur" component={BackCut} durationInFrames={at(BACK_LEN)} {...HD} />
+    <Composition id="PosOpen" component={PosOpen} durationInFrames={at(POS_LEN)} {...HD} />
+    <Composition id="PosShots" component={PosShots} durationInFrames={POS_SHOTS.length} fps={30} width={2732} height={1536} />
     <Folder name="Layers">
       <Composition id="Layers-C" component={LayersFilm} durationInFrames={at(LAYERS_LEN)} {...HD} defaultProps={{ look: "c" as const }} />
       <Composition id="Layers-A" component={LayersFilm} durationInFrames={at(LAYERS_LEN)} {...HD} defaultProps={{ look: "a" as const }} />

@@ -116,6 +116,24 @@ jobs:
             Write-Host "$name $((Get-Item $source).VersionInfo.FileVersion)"
           }
 
+      # The ZKTeco fingerprint scanner needs its vendor driver (libzkfp.dll,
+      # its capture plug-ins and the libusb0 kernel driver), which only the
+      # vendor's Inno Setup installer puts in place. It is committed beside
+      # the app (ZKFinger Standard SDK 5.3.0.33, from the owner's working
+      # attendance terminal), shipped as a resource, and run from Till devices
+      # -> Fingerprint -> Install driver; fingerprint.rs then loads libzkfp.dll
+      # from System32. Refused here unless it is that exact installer.
+      - name: Verify the ZKFinger driver installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = Join-Path $env:GITHUB_WORKSPACE 'pos-desktop/src-tauri/fingerprint-native/ZKFinger-setup.exe'
+          if (-not (Test-Path $setup)) { throw 'fingerprint-native/ZKFinger-setup.exe is missing.' }
+          $hash = (Get-FileHash -Algorithm SHA256 $setup).Hash.ToLowerInvariant()
+          if ($hash -ne '10a420e2d7a3a7c73b5421638cc7a2a1a7d96d7bed4cc10c3ae9f43f75faf877') {
+            throw "ZKFinger-setup.exe is not the verified ZKFinger SDK 5.3.0.33 installer: $hash"
+          }
+
       - name: Test POS native commands
         run: cargo test --manifest-path pos-desktop/src-tauri/Cargo.toml --lib
 

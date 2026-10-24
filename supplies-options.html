@@ -1,0 +1,870 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Supply Requests options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet" />
+<style>
+/* GA › Supply Requests — tidier list, four options on the List template
+   (design-system/01-pages: head · figures · tabs · bar · framed table), plus
+   the record and the form as sheets (02-sheets). Shell copied from
+   contracts-options.html, measured on the running hub :5350 (17 Oct). */
+:root{
+  --ink:#1d1d1f; --body:#6e6e73; --mute:#6e6e73; --nav:#344054;
+  --soft:#fafafb; --soft-2:#f2f2f5; --soft-3:#f5f5f7; --stone:#e8ebf0;
+  --hairline:#e8e8ec; --hairline-2:#dcdce1; --row-line:#eeeef1; --band:#fafafb;
+  --accent:#2862dc; --accent-bg:#eef3fc;
+  --ok:#36b827; --ok-fg:#248a3d; --warn:#c9892e; --warn-fg:#a66c1f; --bad:#d70015; --bad-fg:#d70015; --info:#2f80ed; --info-fg:#1f63c4;
+  --r-card:10px; --r-inner:8px; --r-sheet:16px;
+  --ring:0 0 0 1px rgb(0 0 0/.05),0 2px 8px rgb(0 0 0/.04);
+  --ease-out:cubic-bezier(.23,1,.32,1); --ease-drawer:cubic-bezier(.32,.72,0,1);
+  --font:"Inter",system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font-family:var(--font);font-size:15px;line-height:20px;color:var(--ink);background:#141518;letter-spacing:-.006em;-webkit-font-smoothing:antialiased;overflow:hidden}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;letter-spacing:inherit}
+.i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.i.s{width:16px;height:16px}
+
+/* prototype chrome */
+.proto{height:50px;overflow-x:auto;background:#141518;color:#fff;display:flex;align-items:center;gap:12px;padding:0 14px 0 18px}
+.proto .t{font-weight:600;white-space:nowrap}
+.seg{display:flex;gap:2px;background:#24262b;border-radius:9px;padding:3px;flex:none}
+.seg button{height:32px;padding:0 11px;border-radius:7px;color:#b9bcc3;white-space:nowrap;transition:background-color .15s ease,color .15s ease,transform .16s ease-out}
+.seg button:active{transform:scale(.97)}
+.seg button b{font-weight:600;color:#fff;margin-right:5px}
+.seg button.on{background:#fff;color:var(--ink)} .seg button.on b{color:var(--ink)}
+.seg .star{color:#f4b740;margin-left:4px}
+.proto .sp{flex:1}
+.note{min-height:36px;background:#1c1e22;color:#a7abb3;line-height:24px;padding:6px 18px;border-top:1px solid #26282d}
+.note b{color:#fff;font-weight:500}
+.stagewrap{height:calc(100vh - 50px - var(--nh,36px));overflow:hidden;display:flex;justify-content:center;background:#141518}
+
+/* hub shell */
+.app{position:relative;overflow:hidden;height:100%;display:grid;grid-template-columns:68px 216px minmax(0,1fr);background:var(--stone);flex:none}
+.rail{display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:6px;color:var(--nav)}
+.rail .ri{width:40px;height:36px;border-radius:9px;display:grid;place-items:center}
+.rail .ri.on{background:#fff;color:var(--accent);box-shadow:var(--ring)}
+.rail .sp{flex:1}
+.av{width:34px;height:34px;border-radius:50%;border:1.5px solid var(--accent);display:grid;place-items:center;color:var(--accent);font-weight:600;background:#fff}
+.panel{background:#fff;margin:12px 0;border-radius:var(--r-sheet);box-shadow:var(--ring);display:flex;flex-direction:column;min-height:0}
+.panel h2{margin:0;height:52px;padding:12px 16px 0;display:flex;align-items:center;justify-content:space-between;font-size:20px;font-weight:600;letter-spacing:-.01em;color:#1d2939}
+.navs{padding:10px 10px;display:flex;flex-direction:column}
+.nv{height:36px;display:flex;align-items:center;padding:0 10px;border-radius:var(--r-inner);color:var(--nav);width:100%;text-align:left}
+.nv.on{background:var(--accent-bg);color:var(--accent);font-weight:600}
+.navs hr{border:0;border-top:1px solid var(--hairline);margin:6px 8px}
+.clock{margin-top:auto;padding:14px 16px;border-top:1px solid var(--hairline);display:flex;gap:10px;align-items:center;color:var(--ink)}
+.main{margin:12px;background:#fff;border-radius:var(--r-sheet);box-shadow:var(--ring);overflow-y:auto;min-width:0;position:relative}
+
+/* head · figures · tabs · bar · table */
+.head{position:sticky;top:0;z-index:4;background:#fff;padding:24px 28px 16px;border-bottom:1px solid var(--hairline);display:flex;align-items:center;justify-content:space-between;min-height:76px}
+.head h1{margin:0;font-size:17px;line-height:24px;font-weight:600}
+.btn{height:36px;display:inline-flex;align-items:center;gap:6px;padding:0 12px 0 10px;border-radius:var(--r-inner);background:var(--accent);color:#fff;font-weight:600;box-shadow:0 1px 2px rgb(20 50 100/.1);transition:transform .16s var(--ease-out),background-color .15s ease}
+.btn:active{transform:scale(.97)}
+@media (hover:hover){.btn:hover{background:#2257c8}}
+.page{padding:24px 28px 64px}
+.figs{display:flex;margin-bottom:32px}
+.fig{padding:0 24px;border-left:1px solid var(--hairline)}
+.fig:first-child{border-left:0;padding-left:0}
+.fig .l{color:var(--body);white-space:nowrap;display:flex;align-items:center;gap:6px;transition:color .15s ease}
+.fig .v{font-size:16px;line-height:24px;font-weight:600;margin-top:4px;font-variant-numeric:tabular-nums;letter-spacing:-.02em;white-space:nowrap}
+.fig .v.warn{color:var(--warn-fg)} .fig .v.bad{color:var(--bad-fg)}
+button.fig{text-align:left;cursor:pointer}
+@media (hover:hover){button.fig:hover .l{color:var(--ink)}}
+button.fig.on .l{color:var(--accent)}
+.mark{display:inline-flex;align-items:center;border-radius:var(--r-inner);background:var(--soft-2);padding:0 6px;font-weight:500;color:var(--body)}
+.tabs{display:flex;gap:20px;box-shadow:inset 0 -1px 0 var(--hairline);margin-bottom:16px;overflow-x:auto;scrollbar-width:none}
+.tab{padding:8px 0 11px;color:var(--body);font-weight:500;white-space:nowrap;border-bottom:2px solid transparent;transition:color .15s ease}
+.tab .c{margin-left:6px;color:var(--mute);font-weight:400;font-variant-numeric:tabular-nums}
+.tab.on{color:var(--ink);border-bottom-color:var(--ink)}
+.bar{display:flex;gap:8px;align-items:center;margin-bottom:12px;position:relative}
+.search{width:280px;height:36px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);display:flex;align-items:center;gap:8px;padding:0 10px;color:var(--mute)}
+.search input{border:0;outline:0;font:inherit;color:var(--ink);flex:1;min-width:0;letter-spacing:inherit}
+.gb{height:36px;display:flex;align-items:center;gap:6px;padding:0 12px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);font-weight:500;white-space:nowrap;transition:background-color .15s ease,transform .16s var(--ease-out)}
+.gb:active{transform:scale(.97)}
+@media (hover:hover){.gb:hover{background:var(--soft-2)}}
+.gb .n{min-width:20px;height:20px;border-radius:10px;background:var(--ink);color:#fff;font-size:15px;line-height:20px;text-align:center;padding:0 6px;font-weight:500}
+.swp{height:36px;display:flex;align-items:center;gap:8px;padding:0 12px 0 10px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);font-weight:500;white-space:nowrap;transition:background-color .15s ease,transform .16s var(--ease-out)}
+.swp:active{transform:scale(.97)}
+@media (hover:hover){.swp:hover{background:var(--soft)}}
+.swp .tk{width:30px;height:18px;border-radius:9px;background:#e3e3e8;position:relative;transition:background-color .2s var(--ease-out)}
+.swp .tk::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgb(0 0 0/.2);transition:transform .2s var(--ease-out)}
+.swp.on .tk{background:var(--accent)} .swp.on .tk::after{transform:translateX(12px)}
+.swp .c{color:var(--mute);font-weight:400;font-variant-numeric:tabular-nums}
+.swp .c.bad{color:var(--bad-fg)}
+
+.pop{position:absolute;top:44px;width:300px;background:#fff;border-radius:12px;box-shadow:0 0 0 1px var(--hairline),0 12px 32px rgb(0 0 0/.12);padding:6px;z-index:6;opacity:0;transform:scale(.97);transform-origin:top left;pointer-events:none;transition:opacity .16s var(--ease-out),transform .16s var(--ease-out);max-height:520px;overflow-y:auto}
+.pop.right{right:0;transform-origin:top right}
+.pop.open{opacity:1;transform:none;pointer-events:auto}
+.pop .ph{padding:10px 10px 4px;color:var(--body);font-weight:500}
+.pop .fr{height:38px;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 10px;border-radius:var(--r-inner);width:100%;text-align:left}
+.pop .fr span{color:var(--mute);font-variant-numeric:tabular-nums}
+.pop .fr.on{color:var(--accent);font-weight:500} .pop .fr.on span{color:var(--accent)}
+@media (hover:hover){.pop button.fr:hover{background:var(--soft)}}
+.pop hr{border:0;border-top:1px solid var(--hairline);margin:6px 4px}
+
+/* DataTable, framed */
+.tbox{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:clip}
+table{border-collapse:collapse;width:100%;table-layout:fixed}
+th{height:40px;background:var(--band);color:var(--body);font-weight:500;text-align:left;padding:0 16px;border-bottom:1px solid var(--hairline);white-space:nowrap;position:sticky;top:76px;z-index:2}
+td{padding:12px 16px;border-top:1px solid var(--row-line);vertical-align:middle;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+tbody tr:first-child td{border-top:0}
+tbody tr.rw{cursor:pointer}
+tbody tr.rw td{transition:background-color .12s ease}
+@media (hover:hover){tbody tr.rw:hover td{background:var(--soft)}
+  tbody tr.rw:hover td:last-child::after{content:"";position:absolute;right:14px;top:50%;width:7px;height:7px;margin-top:-4px;border-right:1.6px solid var(--mute);border-top:1.6px solid var(--mute);transform:rotate(45deg)}}
+tbody tr.rw td:last-child{position:relative;padding-right:30px}
+.r{text-align:right}
+.num{font-variant-numeric:tabular-nums}
+.nm{font-weight:500;display:block;overflow:hidden;text-overflow:ellipsis}
+.q{color:var(--mute);display:block;overflow:hidden;text-overflow:ellipsis}
+.m{color:var(--mute)}
+.late{color:var(--bad-fg)}
+.grp td{height:44px;padding-top:0;padding-bottom:0;background:var(--band);font-weight:500;border-top:1px solid var(--hairline)}
+.grp td .c{color:var(--mute);font-weight:400;margin-left:6px}
+.grp + tr td{border-top:1px solid var(--hairline)}
+tfoot td{height:44px;padding-top:0;padding-bottom:0;background:var(--band);border-top:1px solid var(--hairline)}
+.st{white-space:nowrap}
+.st::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--d,var(--mute));margin:0 7px 2px 0;vertical-align:middle}
+.st.ok{--d:var(--ok);color:var(--ok-fg)} .st.warn{--d:var(--warn);color:var(--warn-fg)} .st.bad{--d:var(--bad);color:var(--bad-fg)} .st.info{--d:var(--info);color:var(--info-fg)} .st.neutral{--d:#aeaeb2}
+.empty{padding:56px 16px;text-align:center;color:var(--body)}
+
+/* Now: today's register — a banner, then a div grid in a sideways scroller */
+.banner{background:#eaf1fc;color:#3a5a92;border-radius:var(--r-card);padding:10px 14px;line-height:22px;margin-bottom:4px}
+.now-box{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden}
+.now-scroll{overflow-x:auto}
+.now-g{display:grid;grid-template-columns:9rem minmax(13rem,1.3fr) minmax(12rem,1fr) 10rem 8rem 8.5rem 8.5rem;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--hairline)}
+.now-g:last-child{border-bottom:0}
+.now-g.h{height:40px;padding:0 14px;background:var(--band);color:var(--body);font-weight:500}
+.now-g.rw{cursor:pointer} @media (hover:hover){.now-g.rw:hover{background:var(--soft)}}
+.now-g > *{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;color:var(--body);letter-spacing:0}
+.now-g .sub{display:block;color:var(--mute);overflow:hidden;text-overflow:ellipsis}
+.pill{display:inline-flex;align-items:center;gap:7px;height:24px;padding:0 9px;border-radius:12px;box-shadow:inset 0 0 0 1px currentColor;font-weight:500;white-space:nowrap}
+.pill::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor}
+.pill.ok{color:var(--ok-fg)} .pill.warn{color:var(--warn-fg)} .pill.bad{color:var(--bad-fg)} .pill.accent{color:var(--accent)} .pill.info{color:#3b7fb8} .pill.neutral{color:var(--body)}
+
+/* ── sheets: glass over the scrim, from the right ─────────────────────── */
+.scrim{position:absolute;inset:0;z-index:20;background:rgb(208 208 213/48%);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);opacity:0;pointer-events:none;transition:opacity 200ms var(--ease-out)}
+.scrim.on{opacity:1;pointer-events:auto;transition-duration:280ms}
+.sheet{position:absolute;z-index:21;top:12px;right:12px;bottom:12px;width:480px;background:#fff;border-radius:var(--r-sheet);box-shadow:0 0 0 1px rgb(0 0 0/5%),0 2px 8px rgb(0 0 0/5%),0 24px 64px rgb(0 0 0/14%);display:flex;flex-direction:column;overflow:hidden;transform:translateX(calc(100% + 24px));transition:transform 200ms var(--ease-out)}
+.sheet.on{transform:none;transition:transform 280ms var(--ease-drawer)}
+.sheet.wide{width:1040px}
+.app.w1280 .sheet.wide{width:960px}
+.sh-head{flex:none;display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:24px 28px 16px;border-bottom:1px solid var(--hairline)}
+.sh-head .tx{min-width:0;display:flex;flex-direction:column;gap:4px}
+.crumb{color:var(--mute)}
+.ttl{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px}
+.crumb .sep{color:#aeaeb2;margin:0 8px}
+.ttl h3{margin:0;font-size:17px;line-height:24px;font-weight:600;letter-spacing:-.3px}
+.cap{color:var(--mute)}
+.x{width:36px;height:36px;margin:-4px -6px 0 0;border-radius:var(--r-inner);display:grid;place-items:center;flex:none;transition:background-color .15s ease}
+@media (hover:hover){.x:hover{background:var(--soft-2)}}
+.sh-body{flex:1;min-height:0;overflow-y:auto;padding:24px 28px;display:flex;flex-direction:column;gap:24px}
+.sh-foot{flex:none;min-height:64px;padding:12px 28px;border-top:1px solid var(--hairline);display:flex;align-items:center;justify-content:flex-end;gap:8px}
+.sh-foot .left{margin-right:auto;color:var(--mute)}
+.sh-body,.sh-foot{transition:opacity 160ms var(--ease-out)}
+.sheet.sw-out .sh-body,.sheet.sw-out .sh-foot{opacity:0;transition-duration:100ms}
+.sheet.sw-in .sh-body,.sheet.sw-in .sh-foot{opacity:0;transition:none}
+.b{height:36px;padding:0 16px;border-radius:var(--r-inner);display:inline-flex;align-items:center;gap:6px;font-weight:500;white-space:nowrap;transition:transform .16s var(--ease-out),background-color .15s ease}
+.b:active{transform:scale(.97)}
+.b.pri{background:var(--accent);color:#fff;font-weight:600;box-shadow:0 1px 2px rgb(20 50 100/.1)}
+.b.red{background:var(--bad);color:#fff;font-weight:600}
+.b.ghost{box-shadow:inset 0 0 0 1px var(--hairline-2)}
+.b.soft{background:var(--accent-bg);color:var(--accent)}
+@media (hover:hover){.b.pri:hover{background:#2257c8}.b.red:hover{background:#c00013}.b.ghost:hover{background:var(--soft-2)}}
+.sh-body .figs{margin:0}
+.sh-body .figs .fig{padding:0 24px}
+.sh-body .figs .fig:first-child{padding-left:0}
+.facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 32px;margin:0}
+.facts dt{color:var(--body);line-height:18px}
+.facts dd{margin:4px 0 0;line-height:22px;overflow-wrap:anywhere}
+.facts .full{grid-column:1/-1}
+.sec-t{display:flex;align-items:center;justify-content:space-between;font-weight:600;width:100%}
+.sec-t .c{color:var(--mute);font-weight:400;display:flex;align-items:center;gap:6px}
+.sec-t .chev{transition:transform .2s var(--ease-out)}
+.sec-t.open .chev{transform:rotate(90deg)}
+.act{list-style:none;margin:10px 0 0;padding:0}
+.act li{display:flex;justify-content:space-between;gap:16px;padding:10px 0;border-top:1px solid var(--row-line)}
+.act li:first-child{border-top:0}
+.act li span:last-child{color:var(--mute);white-space:nowrap}
+/* a section in a sheet: its title in `section` (15/20, 600), the count after it in mute */
+.sec-h{margin:0 0 12px;font-size:15px;line-height:20px;font-weight:600;display:flex;gap:6px}
+.sec-h .c{color:var(--mute);font-weight:400}
+.note-t{margin:0;line-height:22px;overflow-wrap:anywhere}
+/* Timeline (components/ui/timeline.tsx): numbered 25px tiles down a 1.5px line */
+.tl{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.tl li{position:relative;display:flex;align-items:flex-start;gap:10px;padding:6px 0}
+.tl li:not(:last-child)::after{content:"";position:absolute;left:12px;top:31px;bottom:-6px;width:1.5px;background:var(--hairline-2)}
+.tl .node{position:relative;z-index:1;width:25px;height:25px;border-radius:7px;display:grid;place-items:center;font-weight:600;flex:none;font-variant-numeric:tabular-nums}
+.tl .done .node{background:#d9f4d2;color:var(--ok-fg)}
+.tl .current .node{background:var(--info);color:#fff}
+.tl .todo .node{background:var(--soft-2);color:var(--body)}
+.tl .bad .node{background:#fde4e6;color:var(--bad-fg)}
+.tl .tx{flex:1;min-width:0;padding-top:2px}
+.tl .tx b{display:block;font-weight:500}
+.tl .todo .tx b{color:var(--mute)}
+.tl .tx span{display:block;color:var(--mute);overflow-wrap:anywhere}
+.tl .at{padding-top:2px;color:var(--body);font-variant-numeric:tabular-nums;white-space:nowrap}
+/* Activity, folded (components/ui/activity-fold.tsx) */
+.fold{border-top:1px solid var(--hairline);padding-top:14px}
+.fold-t{display:flex;align-items:center;gap:6px;width:100%;text-align:left;font-weight:500;color:var(--body);transition:color .15s ease}
+@media (hover:hover){.fold-t:hover{color:var(--ink)}}
+.fold-t .chev{width:14px;height:14px;color:#8e8e93;transition:transform .15s var(--ease-out)}
+.fold.open .fold-t .chev{transform:rotate(90deg)}
+.fold-t .c{color:var(--mute);font-weight:400;font-variant-numeric:tabular-nums}
+.trail{list-style:none;margin:0;padding:12px 0 0;display:flex;flex-direction:column}
+.trail li{position:relative;display:flex;gap:12px;padding-bottom:14px}
+.trail li:not(:last-child)::after{content:"";position:absolute;left:5px;top:16px;bottom:0;width:1px;background:var(--hairline-2)}
+.trail .dot{position:relative;z-index:1;width:11px;height:11px;margin-top:5px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 2px #fff;flex:none}
+.trail b{font-weight:500}
+.trail .did{color:var(--body)}
+.trail .tm{display:block;color:var(--mute);font-variant-numeric:tabular-nums}
+/* form fields */
+.fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 20px}
+.fl{display:flex;flex-direction:column;gap:8px;min-width:0}
+.fl.full{grid-column:1/-1}
+.fl > label{color:var(--mute);line-height:20px;font-weight:500}
+.req{color:var(--bad);margin-left:2px}
+.in{width:100%;height:44px;padding:0 12px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:#fff;font:inherit;color:var(--ink);letter-spacing:inherit;outline:none;transition:border-color .15s ease,box-shadow .15s ease}
+.in:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgb(40 98 220/.14)}
+.in.bad{border-color:var(--bad)}
+select.in{appearance:none;background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%236e6e73' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E") no-repeat right 12px center;padding-right:34px}
+.joined{display:flex}
+.joined .in:first-child{border-radius:var(--r-inner) 0 0 var(--r-inner);flex:1;min-width:0}
+.joined .in:last-child{border-radius:0 var(--r-inner) var(--r-inner) 0;margin-left:-1px;width:112px;flex:none}
+.joined .in:focus{position:relative;z-index:1}
+.rp{position:relative}
+.rp span{position:absolute;left:12px;top:12px;color:var(--mute)}
+.rp .in{padding-left:38px;text-align:right;font-variant-numeric:tabular-nums}
+.err{color:var(--bad-fg)}
+/* Now: the form's category cards and the sheet's old pieces */
+.osec{display:flex;flex-direction:column;gap:12px}
+.osec .sh{display:flex;align-items:baseline;gap:10px}
+.osec .sh b{font-weight:600}
+.osec .sh span{color:var(--mute)}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.card{height:48px;border:1px solid var(--hairline-2);border-radius:var(--r-card);padding:0 14px;display:flex;align-items:center;justify-content:space-between;text-align:left;transition:border-color .15s ease}
+.card .mono{font-size:15px}
+.card.on{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.otabs{margin:0 -28px;padding:0 28px;flex:none}
+.oline{display:flex;flex-wrap:wrap;gap:6px}
+.accrow{display:flex;gap:12px;padding:8px 0;border-bottom:1px solid var(--hairline)}
+.accrow:last-child{border-bottom:0}
+/* toast, bottom right */
+.toast{position:absolute;z-index:30;right:24px;bottom:24px;background:var(--ink);color:#fff;border-radius:12px;padding:12px 16px;box-shadow:0 8px 24px rgb(0 0 0/.18);display:flex;align-items:center;gap:10px;opacity:0;transform:translateY(8px);pointer-events:none;transition:opacity 200ms var(--ease-out),transform 200ms var(--ease-out)}
+.toast.on{opacity:1;transform:none}
+.toast .i{color:#7ee08a}
+@media (prefers-reduced-motion:reduce){.sheet,.sheet.on{transition:opacity .2s ease;transform:none;opacity:0}.sheet.on{opacity:1}.toast{transform:none}}
+</style>
+</head>
+<body>
+<div class="proto">
+  <div class="t">Supply Requests</div>
+  <div class="seg" id="opts"></div>
+  <div class="sp"></div>
+  <div class="seg" id="detail"></div>
+  <div class="seg" id="data"></div>
+  <div class="seg" id="widths"></div>
+</div>
+<div class="note" id="note"></div>
+<div class="stagewrap" id="stagewrap">
+  <div class="app" id="app">
+    <nav class="rail">
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></div>
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><path d="M6 6h15l-2 8H8zM6 6 5 3H2"/><circle cx="9" cy="20" r="1"/><circle cx="18" cy="20" r="1"/></svg></div>
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><path d="M8 3 3 6l2 4 2-1v12h10V9l2 1 2-4-5-3c-.5 1.5-2 2.5-4 2.5S8.5 4.5 8 3z"/></svg></div>
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="18" r="1.6"/><circle cx="17" cy="18" r="1.6"/></svg></div>
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><path d="M4 10h3l8-5v14l-8-5H4zM18 9a4 4 0 0 1 0 6"/></svg></div>
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><path d="M4 10h16l-1-5H5zM5 10v9h14v-9M9 19v-5h6v5"/></svg></div>
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><path d="M3 21h18M5 21V10M19 21V10M9 21v-7M15 21v-7M2 10l10-6 10 6"/></svg></div>
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5c2 .6 3.2 2.3 3.5 5.5"/></svg></div>
+      <div class="ri on"><svg class="i" viewBox="0 0 24 24"><path d="M4 5h11v8H8l-4 3zM9 13v3h7l4 3V10h-5"/></svg></div>
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><path d="M12 6c-2-1.5-5-2-8-1.5V19c3-.5 6 0 8 1.5 2-1.5 5-2 8-1.5V4.5c-3-.5-6 0-8 1.5zM12 6v14.5"/></svg></div>
+      <div class="sp"></div>
+      <div class="av">A</div>
+    </nav>
+    <aside class="panel">
+      <h2>GA<svg class="i s" style="color:var(--body)" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg></h2>
+      <div class="navs">
+        <button class="nv">Overview</button><hr>
+        <button class="nv on">Supply Requests</button><button class="nv">Repairs</button><button class="nv">Service Schedule</button><hr>
+        <button class="nv">Assets</button><button class="nv">Contracts</button><button class="nv">Sites</button><button class="nv">Suppliers</button><hr>
+        <button class="nv">Letters</button><button class="nv">Files</button>
+      </div>
+      <div class="clock"><svg class="i s" style="color:var(--body)" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>17 Oct 2026 · 16:20</div>
+    </aside>
+    <main class="main" id="main">
+      <div class="head"><h1>Supply Requests</h1><button class="btn" data-new><svg class="i s" viewBox="0 0 24 24" style="stroke-width:2"><path d="M12 5v14M5 12h14"/></svg>Request supplies</button></div>
+      <div class="page" id="page"></div>
+    </main>
+    <div class="scrim" id="scrim" data-close></div>
+    <section class="sheet" id="sheet" role="dialog" aria-modal="true"></section>
+    <div class="toast" id="toast"><svg class="i" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></svg><span></span></div>
+  </div>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s)
+const TODAY = new Date(2026, 9, 17)
+const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+const D = (s) => { const [y,m,d] = s.split("-").map(Number); return new Date(y, m-1, d) }
+const iso = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`
+const day = (s) => { const d = D(s); return `${String(d.getDate()).padStart(2,"0")} ${MON[d.getMonth()]} ${d.getFullYear()}` }
+const addDays = (s, n) => { const d = D(s); d.setDate(d.getDate() + n); return iso(d < TODAY ? d : TODAY) }
+const rp = (n) => n == null ? "—" : "Rp " + n.toLocaleString("id-ID")
+const esc = (s) => String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;")
+
+// the seven GA categories (0368) and the accounts they propose
+const CATS = [["ATK","ATK & barang cetakan","6041"],["RUMAH_TANGGA","Rumah tangga","6042"],["TOKO_KANTOR","Perlengkapan toko & kantor","6052"],["LISTRIK","Peralatan listrik","6054"],["TOOLS","Tools","6057"],["TELEPON","Telephone equipment","6059"],["MESS","Perlengkapan mess","6063"]]
+const CAT = Object.fromEntries(CATS.map(([k, name, acct]) => [k, {name, acct}]))
+const SITES = [["store-01","Store 01"],["store-02","Store 02"],["dc","DC"]]
+const SITE = Object.fromEntries(SITES)
+const PEOPLE = {"store-01":"Maya Anggraini","store-02":"Dedi Kurniawan","dc":"Rina Kusuma"}
+const UNITS = ["pcs","roll","rim","box","pack","set","unit","galon","liter","meter"]
+const GA = "Budi Santoso", PROC = "Andi Pratama", ME = "Budi Santoso"
+
+const R = (id, site, cat, item, qty, unit, at, need, est, st, x = {}) => ({id, site, by: PEOPLE[site], cat, item, qty, unit, at, need, est, st, po: null, billed: 0, ...x})
+// the demo rig's two (GET /api/v1/ga/supply-book, 17 Oct) …
+const DEMO = [
+  R("3637b638-6182","store-01","ATK","Kertas struk thermal 80mm",30,"roll","2026-10-13","2026-10-19",450000,"APPROVED"),
+  // typed "1.000 pcs": the server reads it as 1 (the dot is taken as a decimal point)
+  R("ee68805a-30b6","store-01","TOKO_KANTOR","Kantong belanja kertas ukuran M",1000,"pcs","2026-09-28","2026-10-11",1700000,"RECEIVED",{po:"PO-GA/2026/09/004", nowQty:"1 PCS"}),
+]
+// … and a fuller register: every stage, every category, three overdue
+const MORE = [
+  R("a1c4e2f0-1d2e","dc","ATK","Kertas HVS A4 70 gsm",10,"rim","2026-10-16","2026-10-22",550000,"REQUESTED"),
+  R("b7d21c9e-2e3f","store-02","RUMAH_TANGGA","Sabun cuci tangan refill 5 L",4,"galon","2026-10-15","2026-10-20",340000,"REQUESTED"),
+  R("c93f0a17-3f40","store-02","LISTRIK","Lampu LED 18 W",12,"pcs","2026-10-06","2026-10-15",420000,"ORDERED",{po:"PO-GA/2026/10/011"}),
+  R("d40e88b2-4051","store-01","ATK","Tinta printer Epson 003 hitam",6,"pcs","2026-10-17","2026-10-25",510000,"REQUESTED"),
+  R("e5a7f3c1-5162","dc","TOKO_KANTOR","Lakban bening 2 inch",2,"box","2026-10-08","2026-10-14",288000,"APPROVED"),
+  R("f2b6094d-6273","dc","TOOLS","Obeng set dan tang kombinasi",1,"set","2026-10-14","2026-10-30",375000,"APPROVED"),
+  R("0a8c5e3b-7384","store-01","LISTRIK","Kabel roll 10 m",3,"pcs","2026-10-10","2026-10-24",465000,"ORDERED",{po:"PO-GA/2026/10/012"}),
+  R("1b9d7f42-8495","store-02","TELEPON","Headset telepon kasir",2,"pcs","2026-10-16","2026-10-28",700000,"REQUESTED"),
+  R("2c0e8a53-95a6","dc","MESS","Kasur busa single",2,"pcs","2026-10-15","2026-11-05",1800000,"REQUESTED",{notes:"Untuk 2 picker baru di mess DC"}),
+  R("3d1f9b64-a6b7","store-01","RUMAH_TANGGA","Tisu gulung isi 12",5,"pack","2026-10-09","2026-10-18",325000,"RECEIVED",{po:"PO-GA/2026/10/007"}),
+  R("4e20ac75-b7c8","dc","MESS","Air mineral galon 19 L",20,"galon","2026-10-07","2026-10-16",400000,"ORDERED",{po:"PO-GA/2026/10/009"}),
+  R("5f31bd86-c8d9","dc","ATK","Map plastik L",5,"pack","2026-09-15","2026-09-25",162500,"BILLED",{po:"PO-GA/2026/09/001", billed:162500, supplier:"CV Sumber Makmur", inv:"SM/INV/0918"}),
+  R("6042ce97-d9ea","store-01","RUMAH_TANGGA","Pembersih lantai 4 L",6,"galon","2026-09-18","2026-09-26",510000,"BILLED",{po:"PO-GA/2026/09/002", billed:498000, supplier:"Toko Kurnia Jaya", inv:"KJ-2609-114"}),
+  R("7153dfa8-eafb","store-02","LISTRIK","Stop kontak 4 lubang",4,"pcs","2026-09-22","2026-10-01",236000,"BILLED",{po:"PO-GA/2026/09/003", billed:236000, supplier:"CV Terang Listrik", inv:"TL/IX/2026/057"}),
+  R("8264e0b9-fb0c","store-02","TOKO_KANTOR","Kursi kasir hidrolik",1,"unit","2026-10-02","2026-10-10",850000,"REJECTED",{reason:"Masih ada stok di DC, ambil dari sana"}),
+  R("9375f1ca-0c1d","store-01","TELEPON","Handphone Android untuk toko",1,"unit","2026-10-05","2026-10-20",2400000,"REJECTED",{reason:"Pakai HP toko yang lama sampai Desember"}),
+]
+
+const WORD = {REQUESTED:"Submitted", APPROVED:"Approved", ORDERED:"PO created", RECEIVED:"Received", BILLED:"Billed", REJECTED:"Rejected"}
+const TONE = {REQUESTED:"warn", APPROVED:"neutral", ORDERED:"info", RECEIVED:"neutral", BILLED:"ok", REJECTED:"bad"}
+const OPEN = ["REQUESTED","APPROVED","ORDERED","RECEIVED"]
+// one vocabulary for the figures, the stage filter and D's tabs
+const STAGES = [["approve","To approve",["REQUESTED"]],["proc","With Procurement",["APPROVED","ORDERED"]],["bill","To bill",["RECEIVED"]]]
+const STAGE = Object.fromEntries(STAGES.map(([k, label, sts]) => [k, {label, sts}]))
+const overdue = (r) => r.need && ["REQUESTED","APPROVED","ORDERED"].includes(r.st) && D(r.need) < TODAY
+const qty = (r) => `${r.qty.toLocaleString("id-ID")} ${r.unit}`
+
+const OPTIONS = [
+  {id:"now", label:"Now", note:"<b>Now</b> — today at :5350: a blue banner, three figures, no tabs, search or filter; seven two-line columns in a 76rem box that scrolls sideways at 1440 (Status is cut off); short ids and account codes in mono, site ids. The sheet has four tabs; the form shows seven category cards with their accounts. Found: “1.000 pcs” is saved as 1 pcs."},
+  {id:"A", label:"Flat", star:true, note:"<b>A · Flat</b> — the List template, like Purchase Orders. Figures To approve · With Procurement · To bill · Overdue (a click filters). Tabs Open · Completed · Rejected. Bar: search, Filter (stage, category, location), Overdue, Columns. Six columns, one grey line under the item. Open a row: a 480 record with no tabs, the next step is the one blue button."},
+  {id:"B", label:"By stage", note:"<b>B · By stage</b> — A, with the open rows in bands Submitted → Approved → PO created → Received, each with its count and estimate. The Status column goes."},
+  {id:"C", label:"By place", note:"<b>C · By place</b> — A, one band per place (Store 01, Store 02, DC) with its count and estimate. The Location column goes."},
+  {id:"D", label:"Stage tabs", note:"<b>D · Stage tabs</b> — no figures; the stages are the tabs: To approve · With Procurement · To bill · Completed · Rejected. Status shows only on With Procurement (Approved or PO created)."},
+]
+
+const saved = (() => { try { return JSON.parse(localStorage.getItem("supplies-options") || "{}") } catch { return {} } })()
+const S = Object.assign({opt:"A", data:"full", width:1440, tab:"open", stage:null, cat:null, site:null, q:"", late:false, showPo:false, showBilled:false, pop:null, detail:"A"}, saved)
+S.pop = null
+let ROWS = []
+let popIn = false, swFrom = null
+const save = () => { try { localStorage.setItem("supplies-options", JSON.stringify({opt:S.opt, data:S.data, width:S.width, showPo:S.showPo, showBilled:S.showBilled, detail:S.detail})) } catch {} }
+const srNo = (at, n) => { const d = D(at); return `SR-${String(d.getDate()).padStart(2,"0")}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getFullYear()).slice(2)}-${String(n).padStart(3,"0")}` }
+const reload = () => {
+  ROWS = (S.data === "demo" ? DEMO : [...DEMO, ...MORE]).map(r => ({...r}))
+  ;[...ROWS].sort((a, b) => D(a.at) - D(b.at)).forEach((r, i) => { r.no = srNo(r.at, i + 1) })
+}
+reload()
+if (S.opt === "D" && !["approve","proc","bill","done","rejected"].includes(S.tab)) S.tab = "approve"
+if (S.opt !== "D" && !["open","done","rejected"].includes(S.tab)) S.tab = "open"
+
+const ico = (d, cls = "s") => `<svg class="i ${cls}" viewBox="0 0 24 24">${d}</svg>`
+const I = {
+  search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  filter:'<path d="M4 6h16M7 12h10M10 18h4"/>',
+  cols:'<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M10 4v16M15 4v16"/>',
+  check:'<path d="m5 12 5 5 9-10"/>',
+  x:'<path d="M6 6l12 12M18 6 6 18"/>',
+  chev:'<path d="m9 6 6 6-6 6"/>',
+}
+const sum = (rows, k) => rows.reduce((t, r) => t + (r[k] || 0), 0)
+const fig = (l, v, tone = "") => `<div class="fig"><div class="l">${l}</div><div class="v ${tone}">${v}</div></div>`
+const searchBox = (ph) => `<label class="search">${ico(I.search)}<input id="q" placeholder="${ph}" value="${esc(S.q)}"></label>`
+
+// ── Now ──────────────────────────────────────────────────────────────────────
+const NOW_PILL = {REQUESTED:"warn", APPROVED:"accent", ORDERED:"accent", RECEIVED:"info", BILLED:"ok", REJECTED:"bad"}
+const nowPill = (st) => `<span class="pill ${NOW_PILL[st]}">${WORD[st]}</span>`
+function drawNow(){
+  const of = (...sts) => ROWS.filter(r => sts.includes(r.st)).length
+  const fin = '<span class="mark">Finance</span>'
+  const row = (r) => `<div class="now-g rw" data-row="${r.id}">
+    <div><span class="mono" style="display:block">${r.id.slice(0,8)}</span><span class="sub">${r.need ? `needed by ${day(r.need)}` : "no date"}</span></div>
+    <div><span style="font-weight:500;display:block;overflow:hidden;text-overflow:ellipsis">${esc(r.item)}</span><span class="sub">${r.nowQty ?? `${r.qty} ${r.unit.toUpperCase()}`}</span></div>
+    <div><span style="display:block;overflow:hidden;text-overflow:ellipsis">${CAT[r.cat].name}</span><span class="sub mono">${CAT[r.cat].acct}</span></div>
+    <div><span style="display:block">${r.site}</span><span class="sub">${r.by}</span></div>
+    <span class="mono">${r.po ?? "—"}</span>
+    <span class="r num">${r.billed ? `<span style="color:var(--ok-fg)">${rp(r.billed)}</span>` : '<span class="m">—</span>'}</span>
+    <span>${nowPill(r.st)}</span></div>`
+  return `
+    <div class="banner">Non-merchandise purchase orders aren't connected to a Procurement module yet. The order number is recorded on this request.</div>
+    <div class="figs">${fig("Submitted", of("REQUESTED"))}${fig("With Procurement", of("APPROVED","ORDERED","RECEIVED"))}${fig(`Billed ${fin}`, of("BILLED"))}</div>
+    <div class="now-box"><div class="now-scroll"><div style="min-width:76rem">
+      <div class="now-g h"><span>Request</span><span>Item</span><span>Category · account</span><span>Location</span><span>PO</span><span class="r">Bill ${fin}</span><span>Status</span></div>
+      ${ROWS.map(row).join("")}
+    </div></div></div>`
+}
+
+// ── A–D: one table, four ways of laying its rows ─────────────────────────────
+const openish = () => S.opt === "D" ? !!STAGE[S.tab] : S.tab === "open"
+function scoped(){
+  if (STAGE[S.tab]) return ROWS.filter(r => STAGE[S.tab].sts.includes(r.st))
+  if (S.tab === "open") return ROWS.filter(r => OPEN.includes(r.st))
+  return ROWS.filter(r => r.st === (S.tab === "done" ? "BILLED" : "REJECTED"))
+}
+function visible(){
+  const q = S.q.trim().toLowerCase()
+  return scoped()
+    .filter(r => !S.stage || S.tab !== "open" || STAGE[S.stage].sts.includes(r.st))
+    .filter(r => !S.cat || r.cat === S.cat)
+    .filter(r => !S.site || r.site === S.site)
+    .filter(r => !S.late || !openish() || overdue(r))
+    .filter(r => !q || [r.item, r.by, SITE[r.site], CAT[r.cat].name, r.po, r.reason].join(" ").toLowerCase().includes(q))
+}
+
+function columns(o){
+  const done = S.tab === "done", rej = S.tab === "rejected", wide = S.width === 1440
+  const showStatus = openish() && (o === "A" || o === "C" || (o === "D" && S.tab === "proc"))
+  return [
+    {h:"Item", w:"auto", cell:(r) => `<span class="nm" title="${esc(r.item)}">${esc(r.item)}</span><span class="q">${qty(r)} · ${CAT[r.cat].name}</span>`},
+    o !== "C" && {h:"Location", w: wide ? 112 : 100, cell:(r) => SITE[r.site]},
+    {h:"Requested by", w: wide ? 180 : 148, cell:(r) => r.by},
+    S.showPo && {h:"PO number", w: wide ? 188 : 172, cell:(r) => r.po ?? '<span class="m">—</span>'},
+    rej ? {h:"Reason", w: wide ? 300 : 230, cell:(r) => `<span class="m" title="${esc(r.reason)}">${esc(r.reason)}</span>`}
+        : {h:"Needed by", w: wide ? 132 : 124, cell:(r) => r.need ? `<span class="num ${openish() && overdue(r) ? "late" : ""}">${day(r.need)}</span>` : '<span class="m">No date</span>'},
+    {h: done ? "Billed" : "Estimate", w: wide ? 158 : 150, r:true, money:true, cell:(r) => `<span class="num">${rp(done ? r.billed : r.est)}</span>`, total:(rs) => rp(sum(rs, done ? "billed" : "est"))},
+    S.showBilled && !done && !rej && {h:"Billed", w:132, r:true, cell:(r) => r.billed ? `<span class="num">${rp(r.billed)}</span>` : '<span class="m">—</span>', total:(rs) => rp(sum(rs, "billed"))},
+    showStatus && {h:"Status", w: wide ? 152 : 144, cell:(r) => `<span class="st ${TONE[r.st]}">${WORD[r.st]}</span>`},
+  ].filter(Boolean)
+}
+
+function drawNew(o){
+  const rows = visible()
+  const cols = columns(o)
+  const mi = cols.findIndex(k => k.money)
+  const tr = (r) => `<tr class="rw" data-row="${r.id}">${cols.map(k => `<td class="${k.r ? "r" : ""}">${k.cell(r)}</td>`).join("")}</tr>`
+  const band = (label, rs) => `<tr class="grp"><td colspan="${mi}">${label}<span class="c">${rs.length}</span></td><td class="r num" style="font-weight:400">${cols[mi].total(rs)}</td>${cols.length - mi - 1 ? `<td colspan="${cols.length - mi - 1}"></td>` : ""}</tr>` + rs.map(tr).join("")
+  // the open list reads the soonest need first; a closed list, the latest first
+  const byNeed = (a, b) => (a.need ? D(a.need) : Infinity) - (b.need ? D(b.need) : Infinity) || a.item.localeCompare(b.item)
+  const byLatest = (a, b) => D(b.at) - D(a.at)
+  const sorted = [...rows].sort(openish() ? byNeed : byLatest)
+
+  let body = ""
+  if (o === "B" && S.tab === "open") body = OPEN.map(st => [WORD[st], sorted.filter(r => r.st === st)]).filter(([, rs]) => rs.length).map(([l, rs]) => band(l, rs)).join("")
+  else if (o === "C") body = SITES.map(([s, l]) => [l, sorted.filter(r => r.site === s)]).filter(([, rs]) => rs.length).map(([l, rs]) => band(l, rs)).join("")
+  else body = sorted.map(tr).join("")
+
+  const pool = scoped()
+  const total = pool.length
+  const foot = rows.length ? `<tfoot><tr><td colspan="${mi}"><b style="font-weight:500">${rows.length}</b> <span class="m">${rows.length === 1 ? "request" : "requests"}${rows.length !== total ? ` of ${total}` : ""}</span></td>${cols.slice(mi).map(k => `<td class="r num">${k.total ? k.total(rows) : ""}</td>`).join("")}</tr></tfoot>` : ""
+
+  const n = (k) => ROWS.filter(r => STAGE[k].sts.includes(r.st)).length
+  const late = ROWS.filter(overdue).length
+  const done = ROWS.filter(r => r.st === "BILLED").length, rej = ROWS.filter(r => r.st === "REJECTED").length
+  const figBtn = (k) => `<button class="fig ${S.stage === k && S.tab === "open" ? "on" : ""}" data-fig="${k}" title="Show only these"><div class="l">${STAGE[k].label}</div><div class="v ${k === "approve" && n(k) ? "warn" : ""}">${n(k)}</div></button>`
+  const figs = o === "D" ? "" : `<div class="figs">${STAGES.map(([k]) => figBtn(k)).join("")}<button class="fig ${S.late ? "on" : ""}" data-late title="Show only these"><div class="l">Overdue</div><div class="v ${late ? "bad" : ""}">${late}</div></button></div>`
+  const tab = (k, l, c) => `<button class="tab ${S.tab === k ? "on" : ""}" data-t="${k}">${l}<span class="c">${c}</span></button>`
+  const tabs = o === "D"
+    ? STAGES.map(([k, l]) => tab(k, l, n(k))).join("") + tab("done", "Completed", done) + tab("rejected", "Rejected", rej)
+    : tab("open", "Open", ROWS.filter(r => OPEN.includes(r.st)).length) + tab("done", "Completed", done) + tab("rejected", "Rejected", rej)
+
+  const stageFilter = o !== "D" && o !== "B" && S.tab === "open"
+  const nFilters = (S.cat ? 1 : 0) + (S.site ? 1 : 0) + (stageFilter && S.stage ? 1 : 0)
+  const fopt = (key, val, label, c) => `<button class="fr ${S[key] === val ? "on" : ""}" data-f="${key}" data-v="${val ?? ""}">${label}<span>${c}</span></button>`
+  const fixed = (h) => `<div class="fr" style="color:var(--mute)">${h}${ico(I.check)}</div>`
+
+  return `
+    ${figs}
+    <div class="tabs">${tabs}</div>
+    <div class="bar">${searchBox("Search requests")}
+      <button class="gb" data-pop="filter">${ico(I.filter)}Filter${nFilters ? `<span class="n">${nFilters}</span>` : ""}</button>
+      ${openish() ? `<button class="swp ${S.late ? "on" : ""}" data-late><span class="tk"></span>Overdue<span class="c ${late ? "bad" : ""}">${late}</span></button>` : ""}
+      <div style="flex:1"></div>
+      <button class="gb" data-pop="cols">${ico(I.cols)}Columns</button>
+      <div class="pop ${S.pop === "filter" && !popIn ? "open" : ""}" data-p="filter" style="left:288px">
+        ${stageFilter ? `<div class="ph">Stage</div>${fopt("stage", null, "All", pool.length)}${STAGES.map(([k, l]) => fopt("stage", k, l, pool.filter(r => STAGE[k].sts.includes(r.st)).length)).join("")}<hr>` : ""}
+        <div class="ph">Category</div>${fopt("cat", null, "All", pool.length)}${CATS.map(([k, l]) => fopt("cat", k, l, pool.filter(r => r.cat === k).length)).join("")}
+        ${o === "C" ? "" : `<hr><div class="ph">Location</div>${fopt("site", null, "All", pool.length)}${SITES.map(([k, l]) => fopt("site", k, l, pool.filter(r => r.site === k).length)).join("")}`}
+      </div>
+      <div class="pop right ${S.pop === "cols" && !popIn ? "open" : ""}" data-p="cols">
+        ${fixed("Item")}${o === "C" ? "" : fixed("Location")}${fixed("Requested by")}
+        <button class="fr" data-col="showPo">PO number${S.showPo ? ico(I.check) : ""}</button>
+        ${fixed(S.tab === "rejected" ? "Reason" : "Needed by")}${fixed(S.tab === "done" ? "Billed" : "Estimate")}
+        ${S.tab === "done" || S.tab === "rejected" ? "" : `<button class="fr" data-col="showBilled">Billed${S.showBilled ? ico(I.check) : ""}</button>`}
+      </div>
+    </div>
+    <div class="tbox"><table>
+      <colgroup>${cols.map(k => `<col style="width:${k.w === "auto" ? "" : k.w + "px"}">`).join("")}</colgroup>
+      <thead><tr>${cols.map(k => `<th class="${k.r ? "r" : ""}">${k.h}</th>`).join("")}</tr></thead>
+      <tbody>${body || `<tr><td colspan="${cols.length}" class="empty">${S.q ? "Nothing matches your search." : S.late ? "Nothing is overdue." : S.tab === "rejected" ? "Nothing has been rejected." : S.tab === "done" ? "Nothing is billed yet." : "No request matches these filters."}</td></tr>`}</tbody>
+      ${foot}
+    </table></div>`
+}
+
+// ── sheets ───────────────────────────────────────────────────────────────────
+// kinds: "rec" (A–D record, 480) · "new" (A–D form, 480) · "oldrec" / "oldnew" (Now, wide)
+let SH = {kind:null, id:null, mode:"read", otab:"request", act:false}
+let F = {}
+
+function head(crumb, title, badge, cap){
+  return `<header class="sh-head"><div class="tx">
+    ${crumb ? `<div class="crumb">${crumb}</div>` : ""}
+    <div class="ttl"><h3>${title}</h3>${badge || ""}</div>
+    ${cap ? `<div class="cap">${cap}</div>` : ""}</div>
+    <button class="x" data-close aria-label="Close">${ico(I.x, "")}</button></header>`
+}
+const field = (label, req, inner, err, full) => `<div class="fl ${full ? "full" : ""}"><label>${label}${req ? '<span class="req">*</span>' : ""}</label>${inner}${err ? `<div class="err">${err}</div>` : ""}</div>`
+const inp = (k, attrs = "") => `<input class="in ${F.err?.[k] ? "bad" : ""}" data-k="${k}" value="${esc(F[k])}" ${attrs}>`
+const sel = (k, opts, ph) => `<select class="in ${F.err?.[k] ? "bad" : ""}" data-k="${k}">${ph ? `<option value="">${ph}</option>` : ""}${opts.map(([v, l]) => `<option value="${v}" ${F[k] === v ? "selected" : ""}>${l}</option>`).join("")}</select>`
+
+function activity(r){
+  const out = [[`Requested by ${r.by}`, r.at]]
+  const flow = ["APPROVED","ORDERED","RECEIVED","BILLED"]
+  const says = {APPROVED:`Approved by ${GA}`, ORDERED:`PO ${r.po} entered by ${PROC}`, RECEIVED:`Received at ${SITE[r.site]}`, BILLED:`Bill sent to Finance by ${GA}`}
+  flow.slice(0, flow.indexOf(r.st) + 1).forEach((st, i) => out.push([says[st], r.on?.[st] ?? addDays(r.at, [1,2,5,7][i])]))
+  if (r.st === "REJECTED") out.push([`Rejected by ${GA}`, r.on?.REJECTED ?? addDays(r.at, 1)])
+  return out.reverse()
+}
+
+function recordSheetV1(r){
+  const badge = `<span class="st ${TONE[r.st]}">${WORD[r.st]}</span>`
+  const h = head("Supply Requests", esc(r.item), badge, `Requested by ${r.by} · ${day(r.at)}`)
+  let body = "", foot = ""
+  if (SH.mode === "read"){
+    const money = r.billed ? fig("Billed", rp(r.billed)) : fig("Estimate", rp(r.est))
+    const acts = activity(r)
+    body = `
+      <div class="figs">${fig("Quantity", qty(r))}${fig("Needed by", r.need ? day(r.need) : "No date", overdue(r) ? "bad" : "")}${money}</div>
+      <dl class="facts">
+        ${r.st === "REJECTED" ? `<div class="full"><dt>Reason</dt><dd>${esc(r.reason)}</dd></div>` : ""}
+        <div><dt>Category</dt><dd>${CAT[r.cat].name}</dd></div>
+        <div><dt>Location</dt><dd>${SITE[r.site]}</dd></div>
+        <div><dt>PO number</dt><dd>${r.po ?? "—"}</dd></div>
+        <div><dt>Account</dt><dd>${CAT[r.cat].acct}</dd></div>
+        ${r.notes ? `<div class="full"><dt>Notes</dt><dd>${esc(r.notes)}</dd></div>` : ""}
+      </dl>
+      <div><button class="sec-t ${SH.act ? "open" : ""}" data-act>Activity<span class="c">${acts.length}${ico(I.chev, "s chev")}</span></button>
+        ${SH.act ? `<ul class="act">${acts.map(([t, d]) => `<li><span>${esc(t)}</span><span>${day(d)}</span></li>`).join("")}</ul>` : ""}</div>`
+    const next = {REQUESTED:`<button class="b red" data-go="reject">Reject</button><button class="b pri" data-do="APPROVED">Approve</button>`,
+      APPROVED:`<button class="b pri" data-go="po">Add PO number</button>`,
+      ORDERED:`<button class="b pri" data-do="RECEIVED">Mark received</button>`,
+      RECEIVED:`<button class="b pri" data-go="bill">Send bill to Finance</button>`}[r.st]
+    foot = next ?? `<button class="b ghost" data-close>Close</button>`
+  }
+  if (SH.mode === "po"){
+    body = `<div class="fields">${field("PO number", true, inp("po", 'placeholder="PO-GA/2026/10/…" autofocus'), F.err?.po, true)}</div>`
+    foot = `<button class="b red" data-go="read">Cancel</button><button class="b pri" data-save="po">Save</button>`
+  }
+  if (SH.mode === "bill"){
+    body = `<div class="fields">
+      ${field("Supplier", true, inp("supplier", "autofocus"), F.err?.supplier, true)}
+      ${field("Invoice number", false, inp("inv"))}
+      ${field("Amount", true, `<div class="rp"><span>Rp</span>${inp("amt", 'inputmode="numeric"')}</div>`, F.err?.amt)}
+    </div>`
+    foot = `<button class="b red" data-go="read">Cancel</button><button class="b pri" data-save="bill">Send to Finance</button>`
+  }
+  if (SH.mode === "reject"){
+    body = `<div class="fields">${field("Reason", true, inp("reason", "autofocus"), F.err?.reason, true)}</div>`
+    foot = `<button class="b pri" data-go="read">Cancel</button><button class="b red" data-save="reject">Reject request</button>`
+  }
+  return h + `<div class="sh-body">${body}</div><footer class="sh-foot">${foot}</footer>`
+}
+
+// ── the record, tidied (Detail A · Steps first, B · Steps last) ─────────────
+const FLOW = ["REQUESTED","APPROVED","ORDERED","RECEIVED","BILLED"]
+const when = (r, st, i) => r.on?.[st] ?? (i === 0 ? r.at : addDays(r.at, [0,1,2,5,7][i]))
+const section = (t, c, inner) => `<section><h4 class="sec-h">${t}${c != null && c !== "" ? `<span class="c">${c}</span>` : ""}</h4>${inner}</section>`
+
+// where the request is and who has it now: done steps say who and when, the
+// next one says whose turn it is, the rest wait in grey
+function timeline(r){
+  const at = FLOW.indexOf(r.st)
+  const who = {REQUESTED:r.by, APPROVED:GA, ORDERED:`${r.po} · ${PROC}`, RECEIVED:r.by, BILLED:GA}
+  const turn = {APPROVED:"Waiting for GA", ORDERED:"Waiting for Procurement", RECEIVED:`Waiting for ${SITE[r.site]}`, BILLED:"Waiting for GA"}
+  const items = r.st === "REJECTED"
+    ? [{t:WORD.REQUESTED, d:r.by, at:when(r, "REQUESTED", 0), s:"done", n:1}, {t:WORD.REJECTED, d:GA, at:when(r, "REJECTED", 1), s:"bad", n:ico(I.x, "s")}]
+    : FLOW.map((st, i) => i <= at ? {t:WORD[st], d:who[st], at:when(r, st, i), s:"done", n:i + 1}
+        : i === at + 1 ? {t:WORD[st], d:turn[st], s:"current", n:i + 1} : {t:WORD[st], s:"todo", n:i + 1})
+  return `<ol class="tl">${items.map(x => `<li class="${x.s}"><span class="node">${x.n}</span><span class="tx"><b>${x.t}</b>${x.d ? `<span>${esc(x.d)}</span>` : ""}</span>${x.at ? `<span class="at">${day(x.at)}</span>` : ""}</li>`).join("")}</ol>`
+}
+function trail(r){
+  const at = FLOW.indexOf(r.st)
+  const TM = ["09:12","10:40","14:05","11:20","16:02"]
+  const did = {REQUESTED:[r.by, "requested this"], APPROVED:[GA, "approved this request"], ORDERED:[PROC, `entered PO ${r.po}`], RECEIVED:[r.by, "marked it received"], BILLED:[GA, "sent the bill to Finance"]}
+  const out = (at < 0 ? ["REQUESTED"] : FLOW.slice(0, at + 1)).map((st, i) => [...did[st], when(r, st, i), TM[i]])
+  if (r.st === "REJECTED") out.push([GA, "rejected this request", when(r, "REJECTED", 1), TM[1]])
+  return out.reverse()
+}
+function activityFold(r){
+  const t = trail(r)
+  return `<div class="fold ${SH.act ? "open" : ""}"><button class="fold-t" data-act>${ico(I.chev, "s chev")}Activity<span class="c">(${t.length})</span></button>
+    ${SH.act ? `<ol class="trail">${t.map(([who, did, d, tm]) => `<li><span class="dot"></span><div><b>${who}</b> <span class="did">${esc(did)}</span><span class="tm">${day(d)}, ${tm}</span></div></li>`).join("")}</ol>` : ""}</div>`
+}
+function recordSheet(r){
+  if (S.detail === "v1") return recordSheetV1(r)
+  const badge = `<span class="st ${TONE[r.st]}">${WORD[r.st]}</span>`
+  const h = head(`Supply Requests<span class="sep">/</span>${r.no}`, esc(r.item), badge, `Requested by ${r.by} · ${day(r.at)}`)
+  const figs = `<div class="figs">${fig("Quantity", qty(r))}${fig("Needed by", r.need ? day(r.need) : "—", overdue(r) ? "bad" : "")}${r.billed ? fig("Billed", rp(r.billed)) : fig("Estimate", rp(r.est))}</div>`
+  let body = "", foot = ""
+  if (SH.mode === "read"){
+    const facts = [["Category", CAT[r.cat].name], ["Location", SITE[r.site]],
+      r.st === "BILLED" && ["Supplier", r.supplier ?? "—"], r.st === "BILLED" && ["Invoice number", r.inv ?? "—"]].filter(Boolean)
+    const reason = r.st === "REJECTED" ? section("Reason", "", `<p class="note-t">${esc(r.reason)}</p>`) : ""
+    const steps = section("Steps", "", timeline(r))
+    const details = section("Details", "", `<dl class="facts">${facts.map(([t, v]) => `<div><dt>${t}</dt><dd>${esc(v)}</dd></div>`).join("")}</dl>`)
+    const notes = r.notes ? section("Notes", "", `<p class="note-t">${esc(r.notes)}</p>`) : ""
+    body = (S.detail === "B" ? [figs, reason, details, notes, steps] : [figs, reason, steps, details, notes]).join("") + activityFold(r)
+    const next = {REQUESTED:`<button class="b red" data-go="reject">Reject</button><button class="b pri" data-do="APPROVED">Approve</button>`,
+      APPROVED:`<button class="b pri" data-go="po">Add PO number</button>`,
+      ORDERED:`<button class="b pri" data-do="RECEIVED">Mark received</button>`,
+      RECEIVED:`<button class="b pri" data-go="bill">Send bill to Finance</button>`}[r.st]
+    foot = next ?? `<button class="b ghost" data-close>Close</button>`
+  }
+  // a step that asks something swaps in its fields under the same figures
+  if (SH.mode === "po"){
+    body = figs + section("Purchase order", "", `<div class="fields">${field("PO number", true, inp("po", "autofocus"), F.err?.po, true)}</div>`)
+    foot = `<button class="b red" data-go="read">Cancel</button><button class="b pri" data-save="po">Save</button>`
+  }
+  if (SH.mode === "bill"){
+    body = figs + section("Bill", "", `<div class="fields">
+      ${field("Supplier", true, inp("supplier", "autofocus"), F.err?.supplier, true)}
+      ${field("Invoice number", false, inp("inv"))}
+      ${field("Amount", true, `<div class="rp"><span>Rp</span>${inp("amt", 'inputmode="numeric"')}</div>`, F.err?.amt)}
+    </div>`)
+    foot = `<button class="b red" data-go="read">Cancel</button><button class="b pri" data-save="bill">Send to Finance</button>`
+  }
+  if (SH.mode === "reject"){
+    body = figs + section("Reject", "", `<div class="fields">${field("Reason", true, inp("reason", "autofocus"), F.err?.reason, true)}</div>`)
+    foot = `<button class="b pri" data-go="read">Cancel</button><button class="b red" data-save="reject">Reject request</button>`
+  }
+  return h + `<div class="sh-body">${body}</div><footer class="sh-foot">${foot}</footer>`
+}
+
+function newSheet(){
+  const e = F.err || {}
+  const body = `<div class="fields">
+    ${field("Item", true, inp("item", "autofocus"), e.item, true)}
+    ${field("Quantity", true, `<div class="joined">${inp("qty", 'inputmode="decimal" placeholder="0"')}${sel("unit", UNITS.map(u => [u, u]))}</div>`, e.qty)}
+    ${field("Needed by", false, inp("need", 'type="date"'))}
+    ${field("Category", true, sel("cat", CATS.map(([k, l]) => [k, l]), "Choose…"), e.cat)}
+    ${field("Location", true, sel("site", SITES, "Choose…"), e.site)}
+    ${field("Estimate", false, `<div class="rp"><span>Rp</span>${inp("est", 'inputmode="numeric"')}</div>`)}
+    ${field("Requested by", true, inp("by"), e.by)}
+    ${field("Notes", false, inp("notes"), null, true)}
+  </div>`
+  return head("Supply Requests", "New supply request") + `<div class="sh-body">${body}</div><footer class="sh-foot"><button class="b red" data-close>Cancel</button><button class="b pri" data-save="new">Request supplies</button></footer>`
+}
+
+// Now: the sheet with four tabs, and the form with seven cards
+function oldRecordSheet(r){
+  const t = SH.otab
+  const at = ["REQUESTED","APPROVED","ORDERED","RECEIVED","BILLED"].indexOf(r.st)
+  const next = at >= 0 && at < 4 ? ["REQUESTED","APPROVED","ORDERED","RECEIVED","BILLED"][at + 1] : null
+  const fin = '<span class="mark">Finance</span>'
+  const tabs = [["request","Request"],["stage","Stage"],["billing","Bill (Finance)"],["accounts","Accounts"]]
+  let body = ""
+  if (t === "request") body = `<dl class="facts">
+    <div><dt>Item</dt><dd>${esc(r.item)}</dd></div><div><dt>Quantity</dt><dd>${r.nowQty ?? `${r.qty} ${r.unit.toUpperCase()}`}</dd></div>
+    <div><dt>Category</dt><dd>${CAT[r.cat].name}</dd></div><div><dt>Location</dt><dd>${r.site}</dd></div>
+    <div><dt>Requested by</dt><dd>${r.by}</dd></div><div><dt>Needed by</dt><dd>${r.need ? day(r.need) : "—"}</dd></div>
+    <div><dt>Estimate</dt><dd>${rp(r.est)}</dd></div><div><dt>PO (Procurement)</dt><dd class="mono">${r.po ?? "—"}</dd></div></dl>`
+  if (t === "stage") body = `<div class="oline">${["REQUESTED","APPROVED","ORDERED","RECEIVED","BILLED"].map((st, i) => `<span class="pill ${r.st === "REJECTED" ? "neutral" : i < at ? "ok" : i === at ? "accent" : "neutral"}">${WORD[st]}</span>`).join("")}${r.st === "REJECTED" ? nowPill("REJECTED") : ""}</div>
+    ${r.st === "BILLED" ? '<p class="m" style="margin:0">Billed — the end of the flow. The bill belongs to Finance.</p>' : ""}
+    ${r.st === "REJECTED" ? `<div class="banner" style="background:#fdecee;color:var(--bad-fg)">${esc(r.reason)}</div><p class="m" style="margin:0">Rejected. A rejected request stops here and cannot continue.</p>` : ""}
+    ${next ? `<div style="display:flex;gap:8px"><button class="b soft" data-onext="${next}">${ico(I.check)}Next: ${WORD[next]}</button>${r.st === "REQUESTED" ? `<button class="b">${ico(I.x)}Reject</button>` : ""}</div>` : ""}`
+  if (t === "billing") body = `<div><div style="color:var(--body);font-weight:500">Bill ${fin}</div><div style="font-size:18px;font-weight:600;margin-top:6px">${r.billed ? rp(r.billed) : "—"}</div></div>
+    <p class="m" style="margin:0">Counted from bills Finance has posted against this request. A bill sent from here shows once Finance posts it.</p>
+    ${["RECEIVED","BILLED"].includes(r.st) ? '<div><button class="b soft">Send bill to Finance</button></div>' : ""}`
+  if (t === "accounts") body = `<div><div class="accrow"><span style="width:240px;color:var(--body)">Expense (${CAT[r.cat].name})</span><span class="mono">${CAT[r.cat].acct}</span></div><div class="accrow"><span style="width:240px;color:var(--body)">Payable</span><span class="mono">2004</span></div></div>
+    <p class="m" style="margin:0">${fin} The accounts are proposed from the request category. Finance can still change them on the bill line.</p>`
+  return head(null, `${esc(r.item)} <span class="mono" style="font-weight:400;margin-left:6px">${r.id.slice(0,8)}</span>`, nowPill(r.st), `${CAT[r.cat].name} · ${r.site}`) +
+    `<div class="tabs otabs" style="margin:0">${tabs.map(([k, l]) => `<button class="tab ${t === k ? "on" : ""}" data-otab="${k}">${l}</button>`).join("")}</div>
+     <div class="sh-body">${body}</div>`
+}
+function oldNewSheet(){
+  const c = F.ocat ?? "ATK"
+  const sec = (t, aside, inner) => `<div class="osec"><div class="sh"><b>${t}</b>${aside ? `<span>${aside}</span>` : ""}</div>${inner}</div>`
+  const body = `
+    ${sec("Category", "each card shows its proposed account", `<div class="cards">${CATS.map(([k, l, a]) => `<button class="card ${c === k ? "on" : ""}" data-ocat="${k}"><span>${l}</span><span class="mono">${a}</span></button>`).join("")}</div>`)}
+    ${sec("Item", "", `${field("Item", true, '<input class="in">', null, true)}<div class="fields">${field("Quantity <span class='m' style='font-weight:400'>free text, e.g. 10 pcs, 2 reams, 5 boxes</span>", false, '<input class="in"><span class="m">Recognised units: Pcs, Roll, Rim, Box, Pack, Set, Unit, Galon, Liter, Meter</span>')}${field("Needed by", false, '<input class="in" type="date">')}</div>`)}
+    ${sec("Location and requester", "", `<div class="fields">${field("Location", true, `<select class="in"><option>Select…</option>${SITES.map(([k]) => `<option>${k}</option>`).join("")}</select>`)}${field("Requested by", true, '<input class="in">')}</div>`)}
+    ${sec("Estimate and notes", "", `${field("Estimated cost <span class='m' style='font-weight:400'>GA's own estimate; the actual bill follows in Finance</span>", false, '<div class="rp"><span>Rp</span><input class="in"></div>', null, true)}${field("Notes", false, '<input class="in">', null, true)}`)}
+    <p class="m" style="margin:0">Customer supplies and shopping bags don't go through here: they belong to Commercial and Inventory respectively.</p>`
+  return head(null, "Request supplies", "", "Consumables for the office, warehouse, stores and mess. The proposed account follows the category; the bill is raised in Finance.") +
+    `<div class="sh-body">${body}</div><footer class="sh-foot"><span class="left">${CAT[c].name}</span><button class="b" data-close>Cancel</button><button class="b pri" data-close>Submit</button></footer>`
+}
+
+function renderSheet(){
+  const el = $("#sheet")
+  el.classList.toggle("wide", SH.kind === "oldrec" || SH.kind === "oldnew")
+  const r = ROWS.find(x => x.id === SH.id)
+  el.innerHTML = SH.kind === "rec" ? recordSheet(r) : SH.kind === "new" ? newSheet() : SH.kind === "oldrec" ? oldRecordSheet(r) : SH.kind === "oldnew" ? oldNewSheet() : ""
+  el.querySelector("[autofocus]")?.focus({preventScroll:true})
+}
+function openSheet(kind, id){
+  SH = {kind, id, mode:"read", otab:"request", act:false}
+  if (kind === "new") F = {unit:"pcs", by:ME}
+  if (kind === "oldnew") F = {}
+  renderSheet()
+  requestAnimationFrame(() => requestAnimationFrame(() => { $("#sheet").classList.add("on"); $("#scrim").classList.add("on") }))
+}
+function closeSheet(){
+  if (!SH.kind) return
+  $("#sheet").classList.remove("on"); $("#scrim").classList.remove("on")
+  SH.kind = null
+}
+// the mode move: the frame stays, the contents go out over 100ms and back over 160ms
+function swap(fn){
+  const el = $("#sheet")
+  el.classList.add("sw-out")
+  setTimeout(() => {
+    fn(); renderSheet(); draw()
+    el.classList.remove("sw-out"); el.classList.add("sw-in"); el.offsetWidth
+    el.classList.remove("sw-in")
+  }, 100)
+}
+let toastT
+function toast(text){
+  const t = $("#toast"); t.querySelector("span").textContent = text
+  t.classList.add("on"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("on"), 2400)
+}
+const digits = (s) => Number(String(s ?? "").replace(/\D/g, "")) || 0
+// typed the Indonesian way: "1.000" is a thousand, "2,5" two and a half
+const parseQty = (s) => Number(String(s ?? "").trim().replace(/\./g, "").replace(",", "."))
+
+function move(r, st, extra = {}){
+  Object.assign(r, extra, {st, on:{...(r.on || {}), [st]: iso(TODAY)}})
+}
+function saveSheet(kind){
+  const r = ROWS.find(x => x.id === SH.id)
+  const err = {}
+  if (kind === "po"){ if (!(F.po || "").trim()) err.po = "Enter the PO number."; else { swap(() => { move(r, "ORDERED", {po:F.po.trim()}); SH.mode = "read"; F = {} }); toast("PO number saved"); draw(); return } }
+  if (kind === "bill"){
+    if (!(F.supplier || "").trim()) err.supplier = "Enter the supplier."
+    if (!digits(F.amt)) err.amt = "Enter the amount."
+    if (!err.supplier && !err.amt){ const amt = digits(F.amt); swap(() => { move(r, "BILLED", {billed:amt, supplier:F.supplier.trim(), inv:(F.inv || "").trim() || null}); SH.mode = "read"; F = {} }); toast("Bill sent to Finance"); draw(); return }
+  }
+  if (kind === "reject"){ if (!(F.reason || "").trim()) err.reason = "Write the reason first."; else { const reason = F.reason.trim(); swap(() => { move(r, "REJECTED", {reason}); SH.mode = "read"; F = {} }); toast("Request rejected"); draw(); return } }
+  if (kind === "new"){
+    const q = parseQty(F.qty)
+    if (!(F.item || "").trim()) err.item = "Enter the item first."
+    if (!(q > 0)) err.qty = "Enter how many."
+    if (!F.cat) err.cat = "Choose a category."
+    if (!F.site) err.site = "Choose a location."
+    if (!(F.by || "").trim()) err.by = "Enter who asks for it."
+    if (!Object.keys(err).length){
+      const id = Math.random().toString(16).slice(2, 10) + "-new"
+      const row = R(id, F.site, F.cat, F.item.trim(), q, F.unit, iso(TODAY), F.need || null, digits(F.est) || null, "REQUESTED", {notes:(F.notes || "").trim() || null})
+      row.by = F.by.trim(); row.no = srNo(iso(TODAY), ROWS.length + 1)
+      ROWS.unshift(row)
+      S.tab = S.opt === "D" ? "approve" : "open"; S.stage = null; S.cat = null; S.site = null; S.late = false; S.q = ""
+      swap(() => { SH = {kind:"rec", id, mode:"read", act:false}; F = {} })
+      toast("Request sent"); draw(); return
+    }
+  }
+  F.err = err; renderSheet()
+}
+
+// ── frame ────────────────────────────────────────────────────────────────────
+function draw(){
+  const o = OPTIONS.find(x => x.id === S.opt) || OPTIONS[1]
+  $("#opts").innerHTML = OPTIONS.map(x => `<button data-o="${x.id}" class="${x.id === o.id ? "on" : ""}">${x.id === "now" ? "" : `<b>${x.id}</b>`}${x.label}${x.star ? '<span class="star">★</span>' : ""}</button>`).join("")
+  $("#data").innerHTML = [["demo", `Demo rig ${DEMO.length}`], ["full", `Full ${DEMO.length + MORE.length}`]].map(([k, l]) => `<button data-d="${k}" class="${k === S.data ? "on" : ""}">${l}</button>`).join("")
+  $("#detail").innerHTML = [["v1", "Before"], ["A", "<b>A</b>Steps first<span class=\"star\">★</span>"], ["B", "<b>B</b>Steps last"]].map(([k, l]) => `<button data-dt="${k}" class="${k === S.detail ? "on" : ""}">${l}</button>`).join("")
+  $("#detail").style.display = o.id === "now" ? "none" : ""
+  $("#widths").innerHTML = [1440, 1280].map(w => `<button data-w="${w}" class="${w === S.width ? "on" : ""}">${w}</button>`).join("")
+  $("#note").innerHTML = o.note
+  const focused = document.activeElement?.id === "q", caret = focused ? document.activeElement.selectionStart : 0
+  $("#page").innerHTML = o.id === "now" ? drawNow() : drawNew(o.id)
+  if (focused){ const q = $("#q"); q.focus(); q.setSelectionRange(caret, caret) }
+  if (swFrom !== null){ const el = document.querySelector(".swp"); if (el && swFrom !== S.late){ el.classList.toggle("on", swFrom); el.offsetWidth; el.classList.toggle("on", S.late) } swFrom = null }
+  if (popIn){ popIn = false; const el = document.querySelector(`[data-p="${S.pop}"]`); requestAnimationFrame(() => requestAnimationFrame(() => el?.classList.add("open"))) }
+  fit()
+}
+function fit(){
+  const app = $("#app"), wrap = $("#stagewrap")
+  document.documentElement.style.setProperty("--nh", $("#note").offsetHeight + "px")
+  app.style.width = S.width + "px"
+  app.classList.toggle("w1280", S.width === 1280)
+  const z = Math.min(1, wrap.clientWidth / S.width)
+  app.style.zoom = z
+  app.style.height = (wrap.clientHeight / z) + "px"
+}
+
+document.addEventListener("input", (e) => {
+  if (e.target.id === "q"){ S.q = e.target.value; draw(); return }
+  const k = e.target.dataset?.k
+  if (!k) return
+  if (k === "est" || k === "amt"){ const n = digits(e.target.value); e.target.value = n ? n.toLocaleString("id-ID") : "" }
+  F[k] = e.target.value
+  if (F.err?.[k]){ delete F.err[k]; e.target.classList.remove("bad"); e.target.closest(".fl")?.querySelector(".err")?.remove() }
+})
+document.addEventListener("change", (e) => { const k = e.target.dataset?.k; if (k && e.target.tagName === "SELECT"){ F[k] = e.target.value; if (F.err?.[k]){ delete F.err[k]; e.target.classList.remove("bad"); e.target.closest(".fl")?.querySelector(".err")?.remove() } } })
+document.addEventListener("click", (e) => {
+  // the sheet first: it sits over everything
+  const inSheet = e.target.closest("#sheet")
+  if (e.target.closest("[data-close]")){ closeSheet(); return }
+  if (inSheet){
+    const t = e.target.closest("[data-go],[data-do],[data-save],[data-act],[data-otab],[data-onext],[data-ocat]")
+    if (!t) return
+    const r = ROWS.find(x => x.id === SH.id)
+    if (t.dataset.go){ const m = t.dataset.go; swap(() => { SH.mode = m; F = m === "bill" ? {amt: r.est ? r.est.toLocaleString("id-ID") : ""} : {} }) }
+    if (t.dataset.do){ const st = t.dataset.do; swap(() => move(r, st)); toast(st === "APPROVED" ? "Request approved" : "Marked received"); draw() }
+    if (t.dataset.save) saveSheet(t.dataset.save)
+    if (t.hasAttribute("data-act")){ SH.act = !SH.act; renderSheet() }
+    if (t.dataset.otab){ SH.otab = t.dataset.otab; renderSheet() }
+    if (t.dataset.onext){ move(r, t.dataset.onext); renderSheet(); draw() }
+    if (t.dataset.ocat){ F.ocat = t.dataset.ocat; renderSheet() }
+    return
+  }
+  if (e.target.closest("[data-new]")){ openSheet(S.opt === "now" ? "oldnew" : "new"); return }
+  const row = e.target.closest("[data-row]")
+  if (row){ openSheet(S.opt === "now" ? "oldrec" : "rec", row.dataset.row); return }
+  const p = e.target.closest("[data-pop]")
+  if (p){ S.pop = S.pop === p.dataset.pop ? null : p.dataset.pop; popIn = !!S.pop; draw(); return }
+  const t = e.target.closest("[data-o],[data-w],[data-d],[data-t],[data-f],[data-col],[data-fig],[data-late],[data-dt]")
+  if (!t){ if (S.pop && !e.target.closest(".pop")){ S.pop = null; draw() } return }
+  if (t.dataset.o){ S.opt = t.dataset.o; S.stage = null; S.cat = null; S.site = null; S.late = false; S.pop = null; S.tab = S.opt === "D" ? "approve" : "open" }
+  if (t.dataset.w) S.width = +t.dataset.w
+  if (t.dataset.dt){ S.detail = t.dataset.dt; if (SH.kind === "rec") swap(() => { SH.mode = "read"; F = {} }) }
+  if (t.dataset.d){ S.data = t.dataset.d; reload(); S.stage = null; S.cat = null; S.site = null; S.late = false }
+  if (t.dataset.t){ S.tab = t.dataset.t; S.stage = null }
+  if (t.dataset.f) S[t.dataset.f] = t.dataset.v || null
+  if (t.dataset.col) S[t.dataset.col] = !S[t.dataset.col]
+  // a figure and its filter are one: the figure turns it on, a second click takes it off
+  if (t.dataset.fig){ S.stage = S.stage === t.dataset.fig && S.tab === "open" ? null : t.dataset.fig; S.tab = "open"; S.late = false }
+  if (t.hasAttribute("data-late")){ swFrom = S.late; S.late = t.classList.contains("fig") ? !S.late : !S.late; if (!openish()) S.tab = S.opt === "D" ? "proc" : "open"; if (S.late) S.stage = null }
+  save(); draw()
+})
+addEventListener("keydown", (e) => {
+  // Enter in a sheet field sends what its foot's blue button sends
+  if (e.key === "Enter" && e.target.closest?.("#sheet") && e.target.tagName === "INPUT"){ const b = $("#sheet [data-save]:last-child"); if (b){ e.preventDefault(); saveSheet(b.dataset.save) } return }
+  if (e.key !== "Escape") return
+  if (SH.kind && SH.kind === "rec" && SH.mode !== "read"){ swap(() => { SH.mode = "read"; F = {} }); return }
+  if (SH.kind){ closeSheet(); return }
+  if (S.pop){ S.pop = null; draw() }
+})
+addEventListener("resize", fit)
+document.fonts?.ready.then(draw)
+draw()
+</script>
+</body>
+</html>

@@ -10,6 +10,7 @@ import type {
   StoreInboundCountRequest,
   StoreInboundDetail,
   StoreInboundList,
+  StoreInboundScan,
   StoreOffers,
 } from "@itulah/contract"
 
@@ -364,8 +365,9 @@ export const movementsQuery = (limit: number) =>
 // Mostly read: the list still polls on its own, because a count made from a
 // handheld sweeping the stockroom (or another till in this shop) should show
 // up here without anybody pressing anything. `receiveInboundByCount` below is
-// this file's one write against a delivery — a blind count per SKU, with no
-// reader required (owner, 29 Sep 2026).
+// this file's one write against a delivery — a count per SKU, prefilled with
+// what was packed, with no reader required (owner, 29 Sep 2026; no longer
+// blind, 23 Oct 2026).
 
 /// Its own `inbound` namespace rather than under `inventory`: every move and
 /// sale invalidates that prefix, and none of them changes a delivery.
@@ -443,7 +445,7 @@ export async function fetchIdentities(
 }
 
 /// `GET /api/v1/store/inbound`. While a delivery is in transit its `result` is
-/// null — the node keeps the packed quantities back until the count is in.
+/// null; what was packed is in the delivery's own read, below.
 export function fetchInbound(
   status: InboundFilter,
   signal?: AbortSignal,
@@ -454,7 +456,8 @@ export function fetchInbound(
 }
 
 /// `GET /api/v1/store/inbound/{delivery_id}` — the delivery, and per SKU what
-/// was packed against what the handheld counted. `lines` is empty in transit.
+/// was packed against what the handheld counted. In transit a line is what was
+/// packed (`expected`), and `koli` lists each box (owner, 23 Oct 2026).
 export function fetchInboundDelivery(
   deliveryId: string,
   signal?: AbortSignal,
@@ -466,8 +469,8 @@ export function fetchInboundDelivery(
 }
 
 /// `POST /api/v1/store/inbound/{delivery_id}/receive-count` — receive without
-/// a reader (owner, 29 Sep 2026): a blind count per SKU, scanned or typed,
-/// booked exactly as a handheld's sweep would be. This is the one write this
+/// a reader (owner, 29 Sep 2026): a count per SKU, scanned or typed and
+/// prefilled with what was packed (owner, 23 Oct 2026), booked exactly as a handheld's sweep would be. This is the one write this
 /// file makes against a delivery — see `receiveInboundByCount`'s caller in
 /// `screens/stock/delivery-sheet.tsx` for why receiving no longer needs the
 /// handheld.
@@ -481,6 +484,24 @@ export function receiveInboundByCount(
     request,
     { signal },
   )
+}
+
+/// `GET /api/v1/store/inbound/scan?code=` — which delivery (and koli) a
+/// scanned koli label, koli QR or surat jalan number belongs to. Null when
+/// nothing matches (the node answers 404), so the caller can say so.
+export async function fetchInboundScan(
+  code: string,
+  signal?: AbortSignal,
+): Promise<StoreInboundScan | null> {
+  try {
+    return await node.get<StoreInboundScan>(
+      `/api/v1/store/inbound/scan?code=${encodeURIComponent(code)}`,
+      { signal },
+    )
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null
+    throw error
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

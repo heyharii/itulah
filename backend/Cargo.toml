@@ -4,7 +4,11 @@ default-members = ["."]
 resolver = "2"
 
 [workspace.lints.rust]
-unsafe_code = "forbid"
+# Deny, not forbid: the Windows store server calls two system APIs that only
+# exist as `unsafe` FFI (DPAPI in `edge/secret.rs`, the battery in
+# `edge/power.rs`), and those functions say `#[allow(unsafe_code)]` with the
+# reason. Forbid would make the store server impossible to build for Windows.
+unsafe_code = "deny"
 
 [workspace.lints.clippy]
 unwrap_used = "deny"

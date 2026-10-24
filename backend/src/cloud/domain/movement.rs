@@ -111,8 +111,11 @@ pub fn validate_transition(cause: MovementCause, line: &MovementLine) -> Result<
                     }
                 )
         }
+        // The floor or the stockroom (owner, 23 Oct 2026): head office matching
+        // an unmatched sale takes the piece from a place's racks as readily as
+        // from its shelf.
         MovementCause::Sale => {
-            line.from.is_saleable()
+            line.from.is_sale_source()
                 && matches!(
                     line.to,
                     Place::External {

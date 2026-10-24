@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pack options 2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet" />
+<style>
+/* Ops › Allotment as a table (owner, 20 Oct 2026: "allotment di ops dibuat versi tablenya") — was Return Store — one per return, like Allotments, no kanban and
+   no grouping (owner, 20 Oct 2026).
+   Tokens: frontend-hub/src/styles/white.css (All white). */
+:root{
+  --ink:#1d1d1f; --body:#6e6e73; --mute:#6e6e73; --faint:#c7c7cc;
+  --soft:#fafafb; --soft-2:#f2f2f5; --soft-3:#f5f5f7;
+  --hairline:#e8e8ec; --hairline-2:#dcdce1; --row-line:#eeeef1; --band:#fafafb;
+  --accent:#2862dc; --accent-bg:#eef3fc; --cta:#2862dc;
+  --ok-fg:#248a3d; --warn-fg:#b25000; --info:#2862dc;
+  --r-card:10px; --r-inner:8px;
+  --ease-out:cubic-bezier(.23,1,.32,1);
+  --font:"Inter",system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font-family:var(--font);font-size:15px;color:var(--ink);background:#e9e9ec;letter-spacing:-.006em;-webkit-font-smoothing:antialiased;overflow:hidden}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+.i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+
+.proto{height:50px;overflow-x:auto;background:#141518;color:#fff;display:flex;align-items:center;gap:12px;padding:0 14px 0 18px}
+.proto .t{font-weight:600;white-space:nowrap}
+.seg{display:flex;gap:2px;background:#24262b;border-radius:9px;padding:3px}
+.seg button{height:32px;padding:0 11px;border-radius:7px;font-size:15px;color:#b9bcc3;white-space:nowrap;transition:background-color .15s ease,color .15s ease,transform .16s ease-out}
+.seg button:active{transform:scale(.97)}
+.seg button b{font-weight:600;color:#fff;margin-right:5px}
+.seg button.on{background:#fff;color:var(--ink)} .seg button.on b{color:var(--ink)}
+.seg .star{color:#f4b740;margin-left:4px}
+.proto .sp{flex:1}
+.note{min-height:36px;background:#1c1e22;color:#a7abb3;font-size:15px;line-height:24px;padding:6px 18px;border-top:1px solid #26282d}
+.note b{color:#fff;font-weight:500}
+.stagewrap{height:calc(100vh - 86px);overflow:hidden;display:flex;justify-content:center}
+
+.app{height:100%;width:100%;display:grid;grid-template-columns:68px 232px minmax(0,1fr);background:var(--soft-3);position:relative;overflow:hidden}
+.rail{display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:4px}
+.logo{width:28px;height:28px;border-radius:7px;background:var(--ink);color:#fff;display:grid;place-items:center;font-weight:600;margin-bottom:10px}
+.rail .ri{width:40px;height:36px;border-radius:8px;display:grid;place-items:center;color:#3a3a3c}
+.rail .ri.on{background:#fff;box-shadow:0 0 0 1px var(--hairline)}
+.dept{background:#fff;margin:8px 0;border-radius:12px;display:flex;flex-direction:column}
+.dept h2{margin:0;height:52px;display:flex;align-items:center;padding:0 18px;font-size:17px;font-weight:600}
+.rows{padding:2px 10px;display:flex;flex-direction:column;gap:2px}
+.row{height:38px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-radius:8px;color:#3a3a3c;width:100%}
+.row.on{background:var(--accent-bg);color:var(--accent);font-weight:500}
+.badge{min-width:20px;height:20px;border-radius:10px;background:#c62828;color:#fff;font-size:13px;font-weight:600;display:grid;place-items:center;padding:0 6px}
+.main{margin:8px;background:#fff;border-radius:12px;overflow-y:auto;min-width:0}
+.head{height:52px;display:flex;align-items:center;gap:10px;padding:0 28px;border-bottom:1px solid var(--hairline)}
+.head h1{margin:0;font-size:17px;font-weight:600;flex:1}
+.page{padding:20px 28px 48px}
+.figs{display:flex;margin-bottom:24px}
+.fig{padding:0 26px 0 20px;border-left:1px solid var(--hairline)}
+.fig:first-child{border-left:0;padding-left:0}
+.fig .l{color:var(--body);white-space:nowrap}
+.fig .v{font-size:17px;font-weight:600;margin-top:4px;font-variant-numeric:tabular-nums}
+.tabs{display:flex;gap:18px;border-bottom:1px solid var(--hairline);margin-bottom:16px}
+.tab{height:38px;color:var(--body);position:relative}
+.tab .c{margin-left:5px;color:var(--mute)}
+.tab.on{color:var(--ink);font-weight:500}
+.tab.on::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--ink);border-radius:2px}
+.search{width:280px;height:36px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);display:flex;align-items:center;gap:8px;padding:0 12px;color:var(--mute);margin-bottom:14px}
+
+.tbox{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden}
+table{border-collapse:collapse;width:100%;table-layout:fixed}
+th{height:40px;background:var(--band);color:var(--body);font-weight:500;text-align:left;padding:0 16px;border-bottom:1px solid var(--hairline);white-space:nowrap}
+td{padding:0 16px;height:64px;white-space:nowrap;border-top:1px solid var(--row-line);vertical-align:middle;overflow:hidden}
+tbody tr:first-child td{border-top:0}
+tbody tr.click{cursor:pointer}
+@media (hover:hover){tbody tr.click:hover td{background:#fafafb}}
+.r{text-align:right}
+.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+.nm{font-weight:500;color:var(--ink)}
+.m{color:var(--mute)}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:15px;letter-spacing:0}
+.two{display:flex;flex-direction:column;gap:4px;min-width:0}
+.two .b{color:var(--mute)}
+.trunc{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.btn{height:32px;display:inline-flex;align-items:center;gap:6px;padding:0 12px;border-radius:var(--r-inner);font-weight:500;white-space:nowrap;transition:transform .16s ease-out,background-color .15s ease}
+.btn:active{transform:scale(.97)}
+.btn.p{background:var(--cta);color:#fff}
+.btn.t{background:var(--accent-bg);color:var(--accent);font-weight:600}
+.btn.g{border:1px solid var(--hairline-2);background:#fff}
+.st{white-space:nowrap}
+.st::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;margin:0 8px 2px 0;vertical-align:middle;background:var(--d)}
+.st.way{--d:var(--info)} .st.rev{--d:#c98a00} .st.done{--d:var(--ok-fg)}
+.warn{color:var(--warn-fg)}
+.grp td{height:52px;background:var(--band);border-top:1px solid var(--hairline)}
+.grp + tr td{border-top:1px solid var(--hairline)}
+.chev{display:inline-block;width:7px;height:7px;border-right:1.6px solid var(--mute);border-bottom:1.6px solid var(--mute);transform:rotate(-45deg);margin-right:12px;transition:transform .2s var(--ease-out)}
+.open .chev{transform:rotate(45deg) translateY(-2px)}
+.sub td:first-child{padding-left:44px}
+.dash{color:var(--faint)}
+
+/* D master-detail */
+.md{display:grid;grid-template-columns:260px minmax(0,1fr);gap:20px}
+.slist{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden;align-self:start}
+.si{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 16px;border-top:1px solid var(--row-line);width:100%;text-align:left}
+.si:first-child{border-top:0}
+.si.on{background:var(--accent-bg)}
+.si .n{font-weight:500}
+.si .sx{color:var(--mute);font-size:15px}
+.pill{display:inline-flex;align-items:center;height:24px;padding:0 8px;border-radius:12px;background:var(--accent);color:#fff;font-size:13px;font-weight:600}
+.dtitle{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px}
+.dtitle h3{margin:0;font-size:17px;font-weight:600}
+
+/* sheet */
+.scrim{position:absolute;inset:0;background:rgb(0 0 0/.18);opacity:0;pointer-events:none;transition:opacity .2s var(--ease-out);z-index:10}
+.sheet{position:absolute;top:8px;right:8px;bottom:8px;width:min(760px,calc(100% - 16px));background:#fff;border-radius:12px;box-shadow:0 20px 60px rgb(0 0 0/.18);transform:translateX(calc(100% + 16px));transition:transform .28s var(--ease-out);z-index:11;display:flex;flex-direction:column}
+.app.sheeted .scrim{opacity:1;pointer-events:auto}
+.app.sheeted .sheet{transform:none}
+.sh{padding:22px 28px 16px;border-bottom:1px solid var(--hairline);display:flex;justify-content:space-between}
+.sh .crumb{color:var(--mute)}
+.sh h2{margin:4px 0 0;font-size:19px;font-weight:600}
+.sb{padding:22px 28px;overflow:auto;flex:1}
+.facts{display:grid;grid-template-columns:1fr 1fr;gap:18px 24px;margin-bottom:22px}
+.facts .l{color:var(--mute)} .facts .v{margin-top:4px}
+.x{width:32px;height:32px;border-radius:8px;display:grid;place-items:center}
+
+.narrow .app{grid-template-columns:minmax(0,1fr)}
+.narrow .rail,.narrow .dept{display:none}
+.narrow .stagewrap .app{width:414px}
+.narrow .figs{flex-wrap:wrap;gap:12px 0}
+.narrow .md{grid-template-columns:1fr}
+.narrow .hide-n{display:none}
+.show-n{display:none} .narrow .show-n{display:block}
+.narrow table{table-layout:auto}
+.narrow td{white-space:normal;height:auto;padding-top:12px;padding-bottom:12px}
+.narrow .btn{white-space:nowrap;padding:0 10px}
+.narrow .sub td:first-child{padding-left:16px}
+.narrow td{padding-left:12px;padding-right:12px}
+.narrow th{width:auto!important}
+.narrow .sheet{width:calc(100% - 16px)}
+.narrow .facts{grid-template-columns:1fr}
+.narrow .stile{min-width:0;flex:1 1 40%}
+.narrow .rv .rh{flex-direction:column;align-items:flex-start;gap:4px;padding:12px 14px}
+.narrow .qin{width:64px}
+.narrow .sf{padding:12px 16px}
+.narrow .totals dl{min-width:0;width:100%}
+.narrow .sb,.narrow .sh{padding-left:16px;padding-right:16px}
+.narrow .sb td{padding-left:12px;padding-right:12px}
+.narrow .page{padding:16px}
+.narrow .head{padding:0 16px}
+
+/* allotment-style return card */
+.cards{display:flex;flex-direction:column;gap:12px}
+.card{border:1px solid var(--hairline);border-radius:12px;padding:18px 18px 16px 22px;display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,300px);gap:12px 24px;align-items:start;cursor:pointer}
+@media (hover:hover){.card:hover{background:#fcfcfd}}
+.card .t1{font-weight:600}
+.card .t2{color:var(--mute);margin-top:2px}
+.card .t3{margin-top:6px}
+.card .t3 b{font-weight:600}
+.mini{border:1px solid var(--hairline);border-radius:8px;overflow:hidden}
+.one{display:flex;flex-direction:column;align-items:flex-end;gap:4px;text-align:right}
+.one .st{font-weight:500}
+.one .why{color:var(--mute)}
+.narrow .one{align-items:flex-start;text-align:left}
+.mini table th{height:34px;padding:0 12px}
+.mini table td{height:40px;padding:0 12px}
+.card .acts{grid-column:3;display:flex;justify-content:flex-end;gap:8px}
+.stamp{border:2px solid currentColor;border-radius:4px;padding:2px 8px;text-align:center;font-weight:700;font-size:15px;line-height:17px;transform:rotate(-4deg);margin-top:4px;outline:1px solid currentColor;outline-offset:2px}
+.stamp.ok{color:#2e8b4e} .stamp.warn{color:#b07a2a}
+.arts{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.art{display:flex;align-items:center;gap:10px}
+.th{width:36px;height:36px;border-radius:8px;border:1px solid var(--hairline);display:grid;place-items:center;color:var(--faint);flex:none}
+.narrow .card{grid-template-columns:1fr;padding:16px}
+.narrow .card .acts{grid-column:1}
+.narrow .card .stampbox{display:none}
+
+.tiles{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+.tile{background:var(--soft-3);border-radius:10px;padding:10px 14px;min-width:96px}
+.tile .l{color:var(--body)} .tile .v{font-weight:600;margin-top:2px;font-variant-numeric:tabular-nums}
+.segtabs{display:inline-flex;gap:2px;background:var(--soft-3);border-radius:9px;padding:3px}
+.segtabs button{height:32px;padding:0 10px;border-radius:7px;color:var(--body)}
+.segtabs button.on{background:#fff;color:var(--ink);font-weight:500;box-shadow:0 0 0 1px var(--hairline)}
+tfoot td{height:52px;background:var(--band);border-top:1px solid var(--hairline)}
+
+/* New return — a wide sheet, as New PO's */
+.sheet.wide{width:min(1180px,calc(100% - 16px))}
+.sf{border-top:1px solid var(--hairline);padding:14px 28px;display:flex;justify-content:flex-end;gap:8px}
+.btn.d{background:#d70015;color:#fff}
+.btn.lg{height:40px;padding:0 16px}
+.stores{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px}
+.stile{min-width:150px;border:1px solid var(--hairline-2);border-radius:12px;padding:12px 14px;text-align:left;transition:border-color .15s ease,background-color .15s ease,transform .16s ease-out}
+.stile:active{transform:scale(.98)}
+.stile .c{font-weight:600}
+.stile .n{color:var(--mute)}
+.stile .q{margin-top:6px;font-variant-numeric:tabular-nums;color:var(--body)}
+.stile .q b{color:var(--accent);font-weight:600}
+.stile.on{border-color:var(--accent);background:var(--accent-bg);box-shadow:0 0 0 1px var(--accent)}
+.qin{width:84px;height:40px;border:1px solid var(--hairline-2);border-radius:8px;text-align:center;font:inherit;font-weight:600;font-variant-numeric:tabular-nums}
+.qin:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.qin.over{border-color:#d70015;color:#d70015}
+.reason{display:inline-flex;align-items:center;height:26px;padding:0 9px;border-radius:13px;background:var(--soft-2);color:var(--body);white-space:nowrap}
+.totals{display:flex;justify-content:flex-end;margin-top:16px}
+.totals dl{display:grid;grid-template-columns:1fr auto;gap:6px 40px;margin:0;background:var(--soft);border:1px solid var(--hairline);border-radius:10px;padding:12px 20px;min-width:320px}
+.totals dt{color:var(--ink)} .totals dd{margin:0;text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
+.rv{border:1px solid var(--hairline);border-radius:12px;margin-bottom:14px;overflow:hidden}
+.rv .rh{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;background:var(--band);border-bottom:1px solid var(--hairline)}
+.rv .rh b{font-weight:600}
+.toast{position:absolute;left:50%;bottom:24px;transform:translate(-50%,20px);opacity:0;background:#1d1d1f;color:#fff;border-radius:10px;padding:12px 18px;transition:opacity .2s var(--ease-out),transform .2s var(--ease-out);z-index:20;pointer-events:none}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+
+.flag{display:inline-flex;align-items:center;height:24px;padding:0 8px;border-radius:12px;background:#fff1e6;color:#b25000;font-weight:500;white-space:nowrap}
+.thumb{width:40px;height:40px;border-radius:8px;border:1px solid var(--hairline);display:grid;place-items:center;color:#3a3a3c;flex:none;background:#fff}
+.artc{display:flex;align-items:center;gap:12px;min-width:0}
+.search{width:340px}
+.narrow .search{width:100%}
+.stack{display:inline-flex;gap:8px;align-items:center}
+.narrow .stack{flex-direction:column;align-items:flex-end;gap:4px}
+.narrow .thumb{width:36px;height:36px}
+
+/* D · one stage at a time, big icons */
+.stages{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:18px}
+.stg{border:1px solid var(--hairline-2);border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:14px;text-align:left;background:#fff;transition:border-color .15s ease,background-color .15s ease,transform .16s ease-out}
+.stg:active{transform:scale(.98)}
+.stg .ic{width:64px;height:64px;border-radius:16px;display:grid;place-items:center;background:var(--soft-2);color:var(--ink);flex:none}
+.stg .ic svg{width:38px;height:38px;stroke-width:1.5}
+.stg .w{font-weight:600;font-size:17px}
+.stg .n{color:var(--body);margin-top:2px;font-variant-numeric:tabular-nums}
+.stg.on{border-color:var(--accent);background:var(--accent-bg);box-shadow:0 0 0 1px var(--accent)}
+.stg.on .ic{background:#fff;color:var(--accent)}
+.koli td{height:48px;background:#fcfcfd}
+.koli td:first-child{padding-left:68px}
+.kchip{display:inline-flex;align-items:center;gap:8px}
+.kchip .box{width:28px;height:28px;border-radius:7px;background:var(--soft-2);display:grid;place-items:center}
+.kchip .box svg{width:16px;height:16px}
+.addk{color:var(--accent);font-weight:500}
+
+.cb{width:18px;height:18px;accent-color:var(--accent);cursor:pointer}
+tr.sel td{background:var(--accent-bg)}
+.dbar{position:sticky;bottom:12px;margin-top:14px;display:flex;align-items:center;justify-content:space-between;gap:12px;background:#fff;border:1px solid var(--hairline-2);border-radius:12px;padding:10px 12px 10px 18px;box-shadow:0 8px 24px rgb(0 0 0/.08)}
+.dbar b{font-weight:600}
+.narrow .stages{grid-template-columns:repeat(2,minmax(0,1fr))}
+.narrow .stg{padding:12px;gap:10px}
+.narrow .stg .ic{width:40px;height:40px}
+.narrow .koli td:first-child{padding-left:16px}
+.narrow .two .b,.narrow .two .nm{white-space:normal;overflow-wrap:anywhere}
+.narrow .alt2{display:none}
+.narrow .stamp{font-size:13px}
+
+/* pack options */
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 10px;border-radius:8px;border:1px solid var(--hairline-2);background:#fff;font-variant-numeric:tabular-nums;white-space:nowrap}
+.chip svg{width:16px;height:16px}
+.chip.p{border-color:#f0c48a;background:#fff7ec;color:#8a4b00}
+.chip.add{border-style:dashed;color:var(--accent);border-color:#b8cdf5}
+.chip.ok{border-color:#bfe3c9;background:#f0faf3;color:#1f7a37}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.pcard{border:1px solid var(--hairline);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.pcard .top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.shelf{display:flex;gap:8px;flex-wrap:wrap}
+.kbox{width:92px;height:84px;border-radius:12px;border:1px solid var(--hairline-2);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-variant-numeric:tabular-nums;background:#fff}
+.kbox svg{width:26px;height:26px}
+.kbox b{font-weight:600}
+.kbox.p{background:#fff7ec;border-color:#f0c48a;color:#8a4b00}
+.kbox.add{border-style:dashed;color:var(--accent);border-color:#b8cdf5}
+.kbox.ok{background:#f0faf3;border-color:#bfe3c9;color:#1f7a37}
+.split{display:grid;grid-template-columns:280px minmax(0,1fr);gap:18px}
+.slist{border:1px solid var(--hairline);border-radius:12px;overflow:hidden;align-self:start}
+.si{width:100%;display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 14px;border-top:1px solid var(--row-line);text-align:left}
+.si:first-child{border-top:0}
+.si.on{background:var(--accent-bg)}
+.sec{font-weight:600;margin:18px 0 8px;display:flex;align-items:center;gap:8px}
+.sec .m{font-weight:400}
+.fold td{height:56px}
+.mx th,.mx td{text-align:center}
+.mx th:first-child,.mx td:first-child{text-align:left}
+.big{font-size:22px;font-weight:600;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.of{color:var(--mute)}
+.lane{border:1px solid var(--hairline);border-radius:12px;overflow:hidden;margin-bottom:14px}
+.lane .lh{padding:12px 16px;background:var(--band);border-bottom:1px solid var(--hairline);display:flex;justify-content:space-between;align-items:center}
+.narrow .grid2,.narrow .split{grid-template-columns:1fr}
+.narrow .kbox{width:76px;height:72px}
+.narrow .gcell{display:table-cell}
+.narrow .btn{padding:0 10px}
+
+.kbox.on{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent);background:#fff}
+.kbox .ph{display:flex;margin-top:2px}
+.kbox .ph span{width:18px;height:18px;border-radius:5px;border:1px solid var(--hairline);background:#fff;margin-left:-4px;display:grid;place-items:center}
+.kbox .ph span svg{width:12px;height:12px}
+.kbox .kg{font-size:13px;color:var(--mute)}
+.wide .kbox{width:110px;height:96px}
+.tab8 .kbox{width:130px;height:120px;border-radius:16px}
+.tab8 .kbox svg{width:34px;height:34px}
+.tab8 .kbox b{font-size:22px}
+.banner{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border-radius:10px;background:var(--accent-bg);color:var(--accent);font-weight:500}
+.mini td{height:52px}
+.qin{width:72px;height:36px;border:1px solid var(--hairline-2);border-radius:8px;text-align:center;font:inherit;font-weight:600}
+.pane2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
+.pbox{border:1px solid var(--hairline);border-radius:12px;overflow:hidden}
+.pbox .ph2{padding:12px 14px;background:var(--band);border-bottom:1px solid var(--hairline);display:flex;justify-content:space-between;align-items:center;font-weight:600}
+.ktabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.ktab{height:36px;padding:0 12px;border-radius:9px;border:1px solid var(--hairline-2);background:#fff;display:inline-flex;align-items:center;gap:6px}
+.ktab.on{border-color:var(--accent);background:var(--accent-bg);color:var(--accent);font-weight:500}
+.ktab svg{width:16px;height:16px}
+.scan{display:flex;align-items:center;gap:12px;height:64px;border:2px solid var(--accent);border-radius:14px;padding:0 18px;font-size:18px;color:var(--mute)}
+.scan svg{width:26px;height:26px;color:var(--accent)}
+.last{display:flex;align-items:center;gap:12px;padding:14px;border:1px solid var(--hairline);border-radius:12px;margin-top:12px}
+.tl{border-left:2px solid var(--hairline);margin-left:10px;padding-left:18px;display:flex;flex-direction:column;gap:14px}
+.tl .ev{position:relative}
+.tl .ev::before{content:"";position:absolute;left:-25px;top:4px;width:12px;height:12px;border-radius:50%;background:var(--ok-fg);box-shadow:0 0 0 3px #fff}
+.tl .ev.open::before{background:var(--accent)}
+.tl .ev.wait::before{background:#e0a33a}
+.schips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+.schip{border:1px solid var(--hairline-2);border-radius:12px;padding:10px 14px;text-align:left;background:#fff;min-width:150px}
+.schip.on{border-color:var(--accent);background:var(--accent-bg);box-shadow:0 0 0 1px var(--accent)}
+.kstack{display:flex;flex-direction:column;gap:10px;width:100%}
+.kcard{border:1px solid var(--hairline);border-radius:12px;padding:12px 14px;display:flex;align-items:center;gap:14px}
+.kcard.ok{background:#f0faf3;border-color:#bfe3c9}
+.kcard.p{background:#fff7ec;border-color:#f0c48a}
+.phs{display:flex;gap:6px}
+.phs .thumb{width:34px;height:34px}
+.sel{height:44px;border:1px solid var(--hairline-2);border-radius:10px;display:flex;align-items:center;justify-content:space-between;padding:0 14px;margin-bottom:14px;font-weight:500}
+.narrow .pane2{grid-template-columns:1fr}
+.narrow .tab8 .kbox{width:96px;height:92px}
+.narrow .wide .kbox{width:80px;height:80px}
+.narrow .schip{min-width:0;flex:1 1 40%}
+.narrow .t5n{white-space:normal}
+.narrow .mx th,.narrow .mx td{padding-left:8px;padding-right:8px}
+</style>
+</head>
+<body>
+<div class="proto">
+  <div class="t">Ops · Pack v2</div>
+  <div class="seg" id="opts" style="overflow-x:auto;max-width:calc(100vw - 340px)"></div>
+  <div class="sp"></div>
+  <div class="seg" id="widths"></div>
+</div>
+<div class="note" id="note"></div>
+<div class="stagewrap" id="stagewrap">
+  <div class="app" id="app">
+    <nav class="rail"><div class="logo">C</div></nav>
+    <aside class="dept"><h2>Ops</h2><div class="rows">
+      <div class="row">Receiving PO <span class="badge">14</span></div><div class="row">Receiving Return <span class="badge">2</span></div>
+      <div class="row">Quantity Checks <span class="badge">2</span></div><div class="row on">Allotment <span class="badge">1</span></div>
+      <div class="row">Return Store <span class="badge">3</span></div><div class="row">Printing</div></div></aside>
+    <main class="main"><div class="head"><h1>Allotment</h1></div><div class="page" id="page"></div></main>
+  </div>
+</div>
+<script>
+// Pack, twenty more (owner, 21 Oct 2026: "coba saja buat beberapa versi
+// lagi, 20 versi lagi mungkin, coba riset"). S1–S10 grow from Shelf cards,
+// T1–T10 from Store + shelf. Patterns borrowed: ShipHero's one current box
+// and "+" for the next, Pack all / split evenly, over-pack warning, weight;
+// Odoo's "Put in Pack" with a quantity; Zoho's missing package navigator.
+const IC = {
+  pick: '<svg class="i" viewBox="0 0 24 24"><path d="M6 8h12l-1 12H7z"/><path d="M9 8a3 3 0 0 1 6 0"/></svg>',
+  pack: '<svg class="i" viewBox="0 0 24 24"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10"/></svg>',
+  ok: '<svg class="i" viewBox="0 0 24 24"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="m8 12 3 3 5-6"/></svg>',
+  scan: '<svg class="i" viewBox="0 0 24 24"><path d="M4 8V5h3M20 8V5h-3M4 16v3h3M20 16v3h-3M7 12h10"/></svg>',
+  dispatch: '<svg class="i" viewBox="0 0 24 24"><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="18" r="1.6"/><circle cx="17" cy="18" r="1.6"/></svg>',
+  transit: '<svg class="i" viewBox="0 0 24 24"><circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M8 18h7a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h7"/></svg>',
+}
+const SH = '<svg class="i" viewBox="0 0 24 24"><path d="M8 4 4 7l2 3 2-1v11h8V9l2 1 2-3-4-3c-1 1.5-2.3 2-4 2s-3-.5-4-2z"/></svg>'
+const SHOE = '<svg class="i" viewBox="0 0 24 24"><path d="M3 15c0-3 1-6 2-7l4 3 4 1 7 2v3H3z"/></svg>'
+// Each koli: its contents [article index, pcs]; sealed or open.
+const STORES = [
+  { st: "C001 · Cikupa", alts: ["ALT-00000036", "ALT-00000037"],
+    arts: [["Kemeja Oxford Lengan Panjang", "White · M L", 8, SH], ["Kaos Basic Katun Combed", "Black · L", 4, SH]],
+    koli: [{ c: [[0, 5]], sealed: true, kg: 2.1, at: "09:40" }, { c: [[0, 2], [1, 1]], sealed: true, kg: 1.4, at: "09:52" }, { c: [[1, 2]], sealed: false, kg: 0.6 }] },
+  { st: "C005 · Jambi", alts: ["ALT-00000033"], arts: [["Flat Shoes Wanita", "Black · 37 38", 6, SHOE]],
+    koli: [{ c: [[0, 4]], sealed: true, kg: 3.2, at: "10:05" }] },
+  { st: "C009 · WMJB", alts: ["ALT-00000038"], arts: [["Kaos Anak Karakter", "Blue · S M L", 9, SH]], koli: [] },
+  { st: "C002 · Muaro Bungo", alts: ["ALT-00000032"], arts: [["Celana Chino Slim Fit", "Khaki · 30 32", 10, SH]],
+    koli: [{ c: [[0, 6]], sealed: true, kg: 3.0, at: "08:30" }, { c: [[0, 4]], sealed: false, kg: 2.0 }] },
+]
+STORES.forEach(s => {
+  s.picked = s.arts.reduce((a, x) => a + x[2], 0)
+  s.leftOf = i => s.arts[i][2] - s.koli.reduce((a, k) => a + k.c.filter(c => c[0] === i).reduce((b, c) => b + c[1], 0), 0)
+  s.left = s.arts.reduce((a, x, i) => a + s.leftOf(i), 0)
+  s.open = s.koli.findIndex(k => !k.sealed)
+  s.pcsOf = k => k.c.reduce((a, c) => a + c[1], 0)
+})
+const sum = (xs, f) => xs.reduce((a, x) => a + (f(x) || 0), 0)
+const pl = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`
+const kl = n => `${n} koli`
+const storeCell = s => `<div class="two"><span class="nm trunc">${s.st}</span><span class="b mono trunc">${s.alts.join(" · ")}</span></div>`
+const nextLabel = s => s.left === 0 && s.open < 0 ? "Done" : s.left === 0 ? `Seal Koli ${s.open + 1}` : s.open >= 0 ? `Pack into Koli ${s.open + 1}` : "Start Koli " + (s.koli.length + 1)
+const btn = (s, cls = "") => `<button class="btn ${s.left === 0 ? "p" : "t"} ${cls}">${s.left === 0 ? (s.open >= 0 ? "Seal" : "Done") : s.koli.length ? "Pack" : "Start packing"}</button>`
+const phs = (s, k) => `<span class="ph">${k.c.map(c => `<span>${s.arts[c[0]][3]}</span>`).join("")}</span>`
+const box = (s, k, i, extra = "") => `<div class="kbox ${k.sealed ? "ok" : "on"}">${k.sealed ? IC.ok : IC.pack}<b>${s.pcsOf(k)}</b><span>Koli ${i + 1}</span>${extra}</div>`
+const pickedBox = s => s.left ? `<div class="kbox p">${IC.pick}<b>${s.left}</b><span>Picked</span></div>` : ""
+const addBox = s => s.left ? `<div class="kbox add">${IC.pack}<b>+</b><span>Koli ${s.koli.length + 1}</span></div>` : ""
+const shelf = (s, f = (k, i) => box(s, k, i)) => `<div class="shelf">${pickedBox(s)}${s.koli.map(f).join("")}${addBox(s)}</div>`
+const artRow = (s, a, i, right) => `<tr><td><div class="artc"><span class="thumb">${a[3]}</span><div class="two"><span class="nm trunc">${a[0]}</span><span class="b">${a[1]}</span></div></div></td><td class="r">${right}</td></tr>`
+const leftCell = (s, i) => s.leftOf(i) ? `<b>${s.leftOf(i)}</b> <span class="of">left of ${s.arts[i][2]}</span>` : '<span class="m">All in koli</span>'
+const card = (s, inner, cls = "") => `<div class="pcard ${cls}"><div class="top">${storeCell(s)}${btn(s)}</div>${inner}</div>`
+const grid = f => `<div class="grid2">${STORES.map(f).join("")}</div>`
+const contents = (s, k) => `<div class="tbox mini"><table><tbody>${k.c.map(c => artRow(s, s.arts[c[0]], c[0], `<b>${c[1]}</b> pcs`)).join("") || '<tr><td class="m">Empty — tap an article to put it in.</td></tr>'}</tbody></table></div>`
+let opt = "S1", narrow = false, chosen = STORES[0].st, ktab = 2
+const cur = () => STORES.find(x => x.st === chosen)
+const list = (sub) => `<div class="slist">${STORES.map(x => `<button class="si ${x.st===chosen?"on":""}" onclick="chosen='${x.st}';ktab=Math.max(0,cur().open);render()"><span class="two"><span class="nm">${x.st}</span><span class="b">${sub(x)}</span></span><span class="m num">${kl(x.koli.length)}</span></button>`).join("")}</div>`
+const split = right => `<div class="split">${list(x => x.left ? `${x.left} pcs to pack` : "All in koli")}<div>${right}</div></div>`
+const head = s => `<div class="dtitle"><h3>${s.st}</h3>${btn(s)}</div>`
+const V = {
+  S1: ["Current koli open", "ShipHero's one current box: the open koli is highlighted and its contents show under the shelf; + starts the next.",
+    () => grid(s => card(s, shelf(s) + (s.open >= 0 ? `<div class="sec">Koli ${s.open + 1} <span class="m">· open</span></div>${contents(s, s.koli[s.open])}` : s.left ? `<div class="banner">No koli open <span>+ Koli ${s.koli.length + 1}</span></div>` : "")))],
+  S2: ["Photos in boxes", "Every koli box shows the articles inside as tiny photos; Picked too.",
+    () => grid(s => card(s, shelf(s, (k, i) => box(s, k, i, phs(s, k))) + `<div class="m">${s.picked - s.left} of ${s.picked} pcs in ${kl(s.koli.length)}</div>`))],
+  S3: ["Left per article", "Under the shelf, each article with how many are still not in a koli — the line the packer works from.",
+    () => grid(s => card(s, shelf(s) + `<div class="tbox mini"><table><tbody>${s.arts.map((a, i) => artRow(s, a, i, leftCell(s, i))).join("")}</tbody></table></div>`))],
+  S4: ["Put in koli", "Odoo's Put in Pack: type how many, press “Put in Koli N” per article.",
+    () => grid(s => card(s, shelf(s) + `<div class="tbox mini"><table><tbody>${s.arts.map((a, i) => artRow(s, a, i, s.leftOf(i) ? `<span style="display:inline-flex;gap:8px;align-items:center"><input class="qin" value="${s.leftOf(i)}"><button class="btn t">Koli ${(s.open >= 0 ? s.open : s.koli.length) + 1}</button></span>` : '<span class="m">All in koli</span>')).join("")}</tbody></table></div>`))],
+  S5: ["Pack all / split", "Two shortcuts per store: Pack all into one koli, or split evenly into N koli; leftovers stay in Picked.",
+    () => grid(s => card(s, shelf(s) + (s.left ? `<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn t">All ${s.left} into Koli ${(s.open >= 0 ? s.open : s.koli.length) + 1}</button><button class="btn g">Split into <b>2</b> koli</button></div>` : "")))],
+  S6: ["One store per row", "Full-width cards, one store per row: a long shelf with bigger boxes and the articles strip beside it.",
+    () => `<div class="kstack">${STORES.map(s => `<div class="pcard wide"><div class="top">${storeCell(s)}${btn(s)}</div><div style="display:flex;gap:18px;flex-wrap:wrap;align-items:center">${shelf(s)}<div class="phs">${s.arts.map(a => `<span class="thumb">${a[3]}</span>`).join("")}</div></div></div>`).join("")}</div>`],
+  S7: ["Sealed stack", "Sealed koli fold into one green stack (“3 koli sealed”); only Picked and the open koli stay as boxes.",
+    () => grid(s => { const sealed = s.koli.filter(k => k.sealed); return card(s, `<div class="shelf">${pickedBox(s)}${sealed.length ? `<div class="kbox ok">${IC.ok}<b>${kl(sealed.length)}</b><span>${sum(sealed, k => s.pcsOf(k))} pcs sealed</span></div>` : ""}${s.open >= 0 ? box(s, s.koli[s.open], s.open) : ""}${addBox(s)}</div>`) })],
+  S8: ["Tablet targets", "Big boxes for a finger at the bench; two stores per screen.",
+    () => `<div class="grid2 tab8">${STORES.map(s => card(s, shelf(s))).join("")}</div>`],
+  S9: ["Weight per koli", "ShipHero's live weight: each box shows its kg; the open koli's weight updates as pieces go in.",
+    () => grid(s => card(s, shelf(s, (k, i) => box(s, k, i, `<span class="kg">${k.kg.toFixed(1)} kg</span>`)) + `<div class="m">${sum(s.koli, k => k.kg).toFixed(1)} kg packed</div>`))],
+  S10: ["Next step banner", "Each card says its one next step in words: “Put 2 pcs into Koli 3”, “Seal Koli 2”, “Start Koli 1”.",
+    () => grid(s => card(s, shelf(s) + `<div class="banner"><span>${s.left && s.open >= 0 ? `Put ${s.left} pcs into Koli ${s.open + 1}` : s.left ? `Start Koli ${s.koli.length + 1} · ${s.left} pcs` : s.open >= 0 ? `Seal Koli ${s.open + 1}` : "All sealed"}</span><span>›</span></div>`))],
+  T1: ["Navigator + search", "Zoho's missing piece: the store list on the left has search and says what is left; the shelf and the open koli's contents on the right.",
+    () => { const s = cur(); return `<div class="split"><div><div class="search" style="width:100%;margin-bottom:8px">Find a store</div>${list(x => x.left ? `${x.left} pcs to pack` : "All in koli")}</div><div>${head(s)}${shelf(s)}${s.open >= 0 ? `<div class="sec">Koli ${s.open + 1} <span class="m">· open</span></div>${contents(s, s.koli[s.open])}` : ""}</div></div>` }],
+  T2: ["Store tiles on top", "As New return: stores as tiles on top, the chosen store's shelf and articles below. Same on a phone.",
+    () => { const s = cur(); return `<div class="schips">${STORES.map(x => `<button class="schip ${x.st===chosen?"on":""}" onclick="chosen='${x.st}';render()"><span class="nm">${x.st}</span><span class="b" style="display:block;color:var(--body)">${x.left ? `${x.left} pcs to pack` : "All in koli"} · ${kl(x.koli.length)}</span></button>`).join("")}</div>${head(s)}${shelf(s)}<div class="sec">Picked <span class="m">· not in a koli yet</span></div><div class="tbox mini"><table><tbody>${s.arts.map((a, i) => artRow(s, a, i, leftCell(s, i))).join("")}</tbody></table></div>` }],
+  T3: ["Picked | Koli", "Two panes side by side: Picked articles on the left (tap → into the open koli), the open koli's contents on the right.",
+    () => { const s = cur(); const o = s.open >= 0 ? s.koli[s.open] : null; return split(`${head(s)}<div class="pane2"><div class="pbox"><div class="ph2">Picked <span class="m">${s.left} pcs</span></div><table><tbody>${s.arts.map((a, i) => artRow(s, a, i, s.leftOf(i) ? `<button class="btn t">${s.leftOf(i)} →</button>` : '<span class="m">—</span>')).join("")}</tbody></table></div><div class="pbox"><div class="ph2">${o ? `Koli ${s.open + 1}` : "No koli open"} <span class="m">${o ? s.pcsOf(o) + " pcs" : ""}</span></div>${o ? `<table><tbody>${o.c.map(c => artRow(s, s.arts[c[0]], c[0], `<b>${c[1]}</b>`)).join("")}</tbody></table>` : `<div style="padding:16px"><button class="btn t">+ Koli ${s.koli.length + 1}</button></div>`}</div></div>`) }],
+  T4: ["Koli tabs", "On the right, koli as tabs (Picked · Koli 1 · Koli 2 · Koli 3 · +); the body is only that tab.",
+    () => { const s = cur(); const k = s.koli[ktab]; return split(`${head(s)}<div class="ktabs"><button class="ktab ${ktab===-1?"on":""}" onclick="ktab=-1;render()">${IC.pick}Picked · ${s.left}</button>${s.koli.map((x, i) => `<button class="ktab ${ktab===i?"on":""}" onclick="ktab=${i};render()">${x.sealed ? IC.ok : IC.pack}Koli ${i + 1} · ${s.pcsOf(x)}</button>`).join("")}<button class="ktab">+</button></div>${ktab === -1 || !k ? `<div class="tbox mini"><table><tbody>${s.arts.map((a, i) => artRow(s, a, i, leftCell(s, i))).join("")}</tbody></table></div>` : contents(s, k)}`) }],
+  T5: ["Article × koli", "For the chosen store: rows = articles, columns = Picked · Koli 1 · Koli 2 …; every cell a number to type.",
+    () => { const s = cur(); return split(`${head(s)}<div class="tbox"><table class="mx"><thead><tr><th style="width:40%">Article</th><th>Picked</th>${s.koli.map((k, i) => `<th>Koli ${i + 1}</th>`).join("")}<th class="hide-n">+</th></tr></thead><tbody>${s.arts.map((a, i) => `<tr><td><div class="artc"><span class="thumb hide-n">${a[3]}</span><span class="nm t5n">${a[0]}</span></div></td><td class="num"><span class="warn">${s.leftOf(i) || "—"}</span></td>${s.koli.map(k => `<td class="num">${k.c.filter(c => c[0] === i).reduce((b, c) => b + c[1], 0) || '<span class="dash">·</span>'}</td>`).join("")}<td class="hide-n"><span class="addk">+</span></td></tr>`).join("")}</tbody></table></div>`) }],
+  T6: ["Scan first", "A big scan box for the bench; the last scanned article and which koli it went into; the shelf under it.",
+    () => { const s = cur(); return split(`${head(s)}<div class="scan">${IC.scan}Scan an article — it goes into Koli ${(s.open >= 0 ? s.open : s.koli.length) + 1}</div><div class="last"><span class="thumb">${s.arts[0][3]}</span><div class="two" style="flex:1"><span class="nm">${s.arts[0][0]}</span><span class="b">${s.arts[0][1]} · just now</span></div><b>→ Koli ${(s.open >= 0 ? s.open : 0) + 1}</b></div><div style="margin-top:14px">${shelf(s)}</div>`) }],
+  T7: ["Koli timeline", "The store's koli as a timeline: sealed with time, the open one, and what is still waiting.",
+    () => { const s = cur(); return split(`${head(s)}<div class="tl">${s.koli.map((k, i) => `<div class="ev ${k.sealed ? "" : "open"}"><b>Koli ${i + 1}</b> <span class="m">· ${s.pcsOf(k)} pcs · ${k.sealed ? `sealed ${k.at}` : "open"}</span><div class="phs" style="margin-top:6px">${k.c.map(c => `<span class="thumb">${s.arts[c[0]][3]}</span>`).join("")}</div></div>`).join("")}${s.left ? `<div class="ev wait"><b>Picked</b> <span class="m">· ${s.left} pcs not in a koli yet</span></div>` : ""}</div>`) }],
+  T8: ["Seal all", "The right pane ends with a summary — N koli, pcs, kg — and one “Seal all & go to Dispatch”.",
+    () => { const s = cur(); return split(`${head(s)}${shelf(s)}<div class="totals"><dl><dt>Koli</dt><dd>${s.koli.length}</dd><dt>In koli</dt><dd>${s.picked - s.left} of ${s.picked} pcs</dd><dt>Weight</dt><dd>${sum(s.koli, k => k.kg).toFixed(1)} kg</dd></dl></div><div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn p lg" ${s.left ? "disabled style='opacity:.45'" : ""}>Seal all & go to Dispatch</button></div>`) }],
+  T9: ["Phone: store select", "On a phone the list becomes one store select on top; the shelf and articles under it.",
+    () => { const s = cur(); return `<div class="sel" onclick="chosen=STORES[(STORES.indexOf(cur())+1)%STORES.length].st;render()"><span>${s.st} · ${s.left ? `${s.left} pcs to pack` : "All in koli"}</span><span>⌄</span></div>${head(s)}${shelf(s)}<div class="tbox mini" style="margin-top:12px"><table><tbody>${s.arts.map((a, i) => artRow(s, a, i, leftCell(s, i))).join("")}</tbody></table></div>` }],
+  T10: ["Koli cards stack", "The koli as a vertical stack of cards (Picked on top, amber), each with its photos and pcs; + Koli at the bottom.",
+    () => { const s = cur(); return split(`${head(s)}<div class="kstack">${s.left ? `<div class="kcard p"><span class="kchip"><span class="box">${IC.pick}</span></span><div style="flex:1"><b>Picked</b> <span class="m">· ${s.left} pcs not in a koli</span></div><div class="phs">${s.arts.filter((a, i) => s.leftOf(i)).map(a => `<span class="thumb">${a[3]}</span>`).join("")}</div></div>` : ""}${s.koli.map((k, i) => `<div class="kcard ${k.sealed ? "ok" : ""}"><span class="kchip"><span class="box">${k.sealed ? IC.ok : IC.pack}</span></span><div style="flex:1"><b>Koli ${i + 1}</b> <span class="m">· ${s.pcsOf(k)} pcs · ${k.sealed ? "sealed" : "open"}</span></div><div class="phs">${k.c.map(c => `<span class="thumb">${s.arts[c[0]][3]}</span>`).join("")}</div></div>`).join("")}${s.left ? `<div class="kcard" style="border-style:dashed;color:var(--accent)"><b>+ Koli ${s.koli.length + 1}</b></div>` : ""}</div>`) }],
+}
+const stages = () => `<div class="stages">${[["pick","Pick","3 cards · 15 pcs"],["pack","Pack",`${STORES.length} stores · ${sum(STORES, s => s.picked)} pcs`],["dispatch","Dispatch","3 koli sealed"],["transit","In transit","4 trips · 5 koli"]].map(([k,w,n]) => `<button class="stg ${k==="pack"?"on":""}"><span class="ic">${IC[k]}</span><span><span class="w">${w}</span><span class="n" style="display:block">${n}</span></span></button>`).join("")}</div>`
+function render() {
+  document.getElementById("opts").innerHTML = Object.entries(V).map(([k, v]) => `<button class="${k===opt?"on":""}" onclick="opt='${k}';render()"><b>${k}</b>${v[0]}</button>`).join("")
+  document.getElementById("widths").innerHTML = [["Desk",false],["Phone 414",true]].map(([t,n]) => `<button class="${narrow===n?"on":""}" onclick="narrow=${n};render()">${t}</button>`).join("")
+  document.body.classList.toggle("narrow", narrow)
+  const v = V[opt]
+  document.getElementById("note").innerHTML = `<b>${opt} · ${v[0]}.</b> ${v[1]}`
+  document.getElementById("page").innerHTML = stages() + v[2]()
+}
+const q = new URLSearchParams(location.search); if (q.get("o") && V[q.get("o")]) opt = q.get("o")
+render()
+</script>
+</body>
+</html>

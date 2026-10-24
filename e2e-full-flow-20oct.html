@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Full flow 20 Oct</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+<style>
+:root{--ink:#16181d;--body:#5c6170;--mute:#8a8f9c;--hair:#e7e8ec;--soft:#f6f7f9;--accent:#2862dc;--ok:#1f8a3b;--bad:#d70015;--warn:#b26a00}
+*{box-sizing:border-box}html,body{margin:0}
+body{background:#eef0f3;font-family:"Inter",system-ui,sans-serif;font-size:15px;line-height:1.5;color:var(--ink)}
+header{background:#fff;border-bottom:1px solid var(--hair);padding:20px 24px}
+header h1{margin:0;font-size:20px}
+header p{margin:4px 0 0;color:var(--body)}
+.wrap{max-width:1180px;margin:0 auto;padding:20px 16px 60px;display:flex;flex-direction:column;gap:18px}
+.sum{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+.box{background:#fff;border:1px solid var(--hair);border-radius:14px;padding:16px}
+.box h2{margin:0 0 8px;font-size:16px}
+.box ul{margin:0;padding-left:18px}
+.box li{margin:3px 0}
+.ok{color:var(--ok);font-weight:600}.bad{color:var(--bad);font-weight:600}.warn{color:var(--warn);font-weight:600}
+.act{background:#fff;border:1px solid var(--hair);border-radius:14px;overflow:hidden}
+.act > h2{margin:0;padding:14px 16px;font-size:17px;border-bottom:1px solid var(--hair);background:var(--soft)}
+.steps{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px;padding:14px}
+.step{display:flex;flex-direction:column;gap:8px}
+.step img{width:100%;border:1px solid var(--hair);border-radius:10px;cursor:zoom-in;background:#fff}
+.step b{font-weight:600}
+.step span{color:var(--body)}
+.n{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--accent);color:#fff;font-weight:600;margin-right:6px}
+.zoom{position:fixed;inset:0;background:rgba(0,0,0,.75);display:none;align-items:center;justify-content:center;padding:20px;z-index:9}
+.zoom img{max-width:100%;max-height:100%;border-radius:8px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Full flow in ego lite · 20 Oct 2026</h1>
+  <p>PO → article → allotment → Pick/Pack/Dispatch → stores count → per-store review → sold → customer return → return to HO → inspect → back in stock. Demo rig, real clicks.</p>
+</header>
+<div class="wrap">
+  <div class="sum">
+    <div class="box"><h2>Result</h2><ul>
+      <li class="ok">The whole loop works end to end</li>
+      <li>PO-201026-001 · 16 pcs · Rp 1.440.000</li>
+      <li>Article 00000024 · ALT-00000032 → C001 8, C002 8</li>
+      <li>Trip DSP-HO-GUDANG-000015 · 2 koli</li>
+      <li>Sold 2 pcs · Rp 318.000 · 1 returned by the customer</li>
+      <li>ALT-00000033 return · 2 pcs back on the racks</li>
+    </ul></div>
+    <div class="box"><h2>Fixed during the test</h2><ul>
+      <li><b>Store app:</b> a count in review showed "0 pcs". It now shows "n in stock · n on hold"</li>
+      <li><b>Hub trip review:</b> it stayed "2 stores to decide" after deciding. It now reads live data and closes when the trip is done</li>
+      <li><b>Decide dialog:</b> it now reads C001 8 → 7 pcs and "Wrong store · At C002 · stays there"</li>
+      <li><b>Return Store:</b> the Inspect screen was gone. It is back in the return sheet ("Put 2 back on the racks")</li>
+      <li><b>Till:</b> "Otorisasi supervisor" is now "Supervisor approval"</li>
+    </ul></div>
+    <div class="box"><h2>Retest · four findings</h2><ul>
+      <li class="ok">Print with no printer now says so: "Nothing printed · the printer at 127.0.0.1:9100 did not take the labels · 22 still to print"</li>
+      <li class="ok">Dispatch &amp; print works: DSP-HO-GUDANG-000016 left and its surat jalan opened ready to print. The earlier miss was the test clicking a hidden button</li>
+      <li class="ok">Ops board: answered trips no longer say "MD reviews". Only DSP-002, still waiting for C002, does. In transit 11 → 4</li>
+      <li class="ok">Allotments "In stock" is now what the DC holds free to allot: 2 pcs</li>
+    </ul></div>
+</div>
+  </div>
+
+  <div class="act"><h2>1 · Buy</h2><div class="steps" id="buy"></div></div>
+  <div class="act"><h2>2 · Allot and send</h2><div class="steps" id="send"></div></div>
+  <div class="act"><h2>3 · Stores count, MD reviews per store</h2><div class="steps" id="review"></div></div>
+  <div class="act"><h2>4 · Sell and customer return</h2><div class="steps" id="sell"></div></div>
+  <div class="act"><h2>5 · Back to HO and back in stock</h2><div class="steps" id="back"></div></div>
+  <div class="act"><h2>6 · Retest of the four findings</h2><div class="steps" id="retest"></div></div>
+</div>
+<div class="zoom" id="zoom"><img alt=""></div>
+<script>
+const F = "e2e-full-flow-20oct/";
+const ACTS = {
+  buy: [
+    ["06-po-items", "New PO", "Garmen Nusantara · Kemeja E2E Oktober · White/Black × M/L · 16 pcs × Rp 90.000"],
+    ["08-po-submitted", "PO submitted", "PO-201026-001 created, 16 pcs, Rp 1.440.000"],
+    ["10-count-receive", "Gudang counts", "Receiving PO · 4 per size · Submit count"],
+    ["12-po-review-count", "Review Count", "Every size matches · Submit → PO completed"],
+    ["16-article-saved", "Minimum price", "Rp 149.000 · 65.6% over COGS"],
+    ["17-article-sheet", "New article", "Base price Rp 159.000 · Submit → 00000024"],
+    ["20-printed", "Tags printed", "Printing · 16 labels sent to the printer"],
+  ],
+  send: [
+    ["23-allot-grid", "New allotment", "C001 8, C002 8 · Submit all → ALT-00000032"],
+    ["26-pick-sheet", "Pick", "Pick all 8/8 · Submit 8 pcs, C001 and C002"],
+    ["30-sealed", "Pack", "All in → Seal & print Koli 1 · A00029"],
+    ["31-packed", "Both packed", "A00029 · A00030 on the Packed lane"],
+    ["33-trip", "Dispatch", "All in → Trip 1 · 2 koli · 2 stores"],
+    ["35-dispatched", "Dispatched", "DSP-HO-GUDANG-000015 in transit · 16 pcs"],
+  ],
+  review: [
+    ["38-store-count", "C001 counts", "Black · L counted 1 of 2 (short on purpose)"],
+    ["39-store-submit", "C001 in review", "Matched pieces already in stock · 7 pcs"],
+    ["41-c002-submitted", "C002 counts", "Black · L 3: 2 in stock · 1 on hold"],
+    ["42-hub-trip-review", "Trip review", "Both stores red · 1 to C002 / 1 from C001 (wrong store)"],
+    ["44-accept-dialog-c001", "Accept at C001", "The dialog says what it does (before the fix of its totals)"],
+    ["48-accept-dialog-c002", "Accept at C002", "Wrong store · kept at C002 · meant for C001 → ALT-00000032 completed"],
+  ],
+  sell: [
+    ["55-move-filled", "To the floor", "Store app · Move stock · 3 pcs Store room → Sales floor"],
+    ["56-till-basket", "Till", "Scan 2 tags · Rp 318.000"],
+    ["59-till-sold", "Sold", "Cash · Sale complete"],
+    ["63-return-recorded", "Customer return", "1 piece back · resaleable · Rp 159.000 cash back · supervisor approved"],
+  ],
+  back: [
+    ["68-return-filled", "Return HO", "MD asks C001 for 2 pcs → ALT-00000033"],
+    ["71-store-sent", "Store sends", "SJ-C001-TOKO-000005 · 2 pcs on the way"],
+    ["73-return-count", "HO counts", "Receiving Return · 2 of 2"],
+    ["77-inspect", "Inspect (new)", "Each piece · Damaged tick · Put 2 back on the racks"],
+    ["78-inspected", "Inspected", "2 back to the racks"],
+    ["79-back-in-stock", "Back in stock", "Allotments · Unallotted · Kemeja 2 pcs ready to allot again"],
+  ],
+  retest: [
+    ["v1-print-off", "Printer off", "Print 22 with no printer → a toast says nothing printed and why"],
+    ["v2-dispatch-print", "Dispatch & print", "ALT-00000034 → DSP-HO-GUDANG-000016, surat jalan SJ-HO-GUDANG-000024 opens to print"],
+    ["v3-board", "Board", "Only the trip MD still has to answer says MD reviews"],
+    ["v4-kpi", "In stock", "2 pcs free to allot"],
+  ],
+};
+let n = 0;
+for (const [act, steps] of Object.entries(ACTS))
+  document.getElementById(act).innerHTML = steps.map(([f, t, d]) => `<div class="step"><img src="${F}${f}.png" alt="${t}" loading="lazy"><div><span class="n">${++n}</span><b>${t}</b><br><span>${d}</span></div></div>`).join("");
+const z = document.getElementById("zoom");
+document.addEventListener("click", (e) => {
+  if (e.target.matches(".step img")) { z.querySelector("img").src = e.target.src; z.style.display = "flex"; }
+  else if (e.target.closest("#zoom")) z.style.display = "none";
+});
+</script>
+</body>
+</html>

@@ -399,6 +399,8 @@ pub fn store_router_with_sync(
         .route("/api/v1/store/inbound", get(store_inbound_list))
         // What the shop counted and could not book, until MD answers.
         .route("/api/v1/store/inbound/on-hold", get(store_on_hold))
+        // A scanned koli label or surat jalan → the delivery (and koli) it is.
+        .route("/api/v1/store/inbound/scan", get(store_inbound_scan))
         .route(
             "/api/v1/store/inbound/{delivery_id}",
             get(store_inbound_detail),
@@ -540,6 +542,17 @@ pub fn store_router_with_sync(
             "/api/v1/store/vouchers/{code}/release",
             post(relay_voucher_release),
         )
+        // F2 on a voucher, F5 and Shift+F5 on a member: asked of head office
+        // without touching money — see `relay_voucher_check` / `relay_member`.
+        .route(
+            "/api/v1/store/vouchers/{code}/check",
+            post(relay_voucher_check),
+        )
+        .route("/api/v1/store/members/lookup", post(relay_member_lookup))
+        .route("/api/v1/store/members", post(relay_member_enrol))
+        // F5 "Daftar member" with a struk number (client, 24 Oct 2026): the
+        // sale on it becomes the member's, with its points.
+        .route("/api/v1/store/sales/member", post(store_attach_member))
         // A limited coupon's hold — HEMAT50, "kuota 100 transaksi" — for the
         // voucher's reason: the count that keeps the cap is one number shared by
         // every shop, so the use is reserved at the centre, where both shops can
@@ -560,6 +573,14 @@ pub fn store_router_with_sync(
         .route("/api/v1/store/benefit/lookup", post(relay_benefit_lookup))
         .route("/api/v1/store/benefit/spend", post(relay_benefit_spend))
         .route("/api/v1/store/benefit/return", post(relay_benefit_return))
+        // What a till sold that this shop's stock could not give it (owner,
+        // 23 Oct 2026): the Kepala toko's approval of an unknown item, and the
+        // store app's read of where head office's matching stands.
+        .route(
+            "/api/v1/store/unmatched/approve",
+            post(approve_unknown_item),
+        )
+        .route("/api/v1/store/unmatched", get(relay_unmatched_sales))
         // A member's points balance, like a voucher's, lives at the centre —
         // one shopper can be handed a code in store-01 and stand at store-07's
         // counter with it. These two relay to head office and say so when the
@@ -594,6 +615,17 @@ pub fn store_router_with_sync(
         .route(
             "/api/v1/store/shifts",
             post(store_open_shift).get(store_shifts_on),
+        )
+        // Held sales — Tunda (client, 23 Oct 2026): kept on this node so any
+        // till of the store resumes them; they expire with the business day.
+        .route("/api/v1/store/held", get(store_held_sales).post(store_hold_sale))
+        .route(
+            "/api/v1/store/held/{held_id}/resume",
+            post(store_resume_held),
+        )
+        .route(
+            "/api/v1/store/held/{held_id}",
+            axum::routing::delete(store_drop_held),
         )
         // A supervisor's yes to a basket edit, spent on a row of its own —
         // the unsold basket has no sale to carry the signature.
@@ -644,6 +676,7 @@ pub fn store_router_with_sync(
         )
         .route("/api/v1/store/sales/{sale_id}/void", post(store_void_sale))
         .route("/api/v1/store/returns", post(store_return))
+        .route("/api/v1/store/exchanges", post(store_exchange))
         .route(
             "/api/v1/store/sales/{sale_id}/receipt",
             get(store_receipt).post(store_print_receipt),
@@ -715,6 +748,12 @@ fn common_router() -> Router<EdgeState> {
         .route("/api/v1/auth/login", post(login))
         .route("/api/v1/auth/me", get(me))
         .route("/api/v1/auth/logout", post(logout))
+        // "Buka atas nama": a Kepala toko signed in at a till opens it for a
+        // cashier, whose session the till then holds (owner, 23 Oct 2026).
+        .route(
+            "/api/v1/auth/on-behalf",
+            get(till_people).post(open_on_behalf),
+        )
         .route("/api/v1/auth/change-password", post(change_password))
         // A finger opens a till and authorises a void. Three of these are
         // people-facing and signed in normally; two are spoken by a paired
@@ -729,6 +768,13 @@ fn common_router() -> Router<EdgeState> {
         )
         .route("/api/v1/auth/fingerprints/roster", get(fingerprint_roster))
         .route("/api/v1/auth/fingerprints/claim", post(fingerprint_claim))
+        // An employee's finger opens their benefit balance (client, 24 Oct
+        // 2026): signed by the terminal like a claim, answered with a grant
+        // the till puts on `/store/benefit/*` instead of a code.
+        .route(
+            "/api/v1/auth/fingerprints/benefit",
+            post(fingerprint_benefit),
+        )
         // A PIN is what a staging shop uses while there is no scanner to press.
         // Which of the two a node accepts is the node's decision, and it is
         // enforced here rather than trusted to the tills — see `edge/pin.rs`.
@@ -756,6 +802,10 @@ fn common_router() -> Router<EdgeState> {
         )
         .route("/api/v1/devices/joins/{join_id}/refuse", post(refuse_join))
         .route("/api/v1/devices/status", post(set_device_status))
+        // What head office stopped that a till shows on its door — the store,
+        // the till or its seat, and the drawer still open there (0990). Open:
+        // a door shows it before anybody signs in.
+        .route("/api/v1/till/standing", get(till_standing))
         .route("/api/v1/devices/printers", post(record_printer))
         .route(
             "/api/v1/devices/printers/{printer_id}",
@@ -953,6 +1003,15 @@ fn edge_pool_metadata(
         StoreFloor { .. } => ("STORE_INVENTORY", "FLOOR", "Floor", 20, None),
         Reject { .. } if at_a_shop => ("REJECT", "REJECT", "Reject", 30, None),
         Reject { .. } => ("REJECT", "DC_REJECT", "Reject", 90, None),
+        // A shop's To be returned, beside its reject (owner, 23 Oct 2026).
+        ToReturn {
+            pocket: crate::edge::ToReturnPocket::OverDelivery,
+            ..
+        } => ("REJECT", "OVER_DELIVERY", "Over delivery", 31, None),
+        ToReturn {
+            pocket: crate::edge::ToReturnPocket::ReturnHo,
+            ..
+        } => ("REJECT", "RETURN_HO", "Return HO", 32, None),
     }
 }
 
@@ -1707,7 +1766,12 @@ async fn store_return_send(
             .inventory
             .dispatch_trip(crate::edge::contracts::DispatchTripRequest {
                 koli_ids: vec![koli.koli.koli_id.clone()],
-                trip_note: Some(format!("Return {}", ask.allotment_number)),
+                trip_note: Some(match request.trip_note.as_deref().map(str::trim) {
+                    Some(note) if !note.is_empty() => {
+                        format!("Return {} · {note}", ask.allotment_number)
+                    }
+                    _ => format!("Return {}", ask.allotment_number),
+                }),
                 actor_id,
                 idempotency_key: format!("{key}:trip"),
             })?;
@@ -2154,7 +2218,24 @@ async fn store_count_submit(
     })))
 }
 
-/// One delivery; its per-SKU comparison only once it has been received.
+/// The delivery a scanned koli label or surat jalan number opens.
+async fn store_inbound_scan(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Query(query): Query<StoreInboundScanQuery>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    let result = run_blocking(move || state.inventory.store_inbound_scan(&query.code)).await?;
+    Ok(Json(serde_json::to_value(result)?))
+}
+
+#[derive(Deserialize)]
+struct StoreInboundScanQuery {
+    code: String,
+}
+
+/// One delivery: what was packed per SKU and per koli, and once received what
+/// was counted against it.
 async fn store_inbound_detail(
     State(state): State<EdgeState>,
     principal: Option<Extension<EdgePrincipal>>,
@@ -2296,9 +2377,10 @@ async fn dc_inspect_return(
 async fn store_quote(
     State(state): State<EdgeState>,
     principal: Option<Extension<EdgePrincipal>>,
-    Json(request): Json<crate::edge::contracts::QuoteRequest>,
+    Json(mut request): Json<crate::edge::contracts::QuoteRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    let principal = require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    request.actor_id = principal.map(|principal| principal.username).unwrap_or_default();
     let quote = run_blocking(move || state.inventory.quote_basket(request)).await?;
     Ok(Json(quote))
 }
@@ -2662,13 +2744,46 @@ struct RelayBenefitCall {
     basket_has_promotion: bool,
     #[serde(default)]
     reason: Option<String>,
+    /// Instead of a code: the grant an employee's finger on this shop's
+    /// scanner earned (`/api/v1/auth/fingerprints/benefit`). Whose balance it
+    /// opens is read off the grant here, never taken from the till.
+    #[serde(default)]
+    finger: Option<String>,
 }
 
+impl RelayBenefitCall {
+    /// The finger's grant, when the call carries one rather than a code.
+    fn finger_grant(&self) -> Result<Option<String>, EdgeError> {
+        let Some(grant) = self
+            .finger
+            .as_deref()
+            .map(str::trim)
+            .filter(|grant| !grant.is_empty())
+        else {
+            return Ok(None);
+        };
+        if self
+            .code
+            .as_deref()
+            .is_some_and(|code| !code.trim().is_empty())
+        {
+            return Err(EdgeError::Validation(
+                "a benefit call names a code or a finger, not both".into(),
+            ));
+        }
+        Ok(Some(grant.to_owned()))
+    }
+}
+
+/// `holder` is the login a finger's grant named, sent instead of a code. Only
+/// when there is one: a head office from before fingers refuses a field it
+/// does not know, and the code path must keep working against it.
 async fn relay_benefit(
     state: &EdgeState,
     verb: &str,
     actor: &str,
     call: RelayBenefitCall,
+    holder: Option<&str>,
 ) -> Result<Value, EdgeError> {
     let Some(sync) = state.sync.as_ref() else {
         return Err(EdgeError::Upstream(
@@ -2682,7 +2797,7 @@ async fn relay_benefit(
     };
     let url = format!("{base}/api/v1/sync/benefit/{verb}");
     let node = state.inventory.node();
-    let body = json!({
+    let mut body = json!({
         "origin_id": &node.node_id,
         "site_id": node.site_id.as_str(),
         "actor_id": actor,
@@ -2692,6 +2807,9 @@ async fn relay_benefit(
         "basket_has_promotion": call.basket_has_promotion,
         "reason": call.reason,
     });
+    if let (Some(holder), Some(fields)) = (holder, body.as_object_mut()) {
+        fields.insert("holder".into(), Value::from(holder));
+    }
     let (status, parsed) = relay_exchange(
         relay_client()?
             .post(&url)
@@ -2715,8 +2833,29 @@ async fn relay_benefit_lookup(
     Json(call): Json<RelayBenefitCall>,
 ) -> Result<Json<Value>, ApiError> {
     let actor = relay_actor(&state, principal, "finding a benefit")?;
+    let holder = match call.finger_grant().map_err(ApiError)? {
+        None => None,
+        Some(grant) => {
+            let connection = state.auth.connection();
+            let holder = run_blocking(move || {
+                let guard = connection
+                    .lock()
+                    .map_err(|_| EdgeError::Persistence("edge connection is poisoned".into()))?;
+                crate::edge::fingerprint::benefit_grant_holder(&guard, &grant)
+            })
+            .await?;
+            // Said now rather than at the spend, while the employee is still
+            // at the counter: head office refuses it then anyway.
+            if holder == actor {
+                return Err(ApiError(EdgeError::Forbidden(
+                    "a cashier does not ring up their own benefit; ask a colleague".into(),
+                )));
+            }
+            Some(holder)
+        }
+    };
     Ok(Json(
-        relay_benefit(&state, "lookup", &actor, call)
+        relay_benefit(&state, "lookup", &actor, call, holder.as_deref())
             .await
             .map_err(ApiError)?,
     ))
@@ -2733,11 +2872,53 @@ async fn relay_benefit_spend(
             "a benefit spend says how much of the basket it pays".into(),
         )));
     }
-    Ok(Json(
-        relay_benefit(&state, "spend", &actor, call)
-            .await
-            .map_err(ApiError)?,
-    ))
+    let Some(grant) = call.finger_grant().map_err(ApiError)? else {
+        return Ok(Json(
+            relay_benefit(&state, "spend", &actor, call, None)
+                .await
+                .map_err(ApiError)?,
+        ));
+    };
+    let sale_ref = call
+        .sale_ref
+        .as_deref()
+        .map(str::trim)
+        .filter(|sale_ref| !sale_ref.is_empty())
+        .map(str::to_owned)
+        .ok_or_else(|| {
+            ApiError(EdgeError::Validation(
+                "a benefit spend names the basket it pays".into(),
+            ))
+        })?;
+    // The grant is spent here first, on this basket, so one finger pays one
+    // basket however often the till asks; given back below if head office
+    // never took the spend.
+    let connection = state.auth.connection();
+    let (token, basket) = (grant.clone(), sale_ref.clone());
+    let holder = run_blocking(move || {
+        let mut guard = connection
+            .lock()
+            .map_err(|_| EdgeError::Persistence("edge connection is poisoned".into()))?;
+        crate::edge::fingerprint::spend_benefit_grant(&mut guard, &token, &basket)
+    })
+    .await?;
+    match relay_benefit(&state, "spend", &actor, call, Some(&holder)).await {
+        Ok(spent) => Ok(Json(spent)),
+        Err(error) => {
+            let connection = state.auth.connection();
+            let undone = run_blocking(move || {
+                let guard = connection
+                    .lock()
+                    .map_err(|_| EdgeError::Persistence("edge connection is poisoned".into()))?;
+                crate::edge::fingerprint::unspend_benefit_grant(&guard, &grant, &sale_ref)
+            })
+            .await;
+            if undone.is_err() {
+                tracing::warn!("a benefit finger could not be given back after its spend failed");
+            }
+            Err(ApiError(error))
+        }
+    }
 }
 
 async fn relay_benefit_return(
@@ -2747,10 +2928,90 @@ async fn relay_benefit_return(
 ) -> Result<Json<Value>, ApiError> {
     let actor = relay_actor(&state, principal, "giving a benefit back")?;
     Ok(Json(
-        relay_benefit(&state, "return", &actor, call)
+        relay_benefit(&state, "return", &actor, call, None)
             .await
             .map_err(ApiError)?,
     ))
+}
+
+/// The Kepala toko approves an unknown item: its name and price, verified with
+/// a finger or a password now, once. The till's sale spends the approval; a
+/// quote never verifies anything for the line (a finger's grant is single-use
+/// and short-lived, and the till quotes every couple of seconds).
+async fn approve_unknown_item(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(request): Json<crate::edge::UnknownItemApprovalRequest>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    require_permission(&state, principal, EdgePermission::StoreSale)?;
+    let approval = run_blocking(move || state.inventory.approve_unknown_item(request)).await?;
+    Ok((StatusCode::CREATED, Json(serde_json::to_value(approval)?)))
+}
+
+#[derive(Debug, Deserialize)]
+struct UnmatchedSalesQuery {
+    /// `open`, `matched` or `found`.
+    #[serde(default)]
+    status: Option<String>,
+}
+
+/// This shop's unmatched sales, as head office has them: what is still to
+/// match, what was matched and with what. Read-only and kept centrally, so
+/// relayed with this node's machine credential, like the benefit calls.
+async fn relay_unmatched_sales(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Query(query): Query<UnmatchedSalesQuery>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    let status = query
+        .status
+        .as_deref()
+        .map(str::trim)
+        .filter(|status| !status.is_empty())
+        .unwrap_or("open")
+        .to_ascii_lowercase();
+    if !matches!(status.as_str(), "open" | "matched" | "found") {
+        return Err(ApiError(EdgeError::Validation(format!(
+            "status is open, matched or found, not {status}"
+        ))));
+    }
+    let Some(sync) = state.sync.as_ref() else {
+        return Err(ApiError(EdgeError::Upstream(
+            "this node has no upload URL configured, so it cannot reach head office".into(),
+        )));
+    };
+    let Some((base, key)) = sync.cloud() else {
+        return Err(ApiError(EdgeError::Configuration(
+            "SYNC_UPLOAD_URL is empty, so the relay cannot work out where head office is".into(),
+        )));
+    };
+    let node = state.inventory.node();
+    let url = reqwest::Url::parse_with_params(
+        &format!("{base}/api/v1/sync/unmatched"),
+        &[
+            ("origin_id", node.node_id.as_str()),
+            ("site_id", node.site_id.as_str()),
+            ("status", status.as_str()),
+        ],
+    )
+    .map_err(|error| ApiError(EdgeError::Configuration(format!("head office URL: {error}"))))?;
+    let (code, parsed) = relay_exchange(
+        relay_client()
+            .map_err(ApiError)?
+            .get(url)
+            .header(relay::SYNC_KEY_HEADER, key),
+    )
+    .await
+    .map_err(ApiError)?;
+    if code.is_success() {
+        return Ok(Json(parsed));
+    }
+    Err(ApiError(relay_refusal(
+        code,
+        &parsed,
+        "head office refused to list unmatched sales",
+    )))
 }
 
 /// Send one relay call to head office and hand back what it answered.
@@ -2873,6 +3134,220 @@ fn voucher_hold_record(
         amount_minor,
         expires_at,
     })
+}
+
+/// F2 on a voucher: its kind and what is left on it, read-only. No hold is
+/// made and nothing is recorded here — a balance asked is not a balance spent.
+async fn relay_voucher_check(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Path(code): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let actor = relay_actor(&state, principal, "checking a voucher")?;
+    let call = RelayVoucherCall {
+        checkout_id: "check".into(),
+        amount_minor: None,
+        sale_id: None,
+        reason: None,
+        hold_seconds: None,
+    };
+    Ok(Json(
+        relay_voucher(&state, &code, "check", &actor, call)
+            .await
+            .map_err(ApiError)?,
+    ))
+}
+
+/// What a till sends to find a member, or register one.
+#[derive(Debug, Deserialize)]
+struct RelayMemberCall {
+    /// The number the cashier read out or scanned — a phone, or a card number.
+    member_id: String,
+    #[serde(default)]
+    display_name: Option<String>,
+    /// Registration only (client, 23 Oct 2026): `L` or `P`.
+    #[serde(default)]
+    gender: Option<String>,
+    #[serde(default)]
+    birth_place: Option<String>,
+    /// `YYYY-MM-DD`.
+    #[serde(default)]
+    birth_date: Option<String>,
+    #[serde(default)]
+    address: Option<String>,
+    #[serde(default)]
+    email: Option<String>,
+}
+
+/// Relay one member call to head office, signed with this node's machine
+/// credential, exactly as [`relay_benefit`] does: members are kept centrally,
+/// so a shopper registered at one shop is known at the next.
+async fn relay_member(
+    state: &EdgeState,
+    verb: &str,
+    actor: &str,
+    call: RelayMemberCall,
+) -> Result<Value, EdgeError> {
+    let Some(sync) = state.sync.as_ref() else {
+        return Err(EdgeError::Upstream(
+            "this node has no upload URL configured, so it cannot reach head office".into(),
+        ));
+    };
+    let Some((base, key)) = sync.cloud() else {
+        return Err(EdgeError::Configuration(
+            "SYNC_UPLOAD_URL is empty, so the relay cannot work out where head office is".into(),
+        ));
+    };
+    let url = format!("{base}/api/v1/sync/members/{verb}");
+    let node = state.inventory.node();
+    let body = json!({
+        "origin_id": &node.node_id,
+        "site_id": node.site_id.as_str(),
+        "actor_id": actor,
+        "member_id": call.member_id,
+        "display_name": call.display_name,
+        "gender": call.gender,
+        "birth_place": call.birth_place,
+        "birth_date": call.birth_date,
+        "address": call.address,
+        "email": call.email,
+    });
+    let (status, parsed) = relay_exchange(
+        relay_client()?
+            .post(&url)
+            .header(relay::SYNC_KEY_HEADER, key)
+            .json(&body),
+    )
+    .await?;
+    if status.is_success() {
+        return Ok(parsed);
+    }
+    Err(relay_refusal(status, &parsed, "head office refused the member call"))
+}
+
+/// F5: who is this number, and their points.
+async fn relay_member_lookup(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(call): Json<RelayMemberCall>,
+) -> Result<Json<Value>, ApiError> {
+    let actor = relay_actor(&state, principal, "finding a member")?;
+    Ok(Json(
+        relay_member(&state, "lookup", &actor, call)
+            .await
+            .map_err(ApiError)?,
+    ))
+}
+
+/// Shift+F5: register a new member by their phone and name.
+async fn relay_member_enrol(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(call): Json<RelayMemberCall>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    let actor = relay_actor(&state, principal, "registering a member")?;
+    Ok((
+        StatusCode::CREATED,
+        Json(
+            relay_member(&state, "enrol", &actor, call)
+                .await
+                .map_err(ApiError)?,
+        ),
+    ))
+}
+
+/// A lookup of one member by number, and nothing else.
+fn member_number(member_id: &str) -> RelayMemberCall {
+    RelayMemberCall {
+        member_id: member_id.trim().to_string(),
+        display_name: None,
+        gender: None,
+        birth_place: None,
+        birth_date: None,
+        address: None,
+        email: None,
+    }
+}
+
+/// Head office's name for a member, from a lookup's answer.
+fn member_display_name(found: &Value) -> Option<String> {
+    found
+        .get("display_name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+}
+
+/// F5 "Daftar member" with a struk number (client, 24 Oct 2026): the member
+/// just registered takes a sale already rung, and earns its points as if they
+/// had been on it (`till::attach_member`).
+///
+/// Head office is asked who the number is first: its answer names them, and a
+/// number it has never heard of is refused before the sale is touched. With
+/// the line down the sale is still tied on — by number, the name left to head
+/// office — and the award travels with this node's next push, behind the sale
+/// it belongs to.
+async fn store_attach_member(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(mut request): Json<crate::edge::till::AttachMemberRequest>,
+) -> Result<Json<Value>, ApiError> {
+    let actor = relay_actor(&state, principal, "tying a member to a sale")?;
+    let member_name =
+        match relay_member(&state, "lookup", &actor, member_number(&request.member_id)).await {
+            Ok(found) => {
+                if let Some(member_id) = found.get("member_id").and_then(Value::as_str) {
+                    request.member_id = member_id.to_string();
+                }
+                member_display_name(&found)
+            }
+            Err(EdgeError::NotFound(_)) => {
+                return Err(ApiError(EdgeError::NotFound(format!(
+                    "Member {} tidak ada",
+                    request.member_id.trim()
+                ))));
+            }
+            // The line is down, or this node has no head office to ask.
+            Err(EdgeError::Upstream(_) | EdgeError::Configuration(_)) => None,
+            Err(other) => return Err(ApiError(other)),
+        };
+    let site_id = state.inventory.node().site_id.as_str().to_string();
+    let attaching = actor.clone();
+    let attached = held_step(&state, move |tx, now| {
+        crate::edge::till::attach_member(
+            tx,
+            &site_id,
+            &request,
+            member_name.as_deref(),
+            &attaching,
+            now,
+        )
+    })
+    .await?;
+    match attached {
+        crate::edge::till::MemberAttach::Attached(result) => {
+            Ok(Json(serde_json::to_value(result)?))
+        }
+        crate::edge::till::MemberAttach::Taken {
+            receipt_no,
+            member_id,
+            member_name,
+        } => {
+            let name = match member_name {
+                Some(name) => name,
+                None => relay_member(&state, "lookup", &actor, member_number(&member_id))
+                    .await
+                    .ok()
+                    .as_ref()
+                    .and_then(member_display_name)
+                    .unwrap_or(member_id),
+            };
+            Err(ApiError(EdgeError::Conflict(format!(
+                "{receipt_no} sudah atas nama {name}"
+            ))))
+        }
+    }
 }
 
 async fn relay_voucher_commit(
@@ -3338,6 +3813,93 @@ fn blind_for_cashier(principal: Option<&EdgePrincipal>, mut report: Value) -> Va
         fields.insert("blind".into(), Value::Bool(true));
     }
     report
+}
+
+/// Run one held-sale step on the node's connection, in its own transaction.
+async fn held_step<T, F>(state: &EdgeState, step: F) -> Result<T, ApiError>
+where
+    T: Send + 'static,
+    F: FnOnce(&rusqlite::Transaction<'_>, chrono::DateTime<chrono::Utc>) -> Result<T, EdgeError>
+        + Send
+        + 'static,
+{
+    if state.inventory.node().role != EdgeRole::Store {
+        return Err(ApiError(EdgeError::Forbidden(
+            "a held sale is a shop's, and a DC does not sell".into(),
+        )));
+    }
+    let connection = state.auth.connection();
+    let now = state.inventory.clock().now();
+    run_blocking(move || {
+        let mut guard = connection
+            .lock()
+            .map_err(|_| EdgeError::Persistence("edge connection is poisoned".into()))?;
+        let tx = guard
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(crate::edge::sqlite::db)?;
+        let answer = step(&tx, now)?;
+        tx.commit().map_err(crate::edge::sqlite::db)?;
+        Ok(answer)
+    })
+    .await
+}
+
+/// Today's held sales, every cashier's.
+async fn store_held_sales(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::StoreSale)?;
+    let items = held_step(&state, |tx, now| crate::edge::till::held_sales(tx, now)).await?;
+    Ok(Json(json!({ "items": items })))
+}
+
+/// Put a basket aside.
+async fn store_hold_sale(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(mut request): Json<crate::edge::till::HoldSaleRequest>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    if let Some(principal) = require_permission(&state, principal, EdgePermission::StoreSale)? {
+        request.actor_id = principal.username;
+    }
+    name_the_actor(&mut request.actor_id);
+    let created =
+        held_step(&state, move |tx, now| crate::edge::till::hold_sale(tx, &request, now)).await?;
+    Ok((StatusCode::CREATED, Json(serde_json::to_value(created)?)))
+}
+
+/// Take a held basket back: it leaves the list, and the basket comes back.
+async fn store_resume_held(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Path(held_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let actor = require_permission(&state, principal, EdgePermission::StoreSale)?
+        .map(|principal| principal.username)
+        .unwrap_or_else(|| "system:till".to_string());
+    let held = held_step(&state, move |tx, now| {
+        crate::edge::till::resume_held(tx, &held_id, &actor, now)
+    })
+    .await?;
+    Ok(Json(serde_json::to_value(held)?))
+}
+
+/// Throw a held basket away, with the Kepala toko's finger or password.
+async fn store_drop_held(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Path(held_id): Path<String>,
+    Json(mut request): Json<crate::edge::till::DropHeldRequest>,
+) -> Result<Json<Value>, ApiError> {
+    if let Some(principal) = require_permission(&state, principal, EdgePermission::StoreSale)? {
+        request.actor_id = principal.username;
+    }
+    let held = held_step(&state, move |tx, now| {
+        crate::edge::till::drop_held(tx, &held_id, &request, now)
+    })
+    .await?;
+    Ok(Json(serde_json::to_value(held)?))
 }
 
 /// Record a supervisor's yes to a basket edit.
@@ -3852,13 +4414,26 @@ async fn store_shift_sales(
     Path(shift_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let principal = require_permission(&state, principal, EdgePermission::InventoryRead)?;
-    if principal
+    let cashier = principal
         .as_ref()
-        .is_some_and(|principal| principal.role == crate::edge::domain::Role::Cashier)
-    {
-        return Err(ApiError(EdgeError::Forbidden(
-            "a drawer's sales are not shown to a cashier".into(),
-        )));
+        .filter(|principal| principal.role == crate::edge::domain::Role::Cashier)
+        .map(|principal| principal.username.clone());
+    if let Some(username) = cashier {
+        // A cashier sees the last three receipts of their OWN drawer — enough to
+        // reprint the one just handed over, or return or void it — and never
+        // the day's book (client's 7Soft habit, 23 Oct 2026).
+        let inventory = state.inventory.clone();
+        let id = shift_id.clone();
+        let report = run_blocking(move || inventory.shift_report(&id)).await?;
+        if report.opened_by != username {
+            return Err(ApiError(EdgeError::Forbidden(
+                "a cashier sees only the last receipts of their own drawer".into(),
+            )));
+        }
+        let mut sales = run_blocking(move || state.inventory.shift_sales(&shift_id)).await?;
+        sales.reverse();
+        sales.truncate(3);
+        return Ok(Json(serde_json::to_value(sales)?));
     }
     let sales = run_blocking(move || state.inventory.shift_sales(&shift_id)).await?;
     Ok(Json(serde_json::to_value(sales)?))
@@ -3895,6 +4470,22 @@ async fn store_return(
         request.actor_id = principal.username;
     }
     let result = run_blocking(move || state.inventory.return_sale(request)).await?;
+    Ok((StatusCode::CREATED, Json(serde_json::to_value(result)?)))
+}
+
+/// Exchange, no money back (owner, 23 Oct 2026): pieces from one receipt come
+/// back and replacement pieces go out, in one transaction. `StoreSale`, like a
+/// return: the cashier sends it, the Kepala toko's grant in the body is what
+/// authorises it.
+async fn store_exchange(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(mut request): Json<crate::edge::till::ExchangeRequest>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    if let Some(principal) = require_permission(&state, principal, EdgePermission::StoreSale)? {
+        request.actor_id = principal.username;
+    }
+    let result = run_blocking(move || state.inventory.exchange_sale(request)).await?;
     Ok((StatusCode::CREATED, Json(serde_json::to_value(result)?)))
 }
 
@@ -4025,12 +4616,62 @@ impl IntoResponse for ApiError {
     }
 }
 
+/// A cashier who closed a till today does not sign in at it again (client,
+/// 23 Oct 2026): "{name} sudah tutup kasir hari ini"; nor does somebody head
+/// office stopped on the POS (0990). Only when the till names its seat, and
+/// only at a store.
+async fn refuse_closed_at_till(
+    state: &EdgeState,
+    username: &str,
+    terminal: Option<String>,
+) -> Result<(), ApiError> {
+    let Some(terminal) = terminal
+        .map(|terminal| terminal.trim().to_string())
+        .filter(|terminal| !terminal.is_empty())
+    else {
+        return Ok(());
+    };
+    if state.inventory.node().role != EdgeRole::Store {
+        return Ok(());
+    }
+    let connection = state.auth.connection();
+    let now = state.inventory.clock().now();
+    let username = username.to_string();
+    run_blocking(move || {
+        let guard = connection
+            .lock()
+            .map_err(|_| EdgeError::Persistence("edge connection is poisoned".into()))?;
+        crate::edge::till::refuse_closed_today(&guard, &username, &terminal, now)?;
+        // Head office stopped this person on the POS (0990): no sign-in at a
+        // till, unless they still hold a drawer to count and close.
+        if crate::edge::pos_stop::person_stop(&guard, &username).is_some()
+            && !crate::edge::pos_stop::holds_open_drawer(&guard, &username)
+        {
+            return Err(EdgeError::Forbidden(
+                "Akses POS Anda dihentikan kantor pusat.".into(),
+            ));
+        }
+        Ok(())
+    })
+    .await
+}
+
 async fn login(
     State(state): State<EdgeState>,
     Json(request): Json<LoginRequest>,
 ) -> Result<Response, ApiError> {
     let auth = state.auth.clone();
+    let terminal = request.terminal_id.clone();
     let issued = run_blocking(move || auth.login(&request.username, &request.password)).await?;
+    // Checked after the password, so the refusal tells a stranger nothing.
+    if let Err(refused) =
+        refuse_closed_at_till(&state, &issued.principal.username, terminal).await
+    {
+        let auth = state.auth.clone();
+        let session_id = issued.principal.session_id;
+        let _ = run_blocking(move || auth.logout(session_id)).await;
+        return Err(refused);
+    }
     let max_age = state.auth.config().session_ttl_minutes * 60;
     // Both cookies are formatted before the body takes ownership of the token.
     let session_cookie = security::set_cookie(
@@ -4317,6 +4958,82 @@ async fn logout(
         run_blocking(move || auth.logout(principal.session_id)).await?;
     }
     cleared_auth_response(&state, json!({"signed_out":true}))
+}
+
+/// Refused before anything is read: only a Kepala toko — a supervisor or
+/// above — may see whom she could open a till for.
+fn store_head(
+    state: &EdgeState,
+    principal: Option<Extension<EdgePrincipal>>,
+) -> Result<EdgePrincipal, ApiError> {
+    let head = require_permission(state, principal, EdgePermission::InventoryRead)?.ok_or_else(
+        || {
+            ApiError(EdgeError::Conflict(
+                "authentication is disabled on this Edge".into(),
+            ))
+        },
+    )?;
+    if head.role < crate::edge::domain::Role::Supervisor {
+        return Err(ApiError(EdgeError::Forbidden(
+            "only a store head may open a till for somebody else".into(),
+        )));
+    }
+    Ok(head)
+}
+
+/// The people a signed-in Kepala toko may open this till for.
+async fn till_people(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+) -> Result<Json<Value>, ApiError> {
+    store_head(&state, principal)?;
+    let auth = state.auth.clone();
+    let people = run_blocking(move || auth.till_people()).await?;
+    Ok(Json(json!({ "items": people })))
+}
+
+#[derive(Debug, Deserialize)]
+struct OnBehalfRequest {
+    username: String,
+    /// The seat, so a cashier who closed it today is refused.
+    #[serde(default)]
+    terminal_id: Option<String>,
+}
+
+/// Open this till for `username`: the answer is that person's session, the
+/// same token a password or a finger would have issued, and the head's own
+/// session is over.
+async fn open_on_behalf(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(request): Json<OnBehalfRequest>,
+) -> Result<Response, ApiError> {
+    let head = store_head(&state, principal)?;
+    let opened_by = head.username.clone();
+    refuse_closed_at_till(
+        &state,
+        &request.username.trim().to_ascii_lowercase(),
+        request.terminal_id.clone(),
+    )
+    .await?;
+    let auth = state.auth.clone();
+    let issued = run_blocking(move || auth.open_on_behalf(&head, &request.username)).await?;
+    tracing::info!(
+        opened_by = %opened_by,
+        cashier = %issued.principal.username,
+        "till opened on behalf of a cashier"
+    );
+    let mut response = Json(json!({
+        "token": issued.token,
+        "token_type": "Bearer",
+        "expires_at_epoch": issued.expires_at.timestamp(),
+        "username": issued.principal.username,
+        "display_name": issued.principal.display_name,
+        "opened_by": opened_by,
+    }))
+    .into_response();
+    prevent_auth_caching(&mut response);
+    Ok(response)
 }
 
 async fn change_password(
@@ -4749,10 +5466,14 @@ async fn require_auth(
         (request.method().as_str(), path),
         (
             "GET",
-            "/api/v1/auth/methods" | "/api/v1/auth/fingerprints/roster" | SELF_REQUESTS_PATH
+            "/api/v1/auth/methods"
+                | "/api/v1/auth/fingerprints/roster"
+                | "/api/v1/till/standing"
+                | SELF_REQUESTS_PATH
         ) | (
             "POST",
             "/api/v1/auth/fingerprints/claim"
+                | "/api/v1/auth/fingerprints/benefit"
                 | "/api/v1/auth/pin/claim"
                 | "/api/v1/devices/join"
                 | "/api/v1/devices/join/status"
@@ -4859,21 +5580,46 @@ async fn pair_terminal(
 
 /// Record a finger against a user.
 ///
-/// `AuthAdmin` as well. An enrolment is an authorisation to open a till, and a
-/// shop where a cashier can enrol their own supervisor's finger is a shop with
-/// no supervisor.
+/// An enrolment is an authorisation to open a till, and a shop where a cashier
+/// can enrol their own supervisor's finger is a shop with no supervisor. So a
+/// cashier never enrols. An admin enrols anybody. A store head (`SUPERVISOR`)
+/// enrols at the till itself (Till devices → Fingerprint), and only a cashier
+/// or her own finger: a cashier's finger opens nothing she cannot already open
+/// for that cashier ("Buka kasir atas nama"), while another supervisor's finger
+/// would be a second supervisor's approvals in her hand.
 async fn enrol_fingerprint(
     State(state): State<EdgeState>,
     principal: Option<Extension<EdgePrincipal>>,
     Json(request): Json<crate::edge::fingerprint::EnrolRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let principal = require_permission(&state, principal, EdgePermission::AuthAdmin)?;
+    let principal = require_permission(&state, principal, EdgePermission::DeviceAdmin)?;
+    let head_only = principal
+        .as_ref()
+        .is_some_and(|who| who.role < crate::edge::domain::Role::Admin);
     let actor = principal.map(|who| who.username).unwrap_or_default();
     let connection = state.auth.connection();
     let enrolled = run_blocking(move || {
         let guard = connection
             .lock()
             .map_err(|_| EdgeError::Persistence("edge connection is poisoned".into()))?;
+        if head_only {
+            let target = crate::security::normalize_username(&request.username)
+                .map_err(EdgeError::Validation)?;
+            let role: Option<String> = rusqlite::OptionalExtension::optional(guard.query_row(
+                "SELECT role FROM edge_user WHERE username=?1 AND active=1",
+                rusqlite::params![target],
+                |row| row.get(0),
+            ))
+            .map_err(|error| EdgeError::Persistence(error.to_string()))?;
+            let own = crate::security::normalize_username(&actor)
+                .is_ok_and(|actor| actor == target);
+            if !own && role.as_deref() != Some("CASHIER") {
+                return Err(EdgeError::Forbidden(
+                    "a store head enrols a cashier's finger or her own; ask an admin for anybody else"
+                        .into(),
+                ));
+            }
+        }
         crate::edge::fingerprint::enrol(&guard, request, &actor)
     })
     .await?;
@@ -4943,6 +5689,10 @@ async fn fingerprint_claim(
     let digest = crate::security::sha256_hex(&body);
     let request: crate::edge::fingerprint::ClaimRequest = serde_json::from_slice(&body)
         .map_err(|error| ApiError(EdgeError::Validation(format!("invalid claim: {error}"))))?;
+    // The seat, when the till names it — read beside the claim, not part of it.
+    let claim_terminal = serde_json::from_slice::<Value>(&body)
+        .ok()
+        .and_then(|body| body.get("terminal_id").and_then(Value::as_str).map(str::to_string));
     let purpose = request.purpose.trim().to_ascii_uppercase();
 
     let connection = state.auth.connection();
@@ -4966,6 +5716,7 @@ async fn fingerprint_claim(
         })?));
     }
 
+    refuse_closed_at_till(&state, &accepted.username, claim_terminal).await?;
     let auth = state.auth.clone();
     let username = accepted.username.clone();
     let issued = run_blocking(move || auth.issue_for_fingerprint(&username)).await?;
@@ -4978,6 +5729,40 @@ async fn fingerprint_claim(
     })))
 }
 
+/// An employee lays a finger on the till's scanner to pay from their benefit
+/// balance (client, 24 Oct 2026). Signed by the terminal, exactly as a
+/// supervisor's finger is: the till matched it, this node decides what that is
+/// worth — one grant for that person's balance, which the till then puts on
+/// the lookup and the spend instead of a code. The till never names a person
+/// on those calls; this node reads the person off its own grant.
+async fn fingerprint_benefit(
+    State(state): State<EdgeState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, ApiError> {
+    let proof = terminal_proof(&headers)?;
+    let digest = crate::security::sha256_hex(&body);
+    let request: crate::edge::fingerprint::BenefitClaimRequest = serde_json::from_slice(&body)
+        .map_err(|error| ApiError(EdgeError::Validation(format!("invalid claim: {error}"))))?;
+    let connection = state.auth.connection();
+    let granted = run_blocking(move || {
+        let mut guard = connection
+            .lock()
+            .map_err(|_| EdgeError::Persistence("edge connection is poisoned".into()))?;
+        crate::edge::fingerprint::benefit_claim(
+            &mut guard,
+            &proof,
+            request,
+            "/api/v1/auth/fingerprints/benefit",
+            &digest,
+        )
+    })
+    .await?;
+    Ok(Json(serde_json::to_value(granted).map_err(|error| {
+        ApiError(EdgeError::Persistence(error.to_string()))
+    })?))
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // The machines enrolled to this node
 // ════════════════════════════════════════════════════════════════════════════
@@ -4986,6 +5771,28 @@ fn lock_devices(
     connection: &Arc<std::sync::Mutex<rusqlite::Connection>>,
 ) -> Result<std::sync::MutexGuard<'_, rusqlite::Connection>, EdgeError> {
     crate::edge::devices::lock(connection)
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct TillStandingQuery {
+    terminal_id: String,
+}
+
+/// `GET /api/v1/till/standing?terminal_id=…`: what head office has stopped
+/// that this till must show on its door (`edge::pos_stop::standing`, 0990).
+/// Open: it carries a store's or a till's stop and the name on a drawer
+/// still open at that till — what the counter itself would show anybody.
+async fn till_standing(
+    State(state): State<EdgeState>,
+    Query(query): Query<TillStandingQuery>,
+) -> Result<Json<crate::edge::pos_stop::TillStanding>, ApiError> {
+    let connection = state.auth.connection();
+    let standing = run_blocking(move || {
+        let guard = lock_devices(&connection)?;
+        Ok(crate::edge::pos_stop::standing(&guard, &query.terminal_id))
+    })
+    .await?;
+    Ok(Json(standing))
 }
 
 /// Who this node is, for a till looking for its shop's server. Open, and
@@ -5113,7 +5920,8 @@ struct DeviceStatusRequest {
     reason: Option<String>,
 }
 
-/// Suspend, reactivate or revoke a till or a printer, here at the shop.
+/// Suspend, reactivate or revoke a printer, here at the shop. A till is head
+/// office's alone (`devices::set_status` refuses it).
 async fn set_device_status(
     State(state): State<EdgeState>,
     principal: Option<Extension<EdgePrincipal>>,
@@ -5406,6 +6214,10 @@ async fn pin_claim(
         .and_then(|value| value.as_str())
         .unwrap_or("SESSION")
         .to_string();
+    let pin_terminal = request
+        .get("terminal_id")
+        .and_then(|value| value.as_str())
+        .map(str::to_string);
 
     let connection = state.auth.connection();
     let wanted = purpose.trim().to_ascii_uppercase();
@@ -5431,6 +6243,7 @@ async fn pin_claim(
         })?));
     }
 
+    refuse_closed_at_till(&state, &accepted.username, pin_terminal).await?;
     let auth = state.auth.clone();
     let who = accepted.username.clone();
     // The same session a password login issues. One kind of session, so

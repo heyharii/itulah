@@ -1,4 +1,5 @@
-//! A shop knows what is on its way to it, and receives it blind.
+//! A shop knows what is on its way to it — what was packed, koli by koli —
+//! and receives it against that (no longer blind, owner 23 Oct 2026).
 //!
 //! Two tests, one per half of the loop:
 //!
@@ -311,7 +312,7 @@ async fn push(edge: &Arc<SqliteEdge>, seq: i64, payload: Value) {
 }
 
 #[tokio::test]
-async fn an_announced_delivery_is_blind_until_received_and_then_compared() {
+async fn an_announced_delivery_shows_what_was_packed_and_then_compares() {
     let shop = open_edge(STORE_ORIGIN, EdgeRole::Store, STORE_SITE);
     let router = || edge_router(&shop);
 
@@ -324,21 +325,20 @@ async fn an_announced_delivery_is_blind_until_received_and_then_compared() {
     );
     let (b1, b2, b99) = (epc(SKU_B, 1), epc(SKU_B, 2), epc(SKU_B, 99));
 
-    // Two koli under one surat jalan are one delivery.
-    push(
-        &shop,
-        1,
-        announcement(
-            Uuid::new_v4(),
-            STORE_SITE,
-            &[
-                (SKU_A, a1.clone()),
-                (SKU_A, a2.clone()),
-                (SKU_A, a3.clone()),
-            ],
-        ),
-    )
-    .await;
+    // Two koli under one surat jalan are one delivery. The first names its
+    // label, the second comes from a centre that does not.
+    let first_koli = Uuid::new_v4();
+    let mut labelled = announcement(
+        first_koli,
+        STORE_SITE,
+        &[
+            (SKU_A, a1.clone()),
+            (SKU_A, a2.clone()),
+            (SKU_A, a3.clone()),
+        ],
+    );
+    labelled["koli_number"] = json!("KL-DC01-000123");
+    push(&shop, 1, labelled).await;
     push(
         &shop,
         2,
@@ -361,7 +361,7 @@ async fn an_announced_delivery_is_blind_until_received_and_then_compared() {
     )
     .await;
 
-    // --- Blind while in transit -------------------------------------------
+    // --- What was packed, while in transit ---------------------------------
     let list = ok(router(), "GET", "/api/v1/store/inbound", None).await;
     let deliveries = list["deliveries"]
         .as_array()
@@ -380,7 +380,7 @@ async fn an_announced_delivery_is_blind_until_received_and_then_compared() {
     assert_eq!(delivery["shipment_reference"], SJ);
     assert_eq!(delivery["source_site_id"], DC_SITE);
     assert_eq!(delivery["koli_count"], 2);
-    assert!(delivery["result"].is_null(), "blind: {delivery}");
+    assert!(delivery["result"].is_null(), "nothing counted yet: {delivery}");
     assert!(delivery["received_at"].is_null());
 
     let detail = ok(
@@ -390,17 +390,67 @@ async fn an_announced_delivery_is_blind_until_received_and_then_compared() {
         None,
     )
     .await;
-    assert_eq!(detail["lines"], json!([]), "blind: {detail}");
+    let packed: Vec<(String, i64, i64)> = detail["lines"]
+        .as_array()
+        .unwrap_or_else(|| panic!("no lines: {detail}"))
+        .iter()
+        .map(|line| {
+            (
+                line["sku_code"].as_str().unwrap_or_default().to_string(),
+                line["expected"].as_i64().unwrap_or(-1),
+                line["received"].as_i64().unwrap_or(-1),
+            )
+        })
+        .collect();
+    assert_eq!(
+        packed,
+        vec![(SKU_A.to_string(), 4, 0), (SKU_B.to_string(), 2, 0)],
+        "what was packed, nothing received yet: {detail}"
+    );
     assert_eq!(detail["skipped_epcs"], json!([]));
-    // Nothing of the manifest leaks anywhere in either answer.
-    for body in [list.to_string(), detail.to_string()] {
-        for secret in [SKU_A, SKU_B, a1.as_str(), b2.as_str(), "expected"] {
-            assert!(
-                !body.contains(secret),
-                "{secret} leaked before receipt: {body}"
-            );
-        }
+    let koli = detail["koli"]
+        .as_array()
+        .unwrap_or_else(|| panic!("no koli: {detail}"));
+    assert_eq!(koli.len(), 2, "{detail}");
+    assert_eq!(koli[0]["koli_number"], "KL-DC01-000123");
+    assert_eq!(
+        koli[0]["lines"],
+        json!([{ "sku_code": SKU_A, "name": null, "quantity": 3 }])
+    );
+    assert!(koli[1]["koli_number"].is_null());
+
+    // A scanned label (as printed, or its QR) opens its koli; the surat
+    // jalan opens the delivery.
+    for code in ["KL-DC01-000123", "k1:kl-dc01-000123"] {
+        let scan = ok(
+            router(),
+            "GET",
+            &format!("/api/v1/store/inbound/scan?code={code}"),
+            None,
+        )
+        .await;
+        assert_eq!(scan["delivery_id"], json!(delivery_id), "{code}: {scan}");
+        assert_eq!(scan["koli_id"], json!(first_koli.to_string()), "{code}");
     }
+    for code in [SJ.to_string(), format!("s1:{SJ}")] {
+        let scan = ok(
+            router(),
+            "GET",
+            &format!("/api/v1/store/inbound/scan?code={code}"),
+            None,
+        )
+        .await;
+        assert_eq!(scan["delivery_id"], json!(delivery_id), "{code}: {scan}");
+        assert!(scan["koli_id"].is_null(), "{code}");
+    }
+    let (status, _) = call(
+        router(),
+        "GET",
+        "/api/v1/store/inbound/scan?code=KL-NOPE",
+        None,
+    )
+    .await;
+    assert_eq!(status, http::StatusCode::NOT_FOUND);
     let received_only = ok(
         router(),
         "GET",
@@ -1134,7 +1184,7 @@ async fn an_in_transit_koli_is_announced_to_its_shop_and_received_blind(pool: Pg
     shipped.sort();
     assert_eq!(announced, shipped);
 
-    // --- (b) The shop hears it, blind -----------------------------------------
+    // --- (b) The shop hears it, with what was packed --------------------------
     fleet.sync().await;
     let list = fleet.store_get("/api/v1/store/inbound").await;
     let deliveries = list["deliveries"]
@@ -1146,18 +1196,19 @@ async fn an_in_transit_koli_is_announced_to_its_shop_and_received_blind(pool: Pg
     assert_eq!(delivery["koli_count"], 1);
     assert_eq!(delivery["shipment_reference"], json!(shipment_reference));
     assert_eq!(delivery["source_site_id"], DC_SITE);
-    assert!(delivery["result"].is_null(), "blind: {delivery}");
+    assert!(delivery["result"].is_null(), "nothing counted yet: {delivery}");
     let delivery_id = delivery["delivery_id"]
         .as_str()
         .unwrap_or_else(|| panic!("no id: {delivery}"))
         .to_string();
-    let blind = fleet
+    let packed = fleet
         .store_get(&format!("/api/v1/store/inbound/{delivery_id}"))
         .await;
-    assert_eq!(blind["lines"], json!([]), "blind: {blind}");
+    assert_eq!(packed["lines"][0]["sku_code"], json!(sku_code), "{packed}");
+    assert_eq!(packed["lines"][0]["received"], 0, "{packed}");
     assert!(
-        !blind.to_string().contains(&epcs[0]) && !list.to_string().contains(&sku_code),
-        "nothing of the manifest is shown before receipt"
+        packed["koli"][0]["koli_number"].is_string(),
+        "the koli's label travelled to the shop: {packed}"
     );
     let elsewhere = ok(
         edge_router(&fleet.other_store),

@@ -1,0 +1,923 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sales filter and export</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+/* Sales › By place › Store, 20 Oct 2026: the bar over the table (search,
+   Filter, period, Heatmap, Export) "kurang rapi". Now = as the hub draws it;
+   A One bar · B Scope on top (picked 20 Oct) · C Chips · D Division radios · E Side filters.
+   Then "kpi nya ga rapi": KPI switch Now · K1 Five · K2 Stock apart ★ · K3 Figures only · K4 Four.
+   Second switch: Export as Straight ★ · Menu · Look first.
+   Shell and sizes copied from sales-store-tidy-options.html (measured on :5350
+   at 1440 on 17 Oct): title 17/600, KPI 15/16, tabs 15/500, bar 36, th 40.
+   Filter button, clause chips, value lists: design-system FilterPanel/FilterChips. */
+:root{
+  --ink:#1d1d1f; --body:#3a3a3c; --mute:#6e6e73; --faint:#c7c7cc; --ico:#8e8e93;
+  --canvas:#fff; --soft:#fafafb; --soft-2:#f2f2f5; --shell:#e8ebf0;
+  --hairline:#e8e8ec; --hairline-2:#dcdce1; --row-line:#eeeef1; --hover:#f6f7f9;
+  --accent:#2862dc; --accent-bg:#eef3fc; --chip:#667085;
+  --ring:0 0 0 1px rgb(0 0 0/5%),0 2px 8px rgb(0 0 0/4%),0 12px 32px rgb(0 0 0/6%);
+  --pop:0 0 0 1px rgb(0 0 0/6%),0 8px 24px rgb(0 0 0/12%);
+  --ease-out:cubic-bezier(.23,1,.32,1); --ease-drawer:cubic-bezier(.32,.72,0,1);
+  --font:"Inter",system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font-family:var(--font);font-size:15px;line-height:1.45;color:var(--ink);background:var(--shell);letter-spacing:-.006em;-webkit-font-smoothing:antialiased;overflow:hidden;display:flex;flex-direction:column;height:100vh}
+button,input{font:inherit;color:inherit;background:none;border:0;padding:0}
+button{cursor:pointer}
+button[disabled]{cursor:default}
+.i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+td,.fig .v,.num{font-variant-numeric:tabular-nums}
+
+/* ── prototype chrome ── */
+.proto{min-height:50px;background:#141518;color:#fff;display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:8px 14px 8px 18px;flex:none}
+.proto .grp{display:flex;align-items:center;gap:8px}
+.proto .t{font-weight:600;white-space:nowrap}
+.proto .lbl{color:#8b8f97;white-space:nowrap}
+.proto .sp{flex:1}
+.seg{display:flex;gap:2px;background:#24262b;border-radius:9px;padding:3px}
+.seg button{height:32px;padding:0 11px;border-radius:7px;color:#b9bcc3;white-space:nowrap;transition:background-color .15s ease,color .15s ease,transform .16s var(--ease-out)}
+.seg button b{font-weight:600;color:#fff;margin-right:5px}
+.seg button.on{background:#fff;color:var(--ink)}
+.seg button.on b{color:var(--ink)}
+.seg .star{color:#f4b740;margin-left:4px}
+.note{flex:none;height:36px;background:#1c1e22;color:#a7abb3;display:flex;align-items:center;padding:0 18px;border-top:1px solid #26282d;white-space:nowrap;overflow:hidden}
+.note b{color:#fff;font-weight:500;margin-right:8px}
+.note .txt{overflow:hidden;text-overflow:ellipsis}
+.note .cm{margin-left:auto;padding-left:16px;color:#7d818a}
+
+/* ── hub shell ── */
+.app{flex:1;min-height:0;display:grid;grid-template-columns:68px 216px minmax(0,1fr);padding:12px 12px 12px 0;overflow:hidden}
+.rail{display:flex;flex-direction:column;align-items:center;gap:6px;padding-top:2px}
+.rail .ri{width:40px;height:36px;border-radius:10px;display:grid;place-items:center;color:#3a3a3c}
+.rail .ri.on{background:#fff;box-shadow:0 0 0 1px rgb(0 0 0/5%),0 2px 6px rgb(0 0 0/4%);color:var(--accent)}
+.panel{background:#fff;border-radius:16px;box-shadow:0 0 0 1px rgb(0 0 0/5%),0 2px 6px rgb(0 0 0/4%);display:flex;flex-direction:column;min-height:0;margin-right:12px}
+.panel h2{margin:0;height:52px;display:flex;align-items:center;justify-content:space-between;padding:12px 14px 0 16px;font-size:20px;font-weight:600;color:#1d2939;letter-spacing:-.01em}
+.panel h2 .i{width:16px;height:16px;color:var(--ico)}
+.nav{padding:10px;display:flex;flex-direction:column;overflow-y:auto}
+.sec{display:flex;flex-direction:column;gap:1px;margin-top:22px}
+.sec:first-child{margin-top:0}
+.chipl{align-self:flex-start;height:22px;line-height:22px;margin:0 0 4px 6px;padding:0 8px;border-radius:6px;background:var(--soft-2);color:var(--chip);font-size:12px;font-weight:600}
+.nrow{height:36px;display:flex;align-items:center;padding:0 10px;border-radius:8px}
+.nrow.on{background:var(--accent-bg);color:var(--accent);font-weight:600}
+.page{background:#fff;border-radius:16px;box-shadow:var(--ring);min-width:0;min-height:0;position:relative;overflow:hidden}
+.main{height:100%;overflow-y:auto;overscroll-behavior:contain}
+.content{padding:24px 28px 40px}
+.swap{animation:swapin .16s ease-out}
+@keyframes swapin{from{opacity:0}}
+
+/* ── page: head · figures · tabs · card ── */
+.head{margin-bottom:24px}
+.head h1{margin:0;font-size:17px;line-height:24px;font-weight:600;letter-spacing:-.3px}
+.scope{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:-8px 0 28px}
+.figs{display:flex;margin-bottom:28px}
+.fig{padding:0 24px;border-left:1px solid var(--hairline);min-width:0}
+.fig:first-child{border-left:0;padding-left:0}
+.fig .l{color:var(--mute);white-space:nowrap}
+.fig .v{font-size:16px;line-height:22px;font-weight:600;padding-top:4px;white-space:nowrap;letter-spacing:-.02em}
+.fig .s{color:var(--mute);margin-top:6px;white-space:nowrap}
+.fig.apart{margin-left:auto;text-align:right;padding-right:0}
+
+.tabs{display:flex;gap:20px;border-bottom:1px solid var(--hairline);margin-bottom:16px}
+.tab{height:43px;color:var(--mute);font-weight:500;position:relative;transition:color .15s ease}
+.tab.on{color:var(--ink)}
+.tab.on::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;border-radius:2px;background:var(--ink)}
+
+.card{border:1px solid var(--hairline);border-radius:10px;background:#fff;overflow:clip}
+.bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 16px;border-bottom:1px solid var(--hairline)}
+.bar .sp{flex:1 1 0;min-width:0}
+.bar .brk{flex-basis:100%;height:0}
+.bar.now .search{flex:0 0 288px;max-width:none}
+.tabs .tv{margin-left:auto;align-self:center;display:flex;gap:8px}
+.row2{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 16px;border-bottom:1px solid var(--hairline)}
+.row2 .sp{flex:1}
+.bar.nw,.row2.nw{flex-wrap:nowrap;align-items:flex-start}
+.grow{flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.row2.nw .grow{min-height:32px}
+.vr{width:1px;height:22px;background:var(--hairline-2);margin:0 4px;flex:none}
+
+/* controls, all 36 */
+.search{height:36px;flex:1 1 160px;max-width:260px;min-width:160px;display:flex;align-items:center;gap:8px;padding:0 6px 0 12px;border:1px solid var(--hairline-2);border-radius:8px;transition:border-color .15s ease,box-shadow .15s ease}
+.search:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.search .i{width:16px;height:16px;color:var(--ico)}
+.search input{flex:1;min-width:0;outline:none}
+.search input::placeholder{color:var(--mute)}
+.search .clr{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;color:var(--ico)}
+.search .clr .i{width:14px;height:14px}
+.search .clr.hide{visibility:hidden}
+.btn{height:36px;display:inline-flex;align-items:center;gap:6px;padding:0 11px;border:1px solid var(--hairline-2);border-radius:8px;background:#fff;font-weight:500;white-space:nowrap;flex:none;transition:transform .16s var(--ease-out),background-color .15s ease}
+.btn .i{width:16px;height:16px}
+.btn .chev{width:15px;height:15px;color:var(--ico)}
+.btn .cnt{color:var(--mute)}
+.btn.open{background:var(--soft-2)}
+.btn.acc{color:var(--accent)}
+.btn.pending{pointer-events:none}
+.mini{height:28px;padding:0 9px;border:1px solid var(--hairline-2);border-radius:7px;background:#fff;font-weight:500;white-space:nowrap;transition:transform .16s var(--ease-out),background-color .15s ease}
+.pbtn{height:36px;padding:0 14px;border-radius:8px;background:var(--accent);color:#fff;font-weight:500;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;transition:transform .16s var(--ease-out),opacity .15s ease}
+.pbtn .i{width:16px;height:16px}
+.pbtn[disabled]{opacity:.4}
+.spin{animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.sg{display:inline-flex;gap:2px;background:#f2f2f4;border-radius:9px;padding:3px;flex:none}
+.sg button{height:30px;padding:0 10px;border-radius:6px;color:var(--mute);font-weight:500;white-space:nowrap;transition:background-color .15s ease,color .15s ease,transform .16s var(--ease-out)}
+.sg button.on{background:#fff;color:var(--ink);box-shadow:0 0 0 1px var(--hairline),0 1px 2px rgb(0 0 0/6%)}
+.sw{height:36px;display:inline-flex;align-items:center;gap:8px;padding:0 11px 0 7px;border:1px solid var(--hairline);border-radius:8px;font-weight:500;white-space:nowrap;flex:none;transition:transform .16s var(--ease-out)}
+.sw .k{width:30px;height:18px;border-radius:9px;background:#d9d9de;position:relative;transition:background-color .2s ease}
+.sw .k::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgb(0 0 0/20%);transition:transform .2s var(--ease-out)}
+.sw.on .k{background:var(--accent)}
+.sw.on .k::after{transform:translateX(12px)}
+.sw.off{opacity:.45;pointer-events:none}
+
+/* clause chips (FilterChips) */
+.cl{display:inline-flex;align-items:stretch;height:32px;border-radius:16px;background:var(--soft-2);overflow:hidden;max-width:100%;flex:none}
+.cl button{display:inline-flex;align-items:center;white-space:nowrap;transition:background-color .15s ease}
+.cl .c{padding:0 8px 0 12px;font-weight:500}
+.cl .o{padding:0 8px;background:var(--soft);color:var(--body);border-left:1px solid var(--hairline);border-right:1px solid var(--hairline)}
+.cl .v{padding:0 10px;color:var(--accent);font-weight:500;max-width:200px;overflow:hidden;text-overflow:ellipsis;display:block;line-height:32px}
+.cl .v.draft{color:var(--mute)}
+.cl .x{width:30px;justify-content:center;color:var(--ico);border-left:1px solid var(--hairline)}
+.cl .x .i{width:14px;height:14px}
+.cl.date .c .i{width:16px;height:16px;color:var(--ico);margin-right:6px}
+.cl.date .v{padding-right:12px}
+.cl.open{box-shadow:0 0 0 2px var(--accent-bg),0 0 0 1px var(--accent)}
+
+/* D · icon radios, one Segmented with icons */
+.radg{display:inline-flex;flex-wrap:wrap;gap:2px;background:#f2f2f4;border-radius:9px;padding:3px;max-width:100%}
+.rad{height:30px;display:inline-flex;align-items:center;gap:6px;padding:0 10px 0 8px;border-radius:6px;color:var(--body);font-weight:500;white-space:nowrap;flex:none;transition:transform .16s var(--ease-out),background-color .15s ease,color .15s ease,box-shadow .15s ease}
+.rad .i{width:16px;height:16px;color:var(--ico);transition:color .15s ease}
+.rad em{font-style:normal;color:var(--mute);font-weight:400}
+.rad.on{background:#fff;color:var(--accent);box-shadow:0 0 0 1px var(--hairline),0 1px 2px rgb(0 0 0/6%)}
+.rad.on .i{color:var(--accent)}
+
+/* E · side filters */
+.split{display:flex;align-items:flex-start}
+.split .tw{flex:1;min-width:0}
+.facets{width:232px;flex:none;align-self:flex-start;position:sticky;top:0;max-height:calc(100vh - 110px);overflow-y:auto;overscroll-behavior:contain;padding:6px 8px 16px}
+.split .tw{border-left:1px solid var(--hairline)}
+.split td,.split th{padding:0 10px}
+.split th:first-child,.split td:first-child{padding-left:14px}
+.split .mx td,.split .mx th{padding:0 6px}
+.fs{padding:12px 6px 6px;border-top:1px solid var(--row-line)}
+.fs:first-child{border-top:0}
+.fs h5{margin:0 0 4px;height:28px;display:flex;align-items:center;justify-content:space-between;padding:0 4px;font-size:15px;font-weight:600}
+.fwrap{display:flex;flex-wrap:wrap;gap:6px;padding:2px 2px 4px}
+.fmore{margin:4px 0 2px 6px}
+.cc{height:32px;display:inline-flex;align-items:center;gap:6px;padding:0 10px 0 6px;border-radius:16px;border:1px solid var(--hairline-2);background:#fff;white-space:nowrap;transition:transform .16s var(--ease-out),background-color .15s ease,border-color .15s ease,color .15s ease}
+.cc .dot{width:18px;height:18px;border-radius:50%;box-shadow:inset 0 0 0 1px rgb(0 0 0/14%)}
+.cc.on{border-color:var(--accent);background:var(--accent-bg);color:var(--accent);font-weight:500}
+.sz{min-width:44px;height:32px;padding:0 8px;border-radius:8px;border:1px solid var(--hairline-2);background:#fff;transition:transform .16s var(--ease-out),background-color .15s ease,border-color .15s ease,color .15s ease}
+.sz.on{border-color:var(--accent);background:var(--accent-bg);color:var(--accent);font-weight:500}
+
+/* rows in lists: facets, sheet, popovers */
+.fr{width:100%;min-height:38px;display:flex;align-items:center;gap:10px;padding:0 8px;border-radius:7px;text-align:left;transition:background-color .12s ease,transform .16s var(--ease-out)}
+.fr span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fr em{font-style:normal;color:var(--mute);white-space:nowrap;font-variant-numeric:tabular-nums}
+.fr .dot{width:16px;height:16px;border-radius:50%;box-shadow:inset 0 0 0 1px rgb(0 0 0/14%);flex:none}
+.fr.on span{font-weight:500}
+.bx{width:16px;height:16px;border-radius:4px;border:1.5px solid #b8b8c0;display:grid;place-items:center;flex:none;transition:background-color .12s ease,border-color .12s ease}
+.bx .i{width:12px;height:12px;stroke:#fff;stroke-width:3;opacity:0;transform:scale(.6);transition:opacity .12s ease,transform .16s var(--ease-out)}
+.on>.bx{background:var(--accent);border-color:var(--accent)}
+.on>.bx .i{opacity:1;transform:none}
+.rd{width:16px;height:16px;border-radius:50%;border:1.5px solid #b8b8c0;flex:none;transition:border-width .12s ease,border-color .12s ease}
+.on>.rd{border:5px solid var(--accent)}
+
+/* ── the table ── */
+table{border-collapse:separate;border-spacing:0;width:100%;table-layout:fixed}
+th{position:sticky;top:0;z-index:3;height:40px;background:var(--soft);color:var(--mute);font-weight:500;text-align:right;padding:0 12px;white-space:nowrap;border-bottom:1px solid var(--hairline)}
+td{height:60px;padding:0 12px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--row-line);overflow:hidden;text-overflow:ellipsis}
+th:first-child,td:first-child{text-align:left;padding-left:16px}
+tbody tr:last-child td{border-bottom:0}
+tbody td{transition:background-color .12s ease}
+tfoot td{position:sticky;bottom:0;z-index:2;background:var(--soft);font-weight:600;border-top:1px solid var(--hairline-2);border-bottom:0}
+.two{display:flex;flex-direction:column;align-items:flex-end;line-height:20px}
+td:first-child .two{align-items:flex-start}
+.two .u{color:var(--mute);font-weight:400}
+.nm{font-weight:500;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.b{font-weight:600}
+.m{color:var(--mute)}
+.mono{letter-spacing:.06em}
+.empty td{height:120px;text-align:center;color:var(--mute)}
+.mx td,.mx th{padding:0 6px;height:52px}
+.mx th:first-child,.mx td:first-child{padding-left:16px}
+.mx .tc{border-left:1px solid var(--hairline-2);padding:0 12px}
+.wide{overflow-x:auto}
+.wide td:first-child,.wide th:first-child{position:sticky;left:0;z-index:2;background:#fff}
+.wide th:first-child{z-index:4;background:var(--soft)}
+.wide tfoot td:first-child{background:var(--soft)}
+.foot{display:flex;align-items:center;gap:12px;padding:12px 16px;border-top:1px solid var(--hairline);color:var(--mute);white-space:nowrap}
+.foot .lg{margin-left:auto;display:inline-flex;align-items:center;gap:8px}
+.foot .lg i{width:72px;height:10px;border-radius:5px;background:linear-gradient(90deg,color-mix(in srgb,var(--accent) 4%,transparent),color-mix(in srgb,var(--accent) 32%,transparent))}
+.applied{display:flex;gap:8px;padding:8px 16px;border-bottom:1px solid var(--hairline);color:var(--body)}
+.applied button{color:var(--accent);font-weight:500}
+
+/* ── popover ── */
+.pop{position:fixed;z-index:50;min-width:240px;max-width:360px;background:#fff;border-radius:10px;box-shadow:var(--pop);padding:5px;opacity:0;transform:scale(.97);pointer-events:none;transition:opacity .15s var(--ease-out),transform .15s var(--ease-out)}
+.pop.open{opacity:1;transform:none;pointer-events:auto}
+.pop .ph{padding:8px 10px 6px;color:var(--mute);font-weight:600}
+.pop .ps{height:36px;display:flex;align-items:center;gap:8px;margin:3px 3px 5px;padding:0 10px;border:1px solid var(--hairline-2);border-radius:8px}
+.pop .ps:focus-within{border-color:var(--accent)}
+.pop .ps .i{width:16px;height:16px;color:var(--ico)}
+.pop .ps input{flex:1;min-width:0;outline:none}
+.pop .ps input::placeholder{color:var(--mute)}
+.pop .pl{max-height:272px;overflow-y:auto;overscroll-behavior:contain}
+.pop hr{border:0;border-top:1px solid var(--hairline);margin:5px 4px}
+.pop .nil{padding:10px;color:var(--mute)}
+.pr{width:100%;min-height:38px;display:flex;align-items:center;gap:10px;padding:0 10px;border-radius:7px;text-align:left;transition:background-color .12s ease,transform .16s var(--ease-out)}
+.pr>span{flex:1;min-width:0}
+.pr em{font-style:normal;color:var(--mute);white-space:nowrap}
+.pr>.i{width:16px;height:16px;color:var(--ico)}
+.pr .tick{color:var(--accent);visibility:hidden}
+.pr.on .tick{visibility:visible}
+.pr.on>span{font-weight:500}
+.pr.tall{min-height:52px}
+.pr .sub{display:block;color:var(--mute)}
+/* calendar */
+.cal{width:300px;padding:6px}
+.cal .ch{display:flex;align-items:center;gap:8px;height:36px;margin-bottom:4px}
+.cal .ch b{flex:1;text-align:center;font-weight:600}
+.cal .nv{width:32px;height:32px;border-radius:8px;border:1px solid var(--hairline-2);display:grid;place-items:center;transition:transform .16s var(--ease-out)}
+.cal .nv .i{width:16px;height:16px}
+.cal .nv[disabled]{opacity:.35}
+.cal .wk,.cal .gd{display:grid;grid-template-columns:repeat(7,1fr)}
+.cal .wk span{height:28px;line-height:28px;text-align:center;color:var(--mute)}
+.cal .gd{row-gap:2px}
+.cal .dy{height:36px;font-variant-numeric:tabular-nums;border-radius:8px;transition:background-color .1s ease}
+.cal .dy.in{background:var(--accent-bg);border-radius:0;color:var(--accent)}
+.cal .dy.a,.cal .dy.b{background:var(--accent);color:#fff;border-radius:8px;font-weight:500}
+.cal .dy[disabled]{color:var(--faint)}
+.cal .cf{display:flex;align-items:center;gap:8px;margin-top:8px;padding-top:10px;border-top:1px solid var(--hairline)}
+.cal .cf span{flex:1;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cal .cf span.set{color:var(--ink);font-weight:500}
+/* export · look first */
+.look{width:340px;padding:10px 12px 12px}
+.look .fl{display:flex;align-items:center;gap:10px;padding:2px 0 12px;font-weight:600}
+.look .fl .i{width:22px;height:22px;color:#1d7a46}
+.look .fact{display:flex;justify-content:space-between;gap:16px;padding:9px 0;border-top:1px solid var(--row-line)}
+.look .fact .k{color:var(--mute);white-space:nowrap}
+.look .fact .vv{text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.look .tiles{display:flex;gap:8px;padding:12px 0 14px;border-top:1px solid var(--row-line)}
+.look .tl{flex:1;height:40px;display:flex;align-items:center;gap:8px;padding:0 10px;border-radius:8px;border:1px solid var(--hairline-2);transition:transform .16s var(--ease-out),background-color .15s ease,border-color .15s ease}
+.look .tl.on{border-color:var(--accent);background:var(--accent-bg);color:var(--accent);font-weight:500}
+.look .pbtn{width:100%;justify-content:center}
+
+/* ── filter sheet (layer) ── */
+.veil{position:absolute;inset:0;z-index:30;background:rgb(40 30 20/10%);opacity:0;pointer-events:none;transition:opacity .2s var(--ease-out)}
+.veil.open{opacity:1;pointer-events:auto;transition-duration:.28s}
+.sheet{position:absolute;top:12px;right:12px;bottom:12px;width:560px;background:#fff;border-radius:16px;box-shadow:var(--ring);z-index:31;display:flex;flex-direction:column;transform:translateX(calc(100% + 24px));transition:transform .2s var(--ease-out)}
+.sheet.open{transform:none;transition:transform .28s var(--ease-drawer)}
+.sheet .hd{display:flex;align-items:center;gap:12px;padding:22px 24px 18px 28px;border-bottom:1px solid var(--hairline)}
+.sheet .hd h3{flex:1;margin:0;font-size:17px;line-height:24px;font-weight:600;letter-spacing:-.3px}
+.xb{width:32px;height:32px;border-radius:8px;display:grid;place-items:center;color:var(--mute);transition:transform .16s var(--ease-out),background-color .15s ease}
+.sheet .bd{flex:1;min-height:0;display:flex}
+.sheet .panes{width:200px;flex:none;border-right:1px solid var(--hairline);padding:8px;overflow-y:auto}
+.pn{width:100%;height:42px;display:flex;align-items:center;gap:10px;padding:0 10px;border-radius:7px;font-weight:500;transition:background-color .15s ease,transform .16s var(--ease-out)}
+.pn .i{width:16px;height:16px;color:var(--ico)}
+.pn small{margin-left:auto;font-size:15px;font-weight:400;color:var(--mute)}
+.pn.on{background:var(--soft-2)}
+.sheet .list{flex:1;min-width:0;overflow-y:auto;padding:12px 14px}
+.sheet .ss{height:36px;display:flex;align-items:center;gap:8px;margin:0 2px 8px;padding:0 10px;border:1px solid var(--hairline-2);border-radius:8px}
+.sheet .ss:focus-within{border-color:var(--accent)}
+.sheet .ss .i{width:16px;height:16px;color:var(--ico)}
+.sheet .ss input{flex:1;min-width:0;outline:none}
+.sheet .ft{display:flex;align-items:center;gap:8px;padding:14px 24px;border-top:1px solid var(--hairline)}
+.sheet .ft .sp{flex:1}
+.save{display:flex;gap:8px;margin:0 2px 12px}
+.save input{flex:1;min-width:0;height:36px;padding:0 10px;border:1px solid var(--hairline-2);border-radius:8px;outline:none}
+.save input:focus{border-color:var(--accent)}
+
+/* ── toast (Sonner-like) ── */
+.toast{position:fixed;left:50%;bottom:28px;z-index:60;display:flex;align-items:center;gap:12px;min-width:340px;padding:13px 16px;background:#fff;border-radius:12px;box-shadow:var(--pop);transform:translate(-50%,16px);opacity:0;pointer-events:none;transition:opacity .2s ease,transform .24s var(--ease-out)}
+.toast.open{opacity:1;transform:translate(-50%,0)}
+.toast .ok{width:24px;height:24px;border-radius:50%;background:#e7f5ec;color:#1d7a46;display:grid;place-items:center;flex:none}
+.toast .ok .i{width:14px;height:14px;stroke-width:2.4}
+.toast b{display:block;font-weight:500}
+.toast em{display:block;font-style:normal;color:var(--mute)}
+
+.btn:active,.mini:active,.pbtn:active,.sg button:active,.sw:active,.tab:active,.seg button:active,.rad:active,.cc:active,.sz:active,.fr:active,.pr:active,.pn:active,.xb:active,.nv:active,.tl:active,.cl button:active{transform:scale(.97)}
+@media (hover:hover){
+  .btn:hover,.mini:hover{background:var(--soft)}
+  .btn.open:hover{background:var(--soft-2)}
+  .sg button:not(.on):hover{color:var(--ink)}
+  .fr:hover,.pr:hover,.pn:not(.on):hover{background:var(--soft-2)}
+  .cl button:hover{background:rgb(0 0 0/4%)}
+  .rad:not(.on):hover{color:var(--ink)}
+  .cc:not(.on):hover,.sz:not(.on):hover{background:var(--soft)}
+  .xb:hover{background:var(--soft-2)}
+  .cal .dy:not([disabled]):not(.a):not(.b):hover{background:var(--soft-2)}
+}
+@media (prefers-reduced-motion:reduce){
+  .sheet,.sheet.open{transition:opacity .2s ease;transform:none;opacity:0;pointer-events:none}
+  .sheet.open{opacity:1;pointer-events:auto}
+  .pop,.toast{transform:none!important}
+  .swap{animation:none}
+}
+</style>
+</head>
+<body>
+<div class="proto">
+  <div class="t">Sales bar</div>
+  <div class="seg" id="opts"></div>
+  <div class="sp"></div>
+  <div class="grp"><span class="lbl">KPI</span><div class="seg" id="kpis"></div></div>
+  <div class="grp"><span class="lbl">Export</span><div class="seg" id="exps"></div></div>
+</div>
+<div class="note" id="note"></div>
+<div class="app">
+  <div class="rail" id="rail"></div>
+  <nav class="panel">
+    <h2>Sales <svg class="i" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg></h2>
+    <div class="nav" id="nav"></div>
+  </nav>
+  <div class="page">
+    <div class="main" id="main"></div>
+    <div class="veil" id="veil" data-act="sheet-close"></div>
+    <aside class="sheet" id="sheet" aria-hidden="true"></aside>
+  </div>
+</div>
+<div class="pop" id="pop" role="dialog"></div>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+/* ── icons (lucide) ── */
+const IC={
+  search:'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  cart:'<circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/>',
+  shirt:'<path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z"/>',
+  truck:'<path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/>',
+  mega:'<path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>',
+  store:'<path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"/><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4"/><path d="M2 7h20"/>',
+  bank:'<path d="M3 22h18M6 18v-7M10 18v-7M14 18v-7M18 18v-7"/><path d="m12 2 8 5H4z"/>',
+  users:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
+  chat:'<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+  book:'<path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/>',
+  cal:'<rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
+  filter:'<path d="M3 6h18M7 12h10M10 18h4"/>',
+  down:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>',
+  chev:'<path d="m6 9 6 6 6-6"/>',
+  left:'<path d="m15 18-6-6 6-6"/>',
+  right:'<path d="m9 18 6-6-6-6"/>',
+  x:'<path d="M18 6 6 18M6 6l12 12"/>',
+  check:'<path d="M20 6 9 17l-5-5"/>',
+  layers:'<path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/>',
+  tag:'<path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/>',
+  palette:'<circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/>',
+  ruler:'<path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z"/><path d="m14.5 12.5 2-2"/><path d="m11.5 9.5 2-2"/><path d="m8.5 6.5 2-2"/><path d="m17.5 15.5 2-2"/>',
+  bookmark:'<path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/>',
+  grid:'<rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/>',
+  dress:'<path d="M9 2v3.5L7 9l2.2 1.2L5 21h14l-4.2-10.8L17 9l-2-3.5V2"/><path d="M9 5.5h6"/>',
+  baby:'<path d="M9 12h.01"/><path d="M15 12h.01"/><path d="M10 16c.5.3 1.2.5 2 .5s1.5-.2 2-.5"/><path d="M19 6.3a9 9 0 0 1 1.8 3.9 2 2 0 0 1 0 3.6 9 9 0 0 1-17.6 0 2 2 0 0 1 0-3.6A9 9 0 0 1 12 3c2 0 3.5 1.1 3.5 2.5s-.9 2.5-2 2.5c-.8 0-1.5-.4-1.5-1"/>',
+  feet:'<path d="M4 16v-2.38C4 11.5 2.97 10.5 3 8c.03-2.72 1.49-6 4.5-6C9.37 2 10 3.8 10 5.5c0 3.11-2 5.66-2 8.68V16a2 2 0 1 1-4 0Z"/><path d="M20 20v-2.38c0-2.12 1.03-3.12 1-5.62-.03-2.72-1.49-6-4.5-6C14.63 6 14 7.8 14 9.5c0 3.11 2 5.66 2 8.68V20a2 2 0 1 0 4 0Z"/><path d="M16 17h4"/><path d="M4 13h4"/>',
+  bag:'<path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/>',
+  gem:'<path d="M6 3h12l4 6-10 13L2 9Z"/><path d="M11 3 8 9l4 13 4-13-3-6"/><path d="M2 9h20"/>',
+  panel:'<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/>',
+  xls:'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M8 13h2"/><path d="M14 13h2"/><path d="M8 17h2"/><path d="M14 17h2"/>',
+  plus:'<path d="M5 12h14M12 5v14"/>',
+  load:'<path d="M21 12a9 9 0 1 1-6.219-8.56"/>',
+};
+const ico=(n,c='i')=>`<svg class="${c}" viewBox="0 0 24 24">${IC[n]}</svg>`;
+const $=s=>document.querySelector(s);
+const rpc=v=>{const t=rp(v,false),m=t.match(/^([\d.]+),(\d)(\s\S)$/);return m&&+m[1].replace(/\./g,'')>=100?m[1]+m[3]:t};
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* ── numbers, the hub's way (lib/format.ts) ── */
+const NB=' ';
+const fmt=(d,min=0)=>new Intl.NumberFormat('id-ID',{maximumFractionDigits:d,minimumFractionDigits:min});
+const cnt=v=>fmt(0).format(Math.round(v));
+const pcs=v=>cnt(v)+' pcs';
+const dec=v=>fmt(1).format(v);
+const pc=v=>{const x=v*100;return(Math.round(x*10)/10===100?'100':fmt(1).format(x))+'%'};
+const pcI=v=>Math.round(v*100)+'%';
+const pcF=v=>(v>0&&v<.1?fmt(1).format(v*100):cnt(v*100))+'%';
+const STEPS=[[1e3,'K'],[1e6,'M'],[1e9,'B'],[1e12,'T']];
+function rp(v,cur=true){
+  const a=Math.abs(v),pre=(v<0?'−':'')+(cur?'Rp'+NB:'');
+  if(a<1000)return pre+cnt(a);
+  let at=-1;STEPS.forEach(([s],i)=>{if(a>=s)at=i});
+  if(Math.round(a/STEPS[at][0]*10)/10>=1000&&at<STEPS.length-1)at++;
+  const sc=a/STEPS[at][0];
+  return pre+fmt(1,Math.round(sc*10)/10<10?1:0).format(sc)+NB+STEPS[at][1];
+}
+
+/* ── tiny deterministic noise ── */
+function hash(s){let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)}return h>>>0}
+function r01(k){let t=hash(k)+0x6D2B79F5;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296}
+const between=(k,lo,hi)=>lo+(hi-lo)*r01(k);
+
+/* ── dates: sales from 2 Jan 2025, today 20 Oct 2026 ── */
+const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const MONL=['January','February','March','April','May','June','July','August','September','October','November','December'];
+const LO='2025-01-02',HI='2026-10-20';
+const dd=n=>String(n).padStart(2,'0');
+const iso=(y,m,d)=>`${y}-${dd(m+1)}-${dd(d)}`;
+const pd=s=>{const[y,m,d]=s.split('-').map(Number);return{y,m:m-1,d}};
+const dim=(y,m)=>new Date(y,m+1,0).getDate();
+const PRESETS=[
+  {k:'month',l:'This month',from:'2026-10-01',to:HI},
+  {k:'last',l:'Last month',from:'2026-09-01',to:'2026-09-30'},
+  {k:'year',l:'This year',from:'2026-01-01',to:HI},
+  {k:'all',l:'All time',from:LO,to:HI},
+];
+function rangeText(r){
+  const a=pd(r.from),b=pd(r.to);
+  if(r.from===r.to)return `${dd(a.d)} ${MON[a.m]} ${a.y}`;
+  if(a.y===b.y&&a.m===b.m)return `${dd(a.d)} – ${dd(b.d)} ${MON[b.m]} ${b.y}`;
+  if(a.y===b.y)return `${dd(a.d)} ${MON[a.m]} – ${dd(b.d)} ${MON[b.m]} ${b.y}`;
+  return `${dd(a.d)} ${MON[a.m]} ${a.y} – ${dd(b.d)} ${MON[b.m]} ${b.y}`;
+}
+function monthsIn(r){
+  const a=pd(r.from),b=pd(r.to),out=[];let y=a.y,m=a.m;
+  while(y<b.y||(y===b.y&&m<=b.m)){
+    const f=(y===a.y&&m===a.m)?a.d:1,t=(y===b.y&&m===b.m)?b.d:dim(y,m);
+    out.push({y,m,frac:(t-f+1)/dim(y,m)});m++;if(m>11){m=0;y++}
+  }
+  return out;
+}
+
+/* ── the shop: 14 stores; Bekasi stocked, opens 24 Oct ── */
+const STORES=[['C001','Kelapa Gading',1.25],['C002','Pondok Indah',1.15],['C003','Grand Indonesia',1.3],['C004','Senayan City',1],['C005','Kota Kasablanka',1.05],['C006','Central Park',1.1],['C007','BSD City',.95],['C008','Bogor',.8],['C009','Bandung',1],['C010','Semarang',.75],['C011','Surabaya',1.1],['C012','Medan',.85],['C013','Bali',.7],['C014','Bekasi',0]];
+const SEASON=[.9,.82,1.28,.97,.9,1,1.06,.95,.92,.98,1.02,1.3];
+const SS=SEASON.reduce((a,b)=>a+b,0),SW=STORES.reduce((a,s)=>a+s[2],0),ANNUAL=50e9;
+const DB=STORES.map(([code,name,w],s)=>{const k='st'+s;return{s,code,name,w,
+  price:118000+24000*r01(k+'p'),disc:.06+.05*r01(k+'d'),cost:.47+.08*r01(k+'c'),ppr:1.05+.35*r01(k+'r'),
+  stock:w?Math.round(6000+5000*r01(k+'s')):9400,unit:60000+18000*r01(k+'u')}});
+const storeMonth=(s,y,m)=>DB[s].w?ANNUAL*DB[s].w/SW*SEASON[m]/SS*(y===2025?.88:1)*(.88+.24*r01(`m${s}-${y}-${m}`)):0;
+
+/* ── what narrows: the hub's FILTERS (explorer-model.ts) ── */
+const DIVS=[['Wanita',.30,'dress'],['Pria',.24,'shirt'],['Anak',.14,'baby'],['Sandal dan Sepatu',.16,'feet'],['Tas',.09,'bag'],['Aksesoris',.07,'gem']];
+const TAGS=[['New arrival',.32],['Basic',.28],['Best seller',.22],['Lebaran 2026',.18],['Promo',.16],['Kids',.14],['Denim',.11],['Linen',.09],['Workwear',.08],['Weekend',.07],['Batik',.06],['Clearance',.05]];
+const SUPS=['PT Sinar Garmen Abadi','CV Batik Lestari','PT Mode Indah Sejahtera','PT Denim Nusantara','CV Rajut Bandung','PT Kulit Prima','CV Tas Kita','PT Anak Ceria','CV Linen House','PT Sepatu Kita','CV Aksesori Mas','PT Garmen Jaya','CV Kaos Polos','PT Busana Muslim Indah','CV Sandal Bali','PT Tekstil Raya','CV Hijab Cantik','PT Outdoor Gear'];
+const COLS=[['Black','#1d1d1f',.2],['White','#ffffff',.14],['Navy','#1f2a44',.11],['Grey','#8e8e93',.09],['Beige','#d9c7a7',.09],['Brown','#7a5236',.07],['Olive','#6b7a3a',.06],['Maroon','#7a1f2b',.06],['Pink','#f2a7bd',.06],['Sky blue','#8ec5f0',.05],['Mustard','#d9a521',.04],['Denim','#3d5a80',.03]];
+const SIZES=[['XS',.07],['S',.2],['M',.29],['L',.24],['XL',.13],['XXL',.05],['All size',.02]];
+const FILTERS=[
+  {k:'stores',l:'Store',pl:'stores',ic:'store'},
+  {k:'divisions',l:'Division',pl:'divisions',ic:'layers'},
+  {k:'tags',l:'Tag',pl:'tags',ic:'tag'},
+  {k:'suppliers',l:'Supplier',pl:'suppliers',ic:'truck'},
+  {k:'colours',l:'Colour',pl:'colours',ic:'palette'},
+  {k:'sizes',l:'Size',pl:'sizes',ic:'ruler'},
+];
+const FL=Object.fromEntries(FILTERS.map(f=>[f.k,f]));
+const VAL={
+  stores:STORES.map(([c,n])=>({v:c,l:n})),
+  divisions:DIVS.map(([n,w,ic])=>({v:n,l:n,w,ic})),
+  tags:TAGS.map(([n,w])=>({v:n,l:n,w})),
+  suppliers:SUPS.map((n,i)=>({v:n,l:n,w:1/(1+i*.35)})),
+  colours:COLS.map(([n,hex,w])=>({v:n,l:n,w,hex})),
+  sizes:SIZES.map(([n,w])=>({v:n,l:n,w})),
+};
+const SH={};
+['divisions','tags','suppliers','colours','sizes'].forEach(key=>{
+  SH[key]=DB.map((_,s)=>{const raw=VAL[key].map(x=>x.w*(.7+.6*r01(key+s+x.v)));const sum=raw.reduce((a,b)=>a+b,0);return raw.map(r=>r/sum)});
+});
+
+/* ── state ── */
+const P=new URLSearchParams(location.search);
+const S={o:P.get('o')||'b',k:P.get('k')||'k2',x:+(P.get('x')||1),tab:P.get('tab')==='month'?'month':'totals',heat:true,period:'year',range:null,q:'',
+  f:{stores:[],divisions:[],tags:[],suppliers:[],colours:[],sizes:[]},draft:null,rail:true,more:{}};
+const OPTS=[
+  {k:'now',b:'Now',l:'',note:'As the hub draws it on 20 Oct: the bar breaks in two, Heatmap sits greyed on Totals, Export is alone on line two, the foot says the store count twice.'},
+  {k:'a',b:'A',l:'One bar',note:'The same controls on one line: Search · Filter · period · Dates · Export. What narrows the rows shows as chips on a line under it, only while something does. Heatmap only on Per month.'},
+  {k:'b',b:'B',l:'Scope on top',star:1,picked:1,note:'The period and Filter change the figures too, so they stand above the figures (the design system’s Report order). The card keeps what is about its rows: Search and Export.'},
+  {k:'c',b:'C',l:'Chips',note:'Everything that narrows is a chip after Filter, the date as well. Filter adds a chip with its list already open; each chip changes in place, × takes it off.'},
+  {k:'d',b:'D',l:'Division radios',note:'Division, the question asked most, as icon radios with each one’s share, always in sight. Stores, tag, supplier, colour and size stay behind Filter.'},
+  {k:'e',b:'E',l:'Side filters',note:'Every choice in sight at the left of the table: period, division, store, tag, supplier, colour swatches, sizes. Hide filters folds the column away.'},
+];
+const EXPS=[{k:1,l:'Straight',star:1,note:'One press writes what is on screen; a toast names the file.'},{k:2,l:'Menu',note:'Export asks which: This table, Per month, or Both as two sheets.'},{k:3,l:'Look first',note:'Export shows what goes in the file — period, rows, each filter, which sheets — then Download Excel.'}];
+const KPIS=[
+  {k:'now',b:'Now',l:'',note:'As the hub draws it: six figures (the design system allows five at most), two facts under Sales, COGS and Gross profit say the same thing twice (49% + 51%), Stock is today’s yet sits among the period’s figures.'},
+  {k:'k1',b:'K1',l:'Five',note:'Five figures, one fact under each. COGS goes (it is Sales − Gross profit, and stays in the export and the store sheet); so does avg per transaction.'},
+  {k:'k2',b:'K2',l:'Stock apart',star:1,note:'K1, with Stock set apart at the right as Stock today: it does not follow the period, the other four do.'},
+  {k:'k3',b:'K3',l:'Figures only',note:'K2 without the grey line under each figure: label and figure, a line shorter. The facts (voided, discount, margin, worth) show on hover and stay in the table and the sheet.'},
+  {k:'k4',b:'K4',l:'Four',note:'Four, money first: Sales · Gross profit · Sold · Transactions. Stock leaves the strip — the table’s Total row already says it.'},
+];
+let lastSwitch='o';
+let POP=null, POPQ='', SHEET={open:false,pane:'stores',q:''}, LOOK={totals:true,month:false}, CAL=null, SAVED=[
+  {n:'Wanita this year',period:'year',f:{divisions:['Wanita']}},
+  {n:'Jakarta malls · Denim',period:'year',f:{stores:['C001','C002','C003','C004','C005','C006'],tags:['Denim']}},
+], swapNext=true;
+
+/* ── the figures ── */
+function range(){if(S.period==='custom')return S.range;const p=PRESETS.find(p=>p.k===S.period);return{from:p.from,to:p.to}}
+function periodName(){return S.period==='custom'?rangeText(S.range):PRESETS.find(p=>p.k===S.period).l}
+function factor(s,skip){
+  let f=1;
+  for(const key of ['divisions','tags','suppliers','colours','sizes']){
+    if(key===skip)continue;const sel=S.f[key];if(!sel.length)continue;
+    f*=VAL[key].reduce((a,x,i)=>a+(sel.includes(x.v)?SH[key][s][i]:0),0);
+  }
+  return f;
+}
+function rawSales(s,r){return monthsIn(r).reduce((a,x)=>a+storeMonth(s,x.y,x.m)*x.frac,0)}
+function monthCols(r){
+  const ms=monthsIn(r),lastY=pd(r.to).y,cross=pd(r.from).y!==lastY;
+  if(ms.length<=12)return ms.map(x=>({label:MON[x.m]+(cross?' '+String(x.y).slice(2):''),parts:[x]}));
+  const byY={},out=[];
+  ms.forEach(x=>{if(x.y<lastY)(byY[x.y]=byY[x.y]||{label:String(x.y),parts:[]}).parts.push(x)});
+  Object.keys(byY).sort().forEach(y=>out.push(byY[y]));
+  ms.filter(x=>x.y===lastY).forEach(x=>out.push({label:MON[x.m],parts:[x]}));
+  return out;
+}
+function compute(){
+  const r=range();
+  const inStores=S.f.stores.length?DB.filter(d=>S.f.stores.includes(d.code)):DB;
+  const rows=inStores.map(d=>{
+    const f=factor(d.s),sales=rawSales(d.s,r)*f,pcsN=sales/d.price,gp=sales*(1-d.cost),stock=Math.round(d.stock*f);
+    return{d,f,sales,pcs:pcsN,disc:sales*d.disc/(1-d.disc),gp,margin:sales?gp/sales:0,stock,value:stock*d.unit,trx:pcsN/d.ppr};
+  });
+  const tot=rows.reduce((a,x)=>a+x.sales,0);
+  rows.forEach(x=>x.share=tot?x.sales/tot:0);
+  const needle=S.q.trim().toLowerCase();
+  const vis=needle?rows.filter(x=>(x.d.name+' '+x.d.code).toLowerCase().includes(needle)):rows;
+  const sum=(list,k)=>list.reduce((a,x)=>a+x[k],0);
+  const k={trx:sum(rows,'trx'),sold:sum(rows,'pcs'),sales:tot,disc:sum(rows,'disc'),gp:sum(rows,'gp'),stock:sum(rows,'stock'),worth:sum(rows,'value')};
+  k.void=Math.round(k.trx*.0032);k.each=k.trx?k.sold/k.trx:0;k.avg=k.trx?k.sales/k.trx:0;k.cogs=k.sales-k.gp;k.cogsPct=k.sales?k.cogs/k.sales:0;k.margin=k.sales?k.gp/k.sales:0;
+  return{r,rows,vis,k,cols:monthCols(r)};
+}
+/* a value's share of sales in the period, before its own filter */
+function facetShare(key,i){
+  const r=range();
+  const stores=S.f.stores.length?DB.filter(d=>S.f.stores.includes(d.code)):DB;
+  if(key==='stores'){
+    const all=DB.map(d=>rawSales(d.s,r)*factor(d.s));const t=all.reduce((a,b)=>a+b,0);return t?all[i]/t:0;
+  }
+  let t=0,p=0;
+  stores.forEach(d=>{const v=rawSales(d.s,r)*factor(d.s,key);t+=v;p+=v*SH[key][d.s][i]});
+  return t?p/t:0;
+}
+
+/* ── shell ── */
+document.getElementById('rail').innerHTML=['search','cart','shirt','truck','mega','store','bank','users','chat','book'].map(n=>`<div class="ri${n==='store'?' on':''}">${ico(n)}</div>`).join('');
+document.getElementById('nav').innerHTML=[['By place',['Store','Cashier session','Payment method']],['By product',['Division','Tag','Article','SKU']],['By source',['Supplier','Purchase order']]]
+  .map(([c,rows])=>`<div class="sec"><span class="chipl">${c}</span>${rows.map(r=>`<div class="nrow${r==='Store'?' on':''}">${r}</div>`).join('')}</div>`).join('');
+function chrome(){
+  $('#opts').innerHTML=OPTS.map(o=>`<button class="${S.o===o.k?'on':''}" data-act="opt" data-v="${o.k}"><b>${o.b}</b>${o.l}${o.star?'<span class="star">★</span>':''}</button>`).join('');
+  $('#exps').innerHTML=EXPS.map(x=>`<button class="${S.x===x.k?'on':''}" data-act="exp" data-v="${x.k}" ${S.o==='now'?'disabled style="opacity:.35"':''}>${x.l}${x.star?'<span class="star">★</span>':''}</button>`).join('');
+  $('#kpis').innerHTML=KPIS.map(x=>`<button class="${S.k===x.k?'on':''}" data-act="kpi" data-v="${x.k}"><b>${x.b}</b>${x.l}${x.star?'<span class="star">★</span>':''}</button>`).join('');
+  const o=lastSwitch==='k'?KPIS.find(x=>x.k===S.k):lastSwitch==='x'?{b:'Export',l:EXPS.find(x=>x.k===S.x).l,note:EXPS.find(x=>x.k===S.x).note}:OPTS.find(o=>o.k===S.o);
+  $('#note').innerHTML=`<b>${o.b}${o.l?' · '+o.l:''}</b><span class="txt">${o.note}</span><span class="cm">keys 1–6 · k KPI · x export · t tab</span>`;
+  const q=new URLSearchParams({o:S.o,k:S.k,x:S.x});if(S.tab==='month')q.set('tab','month');history.replaceState(null,'','?'+q);
+}
+
+/* ── controls ── */
+const nSel=()=>FILTERS.reduce((a,f)=>a+(S.f[f.k].length?1:0),0);
+const anyNarrow=()=>nSel()>0;
+function search(){return `<label class="search">${ico('search')}<input id="q" placeholder="Search stores" aria-label="Search stores" value="${esc(S.q)}" autocomplete="off" spellcheck="false"><button class="clr${S.q?'':' hide'}" data-act="q-clear" aria-label="Clear search">${ico('x')}</button></label>`}
+function filterBtn(skip){
+  const n=FILTERS.reduce((a,f)=>a+(f.k!==skip&&S.f[f.k].length?1:0),0);
+  const anchor=S.o==='c'?' data-anchor="cols"':'';
+  const open=(SHEET.open||(POP&&POP.kind==='cols'))?' open':'';
+  return `<button class="btn${open}" data-act="filter"${anchor}>${ico('filter')}Filter${n?`<span class="cnt">${n}</span>`:''}</button>`;
+}
+function presets(){return `<div class="sg" role="radiogroup" aria-label="Period">${PRESETS.map(p=>`<button role="radio" aria-checked="${S.period===p.k}" class="${S.period===p.k?'on':''}" data-act="period" data-v="${p.k}">${p.l}</button>`).join('')}</div>`}
+function datesBtn(nowLook){
+  const custom=S.period==='custom',open=POP&&POP.kind==='dates'?' open':'';
+  if(nowLook)return `<button class="btn${open}${custom?' acc':''}" data-act="dates" data-anchor="dates">${ico('cal')}${custom?rangeText(S.range):'Pick dates'}${ico('chev','i chev')}</button>`;
+  return `<button class="btn${open}${custom?' acc':''}" data-act="dates" data-anchor="dates">${ico('cal')}${custom?rangeText(S.range):'Dates'}</button>`;
+}
+function heat(){
+  if(S.o==='now')return `<button class="sw${S.heat?' on':''}${S.tab==='totals'?' off':''}" data-act="heat"><span class="k"></span>Heatmap</button>`;
+  if(S.tab!=='month')return '';
+  return `<button class="sw${S.heat?' on':''}" data-act="heat"><span class="k"></span>Heatmap</button>`;
+}
+function exportBtn(){
+  const open=POP&&(POP.kind==='xmenu'||POP.kind==='xlook')?' open':'';
+  const chev=S.o!=='now'&&S.x===2?ico('chev','i chev'):'';
+  return `<button class="btn${open}" data-act="export" data-anchor="export">${ico('down')}Export${chev}</button>`;
+}
+function valText(key){
+  const sel=S.f[key];if(!sel.length)return '…';
+  if(sel.length>1)return `${sel.length} selected`;
+  return VAL[key].find(x=>x.v===sel[0]).l;
+}
+function chip(key){
+  const f=FL[key],sel=S.f[key],draft=!sel.length,open=POP&&POP.kind==='values'&&POP.key===key?' open':'';
+  return `<span class="cl${open}" data-anchor="chip-${key}"><button class="c" data-act="chip" data-key="${key}" title="${f.l}">${f.l}</button><button class="o" data-act="chip" data-key="${key}">${sel.length>1?'is any of':'is'}</button><button class="v${draft?' draft':''}" data-act="chip" data-key="${key}" title="${esc(sel.map(v=>VAL[key].find(x=>x.v===v).l).join(', '))}">${esc(valText(key))}</button><button class="x" data-act="unchip" data-key="${key}" aria-label="Remove the ${f.l} filter">${ico('x')}</button></span>`;
+}
+function chips(skip){return FILTERS.filter(f=>f.k!==skip&&(S.f[f.k].length||S.draft===f.k)).map(f=>chip(f.k)).join('')}
+const clearAll=()=>`<button class="mini" data-act="clearall">Clear all</button>`;
+function dateChip(){
+  const open=POP&&(POP.kind==='datechip'||POP.kind==='dates')?' open':'';
+  return `<span class="cl date${open}" data-anchor="datechip"><button class="c" data-act="datechip">${ico('cal')}Date</button><button class="v" data-act="datechip">${esc(periodName())}</button></span>`;
+}
+
+/* ── bars, one per option ── */
+function bar(){
+  switch(S.o){
+    case 'now':return `<div class="bar now">${search()}${filterBtn()}<div class="sp"></div>${presets()}${datesBtn(true)}${heat()}${exportBtn()}</div>${appliedNow()}`;
+    case 'a':return `<div class="bar">${search()}${filterBtn()}<div class="sp"></div>${presets()}${datesBtn()}${exportBtn()}</div>${anyNarrow()?`<div class="row2 nw"><div class="grow">${chips()}</div>${clearAll()}</div>`:''}`;
+    case 'b':return `<div class="bar">${search()}<div class="sp"></div>${exportBtn()}</div>`;
+    case 'c':return `<div class="bar nw"><div class="grow">${search()}${filterBtn()}${dateChip()}${chips()}</div>${exportBtn()}</div>`;
+    case 'd':{
+      const sel=S.f.divisions[0]||'all';
+      const rads=[{v:'all',l:'All',ic:'grid',sh:1},...VAL.divisions.map((x,i)=>({...x,sh:facetShare('divisions',i)}))]
+        .map(x=>`<button class="rad${sel===x.v?' on':''}" role="radio" aria-checked="${sel===x.v}" data-act="divradio" data-v="${esc(x.v)}">${ico(x.ic)}${esc(x.l)}${x.v==='all'?'':`<em>${pcF(x.sh)}</em>`}</button>`).join('');
+      const other=chips('divisions');
+      return `<div class="bar">${search()}${filterBtn('divisions')}<div class="sp"></div>${presets()}${datesBtn()}${exportBtn()}</div><div class="row2"><div class="radg" role="radiogroup" aria-label="Division">${rads}</div>${other?`<span class="vr"></span>${other}`:''}</div>`;
+    }
+    case 'e':{
+      const n=nSel();
+      return `<div class="bar">${search()}<div class="sp"></div><button class="btn" data-act="rail">${ico('panel')}${S.rail?'Hide filters':'Filters'}${!S.rail&&n?`<span class="cnt">${n}</span>`:''}</button>${exportBtn()}</div>${!S.rail&&anyNarrow()?`<div class="row2 nw"><div class="grow">${chips()}</div>${clearAll()}</div>`:''}`;
+    }
+  }
+}
+function appliedNow(){
+  const parts=FILTERS.filter(f=>S.f[f.k].length).map(f=>{const names=S.f[f.k].map(v=>VAL[f.k].find(x=>x.v===v).l);return `${f.l}: ${esc(names.slice(0,3).join(', '))}${names.length>3?` +${names.length-3}`:''}`});
+  return parts.length?`<div class="applied"><span>${parts.join(' · ')}</span><button data-act="clearall">Clear</button></div>`:'';
+}
+function scope(){
+  return `<div class="scope">${presets()}${datesBtn()}<span class="vr"></span>${filterBtn()}${chips()}${anyNarrow()?clearAll():''}</div>`;
+}
+
+/* ── E · the facets ── */
+function facets(){
+  const per=PRESETS.map(p=>`<button class="fr${S.period===p.k?' on':''}" role="radio" aria-checked="${S.period===p.k}" data-act="period" data-v="${p.k}"><i class="rd"></i><span>${p.l}</span></button>`).join('')
+    +`<button class="fr${S.period==='custom'?' on':''}" data-act="dates" data-anchor="dates"><i class="rd"></i><span>${S.period==='custom'?rangeText(S.range):'Pick dates'}</span>${ico('right','i')}</button>`;
+  const head=(key,label)=>`<h5>${label}${S.f[key].length?`<button class="mini" data-act="unchip" data-key="${key}">Clear</button>`:''}</h5>`;
+  const list=(key,show)=>{
+    const all=VAL[key].map((x,i)=>({...x,i}));const open=S.more[key];
+    const rows=open?all:all.filter((x,j)=>j<show||S.f[key].includes(x.v));
+    return rows.map(x=>`<button class="fr${S.f[key].includes(x.v)?' on':''}" data-act="val" data-key="${key}" data-v="${esc(x.v)}"><i class="bx">${ico('check')}</i><span>${esc(x.l)}</span><em>${pcF(facetShare(key,x.i))}</em></button>`).join('')
+      +(all.length>show?`<button class="mini fmore" data-act="more" data-key="${key}">${open?'Show fewer':`Show all ${all.length}`}</button>`:'');
+  };
+  const colours=VAL.colours.map(x=>`<button class="cc${S.f.colours.includes(x.v)?' on':''}" data-act="val" data-key="colours" data-v="${esc(x.v)}"><i class="dot" style="background:${x.hex}"></i>${esc(x.l)}</button>`).join('');
+  const sizes=VAL.sizes.map(x=>`<button class="sz${S.f.sizes.includes(x.v)?' on':''}" data-act="val" data-key="sizes" data-v="${esc(x.v)}">${esc(x.l)}</button>`).join('');
+  return `<aside class="facets">
+    <div class="fs" role="radiogroup" aria-label="Period"><h5>Period</h5>${per}</div>
+    <div class="fs">${head('divisions','Division')}${list('divisions',6)}</div>
+    <div class="fs">${head('stores','Store')}${list('stores',5)}</div>
+    <div class="fs">${head('tags','Tag')}${list('tags',5)}</div>
+    <div class="fs">${head('suppliers','Supplier')}${list('suppliers',4)}</div>
+    <div class="fs">${head('colours','Colour')}<div class="fwrap">${colours}</div></div>
+    <div class="fs">${head('sizes','Size')}<div class="fwrap">${sizes}</div></div>
+  </aside>`;
+}
+
+/* ── the table ── */
+function cellsTotals(x){
+  return `<td><div class="two"><span class="nm">${esc(x.d.name)}</span><span class="u mono">${x.d.code}-TOKO</span></div></td>
+    <td><div class="two"><span class="b">${rp(x.sales)}</span><span class="u">${pcs(x.pcs)}</span></div></td>
+    <td class="m">${rp(x.disc)}</td>
+    <td><div class="two"><span>${rp(x.gp)}</span><span class="u">${pcI(x.margin)}</span></div></td>
+    <td><div class="two"><span>${pcs(x.stock)}</span><span class="u">${rp(x.value)}</span></div></td>
+    <td class="m">${pc(x.share)}</td>`;
+}
+function tableTotals(D){
+  const v=D.vis,sum=k=>v.reduce((a,x)=>a+x[k],0),s=sum('sales'),gp=sum('gp');
+  const body=v.length?v.map(x=>`<tr>${cellsTotals(x)}</tr>`).join(''):`<tr class="empty"><td colspan="6">No store matches “${esc(S.q)}”.</td></tr>`;
+  return `<table><colgroup><col style="width:${S.o==='e'&&S.rail?24:26}%"><col><col><col><col><col style="width:11%"></colgroup>
+    <thead><tr><th>Store</th><th>Sales</th><th>Discount</th><th>Gross profit</th><th>Stock · Value</th><th>Share</th></tr></thead>
+    <tbody>${body}</tbody>
+    ${v.length?`<tfoot><tr><td>Total</td><td><div class="two"><span>${rp(s)}</span><span class="u">${pcs(sum('pcs'))}</span></div></td><td class="m">${rp(sum('disc'))}</td><td><div class="two"><span>${rp(gp)}</span><span class="u">${pcI(s?gp/s:0)}</span></div></td><td><div class="two"><span>${pcs(sum('stock'))}</span><span class="u">${rp(sum('value'))}</span></div></td><td>${pc(sum('share'))}</td></tr></tfoot>`:''}
+  </table>`;
+}
+function tableMonth(D){
+  const cols=D.cols,cell=(x,c)=>c.parts.reduce((a,p)=>a+storeMonth(x.d.s,p.y,p.m)*p.frac,0)*x.f;
+  const grid=D.vis.map(x=>cols.map(c=>cell(x,c)));
+  const body=D.vis.length?D.vis.map((x,i)=>{
+    const vals=grid[i],lo=Math.min(...vals),hi=Math.max(...vals),t=vals.reduce((a,b)=>a+b,0);
+    return `<tr><td><div class="two"><span class="nm">${esc(x.d.name)}</span><span class="u mono">${x.d.code}-TOKO</span></div></td>${vals.map(v=>{
+      const a=hi>lo?4+28*(v-lo)/(hi-lo):0,bg=S.heat&&v>0?` style="background:color-mix(in srgb,var(--accent) ${a.toFixed(1)}%,transparent)"`:'';
+      return `<td${bg}>${v>0?rpc(v):'<span class="m">–</span>'}</td>`}).join('')}<td class="tc b">${t>0?rpc(t):'<span class="m">–</span>'}</td></tr>`;
+  }).join(''):`<tr class="empty"><td colspan="${cols.length+2}">No store matches “${esc(S.q)}”.</td></tr>`;
+  const colT=cols.map((c,j)=>grid.reduce((a,r)=>a+r[j],0)),all=colT.reduce((a,b)=>a+b,0);
+  return `<div class="wide"><table class="mx" style="min-width:${170+96+cols.length*64}px"><colgroup><col style="width:170px">${cols.map(()=>'<col>').join('')}<col style="width:96px"></colgroup>
+    <thead><tr><th>Store · Sales, Rp</th>${cols.map(c=>`<th>${c.label}</th>`).join('')}<th class="tc">Total</th></tr></thead>
+    <tbody>${body}</tbody>
+    ${D.vis.length?`<tfoot><tr><td>Total</td>${colT.map(v=>`<td>${rpc(v)}</td>`).join('')}<td class="tc">${rpc(all)}</td></tr></tfoot>`:''}
+  </table></div>`;
+}
+function table(D){return S.tab==='totals'?tableTotals(D):tableMonth(D)}
+function foot(D){
+  const n=D.vis.length,all=STORES.length;
+  const lg=S.tab==='month'&&S.heat?`<span class="lg">Lowest <i></i> highest month, per row</span>`:'';
+  if(S.o==='now')return `<span>${cnt(n)} ${n===1?'store':'stores'}</span><span>${rangeText(D.r)} · ${all} stores</span>${lg}`;
+  return `<span>${n===all?`${all} stores`:`${n} of ${all} stores`} · ${rangeText(D.r)}</span>${lg}`;
+}
+
+/* ── the page ── */
+function figs(k){
+  const T={trx:['Transactions',cnt(k.trx),`${cnt(k.void)} voided`],sold:['Sold',pcs(k.sold),`${dec(k.each)} pcs each`],sales:['Sales',rp(k.sales),`${rp(k.disc)} discount`],
+    gp:['Gross profit',rp(k.gp),`${pcI(k.margin)} margin`],stock:['Stock',pcs(k.stock),`worth ${rp(k.worth)}`],cogs:['COGS',rp(k.cogs),`${pcI(k.cogsPct)} of sales`]};
+  const cell=([l,v,s],cls='')=>cls.includes('bare')
+    ?`<div class="fig ${cls}" title="${esc(s)}"><div class="l">${l}</div><div class="v">${v}</div></div>`
+    :`<div class="fig ${cls}"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s}</div></div>`;
+  let F;
+  switch(S.k){
+    case 'now':T.sales[2]=`${rp(k.disc)} discount · avg ${rp(k.avg)}`;F=['trx','sold','sales','cogs','gp','stock'].map(x=>cell(T[x]));break;
+    case 'k1':F=['trx','sold','sales','gp','stock'].map(x=>cell(T[x]));break;
+    case 'k2':F=['trx','sold','sales','gp'].map(x=>cell(T[x])).concat(cell(['Stock today',T.stock[1],T.stock[2]],'apart'));break;
+    case 'k3':F=['trx','sold','sales','gp'].map(x=>cell(T[x],'bare')).concat(cell(['Stock today',T.stock[1],T.stock[2]],'apart bare'));break;
+    case 'k4':F=['sales','gp','sold','trx'].map(x=>cell(T[x]));break;
+  }
+  return `<div class="figs">${F.join('')}</div>`;
+}
+function renderAll(){
+  const D=compute(),main=$('#main'),top=main.scrollTop;
+  const tabs=`<div class="tabs" role="tablist">${[['totals','Totals'],['month','Per month']].map(([k,l])=>`<button class="tab${S.tab===k?' on':''}" role="tab" aria-selected="${S.tab===k}" data-act="tab" data-v="${k}">${l}</button>`).join('')}${S.o!=='now'&&S.tab==='month'?`<div class="tv">${heat()}</div>`:''}</div>`;
+  const data=`<div id="tbl">${table(D)}</div><div class="foot" id="foot">${foot(D)}</div>`;
+  const card=S.o==='e'&&S.rail?`<div class="card">${bar()}<div class="split">${facets()}<div class="tw">${data}</div></div></div>`:`<div class="card">${bar()}${data}</div>`;
+  main.innerHTML=`<div class="content${swapNext?' swap':''}"><div class="head"><h1>Sales by Store</h1></div>${S.o==='b'?scope():''}${figs(D.k)}${tabs}${card}</div>`;
+  main.scrollTop=top;swapNext=false;
+  if(POP)placePop();
+  if(SHEET.open)renderSheet();
+}
+function renderData(){
+  const D=compute();$('#tbl').innerHTML=table(D);$('#foot').innerHTML=foot(D);
+  const c=document.querySelector('.search .clr');if(c)c.classList.toggle('hide',!S.q);
+}
+
+/* ── popovers ── */
+function openPop(kind,anchor,extra={}){
+  const el=$('#pop');el.classList.remove('open');
+  POP={kind,anchor:`[data-anchor="${anchor}"]`,...extra};POPQ='';
+  if(kind==='dates'){const r=range(),b=pd(r.to);CAL={y:b.y,m:b.m,a:S.period==='custom'?S.range.from:null,b:S.period==='custom'?S.range.to:null}}
+  renderAll();renderPop();
+  void el.offsetWidth;el.classList.add('open');
+  const s=el.querySelector('.ps input');if(s)s.focus();
+}
+function closePop(){
+  if(!POP)return;
+  POP=null;$('#pop').classList.remove('open');
+  if(S.draft){S.draft=null}
+  renderAll();
+}
+function placePop(){
+  const el=$('#pop'),an=document.querySelector(POP.anchor);
+  if(!an){POP=null;el.classList.remove('open');return}
+  const r=an.getBoundingClientRect(),w=el.offsetWidth,h=el.offsetHeight;
+  let left=r.left,ox='left';
+  if(left+w>innerWidth-12){left=Math.max(12,r.right-w);ox='right'}
+  let top=r.bottom+6,oy='top';
+  if(top+h>innerHeight-12&&r.top-h-6>12){top=r.top-h-6;oy='bottom'}
+  el.style.left=left+'px';el.style.top=top+'px';el.style.transformOrigin=`${oy} ${ox}`;
+}
+function valueRows(key,q){
+  const n=q.trim().toLowerCase();
+  const rows=VAL[key].map((x,i)=>({...x,i})).filter(x=>!n||x.l.toLowerCase().includes(n));
+  if(!rows.length)return `<div class="nil">Nothing matches.</div>`;
+  return rows.map(x=>`<button class="fr${S.f[key].includes(x.v)?' on':''}" data-act="val" data-key="${key}" data-v="${esc(x.v)}"><i class="bx">${ico('check')}</i>${x.hex?`<i class="dot" style="background:${x.hex}"></i>`:''}<span>${esc(x.l)}</span><em>${pcF(facetShare(key,x.i))}</em></button>`).join('');
+}
+function calHtml(){
+  const{y,m,a,b}=CAL,first=(new Date(y,m,1).getDay()+6)%7,days=dim(y,m);
+  const lo=pd(LO),hi=pd(HI),canPrev=y>lo.y||m>lo.m,canNext=y<hi.y||m<hi.m;
+  let cells='';for(let i=0;i<first;i++)cells+='<span></span>';
+  for(let d=1;d<=days;d++){
+    const k=iso(y,m,d),off=k<LO||k>HI;
+    const cls=['dy',k===a?'a':'',k===b?'b':'',a&&b&&k>a&&k<b?'in':''].join(' ');
+    cells+=`<button class="${cls}" data-act="cal-day" data-v="${k}" ${off?'disabled':''}>${d}</button>`;
+  }
+  const said=a&&b?rangeText({from:a,to:b}):a?`From ${rangeText({from:a,to:a})}`:'Pick the first day';
+  return `<div class="cal"><div class="ch"><button class="nv" data-act="cal-nav" data-v="-1" ${canPrev?'':'disabled'} aria-label="Previous month">${ico('left')}</button><b>${MONL[m]} ${y}</b><button class="nv" data-act="cal-nav" data-v="1" ${canNext?'':'disabled'} aria-label="Next month">${ico('right')}</button></div>
+    <div class="wk">${['Mo','Tu','We','Th','Fr','Sa','Su'].map(d=>`<span>${d}</span>`).join('')}</div><div class="gd">${cells}</div>
+    <div class="cf"><span class="${a&&b?'set':''}">${said}</span><button class="pbtn" data-act="cal-apply" ${a&&b?'':'disabled'}>Apply</button></div></div>`;
+}
+function renderPop(){
+  if(!POP)return;
+  const el=$('#pop');let h='';
+  const D=POP.kind.startsWith('x')?compute():null;
+  switch(POP.kind){
+    case 'dates':h=calHtml();break;
+    case 'values':{
+      const key=POP.key,many=VAL[key].length>8;
+      h=`${many?`<label class="ps">${ico('search')}<input id="pq" placeholder="Search ${FL[key].pl}" autocomplete="off" spellcheck="false" value="${esc(POPQ)}"></label>`:''}<div class="pl" id="plist">${valueRows(key,POPQ)}</div>`;
+      break;
+    }
+    case 'cols':
+      h=`<div class="ph">Filter by</div>`+FILTERS.map(f=>`<button class="pr${S.f[f.k].length?' on':''}" data-act="col" data-key="${f.k}">${ico(f.ic)}<span>${f.l}</span>${S.f[f.k].length?`<em>${esc(valText(f.k))}</em>`:''}</button>`).join('');
+      break;
+    case 'datechip':
+      h=PRESETS.map(p=>`<button class="pr${S.period===p.k?' on':''}" data-act="dpreset" data-v="${p.k}">${ico('check','i tick')}<span>${p.l}</span><em>${rangeText(p)}</em></button>`).join('')
+        +`<hr><button class="pr${S.period==='custom'?' on':''}" data-act="dpick">${ico('check','i tick')}<span>Pick dates</span>${S.period==='custom'?`<em>${rangeText(S.range)}</em>`:''}${ico('right')}</button>`;
+      break;
+    case 'xmenu':{
+      const n=D.vis.length;
+      h=[['totals','This table',`Totals · ${n} ${n===1?'store':'stores'}`],['month','Per month',`${n} ${n===1?'store':'stores'} × ${D.cols.length} ${D.cols.length===1?'month':'months'}`],['both','Both, as two sheets','Totals and Per month']]
+        .map(([k,l,s])=>`<button class="pr tall" data-act="xrun" data-v="${k}">${ico('xls')}<span>${l}<span class="sub">${s}</span></span></button>`).join('');
+      break;
+    }
+    case 'xlook':{
+      const n=D.vis.length,narrow=FILTERS.filter(f=>S.f[f.k].length).map(f=>[f.l,S.f[f.k].map(v=>VAL[f.k].find(x=>x.v===v).l).join(', ')]);
+      if(S.q)narrow.push(['Search',`“${S.q}”`]);
+      h=`<div class="look"><div class="fl">${ico('xls')}<span>${esc(fileName())}</span></div>
+        <div class="fact"><span class="k">Period</span><span class="vv">${rangeText(D.r)}</span></div>
+        <div class="fact"><span class="k">Rows</span><span class="vv">${n} of ${STORES.length} stores + Total</span></div>
+        ${narrow.map(([k,v])=>`<div class="fact"><span class="k">${k}</span><span class="vv" title="${esc(v)}">${esc(v)}</span></div>`).join('')}
+        <div class="tiles"><button class="tl${LOOK.totals?' on':''}" data-act="xtile" data-v="totals"><i class="bx">${ico('check')}</i>Totals</button><button class="tl${LOOK.month?' on':''}" data-act="xtile" data-v="month"><i class="bx">${ico('check')}</i>Per month</button></div>
+        <button class="pbtn" data-act="xrun" data-v="look">${ico('down')}Download Excel</button></div>`;
+      break;
+    }
+  }
+  el.innerHTML=h;placePop();
+}
+/* tiles use .on>.bx, so the box sits directly in the tile */
+
+/* ── the filter sheet ── */
+function sheetPanes(){return FILTERS.filter(f=>!(S.o==='d'&&f.k==='divisions')).concat([{k:'saved',l:'Saved views',ic:'bookmark'}])}
+function sheetList(){
+  if(SHEET.pane==='saved'){
+    return `<div class="save"><input id="vname" placeholder="Name this view" aria-label="Name this view"><button class="btn" data-act="saveview">Save view</button></div>`
+      +SAVED.map((v,i)=>`<button class="fr" data-act="view" data-v="${i}"><span>${esc(v.n)}</span>${ico('right','i')}</button>`).join('');
+  }
+  return valueRows(SHEET.pane,SHEET.q);
+}
+function renderSheet(){
+  const el=$('#sheet'),D=compute(),n=D.vis.length;
+  const panes=sheetPanes().map(p=>{const c=p.k==='saved'?String(SAVED.length):S.f[p.k].length?String(S.f[p.k].length):'All';
+    return `<button class="pn${SHEET.pane===p.k?' on':''}" data-act="pane" data-v="${p.k}">${ico(p.ic)}${p.l}<small>${c}</small></button>`}).join('');
+  const many=SHEET.pane!=='saved'&&VAL[SHEET.pane].length>8;
+  el.innerHTML=`<div class="hd"><h3>Filter</h3><button class="xb" data-act="sheet-close" aria-label="Close">${ico('x')}</button></div>
+    <div class="bd"><nav class="panes">${panes}</nav><div class="list">${many?`<label class="ss">${ico('search')}<input id="sq" placeholder="Search ${FL[SHEET.pane].pl}" value="${esc(SHEET.q)}" autocomplete="off" spellcheck="false"></label>`:''}<div id="slist">${sheetList()}</div></div></div>
+    <div class="ft"><button class="btn" data-act="reset">Reset</button><div class="sp"></div><button class="pbtn" data-act="sheet-close">Show ${n} ${n===1?'store':'stores'}</button></div>`;
+}
+function openSheet(pane){
+  SHEET.open=true;SHEET.q='';if(pane)SHEET.pane=pane;
+  if(S.o==='d'&&SHEET.pane==='divisions')SHEET.pane='stores';
+  renderSheet();$('#sheet').classList.add('open');$('#veil').classList.add('open');$('#sheet').setAttribute('aria-hidden','false');renderAll();
+}
+function closeSheet(){SHEET.open=false;$('#sheet').classList.remove('open');$('#veil').classList.remove('open');$('#sheet').setAttribute('aria-hidden','true');renderAll()}
+
+/* ── export ── */
+function fileName(){return `Sales by Store · ${periodName()}.xlsx`}
+let toastT=0;
+function toast(html){const t=$('#toast');t.innerHTML=html;t.classList.add('open');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('open'),3200)}
+function runExport(what){
+  const b=document.querySelector('[data-anchor="export"]');
+  if(b){b.classList.add('pending');b.querySelector('.i').outerHTML=ico('load','i spin')}
+  const D=compute(),n=D.vis.length;
+  const sheets=what==='look'?[LOOK.totals&&'Totals',LOOK.month&&'Per month'].filter(Boolean).join(' and '):what==='both'?'Totals and Per month':what==='month'||S.tab==='month'&&what==='screen'?'Per month':'Totals';
+  setTimeout(()=>{renderAll();toast(`<span class="ok">${ico('check')}</span><div><b>${esc(fileName())}</b><em>${sheets} · ${n} ${n===1?'store':'stores'}</em></div>`)},650);
+}
+
+/* ── one handler for every press ── */
+function toggle(key,v){const s=S.f[key];S.f[key]=s.includes(v)?s.filter(x=>x!==v):[...s,v]}
+function afterFilter(){renderAll();if(POP)renderPop();if(SHEET.open)renderSheet()}
+document.addEventListener('click',e=>{
+  const t=e.target.closest('[data-act]'),inPop=!!e.target.closest('#pop');
+  if(!t){if(POP&&!inPop)closePop();return}
+  const a=t.dataset.act,v=t.dataset.v,key=t.dataset.key;
+  const anchor=t.closest('[data-anchor]')?.dataset.anchor;
+  if(POP&&!inPop){
+    const same=anchor&&POP.anchor===`[data-anchor="${anchor}"]`;
+    closePop();
+    if(same&&a!=='unchip')return;
+  }
+  switch(a){
+    case 'opt':lastSwitch='o';S.o=v;S.draft=null;if(SHEET.open)closeSheet();swapNext=true;chrome();renderAll();break;
+    case 'exp':S.x=+v;lastSwitch='x';chrome();renderAll();break;
+    case 'kpi':S.k=v;lastSwitch='k';chrome();renderAll();break;
+    case 'tab':S.tab=v;chrome();renderAll();break;
+    case 'period':S.period=v;S.range=null;renderAll();break;
+    case 'heat':S.heat=!S.heat;renderAll();break;
+    case 'filter':if(S.o==='c')openPop('cols','cols');else openSheet();break;
+    case 'dates':openPop('dates','dates');break;
+    case 'datechip':openPop('datechip','datechip');break;
+    case 'dpreset':S.period=v;S.range=null;closePop();break;
+    case 'dpick':{POP.kind='dates';const r=range(),b=pd(r.to);CAL={y:b.y,m:b.m,a:S.period==='custom'?S.range.from:null,b:S.period==='custom'?S.range.to:null};renderPop();break}
+    case 'cal-nav':{let m=CAL.m+ +v,y=CAL.y;if(m<0){m=11;y--}if(m>11){m=0;y++}CAL.m=m;CAL.y=y;renderPop();break}
+    case 'cal-day':if(!CAL.a||CAL.b){CAL.a=v;CAL.b=null}else if(v<CAL.a){CAL.b=CAL.a;CAL.a=v}else CAL.b=v;renderPop();break;
+    case 'cal-apply':S.period='custom';S.range={from:CAL.a,to:CAL.b};closePop();break;
+    case 'chip':openPop('values','chip-'+key,{key});break;
+    case 'unchip':S.f[key]=[];if(S.draft===key)S.draft=null;afterFilter();break;
+    case 'clearall':case 'reset':FILTERS.forEach(f=>S.f[f.k]=[]);afterFilter();break;
+    case 'col':if(S.f[key].length){openPop('values','chip-'+key,{key})}else{S.draft=key;openPop('values','chip-'+key,{key})}break;
+    case 'val':toggle(key,v);afterFilter();break;
+    case 'divradio':S.f.divisions=v==='all'?[]:[v];renderAll();break;
+    case 'more':S.more[key]=!S.more[key];renderAll();break;
+    case 'rail':S.rail=!S.rail;renderAll();break;
+    case 'q-clear':S.q='';renderAll();$('#q').focus();break;
+    case 'sheet-close':closeSheet();break;
+    case 'pane':SHEET.pane=v;SHEET.q='';renderSheet();break;
+    case 'saveview':{const i=$('#vname');const n=i.value.trim();if(!n)break;SAVED.push({n,period:S.period,range:S.range,f:JSON.parse(JSON.stringify(S.f))});renderSheet();toast(`<span class="ok">${ico('check')}</span><div><b>Saved ${esc(n)}</b><em>Filter › Saved views</em></div>`);break}
+    case 'view':{const sv=SAVED[+v];FILTERS.forEach(f=>S.f[f.k]=[...(sv.f[f.k]||[])]);S.period=sv.period;S.range=sv.range||null;closeSheet();break}
+    case 'export':if(S.o==='now'||S.x===1)runExport('screen');else openPop(S.x===2?'xmenu':'xlook','export');break;
+    case 'xtile':LOOK[v]=!LOOK[v];if(!LOOK.totals&&!LOOK.month)LOOK[v==='totals'?'month':'totals']=true;renderPop();break;
+    case 'xrun':{POP=null;$('#pop').classList.remove('open');renderAll();runExport(v);break}
+  }
+});
+document.addEventListener('input',e=>{
+  if(e.target.id==='q'){S.q=e.target.value;renderData()}
+  if(e.target.id==='pq'){POPQ=e.target.value;$('#plist').innerHTML=valueRows(POP.key,POPQ)}
+  if(e.target.id==='sq'){SHEET.q=e.target.value;$('#slist').innerHTML=sheetList()}
+});
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){if(POP)closePop();else if(SHEET.open)closeSheet();return}
+  if(e.target.matches?.('input'))return;
+  const n=+e.key;
+  if(n>=1&&n<=6){lastSwitch='o';S.o=OPTS[n-1].k;S.draft=null;if(POP){POP=null;$('#pop').classList.remove('open')}if(SHEET.open)closeSheet();swapNext=true;chrome();renderAll()}
+  if(e.key==='x'){S.x=S.x%3+1;lastSwitch='x';chrome();renderAll()}
+  if(e.key==='k'){const i=KPIS.findIndex(x=>x.k===S.k);S.k=KPIS[(i+1)%KPIS.length].k;lastSwitch='k';chrome();renderAll()}
+  if(e.key==='t'){S.tab=S.tab==='totals'?'month':'totals';chrome();renderAll()}
+});
+$('#main').addEventListener('scroll',()=>{if(POP)placePop()},{passive:true});
+addEventListener('resize',()=>{if(POP)placePop()});
+
+chrome();renderAll();
+</script>
+</body>
+</html>

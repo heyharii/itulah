@@ -1,0 +1,104 @@
+/* ── Return (exchange only, owner 23 Oct 2026): the prototype's `.dlg.xch` and
+   `.xc-*` from pos-classic-prototype.html, rule for rule, scoped under .xchd
+   with the prototype's own tokens — the way pay-d.css scopes Pay. ── */
+
+.xchd{
+  --ink:#1d1d1f;--body:#6e6e73;--faint:#c7c7cc;--line-ico:#8e8e93;--canvas:#fff;--soft:#fafafb;--soft-2:#f2f2f5;--soft-3:#f5f5f7;
+  --row-line:#eeeef1;--hairline:#e8e8ec;--hairline-2:#dcdce1;
+  --accent:#2862dc;--accent-bg:#eef3fc;--cta:var(--accent);--cta-fg:#fff;
+  --ok-fg:#248a3d;--warn-fg:#a66c1f;--bad:#d70015;--bad-bg:#fbeaea;--bad-fg:#d70015;
+  --scrim:rgba(208,208,213,.48);
+  --shadow-sheet:0 0 0 1px rgba(0,0,0,.05),0 2px 8px rgba(0,0,0,.05),0 24px 64px rgba(0,0,0,.14);
+  --shadow-primary:0 1px 2px rgba(20,50,100,.1);
+  --shadow-focus:0 0 0 2px rgba(40,98,220,.12);
+  --icon-gap:6px;--control:36px;--r-inner:8px;
+  --t-press:120ms;--ease-out:cubic-bezier(.23,1,.32,1);
+  --font-sans:"Inter Variable",Inter,system-ui,-apple-system,"Segoe UI",sans-serif;
+  position:fixed;inset:0;z-index:50;display:grid;place-items:center;padding:24px;overflow:auto;
+  background:var(--scrim);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);
+  color:var(--ink);font-family:var(--font-sans);font-size:15px;line-height:1.45;letter-spacing:normal;
+  -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+/* F8 shows Return at once; a tap pops it in (pos.css posPop). */
+.xchd.enter{animation:posFade var(--t-panel) var(--ease-out)}
+.xchd.enter>.dlg{animation:posPop var(--t-panel) var(--ease-out)}
+@media (prefers-reduced-motion:reduce){
+  .xchd.enter>.dlg{animation:posFade 150ms var(--ease-out)}
+  .xchd :active{scale:none!important}
+}
+
+:where(.xchd) *{box-sizing:border-box}
+:where(.xchd) :where(p,h2,h3){margin:0}
+:where(.xchd) :where(button,input){font:inherit;color:inherit}
+:where(.xchd) button{-webkit-tap-highlight-color:transparent;border:0;background:none;padding:0;cursor:pointer}
+:where(.xchd) input{outline:none;min-width:0}
+.xchd input:focus-visible{outline:none}
+.xchd button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.xchd button:active:not(:disabled){transform:none}
+.xchd button:disabled{cursor:default!important;background:transparent!important;border-color:transparent!important;color:inherit!important;box-shadow:none}
+.xchd .num{font-variant-numeric:tabular-nums}
+
+.xchd .dlg{width:min(1120px,calc(100% - 48px));max-width:none;min-height:560px;border-radius:16px;background:#fff;box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;overflow:hidden}
+.xchd .dlg.xc-find{width:min(640px,calc(100% - 48px));min-height:0}
+.xchd .dlg-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:20px 24px 14px 28px;border-bottom:1px solid var(--hairline)}
+.xchd .ttl{font-size:17px;line-height:24px;font-weight:600;letter-spacing:-.3px}
+.xchd .cap{color:var(--body)}
+.xchd .x-btn{display:grid;place-items:center;flex:none;width:36px;height:36px;margin:-6px -8px 0 0;border-radius:var(--r-inner);color:var(--ink);transition:background-color var(--t-press) ease,scale var(--t-press) var(--ease-out)}
+.xchd .x-btn:active:not(:disabled){scale:.94}
+.xchd .x-btn svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
+.xchd .dlg-body{display:flex;flex-direction:column;gap:16px;padding:20px 28px 24px;flex:1}
+.xchd .dlg-foot{display:flex;align-items:center;gap:8px;padding:12px 24px 12px 28px;border-top:1px solid var(--hairline)}
+.xchd .sp{flex:1}
+
+.xchd .ds-btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--icon-gap);flex:none;height:var(--control);padding:0 16px;border:1px solid transparent;border-radius:var(--r-inner);font-size:15px;line-height:20px;font-weight:500;white-space:nowrap;transition:background-color var(--t-press) var(--ease-out),scale var(--t-press) var(--ease-out)}
+.xchd .ds-btn:active:not(:disabled){scale:.97}
+.xchd .ds-btn--primary{background:var(--cta);color:var(--cta-fg);font-weight:600;box-shadow:var(--shadow-primary);gap:10px;padding:0 10px 0 16px}
+.xchd .ds-btn--primary:disabled{background:var(--cta)!important;color:var(--cta-fg)!important;opacity:.5}
+.xchd .ds-btn--ghost{border-color:var(--hairline-2);background:var(--canvas);color:var(--ink)}
+.xchd .ds-btn--ghost:disabled{opacity:.5}
+.xchd .kbd{display:inline-grid;place-items:center;min-width:26px;height:22px;padding:0 5px;border-radius:5px;background:var(--soft-3);box-shadow:inset 0 0 0 1px var(--hairline-2);font-size:15px;line-height:1;font-weight:500;color:var(--body);font-variant-numeric:tabular-nums;white-space:nowrap}
+.xchd .ds-btn--primary .kbd{background:rgba(255,255,255,.16);box-shadow:inset 0 0 0 1px rgba(255,255,255,.25);color:#fff}
+
+/* The big scan field. */
+.xchd .xc-scan{display:flex;flex:none;width:100%;align-items:center;gap:12px;height:60px;padding:0 18px;border-radius:12px;background:#fff;border:1.5px solid var(--accent);box-shadow:var(--shadow-focus);color:var(--body);cursor:text}
+.xchd .xc-scan svg{width:22px;height:22px;flex:none;fill:none;stroke:var(--line-ico);stroke-width:2;stroke-linecap:round}
+.xchd .xc-scan input{flex:1;min-width:0;height:100%;border:0;outline:0;background:none;font-size:18px;color:var(--ink)}
+.xchd .xc-scan input::placeholder{color:var(--body)}
+.xchd .xc-scan.sm{height:60px;box-shadow:none;margin-bottom:4px}
+.xchd .xc-scan.sm input{font-size:17px}
+.xchd .xc-scan.idle{border-color:var(--hairline-2);box-shadow:none}
+.xchd .xc-scan.bad{border-color:var(--bad);box-shadow:0 0 0 2px rgb(215 0 21/10%)}
+.xchd .xc-err{color:var(--bad-fg);margin-top:-6px}
+.xchd .xc-msg{color:var(--body);margin-top:-6px}
+
+/* The last three receipts. */
+.xchd .mem-k{color:var(--body);font-weight:500;margin-bottom:-8px}
+.xchd .mem-list{display:flex;flex-direction:column;gap:2px;margin:-4px -12px 0}
+.xchd .mem{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;width:100%;min-height:64px;padding:8px 12px;border-radius:10px;text-align:left;transition:background-color 150ms ease,scale var(--t-press) var(--ease-out)}
+.xchd .mem:active:not(:disabled){scale:.98}
+.xchd .mem.on{background:var(--accent-bg)}
+@media (hover:hover) and (pointer:fine){.xchd .mem:not(.on):hover{background:var(--soft-2)}}
+.xchd .mem b{display:block;font-weight:500}
+.xchd .mem span{color:var(--body)}
+.xchd .mem .pts{text-align:right;font-variant-numeric:tabular-nums;color:var(--ink)}
+.xchd .t-none{padding:8px 12px;color:var(--body)}
+
+/* Two columns: what came back, what goes out. */
+.xchd .xc-cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;min-height:300px;flex:1}
+.xchd .xc-col{display:flex;flex-direction:column;gap:12px;min-width:0;padding:16px;border-radius:12px;background:var(--soft-2)}
+.xchd .xc-k{display:flex;justify-content:space-between;align-items:baseline}
+.xchd .xc-k b{font-size:17px;font-weight:600}
+.xchd .xc-k span{font-weight:600}
+.xchd .mini{display:flex;flex-direction:column;gap:8px}
+.xchd .mini-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:14px;padding:14px 16px;min-height:72px;border-radius:10px;background:#fff;box-shadow:inset 0 0 0 1px var(--hairline)}
+.xchd .mini-row b{display:block;margin-bottom:2px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.xchd .mini-row span{color:var(--body)}
+.xchd .mini-row.on{box-shadow:inset 0 0 0 1.5px var(--accent)}
+.xchd .xc-none{padding:6px 2px;color:var(--body)}
+.xchd .ret{display:inline-flex;align-items:center;gap:10px}
+.xchd .ret button{display:grid;place-items:center;width:30px;height:30px;border-radius:8px;background:#fff;box-shadow:inset 0 0 0 1px var(--hairline-2);font-size:17px;transition:scale var(--t-press) var(--ease-out)}
+.xchd .ret button:active:not(:disabled){scale:.94}
+.xchd .ret button:disabled{opacity:.35;box-shadow:inset 0 0 0 1px var(--hairline-2)!important}
+.xchd .ret b{min-width:46px;text-align:center;font-weight:600;font-variant-numeric:tabular-nums;color:var(--ink)}
+
+.xchd .xc-sum{display:flex;justify-content:space-between;align-items:baseline;gap:16px;padding-top:4px;color:var(--body)}
+.xchd .xc-sum b{font-size:24px;line-height:30px;font-weight:600;letter-spacing:-.03em;color:var(--ink)}

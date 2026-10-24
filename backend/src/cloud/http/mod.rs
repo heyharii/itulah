@@ -130,6 +130,10 @@ pub mod setup;
 pub mod statement_intake;
 pub mod stock_ledger;
 pub mod store_money;
+/// A shop's own Send of its reject (owner, 23 Oct 2026).
+pub mod store_reject_return;
+/// Unmatched sales: matched at head office (owner, 23 Oct 2026).
+pub mod unmatched_sales;
 /// Opening a store: the Stores list and page, "Open store", installing the
 /// store's server, and a device's test page. See `postgres/stores.rs`.
 pub mod stores;
@@ -245,6 +249,10 @@ pub fn router(state: AppState) -> Router {
     .merge(allotment_amend::routes(Router::new()))
     // MD's review of what the stores of a trip counted (owner, 18 Oct 2026).
     .merge(allotment_store_review::routes(Router::new()))
+    // A shop sends its reject back whenever it is ready (owner, 23 Oct 2026).
+    .merge(store_reject_return::routes(Router::new()))
+    // Sales the till could not take from its own stock (owner, 23 Oct 2026).
+    .merge(unmatched_sales::routes(Router::new()))
     .route("/api/v1/inventory/availability", get(availability))
     .route(
         "/api/v1/inventory/movements",
@@ -533,6 +541,22 @@ pub fn router(state: AppState) -> Router {
     .route("/api/v1/stores/{unit}", get(stores::detail))
     .route("/api/v1/stores/{unit}/open", post(stores::open))
     .route("/api/v1/stores/{unit}/tills", put(stores::set_till_seats))
+    // Head office stops a store, a cashier or (through the device register) a
+    // till on the POS, and removes a store that closed for good (0990). The
+    // Tills tab's read follows reach; the writes are Admin's, at the path and
+    // in the handler.
+    .route("/api/v1/stores/{unit}/pos", get(stores::pos))
+    .route("/api/v1/stores/{unit}/stop", post(stores::stop))
+    .route("/api/v1/stores/{unit}/resume", post(stores::resume))
+    .route("/api/v1/stores/{unit}/remove", post(stores::remove))
+    .route(
+        "/api/v1/stores/{unit}/cashiers/{user_id}/stop",
+        post(stores::stop_cashier),
+    )
+    .route(
+        "/api/v1/stores/{unit}/cashiers/{user_id}/resume",
+        post(stores::resume_cashier),
+    )
     // The store exceptions list (0646-0648): one needs-attention list read
     // from data, per store and for all of them within reach, acknowledged by
     // a person and closed by the data being fixed.
@@ -885,6 +909,15 @@ pub fn router(state: AppState) -> Router {
         "/api/v1/sync/points/redeem-requests/{request_id}/confirm",
         post(sync_redeem_request_confirm),
     )
+    // What the till's keys ask head office without touching any money: F2 on a
+    // voucher (its balance, read-only), F5 on a member (who, and their points)
+    // and Shift+F5 (enrol a new one, keyed by the phone they read out).
+    .route(
+        "/api/v1/sync/vouchers/{code}/check",
+        post(sync_voucher_check),
+    )
+    .route("/api/v1/sync/members/lookup", post(sync_member_lookup))
+    .route("/api/v1/sync/members/enrol", post(sync_member_enrol))
     .route("/api/v1/sync/dead-letters", get(sync_dead_letters))
     .route("/api/v1/sync/trigger", post(sync_trigger))
     .route("/api/v1/sync/breaker/reset", post(sync_breaker_reset))
@@ -4406,6 +4439,220 @@ async fn sync_voucher_authorize(
     )
     .await?;
     Ok(Json(held))
+}
+
+/// The F2 check on a voucher: what it is and what is left on it, before anybody
+/// spends it. Read-only — no hold, no movement — so a shopper can be told their
+/// balance without a basket being touched.
+async fn sync_voucher_check(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Path(code): Path<String>,
+    Json(request): Json<RelayVoucherRequest>,
+) -> Result<Json<Value>, AppError> {
+    relay_site(&s, &headers, &request).await?;
+    let voucher = infrastructure::voucher_detail(&s.db, &code).await?.voucher;
+    Ok(Json(json!({
+        "code": voucher.code,
+        "kind": voucher.kind,
+        "balance_minor": voucher.balance_minor,
+        "status": voucher.status,
+        "expires_at": voucher.expires_at,
+        "expired": voucher.expired,
+        "member_name": voucher.member_name,
+    })))
+}
+
+/// What a shop's node sends to look a member up, or enrol one, for its till.
+#[derive(Debug, serde::Deserialize)]
+struct RelayMemberRequest {
+    /// The origin that is asking. Proved against its own key, never trusted.
+    origin_id: String,
+    #[serde(default)]
+    site_id: Option<String>,
+    /// The cashier, as the shop authenticated them.
+    actor_id: String,
+    /// The number the cashier read out or scanned. A member is keyed by the
+    /// number on their card (`0082`), and a till registers one by their phone.
+    member_id: String,
+    #[serde(default)]
+    display_name: Option<String>,
+    /// Registration (client, 23 Oct 2026): required `L`/`P`.
+    #[serde(default)]
+    gender: Option<String>,
+    /// Required at registration.
+    #[serde(default)]
+    birth_place: Option<String>,
+    /// Required at registration.
+    #[serde(default)]
+    birth_date: Option<chrono::NaiveDate>,
+    #[serde(default)]
+    address: Option<String>,
+    #[serde(default)]
+    email: Option<String>,
+}
+
+/// Prove the caller and the shop it speaks for — `relay_site`'s rule, for a
+/// member call.
+async fn relay_member_site(
+    state: &AppState,
+    headers: &HeaderMap,
+    request: &RelayMemberRequest,
+) -> Result<(), AppError> {
+    let origin = authenticate_origin(state, headers, &request.origin_id).await?;
+    let stamped = request
+        .site_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if let (Some(registered), Some(claimed)) = (origin.site_id.as_deref(), stamped) {
+        if registered != claimed {
+            return Err(AppError::Forbidden(format!(
+                "origin {} speaks for {registered}, not {claimed}",
+                origin.origin_id
+            )));
+        }
+    }
+    if request.actor_id.trim().is_empty() {
+        return Err(AppError::Validation(
+            "a member call has to be attributable to somebody".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// A member number as the till sends it: the digits of a phone, or a card's
+/// number as printed.
+fn relay_member_id(raw: &str) -> Result<String, AppError> {
+    let trimmed = raw.trim();
+    let digits: String = trimmed.chars().filter(char::is_ascii_digit).collect();
+    let id = if !digits.is_empty() && trimmed.chars().all(|c| c.is_ascii_digit() || " -.·".contains(c)) {
+        digits
+    } else {
+        trimmed.to_owned()
+    };
+    if id.is_empty() {
+        return Err(AppError::Validation("a member number is needed".into()));
+    }
+    Ok(id)
+}
+
+async fn member_with_points(s: &AppState, member_id: &str) -> Result<Option<Value>, AppError> {
+    use sqlx::Row;
+    let Some(row) = sqlx::query(
+        "SELECT member_id, display_name, joined_on, blocked_at,
+                gender, birth_place, birth_date, address, email
+           FROM member WHERE member_id = $1",
+    )
+    .bind(member_id)
+    .fetch_optional(&s.db)
+    .await?
+    else {
+        return Ok(None);
+    };
+    let points: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(sum(points), 0)::bigint FROM points_ledger WHERE customer_id = $1",
+    )
+    .bind(member_id)
+    .fetch_one(&s.db)
+    .await?;
+    let blocked: Option<chrono::DateTime<Utc>> = row.try_get("blocked_at")?;
+    Ok(Some(json!({
+        "member_id": row.try_get::<String, _>("member_id")?,
+        "display_name": row.try_get::<Option<String>, _>("display_name")?,
+        "joined_on": row.try_get::<chrono::NaiveDate, _>("joined_on")?,
+        "blocked": blocked.is_some(),
+        "points_balance": points,
+        "gender": row.try_get::<Option<String>, _>("gender")?,
+        "birth_place": row.try_get::<Option<String>, _>("birth_place")?,
+        "birth_date": row.try_get::<Option<chrono::NaiveDate>, _>("birth_date")?,
+        "address": row.try_get::<Option<String>, _>("address")?,
+        "email": row.try_get::<Option<String>, _>("email")?,
+    })))
+}
+
+/// F5 at the till: who is this number, and how many points do they hold.
+async fn sync_member_lookup(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<RelayMemberRequest>,
+) -> Result<Json<Value>, AppError> {
+    relay_member_site(&s, &headers, &request).await?;
+    let member_id = relay_member_id(&request.member_id)?;
+    member_with_points(&s, &member_id)
+        .await?
+        .map(Json)
+        .ok_or_else(|| AppError::NotFound(format!("no member {member_id}")))
+}
+
+/// Shift+F5 at the till: enrol a new member, keyed by the phone they read out.
+/// A number that is already a member is refused by name rather than renamed —
+/// the cashier is told who already holds it.
+async fn sync_member_enrol(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<RelayMemberRequest>,
+) -> Result<Json<Value>, AppError> {
+    relay_member_site(&s, &headers, &request).await?;
+    let member_id = relay_member_id(&request.member_id)?;
+    if !member_id.chars().all(|c| c.is_ascii_digit()) || !(10..=13).contains(&member_id.len()) {
+        return Err(AppError::Validation(
+            "a new member is registered by a phone number of 10 to 13 digits".into(),
+        ));
+    }
+    let name = request
+        .display_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| AppError::Validation("a new member needs a name".into()))?;
+    // Required by the client (23 Oct 2026): gender, birth place, birth date.
+    let filled = |value: &Option<String>| {
+        value
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    };
+    let gender = filled(&request.gender)
+        .map(|gender| gender.to_ascii_uppercase())
+        .filter(|gender| gender == "L" || gender == "P")
+        .ok_or_else(|| AppError::Validation("a new member needs a gender, L or P".into()))?;
+    let birth_place = filled(&request.birth_place)
+        .ok_or_else(|| AppError::Validation("a new member needs a birth place".into()))?;
+    let birth_date = request
+        .birth_date
+        .ok_or_else(|| AppError::Validation("a new member needs a birth date".into()))?;
+    let email = filled(&request.email);
+    if email.as_deref().is_some_and(|email| !email.contains('@')) {
+        return Err(AppError::Validation("that email has no @".into()));
+    }
+    if let Some(existing) = member_with_points(&s, &member_id).await? {
+        let who = existing
+            .get("display_name")
+            .and_then(Value::as_str)
+            .unwrap_or("someone");
+        return Err(AppError::Conflict(format!(
+            "{who} already has the number {member_id}"
+        )));
+    }
+    infrastructure::enrol_member(&s.db, &member_id, Some(name)).await?;
+    infrastructure::record_member_profile(
+        &s.db,
+        &member_id,
+        &infrastructure::MemberProfile {
+            gender: Some(gender),
+            birth_place: Some(birth_place),
+            birth_date: Some(birth_date),
+            address: filled(&request.address),
+            email,
+        },
+    )
+    .await?;
+    member_with_points(&s, &member_id)
+        .await?
+        .map(Json)
+        .ok_or_else(|| AppError::NotFound(format!("no member {member_id}")))
 }
 
 async fn sync_voucher_commit(

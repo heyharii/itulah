@@ -1,0 +1,11 @@
+/* Head office stopped this till or its store, or removed it (postgres 0990,
+   `ho-stop-access-prototype.html`): the door's own card, with a red pause where
+   the sensor sits — or a grey × once removed — and the reason under it. Scoped
+   under `.pdoor` like the door itself; the button is the door's `.pd-btn`. */
+.pdoor .st-orb{margin-top:44px;width:152px;height:152px;border-radius:50%;display:grid;place-items:center;flex:none;background:#fbeaea;color:var(--bad-fg)}
+.pdoor .st-orb.gone{background:var(--soft-2);color:var(--body)}
+.pdoor .st-orb svg{width:64px;height:64px}
+.pdoor .st-why{margin-top:18px;max-width:100%;padding:12px 16px;border-radius:10px;background:#f5f5f7;color:#424245;text-align:center;overflow-wrap:anywhere}
+.pdoor .st-foot{margin-top:auto;width:100%;display:flex;flex-direction:column;align-items:center;gap:12px}
+.pdoor .st-foot p{color:var(--body);text-align:center}
+.pdoor .st-foot .d-err{text-align:center}

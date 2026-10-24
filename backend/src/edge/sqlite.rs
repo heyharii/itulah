@@ -280,6 +280,50 @@ pub(crate) const RFID_RECEIPT_KEEP_SCHEMA: &str = include_str!(concat!(
     "/migrations/sqlite/0082_a_reader_keeps_its_receipts_when_its_key_changes.sql"
 ));
 
+/// A shop reads the koli label (`0083`, `edge::inbound`): each announced
+/// koli's label number, so a scan opens what is in it. Creates only.
+pub(crate) const STORE_INBOUND_KOLI_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0083_a_shop_reads_the_koli_label.sql"
+));
+
+/// A till sells what its own stock does not hold (`0084`): the unmatched lines
+/// of a sale, and the pieces head office later told this node to let go of.
+/// Creates only.
+pub(crate) const UNMATCHED_SALE_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0084_a_till_sells_what_its_own_stock_does_not_hold.sql"
+));
+
+/// The till's 7-letter numbers, held baskets and cash slips (`0085`, client
+/// 23 Oct 2026). Creates only.
+pub(crate) const TILL_CLIENT_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0085_a_till_numbers_its_sales_and_keeps_held_baskets.sql"
+));
+
+/// A member tied to a sale after the till (`0089`, client 24 Oct 2026,
+/// `till::attach_member`). Creates only.
+pub(crate) const SALE_MEMBER_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0089_a_sale_takes_its_member_after_the_till.sql"
+));
+
+/// An employee's finger opens their benefit balance (`0088`, client 24 Oct
+/// 2026): the claims and the one-shot grants, apart from the supervisor's.
+/// Creates only.
+pub(crate) const BENEFIT_FINGER_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0088_an_employee_finger_opens_their_benefit.sql"
+));
+
+/// What head office stopped on this node's POS (`0087`, postgres 0990): the
+/// store, and the people who may not sell. Creates only.
+pub(crate) const POS_STOP_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0087_a_node_knows_what_head_office_stopped_on_its_pos.sql"
+));
+
 /// The last backup's result and the internet outages the node sold through
 /// (`0065`, `edge::backup`, `edge::heartbeat`). Creates only.
 pub(crate) const NODE_HEALTH_MEMORY_SCHEMA: &str = include_str!(concat!(
@@ -1536,6 +1580,29 @@ impl SqliteEdge {
         connection
             .execute_batch(RFID_SESSION_INDEX_SCHEMA)
             .map_err(db)?;
+        // Koli label numbers (`0083`). Creates only; after `0046`.
+        connection
+            .execute_batch(STORE_INBOUND_KOLI_SCHEMA)
+            .map_err(db)?;
+        // Unmatched sale lines and head office's takes (`0084`). Creates only;
+        // after `sale` (`0001`).
+        connection.execute_batch(UNMATCHED_SALE_SCHEMA).map_err(db)?;
+        // Sale numbers, held baskets, cash slips (`0085`). Creates only; after
+        // `sale` and `cash_movement`.
+        connection.execute_batch(TILL_CLIENT_SCHEMA).map_err(db)?;
+        // A member tied to a sale after the till (`0089`). Creates only; after
+        // `sale`.
+        connection.execute_batch(SALE_MEMBER_SCHEMA).map_err(db)?;
+        // "Setor modal" (`0089`): `cash_movement` and `cash_slip` learn
+        // FLOAT_RETURN — a rebuild, once, while the word is missing. After
+        // `0085` made `cash_slip`.
+        crate::edge::till::apply_float_return_schema(&connection)?;
+        // Benefit finger claims and grants (`0088`). Creates only.
+        connection
+            .execute_batch(BENEFIT_FINGER_SCHEMA)
+            .map_err(db)?;
+        // Head office's stops on the POS (`0087`). Creates only.
+        connection.execute_batch(POS_STOP_SCHEMA).map_err(db)?;
         // RFID receipts outlive a key (`0082`): a rebuild, so only while 0004's
         // `UNIQUE(device_id, sequence)` — the one index a UNIQUE constraint
         // (origin 'u') makes on that table — is still there.
@@ -2682,6 +2749,37 @@ impl SqliteEdge {
         command: &MovementCommand,
     ) -> Result<CommandResult, EdgeError> {
         Self::append_movement(&self.node, tx, idempotency_key, command)
+    }
+
+    /// The movement group of a sale in which nothing of this shop's left —
+    /// every line unmatched (owner, 23 Oct 2026). Written so the sale row can
+    /// name one, with no lines and no fact: no stock moved, so there is nothing
+    /// to report to the centre's ledger.
+    fn empty_sale_group(
+        tx: &Transaction<'_>,
+        idempotency_key: &str,
+        command: &MovementCommand,
+    ) -> Result<CommandResult, EdgeError> {
+        tx.prepare_cached(
+            "INSERT INTO movement_group(id,idempotency_key,cause,reason,reference_type,reference_id,actor_id,occurred_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
+        )
+        .map_err(db)?
+        .execute(params![
+            command.movement_group_id.to_string(),
+            idempotency_key,
+            command.cause.as_str(),
+            command.reason,
+            command.reference_type,
+            command.reference_id,
+            command.actor_id,
+            time_text(command.occurred_at)
+        ])
+        .map_err(db)?;
+        Ok(CommandResult {
+            movement_group_id: command.movement_group_id.0,
+            movement_count: 0,
+            occurred_at: command.occurred_at,
+        })
     }
 
     /// The movement funnel itself, needing only the node's identity rather
@@ -3926,6 +4024,15 @@ impl SqliteEdge {
                 OperationalPool::Reject {
                     site_id: node.site_id.clone(),
                 },
+                // To be returned's other two pockets (owner, 23 Oct 2026).
+                OperationalPool::ToReturn {
+                    site_id: node.site_id.clone(),
+                    pocket: crate::edge::ToReturnPocket::OverDelivery,
+                },
+                OperationalPool::ToReturn {
+                    site_id: node.site_id.clone(),
+                    pocket: crate::edge::ToReturnPocket::ReturnHo,
+                },
             ],
         }
     }
@@ -4141,6 +4248,799 @@ fn tender_card_kind(tender: &crate::tender::SaleTender) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_ascii_uppercase)
+}
+
+/// What an exchange's returned pieces are worth against the replacement sale.
+struct ExchangeCredit {
+    /// What the returned pieces were charged on their own receipt.
+    available_minor: i64,
+    /// The original sale's id, written on the credit tender. A UUID, so the
+    /// reference screen (no card-number-looking strings) lets it through.
+    reference: String,
+}
+
+impl SqliteEdge {
+    /// The body of a sale, inside a transaction the caller owns: pricing,
+    /// stock out, tenders, the sale fact. `complete_sale` wraps it with its own
+    /// transaction and idempotency; `exchange_sale` rings it in the same
+    /// transaction as the return that pays for it.
+    #[allow(clippy::too_many_lines, clippy::too_many_arguments)]
+    fn ring_sale(
+        &self,
+        tx: &Transaction<'_>,
+        request: &SaleRequest,
+        epcs: &[String],
+        sale_id: Uuid,
+        occurred_at: DateTime<Utc>,
+        exchange: Option<&ExchangeCredit>,
+    ) -> Result<SaleResult, EdgeError> {
+        // Every tag where it stands, every typed line by kind (owner, 23 Oct
+        // 2026): a piece this shop's stock cannot give still sells, and moves
+        // nothing here — see `edge::unmatched`. Only the tags this shop holds
+        // on hand leave its stock with this sale.
+        let basket =
+            crate::edge::unmatched::classify(tx, &self.node.site_id, epcs, &request.untagged)?;
+        if basket.is_empty() {
+            return Err(EdgeError::Validation(
+                "sale requires at least one EPC or untagged line".into(),
+            ));
+        }
+
+        // What to charge.
+        //
+        // The published price book governs. Until now this summed the price
+        // stamped on each unit when it was received, which meant a price
+        // change published at the centre reached the shop, was stored, and
+        // never made it onto a receipt.
+        //
+        // The intake price remains the fallback for exactly one situation: a
+        // shop that has never received a publication. Refusing to sell there
+        // would brick a till over a condition the cashier cannot fix, and the
+        // intake price is what that shop has always charged. Every line records
+        // which of the two applied, so this is visible at the centre and not a
+        // silent substitution.
+        //
+        // Every line that names a SKU is priced together, in the basket's
+        // order — held tags and unmatched lines alike, so a promotion sees the
+        // whole basket. An UNKNOWN line is not: it is charged the price the
+        // Kepala toko approved, outside promotions and points.
+        let sku_codes: Vec<String> = basket.sku_codes();
+        // The limited coupons' holds, each one this node relayed and still
+        // holds — refused outright otherwise, see `vouched_coupon_holds`.
+        let coupon_holds =
+            Self::vouched_coupon_holds(tx, &request.coupon_authorizations, occurred_at, true)?;
+        // A basket of unknown items only has nothing for the engine to price.
+        let quoted = if sku_codes.is_empty() {
+            None
+        } else {
+            pricing::quote_with_coupon_holds(
+                tx,
+                self.node.site_id.as_str(),
+                pricing::STORE_CHANNEL,
+                occurred_at,
+                &sku_codes,
+                &request.coupon_codes,
+                request.customer_id.as_deref(),
+                &request.charges,
+                &coupon_holds,
+            )?
+        };
+        // A promotion acts on a line, not on a unit, so what a line comes to is
+        // not always a whole number of unit prices. The line total is what is
+        // charged and what is recorded.
+        //
+        // Line total and unit price are the same number here, and only because
+        // a till builds one line per scanned EPC with a quantity of one. That
+        // is what makes it safe to put this in a column called
+        // `unit_price_minor` — and it is the invariant to check first if a
+        // till ever learns to ring "three of these" as one line, because on
+        // that day this silently starts storing three shirts' money against
+        // one shirt.
+        //
+        // `base` is what the line would have cost before any clearance
+        // replaced the price. The centre cannot derive it: it receives the
+        // charged price and the source that set it, so without this it can say
+        // a markdown applied and never what the markdown cost.
+        let priced_all: Vec<PricedLine> = match &quoted {
+            Some(quote) => quote
+                .lines
+                .iter()
+                .map(|line| PricedLine {
+                    charged_minor: line.line_total_minor,
+                    net_ex_tax_minor: Some(line.net_ex_tax_minor),
+                    tax_minor: Some(line.tax_minor),
+                    points_earned: Some(line.points_earned),
+                    base_minor: Some(line.base_unit_price_minor),
+                    markdown_id: line.markdown_id.clone(),
+                    price_source: line.price_source.clone(),
+                    publication_version: Some(line.publication_version),
+                })
+                .collect(),
+            None => basket
+                .slots
+                .iter()
+                .map(|slot| -> Result<PricedLine, EdgeError> {
+                    let (charged_minor, price_source) = match slot {
+                        crate::edge::unmatched::PricedSlot::Held(tag) => {
+                            (tag.unit_price_minor, "INTAKE_PRICE")
+                        }
+                        // No piece of ours to read an intake price off: the
+                        // catalogue's price, or nothing to charge at all.
+                        crate::edge::unmatched::PricedSlot::Unmatched(line) => (
+                            line.fallback_price_minor.ok_or_else(|| {
+                                EdgeError::Validation(format!(
+                                    "SKU {} has no price in this shop's catalogue",
+                                    line.sku_code
+                                ))
+                            })?,
+                            "CATALOGUE_PRICE",
+                        ),
+                    };
+                    Ok(PricedLine {
+                        charged_minor,
+                        // No book, so no rate — not nought tax, unknown tax.
+                        net_ex_tax_minor: None,
+                        tax_minor: None,
+                        points_earned: None,
+                        markdown_id: None,
+                        // No book, so no list price was ever quoted — the
+                        // intake price is not one, it is what the shop paid.
+                        base_minor: None,
+                        price_source: price_source.to_string(),
+                        publication_version: None,
+                    })
+                })
+                .collect::<Result<Vec<_>, EdgeError>>()?,
+        };
+        if priced_all.len() != basket.slots.len() {
+            return Err(EdgeError::Persistence(
+                "the price book answered for a different number of lines than were rung".into(),
+            ));
+        }
+        // The basket split back into what leaves this shop's stock and what
+        // does not. `held_at[position]` is the held tag a priced line belongs
+        // to, so a promotion's per-line split can be told which unit it came
+        // off.
+        let mut subjects: Vec<SubjectRow> = Vec::new();
+        let mut sold_from: Vec<Place> = Vec::new();
+        let mut priced: Vec<PricedLine> = Vec::new();
+        let mut unit_prices: Vec<Option<i64>> = Vec::new();
+        let mut unmatched: Vec<(crate::edge::unmatched::UnmatchedDraft, PricedLine, Option<i64>)> =
+            Vec::new();
+        let mut held_at: Vec<Option<usize>> = Vec::with_capacity(basket.slots.len());
+        for (position, (slot, line)) in basket.slots.iter().zip(priced_all.into_iter()).enumerate()
+        {
+            let unit_price = quoted
+                .as_ref()
+                .and_then(|quote| quote.lines.get(position))
+                .map(|quoted_line| quoted_line.unit_price_minor);
+            match slot {
+                crate::edge::unmatched::PricedSlot::Held(tag) => {
+                    held_at.push(Some(subjects.len()));
+                    subjects.push(SubjectRow {
+                        id: tag.subject_id,
+                        epc: tag.epc.clone(),
+                        sku_code: tag.sku_code.clone(),
+                        unit_price_minor: tag.unit_price_minor,
+                    });
+                    sold_from.push(tag.from.clone());
+                    unit_prices.push(unit_price);
+                    priced.push(line);
+                }
+                crate::edge::unmatched::PricedSlot::Unmatched(draft) => {
+                    held_at.push(None);
+                    unmatched.push((draft.clone(), line, unit_price));
+                }
+            }
+        }
+        // The unknown items, at the Kepala toko's price.
+        let unknown_total_minor = basket
+            .unknown
+            .iter()
+            .try_fold(0_i64, |total, line| total.checked_add(line.unit_price_minor))
+            .ok_or_else(|| EdgeError::Validation("sale total overflow".into()))?;
+        let total_minor = match &quoted {
+            // Trust the engine's own total rather than re-summing the lines.
+            // Two additions of the same numbers is one addition too many: they
+            // can drift, and then the receipt and the drawer disagree.
+            Some(quote) => quote.total_minor,
+            None => priced
+                .iter()
+                .chain(unmatched.iter().map(|(_, line, _)| line))
+                .try_fold(0_i64, |total, line| {
+                    total
+                        .checked_add(line.charged_minor)
+                        .ok_or_else(|| EdgeError::Validation("sale total overflow".into()))
+                })?,
+        }
+        .checked_add(unknown_total_minor)
+        .ok_or_else(|| EdgeError::Validation("sale total overflow".into()))?;
+        // The goods' split, the unknown items counted as goods with no rate —
+        // the engine's own reading of a book that publishes none — so a Net
+        // Sales figure still adds up to what the shopper paid.
+        let net_ex_tax_total: Option<i64> = quoted.as_ref().map(|quote| {
+            quote.lines.iter().map(|line| line.net_ex_tax_minor).sum::<i64>()
+                + unknown_total_minor
+        });
+        let tax_total: Option<i64> = quoted
+            .as_ref()
+            .map(|quote| quote.lines.iter().map(|line| line.tax_minor).sum::<i64>());
+        // The fees, which the shopper owes as well as the goods.
+        //
+        // Taken from the quote rather than from the request: the request says
+        // what to charge, the engine says what that comes to once taxed, and
+        // the second is the number the drawer is measured against. Re-adding
+        // the request's own figures here would be a second opinion about the
+        // same bill.
+        let charge_total_minor = quoted
+            .as_ref()
+            .map(|quote| quote.charge_total_minor)
+            .unwrap_or(0);
+        // Priced with no book in force, a fee is still owed — there is no rate
+        // to split it by, which is a tax question and not a "does the shopper
+        // pay" question.
+        let unpriced_charges: i64 = if quoted.is_some() {
+            0
+        } else {
+            request
+                .charges
+                .iter()
+                .try_fold(0_i64, |sum, charge| sum.checked_add(charge.amount_minor))
+                .ok_or_else(|| EdgeError::Validation("charge total overflow".into()))?
+        };
+        let charge_total_minor = charge_total_minor
+            .checked_add(unpriced_charges)
+            .ok_or_else(|| EdgeError::Validation("charge total overflow".into()))?;
+        // What the shopper actually owes. Validating tenders against the goods
+        // alone would let a basket settle while the delivery went uncollected —
+        // and the drawer would balance, because nobody asked for it.
+        let amount_due_minor = total_minor
+            .checked_add(charge_total_minor)
+            .ok_or_else(|| EdgeError::Validation("sale total overflow".into()))?;
+        // An exchange (owner, 23 Oct 2026): what came back pays for what goes
+        // out, up to what goes out. The credit is one more tender on this sale
+        // — `OTHER`, naming the original sale — and the shopper's own tenders
+        // cover only the difference. Cheaper or equal: nothing is paid and
+        // nothing is given back.
+        let tenders: Vec<crate::tender::SaleTender> = match exchange {
+            None => request.tenders.clone(),
+            Some(credit) => {
+                let used = credit.available_minor.clamp(0, amount_due_minor.max(0));
+                let owed = amount_due_minor - used;
+                if owed <= 0 && !request.tenders.is_empty() {
+                    return Err(EdgeError::Validation(
+                        "the returned pieces already cover the replacement; send no tenders".into(),
+                    ));
+                }
+                if owed > 0 && request.tenders.is_empty() {
+                    return Err(EdgeError::Validation(format!(
+                        "the replacement comes to {amount_due_minor} and the returned pieces \
+                         cover {used}; take the {owed} difference"
+                    )));
+                }
+                let mut all = request.tenders.clone();
+                if used > 0 {
+                    all.push(crate::tender::SaleTender {
+                        method: crate::tender::PaymentMethod::Other,
+                        amount_minor: used,
+                        reference: Some(credit.reference.clone()),
+                        voucher_authorization_id: None,
+                        acquirer: None,
+                        card_kind: None,
+                    });
+                }
+                all
+            }
+        };
+        // Every tender, checked together: only cash may exceed the total,
+        // because only cash can produce change. A card charged for more than
+        // the basket is not generosity, it is a mistake nobody notices until a
+        // statement arrives.
+        let payment = crate::tender::validate_tenders(amount_due_minor, &tenders)
+            .map_err(|error| EdgeError::Validation(error.to_string()))?;
+        // Only a tender head office set this shop up to take (cloud 0474).
+        super::payment_methods::assert_accepted(tx, &request.tenders)?;
+        // A voucher tender spends a hold this node relayed, or nothing. Inside
+        // the sale's own transaction, so the hold is spent exactly when the
+        // sale exists — and a second basket naming it is refused here, at the
+        // counter, rather than at the centre after the goods have gone.
+        Self::spend_voucher_holds(tx, &tenders, sale_id, occurred_at)?;
+        // And the coupon holds it used, likewise.
+        if let Some(quote) = quoted.as_ref() {
+            Self::spend_coupon_holds(tx, &quote.promotions, sale_id, occurred_at)?;
+        }
+        // Each unknown item spends the Kepala toko's approval of exactly that
+        // name at exactly that price, in this transaction: refused here,
+        // nothing is sold and the approval stays unspent.
+        let mut priced_by: Vec<String> = Vec::with_capacity(basket.unknown.len());
+        for line in &basket.unknown {
+            priced_by.push(crate::edge::unmatched::spend_approval(tx, line, sale_id)?);
+        }
+        // Each held tag leaves from where it stands: the floor, or this
+        // shop's stockroom.
+        let command = MovementCommand {
+            movement_group_id: MovementGroupId::new(),
+            lines: subjects
+                .iter()
+                .zip(sold_from.iter())
+                .map(|(subject, from)| MovementLine {
+                    subject_id: subject.id,
+                    quantity: 1,
+                    from: from.clone(),
+                    to: Place::External {
+                        place: crate::edge::ExternalPlace::Customer,
+                    },
+                })
+                .collect(),
+            cause: MovementCause::Sale,
+            reference_type: Some("SALE".into()),
+            reference_id: Some(sale_id.to_string()),
+            reason: "Store sale completed offline".into(),
+            actor_id: request.actor_id.clone(),
+            occurred_at,
+        };
+        let movement = if command.lines.is_empty() {
+            // Nothing of this shop's left with it — every line is unmatched.
+            // The sale still names a movement group (the sale row requires
+            // one), written with no lines and sent nowhere: there is no stock
+            // movement to report.
+            Self::empty_sale_group(tx, &request.idempotency_key, &command)?
+        } else {
+            self.append_command(tx, &request.idempotency_key, &command)?
+        };
+        // The drawer of the person who rang it, as it stood when they rang it
+        // (`till::shift_for_sale`), and so the day it trades for.
+        let shift_id = crate::edge::till::shift_for_sale(tx, &request.actor_id, occurred_at)?;
+        let business_date =
+            crate::edge::till::business_date_for(tx, shift_id.as_deref(), occurred_at)?;
+        tx.prepare_cached(// `pricing_trace_id` is written here, and it was not before: the
+            // column existed, the engine produced the value, the fact carried
+            // it to the centre, and the shop's own copy stayed null. So the one
+            // node that can be asked "why was I charged this" with the customer
+            // still at the counter — and offline, which is when it matters —
+            // was the node that had thrown the answer away.
+                    "INSERT INTO sale(id,idempotency_key,status,total_minor,paid_minor,change_minor,movement_group_id,actor_id,completed_at,pricing_trace_id,shift_id,net_ex_tax_minor,tax_total_minor,charge_total_minor,charge_net_ex_tax_minor,charge_tax_minor) VALUES(?1,?2,'COMPLETED',?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)"
+    ).map_err(db)?.execute(
+            params![
+                sale_id.to_string(),
+                request.idempotency_key,
+                // The goods, held apart from the fees in the three columns
+                // below. `paid - change` comes to `total + charges`, not to
+                // `total` — which is the whole point of keeping them apart.
+                total_minor,
+                payment.paid_minor,
+                payment.change_minor,
+                movement.movement_group_id.to_string(),
+                request.actor_id,
+                time_text(occurred_at),
+                quoted.as_ref().map(|quote| quote.trace_id.clone()),
+                // Which drawer took this money. NULL when no shift is open,
+                // and the sale still completes: a till that refused to sell
+                // because nobody pressed "open shift" is a queue, and the
+                // shop's problem is then the paperwork rather than the
+                // customer. The Z report counts what it can attribute.
+                shift_id,
+                // What of the takings is sales and what is held for the state.
+                // `None` when the basket was priced with no book in force —
+                // there is no rate to split by, and nought would claim it was
+                // all goods.
+                net_ex_tax_total,
+                tax_total,
+                // The fees, held apart from the goods on the sale row itself so
+                // a Z report and a Net Sales figure can be read off it without
+                // a join. `None` when there were none — which is not nought
+                // fees taken, it is a bill nobody put one on.
+                if request.charges.is_empty() { None } else { Some(charge_total_minor) },
+                quoted.as_ref().filter(|_| !request.charges.is_empty()).map(|quote| {
+                    quote.charges.iter().map(|charge| charge.net_ex_tax_minor).sum::<i64>()
+                }),
+                quoted.as_ref().filter(|_| !request.charges.is_empty()).map(|quote| {
+                    quote.charges.iter().map(|charge| charge.tax_minor).sum::<i64>()
+                })
+            ],
+        )
+        .map_err(db)?;
+        // One row per fee, in the order they were put on the bill — which is
+        // the order the receipt prints them, and the order a reprint has to
+        // reproduce. `charge_seq` keys them, so a retried sale rewrites the
+        // same rows rather than billing a second delivery.
+        for (seq, charge) in request.charges.iter().enumerate() {
+            let priced = quoted.as_ref().and_then(|quote| quote.charges.get(seq));
+            tx.prepare_cached(
+                "INSERT INTO sale_charge
+                     (sale_id,charge_seq,code,description,amount_minor,
+                      net_ex_tax_minor,tax_minor,tax_category)
+                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
+            )
+            .map_err(db)?
+            .execute(params![
+                sale_id.to_string(),
+                i64::try_from(seq).unwrap_or(i64::MAX),
+                charge.code,
+                charge.description,
+                charge.amount_minor,
+                priced.map(|one| one.net_ex_tax_minor),
+                priced.map(|one| one.tax_minor),
+                charge.tax_category,
+            ])
+            .map_err(db)?;
+        }
+        // Keyed by position, so a retry of this whole sale writes the same rows
+        // rather than a second copy of each payment.
+        for (seq, tender) in tenders.iter().enumerate() {
+            tx.prepare_cached(
+                "INSERT INTO sale_tender(sale_id,tender_seq,method,amount_minor,reference,
+                                         acquirer,card_kind)
+                 VALUES(?1,?2,?3,?4,?5,?6,?7)",
+            )
+            .map_err(db)?
+            .execute(params![
+                sale_id.to_string(),
+                i64::try_from(seq).unwrap_or(i64::MAX),
+                tender.method.as_str(),
+                tender.amount_minor,
+                tender.reference,
+                tender_acquirer(tender),
+                tender_card_kind(tender),
+            ])
+            .map_err(db)?;
+        }
+        for (subject, line) in subjects.iter().zip(priced.iter()) {
+            let PricedLine {
+                charged_minor,
+                base_minor,
+                net_ex_tax_minor,
+                tax_minor,
+                points_earned,
+                price_source,
+                publication_version,
+                ..
+            } = line;
+            tx.prepare_cached(
+                // `base_unit_price_minor` is written here, and it was not
+                // before: the engine produced it and the shop's own copy threw
+                // it away, so a receipt could say what was charged and never
+                // what the markdown was worth.
+                "INSERT INTO sale_line
+                     (sale_id,subject_id,epc,sku_code,unit_price_minor,quantity,
+                      price_source,publication_version,base_unit_price_minor,
+                      net_ex_tax_minor,tax_minor,points_earned)
+                 VALUES(?1,?2,?3,?4,?5,1,?6,?7,?8,?9,?10,?11)",
+            )
+            .map_err(db)?
+            .execute(params![
+                sale_id.to_string(),
+                subject.id.to_string(),
+                subject.epc,
+                subject.sku_code,
+                charged_minor,
+                price_source,
+                publication_version,
+                base_minor,
+                net_ex_tax_minor,
+                tax_minor,
+                points_earned
+            ])
+            .map_err(db)?;
+        }
+        // The lines nothing moved for (owner, 23 Oct 2026), in the basket's
+        // order and then the unknown items. Each gets its id here, and keeps it
+        // at head office, where it waits to be matched to a piece.
+        // The 7-letter number, this till's own next (client, 23 Oct 2026).
+        let receipt_no =
+            crate::edge::till::allocate_receipt(tx, &sale_id.to_string(), shift_id.as_deref())?;
+        let till = crate::edge::unmatched::till_label(tx, shift_id.as_deref())?;
+        let mut unmatched_facts: Vec<crate::sync::unmatched::SaleFactUnmatched> =
+            Vec::with_capacity(unmatched.len() + basket.unknown.len());
+        for (draft, line, unit_price) in &unmatched {
+            unmatched_facts.push(crate::sync::unmatched::SaleFactUnmatched {
+                id: Uuid::new_v4(),
+                line_no: i32::try_from(unmatched_facts.len()).unwrap_or(i32::MAX),
+                kind: draft.kind.to_string(),
+                sku_code: Some(draft.sku_code.clone()),
+                epc: draft.epc.clone(),
+                name: None,
+                from_place: draft.from_place.clone(),
+                unit_price_minor: unit_price.unwrap_or(line.charged_minor),
+                line_total_minor: line.charged_minor,
+                net_ex_tax_minor: line.net_ex_tax_minor,
+                tax_minor: line.tax_minor,
+                points_earned: line.points_earned,
+                price_source: Some(line.price_source.clone()),
+                priced_by: None,
+                receipt_no: Some(receipt_no.clone()),
+                till: till.clone(),
+            });
+        }
+        for (line, approved_by) in basket.unknown.iter().zip(priced_by.iter()) {
+            unmatched_facts.push(crate::sync::unmatched::SaleFactUnmatched {
+                id: Uuid::new_v4(),
+                line_no: i32::try_from(unmatched_facts.len()).unwrap_or(i32::MAX),
+                kind: crate::sync::unmatched::KIND_UNKNOWN.to_string(),
+                sku_code: None,
+                epc: None,
+                name: Some(line.name.clone()),
+                from_place: None,
+                unit_price_minor: line.unit_price_minor,
+                line_total_minor: line.unit_price_minor,
+                // Goods with no rate, as the engine reads a book that names
+                // none — and earning nothing, being outside the points.
+                net_ex_tax_minor: quoted.as_ref().map(|_| line.unit_price_minor),
+                tax_minor: quoted.as_ref().map(|_| 0),
+                points_earned: Some(0),
+                price_source: Some("GIVEN_PRICE".into()),
+                priced_by: Some(approved_by.clone()),
+                receipt_no: Some(receipt_no.clone()),
+                till: till.clone(),
+            });
+        }
+        for fact in &unmatched_facts {
+            tx.prepare_cached(
+                "INSERT INTO unmatched_sale_line
+                     (id,sale_id,line_no,kind,sku_code,epc,name,from_place,unit_price_minor,
+                      line_total_minor,net_ex_tax_minor,tax_minor,points_earned,price_source,
+                      priced_by)
+                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
+            )
+            .map_err(db)?
+            .execute(params![
+                fact.id.to_string(),
+                sale_id.to_string(),
+                fact.line_no,
+                fact.kind,
+                fact.sku_code,
+                fact.epc,
+                fact.name,
+                fact.from_place,
+                fact.unit_price_minor,
+                fact.line_total_minor,
+                fact.net_ex_tax_minor,
+                fact.tax_minor,
+                fact.points_earned,
+                fact.price_source,
+                fact.priced_by
+            ])
+            .map_err(db)?;
+        }
+        // The attempt and the sale finish together or not at all. Outside this
+        // transaction there is an instant where one is true and the other is
+        // not, and that instant is exactly the failure the checkout row exists
+        // to survive.
+        Self::complete_checkout_for(tx, &request.idempotency_key, sale_id, occurred_at)?;
+        // The money leaves with the sale, in the same transaction.
+        //
+        // The stock side travels separately and in aggregate, as a pool
+        // snapshot, so this is the ONLY line-level record of a sale the centre
+        // ever sees: without it there is no revenue figure for the fleet at
+        // all. `movement_group_id` carries the shop's local ledger reference
+        // so an investigation can go back to the movements behind a sale.
+        let tender_facts = tenders
+            .iter()
+            .enumerate()
+            .map(|(seq, tender)| {
+                let voucher_code = match tender
+                    .voucher_authorization_id
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|id| !id.is_empty())
+                {
+                    Some(authorization_id) => Some(
+                        tx.prepare_cached(
+                            "SELECT code FROM voucher_hold WHERE authorization_id = ?1",
+                        )
+                        .map_err(db)?
+                        .query_row(params![authorization_id], |row| row.get::<_, String>(0))
+                        .optional()
+                        .map_err(db)?
+                        .ok_or_else(|| {
+                            EdgeError::Conflict(
+                                "this voucher hold disappeared before its sale fact was written"
+                                    .into(),
+                            )
+                        })?,
+                    ),
+                    None => None,
+                };
+                Ok(serde_json::json!({
+                    "tender_seq": seq,
+                    "method": tender.method.as_str(),
+                    "amount_minor": tender.amount_minor,
+                    "reference": tender.reference,
+                    "voucher_authorization_id": tender.voucher_authorization_id,
+                    "voucher_code": voucher_code,
+                    "acquirer": tender_acquirer(tender),
+                    "card_kind": tender_card_kind(tender),
+                }))
+            })
+            .collect::<Result<Vec<_>, EdgeError>>()?;
+        let queued_for_centre = crate::edge::sync::enqueue_fact(
+            tx,
+            sale_id,
+            crate::cloud::domain::FACT_SALES_COMPLETED,
+            &serde_json::json!({
+                "sale_id": sale_id,
+                "movement_group_id": movement.movement_group_id,
+                "site_id": self.node.site_id.to_string(),
+                "actor_id": request.actor_id,
+                "occurred_at": occurred_at,
+                // Which drawer took it and the day it trades for — the shift's,
+                // so a sale at half past midnight on a shift opened at eleven
+                // is the evening before's.
+                "shift_id": shift_id,
+                "business_date": business_date,
+                "currency": "IDR",
+                "total_minor": payment.total_minor,
+                // The fees inside that total (a bag): the centre re-sums the
+                // lines against the total and needs to know what is not goods.
+                "charge_total_minor": charge_total_minor,
+                "paid_minor": payment.paid_minor,
+                "change_minor": payment.change_minor,
+                "net_ex_tax_minor": net_ex_tax_total,
+                "tax_total_minor": tax_total,
+                // What was charged, not what the unit cost at intake. The
+                // centre re-sums these against the total and refuses a sale
+                // that does not reconcile, so sending the intake price here
+                // would have every sale rejected at the door the moment a price
+                // book landed — and rejected sales are invisible revenue.
+                "lines": subjects
+                    .iter()
+                    .zip(priced.iter())
+                    .zip(unit_prices.iter())
+                    .map(|((subject, line), unit_price)| {
+                        serde_json::json!({
+                            "subject_id": subject.id,
+                            "epc": subject.epc,
+                            "sku_code": subject.sku_code,
+                            "quantity": 1,
+                            // The engine's figure for this very line, by its
+                            // position in the basket.
+                            "unit_price_minor": unit_price.unwrap_or(subject.unit_price_minor),
+                            "line_total_minor": line.charged_minor,
+                            // Null, not nought, when no book priced this: the
+                            // split is unknown rather than all-goods.
+                            "net_ex_tax_minor": line.net_ex_tax_minor,
+                            "tax_minor": line.tax_minor,
+                            "points_earned": line.points_earned,
+                            // What it cost before a clearance replaced the
+                            // price. The centre keeps `price_source` and so can
+                            // say a markdown applied; without this it cannot say
+                            // what the markdown COST, and "what did the
+                            // end-of-season take out of margin" has no answer
+                            // while "what did the Lebaran rule cost" has one.
+                            //
+                            // Absent when no book was in force: the intake price
+                            // is what the shop paid, not a price it ever asked.
+                            "base_unit_price_minor": line.base_minor,
+                            "markdown_id": line.markdown_id,
+                            "price_source": line.price_source,
+                            "publication_version": line.publication_version,
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+                "discount_total_minor": quoted
+                    .as_ref()
+                    .map_or(0, |quote| quote.discount_total_minor),
+                "points_earned": quoted.as_ref().map_or(0, |quote| quote.points_earned),
+                "pricing_trace_id": quoted.as_ref().map(|quote| quote.trace_id.clone()),
+                // Who bought it. Points travel without this and there is
+                // nobody to credit them to.
+                "customer_id": request.customer_id,
+                // How it was settled. Only the amount travelled before, so the
+                // centre could say what a shop took and never how — and a bank
+                // reconciliation needs the how.
+                // Each voucher tender carries the code its relayed hold bound
+                // to. Cloud checks that spelling against the locked voucher
+                // row before committing the exact held amount.
+                "tenders": tender_facts,
+                // Which promotions actually came off, and what each was worth.
+                // Only the total travelled before, so "what did the Lebaran
+                // promo cost us" had no answer — and a coupon marked
+                // single-use could be spent again at every other shop, because
+                // nothing ever learned it had been spent once.
+                "promotions": quoted
+                    .as_ref()
+                    .map(|quote| {
+                        quote
+                            .promotions
+                            .iter()
+                            .filter(|promotion| promotion.applied)
+                            .map(|promotion| serde_json::json!({
+                                "rule_id": promotion.rule_id,
+                                "campaign_id": promotion.campaign_id,
+                                "coupon_code": promotion.coupon_code,
+                                // Head office's hold on a limited code. It
+                                // commits exactly this hold against this sale
+                                // when the fact lands — the till never calls
+                                // commit, as with a voucher's.
+                                "coupon_authorization_id": promotion.coupon_authorization_id,
+                                "benefit_minor": promotion.benefit_minor,
+                                // Which units it came off. Sent as subject ids
+                                // rather than positions: a position is only
+                                // meaningful against the basket that produced
+                                // it, and the centre reads this fact on its own
+                                // days later.
+                                //
+                                // An unmatched line has no unit to name. A split
+                                // that left it out would not add up to the
+                                // promotion's total and the centre would refuse
+                                // the sale, so a promotion that touched one
+                                // travels unsplit — "not broken down", which
+                                // the centre accepts and says.
+                                "lines": if promotion.line_benefits.iter().any(|line| {
+                                    held_at.get(line.line).copied().flatten().is_none()
+                                }) {
+                                    Vec::new()
+                                } else {
+                                    promotion
+                                        .line_benefits
+                                        .iter()
+                                        .filter_map(|line| {
+                                            held_at
+                                                .get(line.line)
+                                                .copied()
+                                                .flatten()
+                                                .and_then(|held| subjects.get(held))
+                                                .map(|subject| {
+                                                    serde_json::json!({
+                                                        "subject_id": subject.id,
+                                                        "benefit_minor": line.benefit_minor,
+                                                    })
+                                                })
+                                        })
+                                        .collect::<Vec<_>>()
+                                },
+                            }))
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default(),
+                // What sold that nothing moved for: the shop's stock could not
+                // give it (owner, 23 Oct 2026). The total is `lines` and these
+                // and the charges together. `sync::unmatched::SaleFactUnmatched`.
+                "unmatched": unmatched_facts,
+                // The 7-letter number the shopper holds; head office keeps it.
+                "receipt_no": receipt_no,
+            }),
+        )
+        .map_err(db)?
+        .is_some();
+        // And against this till's own brake, in the same transaction. Until the
+        // centre has counted this sale and said so, the budget, basket cap and
+        // coupon this sale used are spent HERE too — the next basket at this
+        // counter must not find a single-use code still open. See `0043`.
+        if let Some(quote) = quoted.as_ref() {
+            pricing::record_local_usage(
+                tx,
+                &sale_id.to_string(),
+                &quote.promotions,
+                queued_for_centre,
+                &time_text(occurred_at),
+            )?;
+        }
+        let response = SaleResult {
+            sale_id,
+            // The goods. `payment.total_minor` is what the tender was measured
+            // against, which now has the fees in it — reporting that here would
+            // put a courier inside every "sale total" the estate has.
+            total_minor,
+            charge_total_minor,
+            amount_due_minor,
+            paid_minor: payment.paid_minor,
+            change_minor: payment.change_minor,
+            movement_group_id: movement.movement_group_id,
+            completed_at: occurred_at,
+            promotions: quoted
+                .as_ref()
+                .map(|quote| quote.promotions.clone())
+                .unwrap_or_default(),
+            granted_lines: quoted
+                .as_ref()
+                .map(|quote| quote.granted_lines.clone())
+                .unwrap_or_default(),
+            points_earned: quoted.as_ref().map_or(0, |quote| quote.points_earned),
+            receipt_no,
+        };
+        Ok(response)
+    }
 }
 
 impl EdgeInventory for SqliteEdge {
@@ -6989,6 +7889,14 @@ impl EdgeInventory for SqliteEdge {
         crate::edge::inbound::detail(&connection, delivery_id.trim())
     }
 
+    fn store_inbound_scan(
+        &self,
+        code: &str,
+    ) -> Result<crate::edge::inbound::StoreInboundScan, EdgeError> {
+        let connection = self.lock()?;
+        crate::edge::inbound::find_by_scan(&connection, code)
+    }
+
     fn flow_notices(&self, open: bool) -> Result<crate::edge::flows::FlowNoticeList, EdgeError> {
         let connection = self.lock()?;
         crate::edge::flows::notices(&connection, open)
@@ -7785,9 +8693,9 @@ impl EdgeInventory for SqliteEdge {
                 "sales are only available on Store Edge".into(),
             ));
         }
-        if request.epcs.is_empty() {
+        if request.epcs.is_empty() && request.untagged.is_empty() {
             return Err(EdgeError::Validation(
-                "sale requires at least one EPC".into(),
+                "sale requires at least one EPC or untagged line".into(),
             ));
         }
         Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
@@ -7813,542 +8721,9 @@ impl EdgeInventory for SqliteEdge {
             tx.commit().map_err(db)?;
             return Ok(response);
         }
-        let subjects = epcs
-            .iter()
-            .map(|epc| Self::subject_by_epc(&tx, epc))
-            .collect::<Result<Vec<_>, _>>()?;
         let sale_id = Uuid::new_v4();
         let occurred_at = self.clock.now();
-
-        // What to charge.
-        //
-        // The published price book governs. Until now this summed the price
-        // stamped on each unit when it was received, which meant a price
-        // change published at the centre reached the shop, was stored, and
-        // never made it onto a receipt.
-        //
-        // The intake price remains the fallback for exactly one situation: a
-        // shop that has never received a publication. Refusing to sell there
-        // would brick a till over a condition the cashier cannot fix, and the
-        // intake price is what that shop has always charged. Every line records
-        // which of the two applied, so this is visible at the centre and not a
-        // silent substitution.
-        let sku_codes: Vec<String> = subjects
-            .iter()
-            .map(|subject| subject.sku_code.clone())
-            .collect();
-        // The limited coupons' holds, each one this node relayed and still
-        // holds — refused outright otherwise, see `vouched_coupon_holds`.
-        let coupon_holds =
-            Self::vouched_coupon_holds(&tx, &request.coupon_authorizations, occurred_at, true)?;
-        let quoted = pricing::quote_with_coupon_holds(
-            &tx,
-            self.node.site_id.as_str(),
-            pricing::STORE_CHANNEL,
-            occurred_at,
-            &sku_codes,
-            &request.coupon_codes,
-            request.customer_id.as_deref(),
-            &request.charges,
-            &coupon_holds,
-        )?;
-        // A promotion acts on a line, not on a unit, so what a line comes to is
-        // not always a whole number of unit prices. The line total is what is
-        // charged and what is recorded.
-        //
-        // Line total and unit price are the same number here, and only because
-        // a till builds one line per scanned EPC with a quantity of one. That
-        // is what makes it safe to put this in a column called
-        // `unit_price_minor` — and it is the invariant to check first if a
-        // till ever learns to ring "three of these" as one line, because on
-        // that day this silently starts storing three shirts' money against
-        // one shirt.
-        //
-        // `base` is what the line would have cost before any clearance
-        // replaced the price. The centre cannot derive it: it receives the
-        // charged price and the source that set it, so without this it can say
-        // a markdown applied and never what the markdown cost.
-        let priced: Vec<PricedLine> = match &quoted {
-            Some(quote) => quote
-                .lines
-                .iter()
-                .map(|line| PricedLine {
-                    charged_minor: line.line_total_minor,
-                    net_ex_tax_minor: Some(line.net_ex_tax_minor),
-                    tax_minor: Some(line.tax_minor),
-                    points_earned: Some(line.points_earned),
-                    base_minor: Some(line.base_unit_price_minor),
-                    markdown_id: line.markdown_id.clone(),
-                    price_source: line.price_source.clone(),
-                    publication_version: Some(line.publication_version),
-                })
-                .collect(),
-            None => subjects
-                .iter()
-                .map(|subject| PricedLine {
-                    charged_minor: subject.unit_price_minor,
-                    // No book, so no rate — not nought tax, unknown tax.
-                    net_ex_tax_minor: None,
-                    tax_minor: None,
-                    points_earned: None,
-                    markdown_id: None,
-                    // No book, so no list price was ever quoted — the intake
-                    // price is not one, it is what the shop paid.
-                    base_minor: None,
-                    price_source: "INTAKE_PRICE".to_string(),
-                    publication_version: None,
-                })
-                .collect(),
-        };
-        let total_minor = match &quoted {
-            // Trust the engine's own total rather than re-summing the lines.
-            // Two additions of the same numbers is one addition too many: they
-            // can drift, and then the receipt and the drawer disagree.
-            Some(quote) => quote.total_minor,
-            None => priced.iter().try_fold(0_i64, |total, line| {
-                total
-                    .checked_add(line.charged_minor)
-                    .ok_or_else(|| EdgeError::Validation("sale total overflow".into()))
-            })?,
-        };
-        // The fees, which the shopper owes as well as the goods.
-        //
-        // Taken from the quote rather than from the request: the request says
-        // what to charge, the engine says what that comes to once taxed, and
-        // the second is the number the drawer is measured against. Re-adding
-        // the request's own figures here would be a second opinion about the
-        // same bill.
-        let charge_total_minor = quoted
-            .as_ref()
-            .map(|quote| quote.charge_total_minor)
-            .unwrap_or(0);
-        // Priced with no book in force, a fee is still owed — there is no rate
-        // to split it by, which is a tax question and not a "does the shopper
-        // pay" question.
-        let unpriced_charges: i64 = if quoted.is_some() {
-            0
-        } else {
-            request
-                .charges
-                .iter()
-                .try_fold(0_i64, |sum, charge| sum.checked_add(charge.amount_minor))
-                .ok_or_else(|| EdgeError::Validation("charge total overflow".into()))?
-        };
-        let charge_total_minor = charge_total_minor
-            .checked_add(unpriced_charges)
-            .ok_or_else(|| EdgeError::Validation("charge total overflow".into()))?;
-        // What the shopper actually owes. Validating tenders against the goods
-        // alone would let a basket settle while the delivery went uncollected —
-        // and the drawer would balance, because nobody asked for it.
-        let amount_due_minor = total_minor
-            .checked_add(charge_total_minor)
-            .ok_or_else(|| EdgeError::Validation("sale total overflow".into()))?;
-        // Every tender, checked together: only cash may exceed the total,
-        // because only cash can produce change. A card charged for more than
-        // the basket is not generosity, it is a mistake nobody notices until a
-        // statement arrives.
-        let payment = crate::tender::validate_tenders(amount_due_minor, &request.tenders)
-            .map_err(|error| EdgeError::Validation(error.to_string()))?;
-        // Only a tender head office set this shop up to take (cloud 0474).
-        super::payment_methods::assert_accepted(&tx, &request.tenders)?;
-        // A voucher tender spends a hold this node relayed, or nothing. Inside
-        // the sale's own transaction, so the hold is spent exactly when the
-        // sale exists — and a second basket naming it is refused here, at the
-        // counter, rather than at the centre after the goods have gone.
-        Self::spend_voucher_holds(&tx, &request.tenders, sale_id, occurred_at)?;
-        // And the coupon holds it used, likewise.
-        if let Some(quote) = quoted.as_ref() {
-            Self::spend_coupon_holds(&tx, &quote.promotions, sale_id, occurred_at)?;
-        }
-        let from = Place::Operational {
-            pool: OperationalPool::StoreFloor {
-                store_id: self.node.site_id.clone(),
-            },
-            state: InventoryState::Normal,
-        };
-        let command = MovementCommand {
-            movement_group_id: MovementGroupId::new(),
-            lines: subjects
-                .iter()
-                .map(|subject| MovementLine {
-                    subject_id: subject.id,
-                    quantity: 1,
-                    from: from.clone(),
-                    to: Place::External {
-                        place: crate::edge::ExternalPlace::Customer,
-                    },
-                })
-                .collect(),
-            cause: MovementCause::Sale,
-            reference_type: Some("SALE".into()),
-            reference_id: Some(sale_id.to_string()),
-            reason: "Store sale completed offline".into(),
-            actor_id: request.actor_id.clone(),
-            occurred_at,
-        };
-        let movement = self.append_command(&tx, &request.idempotency_key, &command)?;
-        // The drawer of the person who rang it, as it stood when they rang it
-        // (`till::shift_for_sale`), and so the day it trades for.
-        let shift_id = crate::edge::till::shift_for_sale(&tx, &request.actor_id, occurred_at)?;
-        let business_date =
-            crate::edge::till::business_date_for(&tx, shift_id.as_deref(), occurred_at)?;
-        tx.prepare_cached(// `pricing_trace_id` is written here, and it was not before: the
-            // column existed, the engine produced the value, the fact carried
-            // it to the centre, and the shop's own copy stayed null. So the one
-            // node that can be asked "why was I charged this" with the customer
-            // still at the counter — and offline, which is when it matters —
-            // was the node that had thrown the answer away.
-                    "INSERT INTO sale(id,idempotency_key,status,total_minor,paid_minor,change_minor,movement_group_id,actor_id,completed_at,pricing_trace_id,shift_id,net_ex_tax_minor,tax_total_minor,charge_total_minor,charge_net_ex_tax_minor,charge_tax_minor) VALUES(?1,?2,'COMPLETED',?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)"
-    ).map_err(db)?.execute(
-            params![
-                sale_id.to_string(),
-                request.idempotency_key,
-                // The goods, held apart from the fees in the three columns
-                // below. `paid - change` comes to `total + charges`, not to
-                // `total` — which is the whole point of keeping them apart.
-                total_minor,
-                payment.paid_minor,
-                payment.change_minor,
-                movement.movement_group_id.to_string(),
-                request.actor_id,
-                time_text(occurred_at),
-                quoted.as_ref().map(|quote| quote.trace_id.clone()),
-                // Which drawer took this money. NULL when no shift is open,
-                // and the sale still completes: a till that refused to sell
-                // because nobody pressed "open shift" is a queue, and the
-                // shop's problem is then the paperwork rather than the
-                // customer. The Z report counts what it can attribute.
-                shift_id,
-                // What of the takings is sales and what is held for the state.
-                // `None` when the basket was priced with no book in force —
-                // there is no rate to split by, and nought would claim it was
-                // all goods.
-                quoted.as_ref().map(|quote| {
-                    quote.lines.iter().map(|line| line.net_ex_tax_minor).sum::<i64>()
-                }),
-                quoted.as_ref().map(|quote| {
-                    quote.lines.iter().map(|line| line.tax_minor).sum::<i64>()
-                }),
-                // The fees, held apart from the goods on the sale row itself so
-                // a Z report and a Net Sales figure can be read off it without
-                // a join. `None` when there were none — which is not nought
-                // fees taken, it is a bill nobody put one on.
-                if request.charges.is_empty() { None } else { Some(charge_total_minor) },
-                quoted.as_ref().filter(|_| !request.charges.is_empty()).map(|quote| {
-                    quote.charges.iter().map(|charge| charge.net_ex_tax_minor).sum::<i64>()
-                }),
-                quoted.as_ref().filter(|_| !request.charges.is_empty()).map(|quote| {
-                    quote.charges.iter().map(|charge| charge.tax_minor).sum::<i64>()
-                })
-            ],
-        )
-        .map_err(db)?;
-        // One row per fee, in the order they were put on the bill — which is
-        // the order the receipt prints them, and the order a reprint has to
-        // reproduce. `charge_seq` keys them, so a retried sale rewrites the
-        // same rows rather than billing a second delivery.
-        for (seq, charge) in request.charges.iter().enumerate() {
-            let priced = quoted.as_ref().and_then(|quote| quote.charges.get(seq));
-            tx.prepare_cached(
-                "INSERT INTO sale_charge
-                     (sale_id,charge_seq,code,description,amount_minor,
-                      net_ex_tax_minor,tax_minor,tax_category)
-                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
-            )
-            .map_err(db)?
-            .execute(params![
-                sale_id.to_string(),
-                i64::try_from(seq).unwrap_or(i64::MAX),
-                charge.code,
-                charge.description,
-                charge.amount_minor,
-                priced.map(|one| one.net_ex_tax_minor),
-                priced.map(|one| one.tax_minor),
-                charge.tax_category,
-            ])
-            .map_err(db)?;
-        }
-        // Keyed by position, so a retry of this whole sale writes the same rows
-        // rather than a second copy of each payment.
-        for (seq, tender) in request.tenders.iter().enumerate() {
-            tx.prepare_cached(
-                "INSERT INTO sale_tender(sale_id,tender_seq,method,amount_minor,reference,
-                                         acquirer,card_kind)
-                 VALUES(?1,?2,?3,?4,?5,?6,?7)",
-            )
-            .map_err(db)?
-            .execute(params![
-                sale_id.to_string(),
-                i64::try_from(seq).unwrap_or(i64::MAX),
-                tender.method.as_str(),
-                tender.amount_minor,
-                tender.reference,
-                tender_acquirer(tender),
-                tender_card_kind(tender),
-            ])
-            .map_err(db)?;
-        }
-        for (subject, line) in subjects.iter().zip(priced.iter()) {
-            let PricedLine {
-                charged_minor,
-                base_minor,
-                net_ex_tax_minor,
-                tax_minor,
-                points_earned,
-                price_source,
-                publication_version,
-                ..
-            } = line;
-            tx.prepare_cached(
-                // `base_unit_price_minor` is written here, and it was not
-                // before: the engine produced it and the shop's own copy threw
-                // it away, so a receipt could say what was charged and never
-                // what the markdown was worth.
-                "INSERT INTO sale_line
-                     (sale_id,subject_id,epc,sku_code,unit_price_minor,quantity,
-                      price_source,publication_version,base_unit_price_minor,
-                      net_ex_tax_minor,tax_minor,points_earned)
-                 VALUES(?1,?2,?3,?4,?5,1,?6,?7,?8,?9,?10,?11)",
-            )
-            .map_err(db)?
-            .execute(params![
-                sale_id.to_string(),
-                subject.id.to_string(),
-                subject.epc,
-                subject.sku_code,
-                charged_minor,
-                price_source,
-                publication_version,
-                base_minor,
-                net_ex_tax_minor,
-                tax_minor,
-                points_earned
-            ])
-            .map_err(db)?;
-        }
-        // The attempt and the sale finish together or not at all. Outside this
-        // transaction there is an instant where one is true and the other is
-        // not, and that instant is exactly the failure the checkout row exists
-        // to survive.
-        Self::complete_checkout_for(&tx, &request.idempotency_key, sale_id, occurred_at)?;
-        // The money leaves with the sale, in the same transaction.
-        //
-        // The stock side travels separately and in aggregate, as a pool
-        // snapshot, so this is the ONLY line-level record of a sale the centre
-        // ever sees: without it there is no revenue figure for the fleet at
-        // all. `movement_group_id` carries the shop's local ledger reference
-        // so an investigation can go back to the movements behind a sale.
-        let tender_facts = request
-            .tenders
-            .iter()
-            .enumerate()
-            .map(|(seq, tender)| {
-                let voucher_code = match tender
-                    .voucher_authorization_id
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|id| !id.is_empty())
-                {
-                    Some(authorization_id) => Some(
-                        tx.prepare_cached(
-                            "SELECT code FROM voucher_hold WHERE authorization_id = ?1",
-                        )
-                        .map_err(db)?
-                        .query_row(params![authorization_id], |row| row.get::<_, String>(0))
-                        .optional()
-                        .map_err(db)?
-                        .ok_or_else(|| {
-                            EdgeError::Conflict(
-                                "this voucher hold disappeared before its sale fact was written"
-                                    .into(),
-                            )
-                        })?,
-                    ),
-                    None => None,
-                };
-                Ok(serde_json::json!({
-                    "tender_seq": seq,
-                    "method": tender.method.as_str(),
-                    "amount_minor": tender.amount_minor,
-                    "reference": tender.reference,
-                    "voucher_authorization_id": tender.voucher_authorization_id,
-                    "voucher_code": voucher_code,
-                    "acquirer": tender_acquirer(tender),
-                    "card_kind": tender_card_kind(tender),
-                }))
-            })
-            .collect::<Result<Vec<_>, EdgeError>>()?;
-        let queued_for_centre = crate::edge::sync::enqueue_fact(
-            &tx,
-            sale_id,
-            crate::cloud::domain::FACT_SALES_COMPLETED,
-            &serde_json::json!({
-                "sale_id": sale_id,
-                "movement_group_id": movement.movement_group_id,
-                "site_id": self.node.site_id.to_string(),
-                "actor_id": request.actor_id,
-                "occurred_at": occurred_at,
-                // Which drawer took it and the day it trades for — the shift's,
-                // so a sale at half past midnight on a shift opened at eleven
-                // is the evening before's.
-                "shift_id": shift_id,
-                "business_date": business_date,
-                "currency": "IDR",
-                "total_minor": payment.total_minor,
-                // The fees inside that total (a bag): the centre re-sums the
-                // lines against the total and needs to know what is not goods.
-                "charge_total_minor": charge_total_minor,
-                "paid_minor": payment.paid_minor,
-                "change_minor": payment.change_minor,
-                "net_ex_tax_minor": quoted.as_ref().map(|quote| {
-                    quote.lines.iter().map(|line| line.net_ex_tax_minor).sum::<i64>()
-                }),
-                "tax_total_minor": quoted.as_ref().map(|quote| {
-                    quote.lines.iter().map(|line| line.tax_minor).sum::<i64>()
-                }),
-                // What was charged, not what the unit cost at intake. The
-                // centre re-sums these against the total and refuses a sale
-                // that does not reconcile, so sending the intake price here
-                // would have every sale rejected at the door the moment a price
-                // book landed — and rejected sales are invisible revenue.
-                "lines": subjects
-                    .iter()
-                    .zip(priced.iter())
-                    .map(|(subject, line)| {
-                        serde_json::json!({
-                            "subject_id": subject.id,
-                            "epc": subject.epc,
-                            "sku_code": subject.sku_code,
-                            "quantity": 1,
-                            "unit_price_minor": quoted
-                                .as_ref()
-                                .and_then(|quote| {
-                                    quote
-                                        .lines
-                                        .iter()
-                                        .find(|q| q.sku_code == subject.sku_code)
-                                        .map(|q| q.unit_price_minor)
-                                })
-                                .unwrap_or(subject.unit_price_minor),
-                            "line_total_minor": line.charged_minor,
-                            // Null, not nought, when no book priced this: the
-                            // split is unknown rather than all-goods.
-                            "net_ex_tax_minor": line.net_ex_tax_minor,
-                            "tax_minor": line.tax_minor,
-                            "points_earned": line.points_earned,
-                            // What it cost before a clearance replaced the
-                            // price. The centre keeps `price_source` and so can
-                            // say a markdown applied; without this it cannot say
-                            // what the markdown COST, and "what did the
-                            // end-of-season take out of margin" has no answer
-                            // while "what did the Lebaran rule cost" has one.
-                            //
-                            // Absent when no book was in force: the intake price
-                            // is what the shop paid, not a price it ever asked.
-                            "base_unit_price_minor": line.base_minor,
-                            "markdown_id": line.markdown_id,
-                            "price_source": line.price_source,
-                            "publication_version": line.publication_version,
-                        })
-                    })
-                    .collect::<Vec<_>>(),
-                "discount_total_minor": quoted
-                    .as_ref()
-                    .map_or(0, |quote| quote.discount_total_minor),
-                "points_earned": quoted.as_ref().map_or(0, |quote| quote.points_earned),
-                "pricing_trace_id": quoted.as_ref().map(|quote| quote.trace_id.clone()),
-                // Who bought it. Points travel without this and there is
-                // nobody to credit them to.
-                "customer_id": request.customer_id,
-                // How it was settled. Only the amount travelled before, so the
-                // centre could say what a shop took and never how — and a bank
-                // reconciliation needs the how.
-                // Each voucher tender carries the code its relayed hold bound
-                // to. Cloud checks that spelling against the locked voucher
-                // row before committing the exact held amount.
-                "tenders": tender_facts,
-                // Which promotions actually came off, and what each was worth.
-                // Only the total travelled before, so "what did the Lebaran
-                // promo cost us" had no answer — and a coupon marked
-                // single-use could be spent again at every other shop, because
-                // nothing ever learned it had been spent once.
-                "promotions": quoted
-                    .as_ref()
-                    .map(|quote| {
-                        quote
-                            .promotions
-                            .iter()
-                            .filter(|promotion| promotion.applied)
-                            .map(|promotion| serde_json::json!({
-                                "rule_id": promotion.rule_id,
-                                "campaign_id": promotion.campaign_id,
-                                "coupon_code": promotion.coupon_code,
-                                // Head office's hold on a limited code. It
-                                // commits exactly this hold against this sale
-                                // when the fact lands — the till never calls
-                                // commit, as with a voucher's.
-                                "coupon_authorization_id": promotion.coupon_authorization_id,
-                                "benefit_minor": promotion.benefit_minor,
-                                // Which units it came off. Sent as subject ids
-                                // rather than positions: a position is only
-                                // meaningful against the basket that produced
-                                // it, and the centre reads this fact on its own
-                                // days later.
-                                "lines": promotion
-                                    .line_benefits
-                                    .iter()
-                                    .filter_map(|line| {
-                                        subjects.get(line.line).map(|subject| {
-                                            serde_json::json!({
-                                                "subject_id": subject.id,
-                                                "benefit_minor": line.benefit_minor,
-                                            })
-                                        })
-                                    })
-                                    .collect::<Vec<_>>(),
-                            }))
-                            .collect::<Vec<_>>()
-                    })
-                    .unwrap_or_default(),
-            }),
-        )
-        .map_err(db)?
-        .is_some();
-        // And against this till's own brake, in the same transaction. Until the
-        // centre has counted this sale and said so, the budget, basket cap and
-        // coupon this sale used are spent HERE too — the next basket at this
-        // counter must not find a single-use code still open. See `0043`.
-        if let Some(quote) = quoted.as_ref() {
-            pricing::record_local_usage(
-                &tx,
-                &sale_id.to_string(),
-                &quote.promotions,
-                queued_for_centre,
-                &time_text(occurred_at),
-            )?;
-        }
-        let response = SaleResult {
-            sale_id,
-            // The goods. `payment.total_minor` is what the tender was measured
-            // against, which now has the fees in it — reporting that here would
-            // put a courier inside every "sale total" the estate has.
-            total_minor,
-            charge_total_minor,
-            amount_due_minor,
-            paid_minor: payment.paid_minor,
-            change_minor: payment.change_minor,
-            movement_group_id: movement.movement_group_id,
-            completed_at: occurred_at,
-            promotions: quoted
-                .as_ref()
-                .map(|quote| quote.promotions.clone())
-                .unwrap_or_default(),
-            granted_lines: quoted
-                .as_ref()
-                .map(|quote| quote.granted_lines.clone())
-                .unwrap_or_default(),
-            points_earned: quoted.as_ref().map_or(0, |quote| quote.points_earned),
-        };
+        let response = self.ring_sale(&tx, &request, &epcs, sale_id, occurred_at, None)?;
         Self::save_idempotent(
             &tx,
             &request.idempotency_key,
@@ -8379,6 +8754,17 @@ impl EdgeInventory for SqliteEdge {
             dc_id: self.node.site_id.clone(),
         }
         .id();
+        // To be returned's other two pockets (0986), counted the same way.
+        let over_delivery = OperationalPool::ToReturn {
+            site_id: self.node.site_id.clone(),
+            pocket: crate::edge::ToReturnPocket::OverDelivery,
+        }
+        .id();
+        let return_ho = OperationalPool::ToReturn {
+            site_id: self.node.site_id.clone(),
+            pocket: crate::edge::ToReturnPocket::ReturnHo,
+        }
+        .id();
         let connection = self.read_lock()?;
         // What this site still owes out of these two rooms: the open part of
         // every accepted allotment line sourced from either. Charged to the
@@ -8391,10 +8777,12 @@ impl EdgeInventory for SqliteEdge {
                        SELECT subject.sku_code,
                               SUM(CASE WHEN projection.place_id=?1 THEN projection.quantity ELSE 0 END) floor,
                               SUM(CASE WHEN projection.place_id=?2 THEN projection.quantity ELSE 0 END) warehouse,
-                              SUM(CASE WHEN projection.place_id IN (?5,?6) THEN projection.quantity ELSE 0 END) reject
+                              SUM(CASE WHEN projection.place_id IN (?5,?6) THEN projection.quantity ELSE 0 END) reject,
+                              SUM(CASE WHEN projection.place_id=?7 THEN projection.quantity ELSE 0 END) over_delivery,
+                              SUM(CASE WHEN projection.place_id=?8 THEN projection.quantity ELSE 0 END) return_ho
                        FROM inventory_projection projection
                        JOIN inventory_subject subject ON subject.id=projection.subject_id
-                       WHERE projection.place_id IN (?1,?2,?5,?6)
+                       WHERE projection.place_id IN (?1,?2,?5,?6,?7,?8)
                          AND subject.sku_code IS NOT NULL
                        GROUP BY subject.sku_code
                    ), promised AS (
@@ -8407,7 +8795,8 @@ impl EdgeInventory for SqliteEdge {
                        GROUP BY line.sku_code
                    )
                    SELECT supply.sku_code,supply.floor,supply.warehouse,
-                          COALESCE(promised.quantity,0),supply.reject
+                          COALESCE(promised.quantity,0),supply.reject,
+                          supply.over_delivery,supply.return_ho
                    FROM supply
                    LEFT JOIN promised ON promised.sku_code=supply.sku_code
                    ORDER BY supply.sku_code"#,
@@ -8421,7 +8810,9 @@ impl EdgeInventory for SqliteEdge {
                     floor,
                     warehouse,
                     format!("{reject}:on_hand"),
-                    format!("{legacy_reject}:on_hand")
+                    format!("{legacy_reject}:on_hand"),
+                    format!("{over_delivery}:on_hand"),
+                    format!("{return_ho}:on_hand")
                 ],
                 |row| {
                     Ok((
@@ -8430,13 +8821,17 @@ impl EdgeInventory for SqliteEdge {
                         row.get::<_, i64>(2)?,
                         row.get::<_, i64>(3)?,
                         row.get::<_, i64>(4)?,
+                        row.get::<_, i64>(5)?,
+                        row.get::<_, i64>(6)?,
                     ))
                 },
             )
             .map_err(db)?;
         let mut items = Vec::new();
         for row in rows {
-            let (sku_code, floor, warehouse, promised, reject) = row.map_err(db)?;
+            let (sku_code, floor, warehouse, promised, reject, over_delivery, return_ho) =
+                row.map_err(db)?;
+            let (over_delivery, return_ho) = (over_delivery.max(0), return_ho.max(0));
             let (floor, warehouse, promised) = (floor.max(0), warehouse.max(0), promised.max(0));
             let reject = reject.max(0);
             let from_warehouse = promised.min(warehouse);
@@ -8444,7 +8839,7 @@ impl EdgeInventory for SqliteEdge {
             let floor = (floor - (promised - from_warehouse)).max(0);
             // A SKU whose only pieces are rejects still answers, so the Move
             // stock screen can show them set aside.
-            if floor + warehouse + reject == 0 {
+            if floor + warehouse + reject + over_delivery + return_ho == 0 {
                 continue;
             }
             items.push(SkuStockRow {
@@ -8453,6 +8848,8 @@ impl EdgeInventory for SqliteEdge {
                 warehouse,
                 total: floor + warehouse,
                 reject,
+                over_delivery,
+                return_ho,
             });
         }
         Ok(items)
@@ -8500,59 +8897,16 @@ impl EdgeInventory for SqliteEdge {
         // consistent state: a price book landing mid-quote must not show a
         // shopper two books' answers in one total.
         let tx = connection.transaction().map_err(db)?;
-        let subjects = epcs
-            .iter()
-            .map(|epc| Self::subject_by_epc(&tx, epc))
-            .collect::<Result<Vec<_>, _>>()?;
-        let sku_codes: Vec<String> = subjects
-            .iter()
-            .map(|subject| subject.sku_code.clone())
-            .collect();
-        // Every tag must stand on this shop's floor, the one place
-        // `complete_sale` takes a sold unit from. Until now a tag sold already
-        // or sitting in the stockroom priced like any other, and the sale then
-        // failed after the money with a 409 that named no tag. Each one is named
-        // here with where it is instead, so the till refuses it at the scan.
-        // Pricing is left exactly as it was; the till takes these off and asks
-        // again.
-        let floor = Self::normal_place(OperationalPool::StoreFloor {
-            store_id: self.node.site_id.clone(),
-        })
-        .id();
-        let mut unsellable = Vec::new();
-        for subject in &subjects {
-            if Self::operational_balance(&tx, subject.id, &floor)? >= 1 {
-                continue;
-            }
-            let held_at: Option<String> = tx
-                .prepare_cached(
-                    "SELECT place_id FROM inventory_projection
-                      WHERE subject_id=?1 AND quantity > 0
-                      ORDER BY place_id LIMIT 1",
-                )
-                .map_err(db)?
-                .query_row([subject.id.to_string()], |row| row.get(0))
-                .optional()
-                .map_err(db)?;
-            let reason = match held_at.as_deref().map(Place::from_str) {
-                None => "not in this shop's stock: sold already, or never received here",
-                Some(Ok(place)) => match (place.pool().map(OperationalPool::role), place.state()) {
-                    (Some(PoolRole::Stockroom), _) => "in the stockroom, not on the shop floor",
-                    (Some(PoolRole::Reject), _) => "set aside as damaged",
-                    (Some(PoolRole::Floor), Some(InventoryState::Missing)) => {
-                        "marked missing on the shop floor"
-                    }
-                    _ => "not on the shop floor",
-                },
-                Some(Err(_)) => "not on the shop floor",
-            };
-            unsellable.push(serde_json::json!({
-                "epc": subject.epc,
-                "sku_code": subject.sku_code,
-                "place_id": held_at,
-                "reason": reason,
-            }));
-        }
+        // Read exactly as the sale reads it (`edge::unmatched::classify`).
+        // Nothing is refused for where a tag stands any more (owner, 23 Oct
+        // 2026): a tag on the floor or in the stockroom sells from there, and
+        // any other becomes an unmatched line. The engine's `lines[]` follow
+        // the basket's order — the tags of `epcs` as scanned, then the untagged
+        // lines that name a SKU or a tag, as sent; UNKNOWN lines are not priced
+        // by the engine and appear only in `untagged[]`.
+        let basket =
+            crate::edge::unmatched::classify(&tx, &self.node.site_id, &epcs, &request.untagged)?;
+        let sku_codes: Vec<String> = basket.sku_codes();
         // The same call `complete_sale` makes, at the same instant resolution,
         // against the same resident book. If these two ever answer differently
         // the counter is quoting a price the till will not honour, which is the
@@ -8563,17 +8917,71 @@ impl EdgeInventory for SqliteEdge {
         // till's cue to ask head office again.
         let coupon_holds =
             Self::vouched_coupon_holds(&tx, &request.coupon_authorizations, now, false)?;
-        let quoted = pricing::quote_with_coupon_holds(
-            &tx,
-            self.node.site_id.as_str(),
-            pricing::STORE_CHANNEL,
-            now,
-            &sku_codes,
-            &request.coupon_codes,
-            request.customer_id.as_deref(),
-            &request.charges,
-            &coupon_holds,
-        )?;
+        let quoted = if sku_codes.is_empty() {
+            None
+        } else {
+            pricing::quote_with_coupon_holds(
+                &tx,
+                self.node.site_id.as_str(),
+                pricing::STORE_CHANNEL,
+                now,
+                &sku_codes,
+                &request.coupon_codes,
+                request.customer_id.as_deref(),
+                &request.charges,
+                &coupon_holds,
+            )?
+        };
+        // Each unmatched line labelled for the till, with what it comes to.
+        let mut untagged: Vec<super::contracts::UntaggedQuoteLine> = Vec::new();
+        for (position, slot) in basket.slots.iter().enumerate() {
+            let crate::edge::unmatched::PricedSlot::Unmatched(line) = slot else {
+                continue;
+            };
+            let line_total_minor = match quoted.as_ref() {
+                Some(quote) => quote
+                    .lines
+                    .get(position)
+                    .map(|priced| priced.line_total_minor)
+                    .ok_or_else(|| {
+                        EdgeError::Persistence(
+                            "the price book answered for fewer lines than were rung".into(),
+                        )
+                    })?,
+                // The sale refuses this too: a preview must not quote what
+                // the till will not take.
+                None => line.fallback_price_minor.ok_or_else(|| {
+                    EdgeError::Validation(format!(
+                        "SKU {} has no price in this shop's catalogue",
+                        line.sku_code
+                    ))
+                })?,
+            };
+            untagged.push(super::contracts::UntaggedQuoteLine {
+                index: line.index,
+                epc: line.epc.clone(),
+                kind: line.kind.to_string(),
+                sku_code: Some(line.sku_code.clone()),
+                name: line.name.clone(),
+                from_place: line.from_place.clone(),
+                line_total_minor,
+            });
+        }
+        let mut unknown_total_minor = 0_i64;
+        for line in &basket.unknown {
+            unknown_total_minor = unknown_total_minor
+                .checked_add(line.unit_price_minor)
+                .ok_or_else(|| EdgeError::Validation("basket total overflow".into()))?;
+            untagged.push(super::contracts::UntaggedQuoteLine {
+                index: Some(line.index),
+                epc: None,
+                kind: crate::sync::unmatched::KIND_UNKNOWN.to_string(),
+                sku_code: None,
+                name: Some(line.name.clone()),
+                from_place: None,
+                line_total_minor: line.unit_price_minor,
+            });
+        }
         let mut answer = match quoted {
             Some(quote) => serde_json::to_value(quote)
                 .map_err(|error| EdgeError::Persistence(error.to_string()))?,
@@ -8590,7 +8998,28 @@ impl EdgeInventory for SqliteEdge {
             }),
         };
         if let Some(fields) = answer.as_object_mut() {
-            fields.insert("unsellable".into(), serde_json::Value::Array(unsellable));
+            // The unknown items are goods the shopper pays for, outside the
+            // engine: on the totals the till settles against, never in `lines`.
+            for key in ["total_minor", "amount_due_minor"] {
+                if let Some(figure) = fields.get(key).and_then(serde_json::Value::as_i64) {
+                    fields.insert(key.into(), serde_json::json!(figure + unknown_total_minor));
+                }
+            }
+            fields.insert(
+                "untagged".into(),
+                serde_json::to_value(&untagged)
+                    .map_err(|error| EdgeError::Persistence(error.to_string()))?,
+            );
+            // Kept for tills from before 23 Oct 2026, which take whatever is
+            // listed here off the basket. Nothing is: a tag this shop may not
+            // sell is refused outright (409), quote and sale alike.
+            fields.insert("unsellable".into(), serde_json::Value::Array(Vec::new()));
+            // The number this basket would be given at the asker's seat —
+            // a preview; the sale's own reply carries the one it got.
+            fields.insert(
+                "receipt_no".into(),
+                serde_json::json!(crate::edge::till::peek_receipt(&tx, &request.actor_id)?),
+            );
         }
         Ok(answer)
     }
@@ -9493,7 +9922,18 @@ impl EdgeInventory for SqliteEdge {
                 .into_iter()
                 .filter(|line| !line.already_returned)
                 .collect();
-        if outstanding.is_empty() {
+        // The lines nothing moved for (owner, 23 Oct 2026) go back with the
+        // sale's money and move nothing either: they were never this shop's
+        // stock. Head office reads the void and stops matching them.
+        let unmatched_minor: i64 = tx
+            .prepare_cached(
+                "SELECT COALESCE(SUM(line_total_minor), 0) FROM unmatched_sale_line
+                  WHERE sale_id = ?1",
+            )
+            .map_err(db)?
+            .query_row([sale_id], |row| row.get(0))
+            .map_err(db)?;
+        if outstanding.is_empty() && unmatched_minor == 0 {
             return Err(EdgeError::Conflict(format!(
                 "every unit of sale {sale_id} has already come back"
             )));
@@ -9528,12 +9968,18 @@ impl EdgeInventory for SqliteEdge {
             actor_id: request.actor_id.clone(),
             occurred_at,
         };
-        let movement = self.append_command(&tx, &request.idempotency_key, &command)?;
+        let movement = if command.lines.is_empty() {
+            Self::empty_sale_group(&tx, &request.idempotency_key, &command)?
+        } else {
+            self.append_command(&tx, &request.idempotency_key, &command)?
+        };
         crate::edge::till::mark_voided(&tx, sale_id, &request, &approved_by, occurred_at)?;
 
         let refund_minor = outstanding
             .iter()
-            .try_fold(0_i64, |total, line| total.checked_add(line.charged_minor))
+            .try_fold(unmatched_minor, |total, line| {
+                total.checked_add(line.charged_minor)
+            })
             .ok_or_else(|| EdgeError::Validation("void total overflow".into()))?;
 
         // Tell the centre the sale stopped being one. The stock movement above
@@ -9733,6 +10179,253 @@ impl EdgeInventory for SqliteEdge {
         )?;
         tx.commit().map_err(db)?;
         Ok(result)
+    }
+
+    fn exchange_sale(
+        &self,
+        request: crate::edge::till::ExchangeRequest,
+    ) -> Result<crate::edge::till::ExchangeResult, EdgeError> {
+        self.require_store("an exchange")?;
+        Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
+        if request.returned_epcs.is_empty() {
+            return Err(EdgeError::Validation(
+                "an exchange needs at least one returned piece".into(),
+            ));
+        }
+        if request.replacement_epcs.is_empty() {
+            return Err(EdgeError::Validation(
+                "an exchange needs at least one replacement piece; with none it is a return"
+                    .into(),
+            ));
+        }
+        let mut seen: HashSet<String> = HashSet::new();
+        let mut returned_epcs: Vec<String> = Vec::with_capacity(request.returned_epcs.len());
+        for epc in &request.returned_epcs {
+            let epc = Self::normalized_epc(epc)?;
+            if !seen.insert(epc.clone()) {
+                return Err(EdgeError::Validation(format!(
+                    "EPC {epc} was scanned twice on one exchange"
+                )));
+            }
+            returned_epcs.push(epc);
+        }
+        let mut replacement_epcs: Vec<String> =
+            Vec::with_capacity(request.replacement_epcs.len());
+        for epc in &request.replacement_epcs {
+            let epc = Self::normalized_epc(epc)?;
+            // One set covers both lists: a piece cannot come back and go out
+            // again on the same exchange.
+            if !seen.insert(epc.clone()) {
+                return Err(EdgeError::Validation(format!(
+                    "EPC {epc} was scanned twice on one exchange"
+                )));
+            }
+            replacement_epcs.push(epc);
+        }
+        let reason = request
+            .reason
+            .as_deref()
+            .map(str::trim)
+            .filter(|reason| !reason.is_empty())
+            .unwrap_or("Exchange")
+            .to_string();
+        let key = request.idempotency_key.trim().to_string();
+        let request_json = Self::encode_idempotent_request(&request)?;
+        let mut connection = self.lock()?;
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db)?;
+        if let Some(response) =
+            Self::load_idempotent(&tx, &key, "SALE_EXCHANGE", &request_json)?
+        {
+            tx.commit().map_err(db)?;
+            return Ok(response);
+        }
+
+        // The Kepala toko's grant, spent inside this transaction like a
+        // return's: refused here, nothing moves and the grant is not burnt.
+        let approved_by = crate::edge::till::verify_supervisor(&tx, Some(&request.supervisor))?;
+        let original_sale_id = request.sale_id.trim().to_string();
+        match crate::edge::till::sale_status(&tx, &original_sale_id)?.as_str() {
+            "COMPLETED" => {}
+            other => {
+                return Err(EdgeError::Conflict(format!(
+                    "sale {original_sale_id} is {other} and cannot be exchanged against"
+                )))
+            }
+        }
+
+        // What came back: each a piece this receipt sold, not yet returned.
+        let sold = crate::edge::till::sold_lines(&tx, &original_sale_id)?;
+        let mut chosen: Vec<(crate::edge::till::SoldLine, String)> =
+            Vec::with_capacity(returned_epcs.len());
+        for epc in &returned_epcs {
+            let sold_line = sold
+                .iter()
+                .find(|candidate| &candidate.epc == epc)
+                .ok_or_else(|| {
+                    EdgeError::Validation(format!(
+                        "EPC {epc} was not sold on sale {original_sale_id}"
+                    ))
+                })?;
+            if sold_line.already_returned {
+                return Err(EdgeError::Conflict(format!(
+                    "EPC {epc} has already been returned"
+                )));
+            }
+            chosen.push((sold_line.clone(), "RESALEABLE".to_string()));
+        }
+        let returned_minor: i64 = chosen
+            .iter()
+            .try_fold(0_i64, |total, (line, _)| total.checked_add(line.charged_minor))
+            .ok_or_else(|| EdgeError::Validation("exchange total overflow".into()))?;
+
+        // What goes out: each on this shop's floor now. The sale's own
+        // movement would refuse it too; this says which piece, in words.
+        let floor = Place::Operational {
+            pool: OperationalPool::StoreFloor {
+                store_id: self.node.site_id.clone(),
+            },
+            state: InventoryState::Normal,
+        };
+        let floor_id = floor.id();
+        for epc in &replacement_epcs {
+            let subject = Self::subject_by_epc(&tx, epc)?;
+            if Self::operational_balance(&tx, subject.id, &floor_id)? < 1 {
+                return Err(EdgeError::Conflict(format!(
+                    "EPC {epc} is not on this shop's floor"
+                )));
+            }
+        }
+
+        let occurred_at = self.clock.now();
+        let sale_id = Uuid::new_v4();
+        let return_id = Uuid::new_v4().to_string();
+        let return_key = format!("{key}:return");
+
+        // The returned pieces home to the floor, first.
+        let command = MovementCommand {
+            movement_group_id: MovementGroupId::new(),
+            lines: chosen
+                .iter()
+                .map(|(line, _)| {
+                    Ok(MovementLine {
+                        subject_id: SubjectId(parse_uuid(&line.subject_id)?),
+                        quantity: 1,
+                        from: Place::External {
+                            place: crate::edge::ExternalPlace::Customer,
+                        },
+                        to: floor.clone(),
+                    })
+                })
+                .collect::<Result<Vec<_>, EdgeError>>()?,
+            cause: MovementCause::CustomerReturn,
+            reference_type: Some("SALE_RETURN".into()),
+            reference_id: Some(original_sale_id.clone()),
+            reason: format!("Customer exchange: {reason}"),
+            actor_id: request.actor_id.clone(),
+            occurred_at,
+        };
+        let movement = self.append_command(&tx, &return_key, &command)?;
+
+        // The replacement, through the sale path itself: priced by the book,
+        // out of the floor, its own receipt and its own sale fact. Keyed by the
+        // exchange's own key, so a checkout the till opened for the difference
+        // under that key completes with it.
+        let sale_request = SaleRequest {
+            epcs: replacement_epcs.clone(),
+            tenders: request.tenders.clone(),
+            actor_id: request.actor_id.clone(),
+            idempotency_key: key.clone(),
+            coupon_codes: Vec::new(),
+            charges: Vec::new(),
+            customer_id: None,
+            coupon_authorizations: Vec::new(),
+            untagged: Vec::new(),
+        };
+        let credit = ExchangeCredit {
+            available_minor: returned_minor,
+            reference: original_sale_id.clone(),
+        };
+        let sale = self.ring_sale(
+            &tx,
+            &sale_request,
+            &replacement_epcs,
+            sale_id,
+            occurred_at,
+            Some(&credit),
+        )?;
+        let replacement_minor = sale.amount_due_minor;
+        let credit_minor = returned_minor.min(replacement_minor).max(0);
+        let owed_minor = (replacement_minor - returned_minor).max(0);
+        let unused_credit_minor = (returned_minor - replacement_minor).max(0);
+
+        // The return, valued at the credit the replacement used.
+        let return_request = crate::edge::till::ReturnRequest {
+            sale_id: original_sale_id.clone(),
+            lines: returned_epcs
+                .iter()
+                .map(|epc| crate::edge::till::ReturnLineRequest {
+                    epc: epc.clone(),
+                    disposition: "RESALEABLE".to_string(),
+                })
+                .collect(),
+            refund_method: "EXCHANGE".to_string(),
+            refund_reference: Some(sale_id.to_string()),
+            reason: reason.clone(),
+            supervisor: request.supervisor.clone(),
+            actor_id: request.actor_id.clone(),
+            idempotency_key: return_key,
+        };
+        let shift_id = crate::edge::till::shift_for_sale(&tx, &request.actor_id, occurred_at)?;
+        let returned = crate::edge::till::record_return_valued(
+            &tx,
+            &return_id,
+            &return_request,
+            &approved_by,
+            shift_id.as_deref(),
+            &movement.movement_group_id.to_string(),
+            &chosen,
+            credit_minor,
+            occurred_at,
+        )?;
+
+        let result = crate::edge::till::ExchangeResult {
+            sale_id: sale_id.to_string(),
+            receipt_no: sale.receipt_no.clone(),
+            return_id,
+            original_sale_id,
+            returned_minor,
+            replacement_minor,
+            credit_minor,
+            owed_minor,
+            unused_credit_minor,
+            paid_minor: (sale.paid_minor - credit_minor).max(0),
+            change_minor: sale.change_minor,
+            approved_by,
+            occurred_at: time_text(occurred_at),
+            sale,
+            returned,
+        };
+        Self::save_idempotent(&tx, &key, "SALE_EXCHANGE", &request_json, &result)?;
+        tx.commit().map_err(db)?;
+        Ok(result)
+    }
+
+    fn approve_unknown_item(
+        &self,
+        request: crate::edge::UnknownItemApprovalRequest,
+    ) -> Result<crate::edge::UnknownItemApproval, EdgeError> {
+        self.require_store("approving an unknown item")?;
+        let now = self.clock.now();
+        let mut connection = self.lock()?;
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db)?;
+        // The finger's grant is spent here, with the approval it pays for.
+        let approval = crate::edge::unmatched::approve_unknown(&tx, &request, now)?;
+        tx.commit().map_err(db)?;
+        Ok(approval)
     }
 
     fn sale_receipt(
@@ -10040,6 +10733,7 @@ mod tests {
                 actor_id: "cashier-07".into(),
                 idempotency_key: "store-sale-001".into(),
                 coupon_authorizations: Vec::new(),
+                untagged: Vec::new(),
             })
             .unwrap_or_else(|error| panic!("sale: {error}"));
         assert_eq!(sale.total_minor, 150_000);
@@ -10108,6 +10802,7 @@ mod tests {
                 actor_id: "siti".into(),
                 idempotency_key: format!("{key}-sale"),
                 coupon_authorizations: Vec::new(),
+                untagged: Vec::new(),
             })
             .unwrap_or_else(|error| panic!("sale: {error}"));
         (store, sale.sale_id.to_string())
@@ -10128,7 +10823,7 @@ mod tests {
                                        auth_version,source,created_at,updated_at)
                  VALUES(?1,?2,?2,?3,'SUPERVISOR',1,1,'LOCAL',?4,?4)",
             )
-            .map_err(db)?
+            .unwrap_or_else(|error| panic!("prepare: {error}"))
             .execute(params![
                 Uuid::new_v4().to_string(),
                 username,
@@ -10237,6 +10932,7 @@ mod tests {
                 actor_id: "siti".into(),
                 idempotency_key: "expected-sale-2".into(),
                 coupon_authorizations: Vec::new(),
+                untagged: Vec::new(),
             })
             .unwrap_or_else(|error| panic!("sale: {error}"));
 
@@ -10300,6 +10996,7 @@ mod tests {
                 actor_id: "siti".into(),
                 idempotency_key: "card-sale".into(),
                 coupon_authorizations: Vec::new(),
+                untagged: Vec::new(),
             })
             .unwrap_or_else(|error| panic!("sale: {error}"));
         let report = store
@@ -10368,6 +11065,7 @@ mod tests {
             actor_id: "siti".into(),
             idempotency_key: "unauth-sale".into(),
             coupon_authorizations: Vec::new(),
+            untagged: Vec::new(),
         });
         assert!(
             refused.is_err(),
@@ -10451,6 +11149,7 @@ mod tests {
                 actor_id: "siti".into(),
                 idempotency_key: "voucher-sale".into(),
                 coupon_authorizations: Vec::new(),
+                untagged: Vec::new(),
             })
             .unwrap_or_else(|error| panic!("sale: {error}"));
         assert_eq!(sale.total_minor, 150_000);
@@ -10522,6 +11221,7 @@ mod tests {
             actor_id: "siti".into(),
             idempotency_key: key.into(),
             coupon_authorizations: Vec::new(),
+            untagged: Vec::new(),
         })
     }
 
@@ -11051,6 +11751,7 @@ mod tests {
                 actor_id: "siti".into(),
                 idempotency_key: "listing-sale".into(),
                 coupon_authorizations: Vec::new(),
+                untagged: Vec::new(),
             })
             .unwrap_or_else(|error| panic!("sale: {error}"));
 
@@ -11490,7 +12191,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("connection: {error}"));
         connection
             .prepare_cached("SELECT origin_id,generation,next_seq FROM sync_origin")
-            .map_err(db)?
+            .unwrap_or_else(|error| panic!("prepare: {error}"))
             .query_row([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
             .unwrap_or_else(|error| panic!("sync position: {error}"))
     }
@@ -11607,17 +12308,17 @@ mod tests {
                 .unwrap_or_else(|error| panic!("connection: {error}"));
             connection
                 .prepare_cached("DELETE FROM sync_fact_log")
-                .map_err(db)?
+                .unwrap_or_else(|error| panic!("prepare: {error}"))
                 .execute([])
                 .unwrap_or_else(|error| panic!("delete facts: {error}"));
             connection
                 .prepare_cached("DELETE FROM sync_generation_bootstrap")
-                .map_err(db)?
+                .unwrap_or_else(|error| panic!("prepare: {error}"))
                 .execute([])
                 .unwrap_or_else(|error| panic!("delete bootstrap marker: {error}"));
             connection
                 .prepare_cached("DELETE FROM sync_origin")
-                .map_err(db)?
+                .unwrap_or_else(|error| panic!("prepare: {error}"))
                 .execute([])
                 .unwrap_or_else(|error| panic!("delete origin: {error}"));
             expected
@@ -11651,7 +12352,7 @@ mod tests {
                         "INSERT INTO sync_watermark(origin_id,generation,durable_seq,updated_at)
                          VALUES ('dc-01-edge',1,2,?1)",
                     )
-                    .map_err(db)?
+                    .unwrap_or_else(|error| panic!("prepare: {error}"))
                     .execute([now_text()])
                     .unwrap_or_else(|error| panic!("acknowledge generation one: {error}"));
             }
@@ -11696,12 +12397,12 @@ mod tests {
                     "INSERT INTO sync_watermark(origin_id,generation,durable_seq,updated_at)
                      VALUES ('store-07-edge',1,1,?1)",
                 )
-                .map_err(db)?
+                .unwrap_or_else(|error| panic!("prepare: {error}"))
                 .execute([now_text()])
                 .unwrap_or_else(|error| panic!("acknowledge bootstrap: {error}"));
             connection
                 .prepare_cached("UPDATE sync_fact_log SET created_at='2000-01-01T00:00:00.000000Z'")
-                .map_err(db)?
+                .unwrap_or_else(|error| panic!("prepare: {error}"))
                 .execute([])
                 .unwrap_or_else(|error| panic!("age bootstrap: {error}"));
             assert_eq!(
@@ -11723,7 +12424,7 @@ mod tests {
                 .unwrap_or_else(|error| panic!("connection: {error}"));
             let markers: i64 = connection
                 .prepare_cached("SELECT count(*) FROM sync_generation_bootstrap")
-                .map_err(db)?
+                .unwrap_or_else(|error| panic!("prepare: {error}"))
                 .query_row([], |row| row.get(0))
                 .unwrap_or_else(|error| panic!("bootstrap markers: {error}"));
             assert_eq!(markers, 1);
@@ -11805,7 +12506,7 @@ mod tests {
                      VALUES (?1,?2,'PCS',?3,'STANDARD',?4,?5,'2026-09-15T00:00:00Z',
                              ?6,'ART-0001','DIV-01','[]',NULL)",
                 )
-                .map_err(db)?
+                .unwrap_or_else(|error| panic!("prepare: {error}"))
                 .execute(params![
                     format!("SKU-{index:05}"),
                     format!("Sonny Denim {index}"),
@@ -11822,7 +12523,7 @@ mod tests {
                      (singleton,snapshot_id,generation,item_count,content_hash,activated_at)
                  VALUES (1,'snapshot-0001',?1,?2,?3,'2026-09-15T01:00:00Z')",
             )
-            .map_err(db)?
+            .unwrap_or_else(|error| panic!("prepare: {error}"))
             .execute(params![generation, count as i64, "a".repeat(64)])
             .unwrap_or_else(|error| panic!("catalogue state: {error}"));
     }
@@ -14635,6 +15336,7 @@ mod charge_tests {
             actor_id: "cashier".into(),
             idempotency_key: "fee-sale-short".into(),
             coupon_authorizations: Vec::new(),
+            untagged: Vec::new(),
         });
         assert!(
             matches!(refused, Err(EdgeError::Validation(_))),
@@ -14665,6 +15367,7 @@ mod charge_tests {
                 actor_id: "cashier".into(),
                 idempotency_key: "fee-sale-1".into(),
                 coupon_authorizations: Vec::new(),
+                untagged: Vec::new(),
             })
             .unwrap_or_else(|error| panic!("sale: {error}"));
 
@@ -14682,7 +15385,7 @@ mod charge_tests {
                 "SELECT code, amount_minor, tax_category FROM sale_charge
                   WHERE sale_id=?1 AND charge_seq=0",
             )
-            .map_err(db)?
+            .unwrap_or_else(|error| panic!("prepare: {error}"))
             .query_row([sale.sale_id.to_string()], |row| {
                 Ok((row.get(0)?, row.get(1)?, row.get(2)?))
             })
@@ -14694,7 +15397,7 @@ mod charge_tests {
 
         let on_the_sale: Option<i64> = connection
             .prepare_cached("SELECT charge_total_minor FROM sale WHERE id=?1")
-            .map_err(db)?
+            .unwrap_or_else(|error| panic!("prepare: {error}"))
             .query_row([sale.sale_id.to_string()], |row| row.get(0))
             .unwrap_or_else(|error| panic!("read the sale back: {error}"));
         assert_eq!(on_the_sale, Some(20_000), "readable without a join");
@@ -14723,19 +15426,20 @@ mod charge_tests {
                 actor_id: "cashier".into(),
                 idempotency_key: "fee-sale-none".into(),
                 coupon_authorizations: Vec::new(),
+                untagged: Vec::new(),
             })
             .unwrap_or_else(|error| panic!("sale: {error}"));
 
         let connection = store.lock().unwrap_or_else(|error| panic!("lock: {error}"));
         let on_the_sale: Option<i64> = connection
             .prepare_cached("SELECT charge_total_minor FROM sale WHERE id=?1")
-            .map_err(db)?
+            .unwrap_or_else(|error| panic!("prepare: {error}"))
             .query_row([sale.sale_id.to_string()], |row| row.get(0))
             .unwrap_or_else(|error| panic!("read the sale back: {error}"));
         assert_eq!(on_the_sale, None);
         let fees: i64 = connection
             .prepare_cached("SELECT COUNT(*) FROM sale_charge WHERE sale_id=?1")
-            .map_err(db)?
+            .unwrap_or_else(|error| panic!("prepare: {error}"))
             .query_row([sale.sale_id.to_string()], |row| row.get(0))
             .unwrap_or_else(|error| panic!("count: {error}"));
         assert_eq!(fees, 0);
@@ -14792,7 +15496,7 @@ mod petty_tests {
                                        auth_version,source,created_at,updated_at)
                  VALUES(?1,?2,?2,?3,?4,1,1,'LOCAL',?5,?5)",
             )
-            .map_err(db)?
+            .unwrap_or_else(|error| panic!("prepare: {error}"))
             .execute(params![
                 Uuid::new_v4().to_string(),
                 username,
@@ -15084,6 +15788,215 @@ mod counting_in_units {
     }
 }
 
+/// A shop's To be returned (owner, 23 Oct 2026): its Return HO and Over
+/// delivery pockets (`{site}.to-return.ho` / `.over`, role REJECT, 0986).
+impl SqliteEdge {
+    /// HO moved goods to this shop's Return HO
+    /// (`inventory.store_return.mark.v1`): each SKU off the stockroom first,
+    /// then the floor, oldest piece first, as one movement. What the shop no
+    /// longer holds — sold since HO looked — is moved as far as it goes and
+    /// the rest passed over, never blocking the stream. Applied once per
+    /// command.
+    pub(crate) fn apply_store_return_mark(
+        tx: &Transaction<'_>,
+        node: &NodeContext,
+        command_id: Uuid,
+        payload: &crate::sync::workflow::StoreReturnMarkPayload,
+    ) -> Result<(), EdgeError> {
+        let key = format!("store-return-mark-{command_id}");
+        let applied: i64 = tx
+            .prepare_cached("SELECT COUNT(*) FROM movement_group WHERE idempotency_key=?1")
+            .map_err(db)?
+            .query_row([&key], |row| row.get(0))
+            .map_err(db)?;
+        if applied > 0 {
+            return Ok(());
+        }
+        let pocket = Place::Operational {
+            pool: OperationalPool::ToReturn {
+                site_id: node.site_id.clone(),
+                pocket: crate::edge::ToReturnPocket::ReturnHo,
+            },
+            state: InventoryState::Normal,
+        };
+        let shelves = [
+            OperationalPool::Stockroom {
+                site_id: node.site_id.clone(),
+            },
+            OperationalPool::StoreFloor {
+                store_id: node.site_id.clone(),
+            },
+        ];
+        let mut lines = Vec::new();
+        for line in &payload.lines {
+            let sku_code = line.sku_code.trim().to_ascii_uppercase();
+            let mut remaining = line.quantity;
+            for shelf in &shelves {
+                if remaining == 0 {
+                    break;
+                }
+                let from = Place::Operational {
+                    pool: shelf.clone(),
+                    state: InventoryState::Normal,
+                };
+                let rows: Vec<(String, i64)> = tx
+                    .prepare_cached(
+                        "SELECT projection.subject_id,projection.quantity
+                           FROM inventory_projection projection
+                           JOIN inventory_subject subject ON subject.id=projection.subject_id
+                          WHERE projection.place_id=?1 AND upper(subject.sku_code)=?2
+                          ORDER BY projection.updated_at,subject.created_at,subject.id",
+                    )
+                    .map_err(db)?
+                    .query_map(params![from.id(), sku_code], |row| {
+                        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+                    })
+                    .map_err(db)?
+                    .collect::<Result<_, _>>()
+                    .map_err(db)?;
+                for (subject_id, quantity) in rows {
+                    if remaining == 0 {
+                        break;
+                    }
+                    let take = quantity.min(remaining);
+                    if take <= 0 {
+                        continue;
+                    }
+                    let subject_id = Uuid::parse_str(&subject_id)
+                        .map_err(|error| EdgeError::Persistence(error.to_string()))?;
+                    lines.push(MovementLine {
+                        subject_id: SubjectId(subject_id),
+                        quantity: take,
+                        from: from.clone(),
+                        to: pocket.clone(),
+                    });
+                    remaining -= take;
+                }
+            }
+            if remaining > 0 {
+                tracing::warn!(
+                    sku = %sku_code,
+                    short = remaining,
+                    "HO moved more of a SKU to Return HO than this shop holds; moved what it has"
+                );
+            }
+        }
+        if lines.is_empty() {
+            return Ok(());
+        }
+        let command = MovementCommand {
+            movement_group_id: MovementGroupId::new(),
+            lines,
+            cause: MovementCause::NormalMove,
+            reference_type: Some("STORE_RETURN_MARK".into()),
+            reference_id: Some(command_id.to_string()),
+            reason: "Moved to To be returned · Return HO by head office".into(),
+            actor_id: payload.moved_by.clone(),
+            occurred_at: payload.moved_at,
+        };
+        Self::append_movement(node, tx, &key, &command)?;
+        Self::enqueue_pool_snapshot(tx, node, Uuid::new_v4())?;
+        Ok(())
+    }
+
+    /// What MD sent back from a delivery this shop counted too much of lands
+    /// in its To be returned · Over delivery, to send whenever it is ready.
+    /// A typed count reads no tag, so the pieces come onto the books as one
+    /// untagged quantity per SKU (a count gain: the shop has them in hand and
+    /// nobody's books did). Applied once per command.
+    fn book_over_delivery(
+        tx: &Transaction<'_>,
+        node: &NodeContext,
+        command_id: Uuid,
+        payload: &crate::sync::workflow::StoreInboundOnHoldPayload,
+    ) -> Result<(), EdgeError> {
+        if payload.send_back.is_empty() {
+            return Ok(());
+        }
+        let key = format!("store-over-delivery-{command_id}");
+        let applied: i64 = tx
+            .prepare_cached("SELECT COUNT(*) FROM movement_group WHERE idempotency_key=?1")
+            .map_err(db)?
+            .query_row([&key], |row| row.get(0))
+            .map_err(db)?;
+        if applied > 0 {
+            return Ok(());
+        }
+        let pocket = Place::Operational {
+            pool: OperationalPool::ToReturn {
+                site_id: node.site_id.clone(),
+                pocket: crate::edge::ToReturnPocket::OverDelivery,
+            },
+            state: InventoryState::Normal,
+        };
+        let now = time_text(payload.decided_at);
+        let mut pieces: std::collections::BTreeMap<String, i64> = std::collections::BTreeMap::new();
+        for back in &payload.send_back {
+            *pieces
+                .entry(back.sku_code.trim().to_ascii_uppercase())
+                .or_default() += back.pieces;
+        }
+        let mut lines = Vec::new();
+        for (sku_code, quantity) in pieces {
+            if quantity <= 0 {
+                continue;
+            }
+            let unit_price_minor: i64 = tx
+                .prepare_cached("SELECT base_price_minor FROM catalog_item WHERE sku_code=?1")
+                .map_err(db)?
+                .query_row([&sku_code], |row| row.get::<_, Option<i64>>(0))
+                .optional()
+                .map_err(db)?
+                .flatten()
+                .unwrap_or(0)
+                .max(0);
+            let subject_id = SubjectId::new();
+            tx.prepare_cached(
+                "INSERT INTO inventory_subject
+                     (id, subject_type, article_code, epc, sku_code, quantity,
+                      unit_price_minor, created_at)
+                 VALUES (?1, 'QUANTITY', NULL, NULL, ?2, ?3, ?4, ?5)",
+            )
+            .map_err(db)?
+            .execute(params![
+                subject_id.to_string(),
+                sku_code,
+                quantity,
+                unit_price_minor,
+                now
+            ])
+            .map_err(db)?;
+            lines.push(MovementLine {
+                subject_id,
+                quantity,
+                from: Place::System {
+                    place: SystemPlace::CountGain,
+                },
+                to: pocket.clone(),
+            });
+        }
+        if lines.is_empty() {
+            return Ok(());
+        }
+        let command = MovementCommand {
+            movement_group_id: MovementGroupId::new(),
+            lines,
+            cause: MovementCause::CountGain,
+            reference_type: Some("STORE_OVER_DELIVERY".into()),
+            reference_id: Some(command_id.to_string()),
+            reason: format!(
+                "Over delivery on {} ({}), sent back to HO by MD's review",
+                payload.shipment_reference, payload.dispatch_number
+            ),
+            actor_id: payload.decided_by.clone(),
+            occurred_at: payload.decided_at,
+        };
+        Self::append_movement(node, tx, &key, &command)?;
+        Self::enqueue_pool_snapshot(tx, node, Uuid::new_v4())?;
+        Ok(())
+    }
+}
+
 /// The receipt behind both ways a shop receives an announced delivery.
 impl SqliteEdge {
     /// MD answered the review of a trip this shop was on
@@ -15139,6 +16052,9 @@ impl SqliteEdge {
         if applied > 0 {
             return Ok(());
         }
+        // What goes back lands in To be returned · Over delivery at once
+        // (owner, 23 Oct 2026), for the shop to send whenever it is ready.
+        Self::book_over_delivery(tx, node, command_id, payload)?;
         let occurred_at = chrono::Utc::now();
         let now = now_text();
         let landing = OperationalPool::Stockroom {

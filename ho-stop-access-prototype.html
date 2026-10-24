@@ -1,0 +1,642 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HO stops access</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<style>
+:root{
+  --ink:#1d1d1f;--body:#424245;--mute:#6e6e73;--faint:#c7c7cc;
+  --hairline:#e8e8ec;--row-line:#eeeef1;--band:#fafafb;--soft-2:#f2f2f5;--soft-3:#f5f5f7;
+  --rail-2:#f5f5f7;--rail-3:#efeff2;--stone:#e8ebf0;
+  --accent:#2862dc;--accent-bg:#eef3fc;--cta-hover:#2055c7;
+  --ok:#36b827;--warn:#c9892e;--bad:#d70015;--bad-bg:#fbeaea;--bad-fg:#d70015;--ok-fg:#248a3d;
+  --r-card:10px;--r-inner:8px;--r-sheet:16px;
+  --ease-out:cubic-bezier(.23,1,.32,1);
+  --ring:0 0 0 1px rgb(0 0 0/5%),0 2px 8px rgb(0 0 0/5%),0 24px 64px rgb(0 0 0/14%);
+  --shadow-page:0 0 0 1px rgba(0,0,0,.05),0 2px 8px rgba(0,0,0,.04),0 24px 72px rgba(0,0,0,.08);
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font:15px/1.45 Inter,system-ui,sans-serif;color:var(--ink);background:#fff;-webkit-font-smoothing:antialiased}
+button,input,textarea{font:inherit;color:inherit}
+p{margin:0}
+
+/* prototype chrome */
+.chrome{position:sticky;top:0;z-index:50;display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center;padding:10px 16px;background:#20242c;color:#fff}
+.chrome .grp{display:flex;gap:4px;align-items:center;flex-wrap:wrap}
+.chrome .grp>span{opacity:.55;margin-right:6px}
+.chrome button{border:0;border-radius:999px;padding:6px 12px;background:#353a44;color:#fff;cursor:pointer;font-size:15px}
+.chrome button[aria-pressed=true]{background:#fff;color:#20242c;font-weight:600}
+.chrome .grp[hidden]{display:none}
+
+/* hub shell: all white */
+.shell{display:flex;min-height:calc(100vh - 52px)}
+.rail{width:64px;flex:none;display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 0}
+.rail .mk{width:36px;height:36px;margin-bottom:10px}
+.rail i{display:block;width:36px;height:36px;border-radius:9px;background:var(--rail-2)}
+.rail i.on{background:var(--rail-3);box-shadow:inset 0 0 0 1px var(--hairline)}
+.panel{width:232px;flex:none;border-right:1px solid var(--hairline);padding:14px 10px}
+.panel h2{font-size:17px;font-weight:600;margin:6px 10px 14px}
+.panel a{display:block;padding:8px 10px;border-radius:8px;color:#3a3a3c;text-decoration:none;cursor:default}
+.panel a.on{background:var(--rail-3);color:var(--ink);font-weight:500}
+.panel small{display:block;margin:14px 10px 4px;color:var(--mute);font-size:15px}
+.page{flex:1;min-width:0;padding:26px 32px 64px}
+
+.crumb{color:var(--mute);margin-bottom:2px}
+.crumb a{color:var(--mute);text-decoration:none;cursor:pointer}
+.head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.head h1{font-size:17px;font-weight:600;margin:0;line-height:24px}
+.head .sub{color:var(--mute)}
+.head .acts{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.st{display:inline-flex;align-items:center;gap:8px;white-space:nowrap}
+.st::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--c,var(--faint));flex:none}
+.st.ok{--c:var(--ok)} .st.warn{--c:var(--warn)} .st.bad{--c:var(--bad);color:var(--bad-fg)} .st.faint{--c:var(--faint);color:var(--mute)}
+.st.warn::before{animation:pulse 1s ease-in-out infinite alternate}
+@keyframes pulse{to{opacity:.35}}
+.head .st{margin-right:6px}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:36px;padding:0 14px;border:0;border-radius:var(--r-inner);cursor:pointer;font-weight:600;white-space:nowrap;transition:transform 160ms var(--ease-out),background-color 150ms ease,opacity 150ms ease}
+.btn:active:not(:disabled){transform:scale(.97)}
+.btn:disabled{opacity:.4;cursor:default}
+.btn.sm{height:32px;padding:0 12px}
+.btn.primary{background:var(--accent);color:#fff}
+.btn.bad{background:var(--bad-fg);color:#fff}
+@media (hover:hover) and (pointer:fine){
+  .btn.primary:hover:not(:disabled){background:var(--cta-hover)}
+  .btn.bad:hover:not(:disabled){background:#b80012}
+}
+
+.banner{display:flex;align-items:center;gap:14px;margin-top:20px;padding:14px 18px;border-radius:var(--r-card);background:var(--bad-bg)}
+.banner.grey{background:var(--soft-3)}
+.banner b{font-weight:600}
+.banner .why{color:var(--body)}
+
+.tabs{display:flex;gap:24px;border-bottom:1px solid var(--hairline);margin:20px 0 22px}
+.tabs button{border:0;background:none;padding:10px 0;color:var(--mute);cursor:pointer}
+.tabs button.on{color:var(--ink);font-weight:600;box-shadow:inset 0 -2px 0 var(--ink)}
+
+.kpis{display:flex;flex-wrap:wrap;margin-bottom:26px}
+.kpi{padding:0 24px;border-left:1px solid var(--hairline)}
+.kpi:first-child{padding-left:0;border-left:0}
+.kpi small{display:block;color:var(--mute);font-size:15px}
+.kpi b{font-size:16px;font-weight:600}
+.kpi b.bad{color:var(--bad-fg)}
+
+.sec{display:flex;align-items:baseline;gap:8px;margin:0 0 10px}
+.sec h3{margin:0;font-size:15px;font-weight:600}
+.sec span{color:var(--mute)}
+.frame{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden;margin-bottom:30px}
+table{width:100%;border-collapse:collapse;table-layout:fixed}
+th{height:44px;background:var(--band);color:var(--mute);font-weight:500;text-align:left;padding:0 20px;border-bottom:1px solid var(--hairline)}
+td{padding:14px 20px;border-top:1px solid var(--row-line);vertical-align:middle}
+tbody tr:first-child td{border-top:0}
+td .g{display:block;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+td.acts{text-align:right;white-space:nowrap}
+td.acts .btn+.btn{margin-left:6px}
+.trunc{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+tr.gone td{color:var(--mute)}
+tr.link{cursor:pointer}
+@media (hover:hover) and (pointer:fine){tr.link:hover td{background:var(--band)}}
+.name{font-weight:500}
+.fold{display:inline-flex;align-items:center;gap:6px;border:0;background:none;color:var(--mute);cursor:pointer;padding:0;margin:-18px 0 30px}
+.fold svg{transition:transform 160ms var(--ease-out)}
+.fold[aria-expanded=true] svg{transform:rotate(90deg)}
+
+/* list */
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:20px 0 16px}
+.chip{display:inline-flex;align-items:center;gap:8px;height:36px;border:1px solid var(--hairline);background:#fff;border-radius:999px;padding:0 14px;cursor:pointer;color:var(--body);transition:transform 160ms var(--ease-out)}
+.chip:active{transform:scale(.97)}
+.chip i{font-style:normal;color:var(--mute)}
+.chip.on{border-color:var(--accent);background:var(--accent-bg);color:var(--accent);font-weight:600}
+.chip.on i{color:var(--accent)}
+.chip svg{width:17px;height:17px}
+.search{flex:0 1 300px;height:36px;border:1px solid var(--hairline);border-radius:var(--r-inner);padding:0 12px;margin-left:auto}
+
+/* dialog */
+.scrim{position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;padding:16px;background:rgb(40 30 20/10%);opacity:0;pointer-events:none;transition:opacity 150ms ease}
+.scrim.open{opacity:1;pointer-events:auto;transition-duration:200ms}
+.dlg{width:min(500px,100%);max-height:calc(100vh - 32px);overflow:auto;background:#fff;border-radius:var(--r-sheet);box-shadow:var(--ring);opacity:0;transform:scale(.96);transition:opacity 150ms ease,transform 150ms var(--ease-out)}
+.scrim.open .dlg{opacity:1;transform:none;transition-duration:200ms}
+.dlg-h{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:24px 20px 0 28px}
+.x{flex:none;display:grid;place-items:center;width:32px;height:32px;margin-top:-4px;border:0;border-radius:50%;background:var(--soft-2);color:var(--mute);cursor:pointer;transition:transform 160ms var(--ease-out)}
+.x:active{transform:scale(.94)}
+.x svg{width:18px;height:18px}
+.dlg-h h2{margin:0;font-size:17px;font-weight:600}
+.dlg-h p{color:var(--mute);margin-top:2px}
+.dlg-b{padding:20px 28px 4px}
+.facts{display:grid;grid-template-columns:150px 1fr;border:1px solid var(--hairline);border-radius:var(--r-card)}
+.facts>*{padding:11px 16px;border-top:1px solid var(--row-line)}
+.facts>:nth-child(1),.facts>:nth-child(2){border-top:0}
+.facts dt{color:var(--mute)}
+.facts dd{margin:0}
+.facts dd.bad{color:var(--bad-fg)}
+.field{display:block;margin-top:20px}
+.field span{display:block;font-weight:500;margin-bottom:6px}
+.field textarea,.field input{width:100%;border:1px solid var(--hairline);border-radius:var(--r-inner);padding:10px 12px;outline:0;transition:border-color 150ms ease,box-shadow 150ms ease}
+.field textarea{resize:vertical;min-height:72px}
+.field input{height:44px}
+.field :is(textarea,input):focus{border-color:var(--accent);box-shadow:0 0 0 3px rgb(40 98 220/12%)}
+.dlg-f{display:flex;justify-content:flex-end;gap:8px;padding:22px 28px 24px}
+.dlg-f .btn{min-width:160px}
+
+.toast{position:fixed;left:50%;bottom:28px;z-index:70;transform:translate(-50%,16px);opacity:0;background:#20242c;color:#fff;padding:11px 16px;border-radius:10px;pointer-events:none;transition:opacity 200ms ease,transform 240ms var(--ease-out)}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+
+/* POS */
+.pos{position:relative;min-height:calc(100vh - 52px);background:var(--stone);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 16px}
+.d-card{position:relative;width:420px;max-width:100%;min-height:612px;border-radius:var(--r-sheet);background:#fff;box-shadow:var(--shadow-page);padding:40px 32px 30px;display:flex;flex-direction:column;align-items:center}
+.d-mark{width:60px;height:60px}
+.d-word{margin-top:14px;font-size:28px;line-height:1;font-weight:700;letter-spacing:-.04em}
+.d-word i{font-style:normal;color:#efa614}
+.d-till{margin-top:10px;color:var(--mute)}
+.orb{margin-top:44px;width:152px;height:152px;border-radius:50%;display:grid;place-items:center;background:var(--bad-bg);flex:none}
+.orb.grey{background:var(--soft-2)}
+.orb svg{width:64px;height:64px}
+.d-say{margin-top:26px;font-size:17px;line-height:24px;font-weight:600;letter-spacing:-.2px;text-align:center}
+.d-say.bad{color:var(--bad-fg)}
+.d-hint{margin-top:4px;color:var(--mute);text-align:center}
+.d-why{margin-top:18px;max-width:100%;padding:12px 16px;border-radius:var(--r-card);background:var(--soft-3);color:var(--body);text-align:center}
+.d-foot{margin-top:auto;padding-top:28px;width:100%;display:flex;flex-direction:column;align-items:center;gap:12px}
+.d-foot p{color:var(--body);text-align:center}
+.d-foot .btn{width:100%;height:47px}
+.kbd{display:inline-grid;place-items:center;min-width:28px;height:24px;padding:0 6px;border-radius:6px;background:rgb(255 255 255/.2);font-size:15px;font-weight:500}
+.d-chip{display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 12px;border:0;border-radius:var(--r-inner);background:var(--accent-bg);color:var(--accent);font-weight:600;cursor:pointer}
+.d-status{margin-top:22px;display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:10px;color:var(--mute)}
+.d-status .live{width:8px;height:8px;border-radius:50%;background:var(--ok)}
+.d-status .dot{color:var(--faint)}
+.fp{margin-top:44px;width:152px;height:152px;border-radius:50%;display:grid;place-items:center;background:var(--soft-2);box-shadow:inset 0 0 0 2px var(--bad);flex:none;animation:shake 400ms var(--ease-out)}
+.fp svg{width:92px;height:92px}
+.fp path{fill:none;stroke:var(--bad);stroke-width:1.05;stroke-linecap:round}
+@keyframes shake{0%,100%{transform:translateX(0)}18%{transform:translateX(-9px)}38%{transform:translateX(8px)}58%{transform:translateX(-5px)}78%{transform:translateX(2px)}}
+
+/* Windows uninstall */
+.win{min-height:calc(100vh - 52px);display:grid;place-items:center;padding:24px;background:linear-gradient(160deg,#0f4c81,#1b6fb3 60%,#3d8fd6)}
+.wdlg{width:min(460px,100%);background:#fff;border-radius:8px;box-shadow:0 20px 60px rgb(0 0 0/35%);font-family:"Segoe UI",Inter,system-ui,sans-serif;overflow:hidden}
+.wdlg .wt{display:flex;justify-content:space-between;align-items:center;height:36px;padding:0 0 0 14px;background:#f3f3f3}
+.wdlg .wt span:last-child{width:46px;height:36px;display:grid;place-items:center;color:var(--mute)}
+.wdlg .wb{display:flex;gap:16px;padding:22px 22px 26px}
+.wdlg .wb svg{flex:none;width:36px;height:36px}
+.wdlg .wf{display:flex;justify-content:flex-end;padding:14px 22px;background:#f3f3f3}
+.wdlg .wf button{min-width:96px;height:32px;border:1px solid #0067c0;border-radius:4px;background:#0067c0;color:#fff;cursor:pointer}
+
+@media (max-width:900px){.rail,.panel{display:none}.page{padding:20px 16px 48px}}
+@media (prefers-reduced-motion:reduce){*,*::before{animation:none!important;transition-property:opacity!important}}
+</style>
+</head>
+<body>
+
+<div class="chrome">
+  <div class="grp" data-grp="view">
+    <span>Hub</span>
+    <button data-view="store" aria-pressed="true">Store · Tills</button>
+    <button data-view="list">Stores</button>
+  </div>
+  <div class="grp" data-grp="view">
+    <span>POS</span>
+    <button data-view="pos-till">Kasir dihentikan</button>
+    <button data-view="pos-store">Toko dihentikan</button>
+    <button data-view="pos-person">Akses orang dihentikan</button>
+    <button data-view="pos-removed">Kasir dihapus</button>
+    <button data-view="pos-uninstall">Uninstall ditolak</button>
+  </div>
+  <div class="grp" id="demo-shift">
+    <span>Open drawers</span>
+    <button data-shift="1" aria-pressed="true">Yes</button>
+    <button data-shift="0">No</button>
+  </div>
+  <div class="grp"><button id="reset">Reset</button></div>
+</div>
+
+<main id="app"></main>
+<div class="scrim" id="scrim"><div class="dlg" id="dlg" role="dialog" aria-modal="true"></div></div>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+/* ── data ─────────────────────────────────────────────────────────────── */
+const ME = 'Hari Santoso';
+const NOW = '24 Oct 14:05';
+const STORE = { name: 'Purbalingga', code: 'C003', address: 'Jl. Jend. Sudirman 112', tz: 'Asia/Jakarta' };
+
+function fresh() {
+  return {
+    view: 'store',
+    shiftsOpen: true,
+    chip: 'all',
+    showRemoved: false,
+    store: { status: 'OPEN', reason: '', by: '', at: '' },
+    tills: [
+      { id: 't1', n: 1, machine: 'KASIR1-PC', seen: '1 min ago', shift: 'Andi Saputra · 08:01', status: 'ACTIVE' },
+      { id: 't2', n: 2, machine: 'KASIR2-PC', seen: '3 min ago', shift: 'Dimas Pratama · 09:12', status: 'ACTIVE' },
+      { id: 't3', n: 3, machine: 'DESKTOP-7Q2LK', seen: '2 days ago', shift: '', status: 'STOPPED', reason: 'PC dibawa servis', by: 'Hari', at: '22 Oct 16:40' },
+    ],
+    people: [
+      { id: 'p1', name: 'Bima Prasetyo', role: 'Store manager', last: 'Today 07:55', status: 'ACTIVE' },
+      { id: 'p2', name: 'Andi Saputra', role: 'Cashier', last: 'Today 08:01', status: 'ACTIVE', till: 1 },
+      { id: 'p3', name: 'Dimas Pratama', role: 'Cashier', last: 'Today 09:12', status: 'ACTIVE', till: 2 },
+      { id: 'p4', name: 'Rizky Ramadhan', role: 'Cashier', last: '21 Oct 21:03', status: 'STOPPED', reason: 'Selisih kas berulang', by: 'Hari', at: '23 Oct 10:20' },
+    ],
+    dlg: null,
+  };
+}
+let S = fresh();
+
+const STORES = [
+  ['C001', 'Cikupa', 4], ['C002', 'Purwokerto', 3], ['C003', 'Purbalingga', 3], ['C004', 'Bumiayu', 2],
+  ['C005', 'Banjarnegara', 2], ['C006', 'Kebumen', 3], ['C007', 'Cilacap', 3], ['C008', 'Tegal', 3],
+  ['C010', 'Brebes', 2], ['C011', 'Pemalang', 2], ['C012', 'Slawi', 2], ['C013', 'Wonosobo', 2],
+];
+const REMOVED_STORES = [['C009', 'Majenang', '30 Sep']];
+
+/* ── helpers ──────────────────────────────────────────────────────────── */
+const $ = sel => document.querySelector(sel);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const WORD = { ACTIVE: ['ok', 'Active'], STOPPING: ['warn', 'Stopping…'], RESUMING: ['warn', 'Resuming…'], STOPPED: ['bad', 'Stopped'], REMOVING: ['warn', 'Removing…'], REMOVED: ['faint', 'Removed'], OPEN: ['ok', 'Open'] };
+const st = s => `<span class="st ${WORD[s][0]}">${WORD[s][1]}</span>`;
+const till = id => S.tills.find(t => t.id === id);
+const person = id => S.people.find(p => p.id === id);
+const storeStopped = () => ['STOPPING', 'STOPPED'].includes(S.store.status);
+const removed = () => ['REMOVING', 'REMOVED'].includes(S.store.status);
+const openShifts = () => S.tills.filter(t => t.shift && t.status !== 'REMOVED');
+
+let toastTimer;
+function toast(text) {
+  const el = $('#toast');
+  el.textContent = text;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
+}
+
+/* The hub asks; the store server carries it out on its next sync and says so.
+   Until then the row reads "Stopping…". */
+function settle(obj, from, to, after) {
+  obj.status = from;
+  render();
+  setTimeout(() => { obj.status = to; after && after(); render(); }, 1600);
+}
+
+const ICON = {
+  pause: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M9.5 8v8M14.5 8v8"/></svg>',
+  store: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10v9h16v-9M3 6l1.5-3h15L21 6v2a3 3 0 0 1-6 0 3 3 0 0 1-6 0 3 3 0 0 1-6 0z"/></svg>',
+  archive: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v10h14V9M10 13h4"/></svg>',
+  x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 8l8 8M16 8l-8 8"/></svg>',
+  chev: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>',
+};
+function mark(cls, hub) {
+  const tile = hub ? '#1d1d1f' : '#2f63d6';
+  return `<svg class="${cls}" viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" rx="23.4" fill="${tile}"/><path d="M64.32 28.88A28.25 28.25 0 1 0 64.32 68.12A7.25 7.25 0 0 0 53.89 58.05A13.75 13.75 0 1 1 53.89 38.95A7.25 7.25 0 0 0 64.32 28.88Z" fill="#fff"/><circle cx="75.5" cy="48.5" r="8" fill="${hub ? '#2862dc' : '#efa614'}"/></svg>`;
+}
+
+/* ── hub ──────────────────────────────────────────────────────────────── */
+function shell(inner) {
+  return `<div class="shell">
+    <nav class="rail">${mark('mk', true)}<i></i><i class="on"></i><i></i><i></i><i></i><i></i></nav>
+    <nav class="panel"><h2>Sales</h2><a>Overview</a><a>Sales</a><a>Members</a><small>More</small><a class="on">Stores</a><a>Exceptions</a></nav>
+    <section class="page">${inner}</section>
+  </div>`;
+}
+
+function storePage() {
+  const s = S.store;
+  let acts = '';
+  if (s.status === 'OPEN') acts = `<button class="btn bad" data-do="stopStore">Stop store</button>`;
+  if (s.status === 'STOPPED') acts = `<button class="btn bad" data-do="removeStore">Remove store</button><button class="btn primary" data-do="resumeStore">Resume store</button>`;
+
+  const banner = storeStopped()
+    ? `<div class="banner"><span><b>Stopped by ${esc(s.by)} · ${esc(s.at)}</b> <span class="why">· ${esc(s.reason)}</span></span></div>`
+    : removed()
+      ? `<div class="banner grey"><span><b>Removed by ${esc(s.by)} · ${esc(s.at)}</b> <span class="why">· ${esc(s.reason)}</span></span></div>`
+      : '';
+
+  const live = S.tills.filter(t => t.status !== 'REMOVED');
+  const gone = S.tills.filter(t => t.status === 'REMOVED');
+  const online = live.filter(t => /min/.test(t.seen) && t.status === 'ACTIVE' && !storeStopped()).length;
+  const tillsStopped = storeStopped() ? live.length : live.filter(t => t.status === 'STOPPED').length;
+  const peopleStopped = S.people.filter(p => p.status === 'STOPPED').length;
+
+  const tillRow = t => {
+    const lock = storeStopped() || removed();
+    let status = st(t.status);
+    let sub = '';
+    if (t.status === 'STOPPED' || t.status === 'REMOVED') sub = `${esc(t.reason)} · ${esc(t.by)}, ${esc(t.at)}`;
+    if (storeStopped() && t.status === 'ACTIVE') { status = st('STOPPED'); sub = 'Store stopped'; }
+    let act = '';
+    if (!lock && t.status === 'ACTIVE') act = `<button class="btn sm bad" data-do="stopTill" data-id="${t.id}">Stop</button>`;
+    if (!lock && t.status === 'STOPPED') act = `<button class="btn sm bad" data-do="removeTill" data-id="${t.id}">Remove</button><button class="btn sm primary" data-do="resumeTill" data-id="${t.id}">Resume</button>`;
+    return `<tr class="${t.status === 'REMOVED' ? 'gone' : ''}">
+      <td class="name">Till ${t.n}</td>
+      <td><span class="trunc">${esc(t.machine)}</span></td>
+      <td>${esc(t.seen)}</td>
+      <td><span class="trunc">${t.shift ? esc(t.shift) : '<span style="color:var(--faint)">—</span>'}</span></td>
+      <td>${status}${sub ? `<span class="g">${sub}</span>` : ''}</td>
+      <td class="acts">${act}</td>
+    </tr>`;
+  };
+
+  const personRow = p => {
+    const lock = storeStopped() || removed();
+    let act = '';
+    if (!lock && p.status === 'ACTIVE') act = `<button class="btn sm bad" data-do="stopPerson" data-id="${p.id}">Stop POS</button>`;
+    if (!lock && p.status === 'STOPPED') act = `<button class="btn sm primary" data-do="resumePerson" data-id="${p.id}">Resume POS</button>`;
+    const sub = p.status === 'STOPPED' ? `<span class="g">${esc(p.reason)} · ${esc(p.by)}, ${esc(p.at)}</span>` : '';
+    return `<tr>
+      <td class="name"><span class="trunc">${esc(p.name)}</span></td>
+      <td>${esc(p.role)}</td>
+      <td>${esc(p.last)}</td>
+      <td>${p.status === 'ACTIVE' ? '<span class="st ok">Allowed</span>' : st(p.status)}${sub}</td>
+      <td class="acts">${act}</td>
+    </tr>`;
+  };
+
+  const tillHead = `<colgroup><col style="width:110px"><col><col style="width:130px"><col><col style="width:280px"><col style="width:210px"></colgroup>
+    <thead><tr><th>Till</th><th>Machine</th><th>Last seen</th><th>Shift</th><th>Status</th><th></th></tr></thead>`;
+
+  return shell(`
+    <p class="crumb"><a data-view-link="list">Stores</a></p>
+    <div class="head">
+      <div><h1>${STORE.name}</h1><p class="sub">${STORE.code} · ${STORE.address} · ${STORE.tz}</p></div>
+      <div class="acts">${st(s.status === 'OPEN' ? 'OPEN' : s.status)}${acts}</div>
+    </div>
+    ${banner}
+    <div class="tabs"><button>Overview</button><button class="on">Tills</button><button>Server</button><button>Status</button></div>
+
+    <div class="kpis">
+      <div class="kpi"><small>Tills</small><b>${live.length}</b></div>
+      <div class="kpi"><small>Online</small><b>${online}</b></div>
+      <div class="kpi"><small>Tills stopped</small><b class="${tillsStopped ? 'bad' : ''}">${tillsStopped}</b></div>
+      <div class="kpi"><small>Cashiers stopped</small><b class="${peopleStopped ? 'bad' : ''}">${peopleStopped}</b></div>
+    </div>
+
+    <div class="sec"><h3>Tills</h3></div>
+    <div class="frame"><table>${tillHead}<tbody>${live.map(tillRow).join('') || `<tr><td colspan="6" style="color:var(--mute)">No till left at this store.</td></tr>`}</tbody></table></div>
+    ${gone.length ? `<button class="fold" data-do="fold" aria-expanded="${S.showRemoved}">${ICON.chev}Removed · ${gone.length}</button>
+      ${S.showRemoved ? `<div class="frame" style="margin-top:-18px"><table>${tillHead}<tbody>${gone.map(tillRow).join('')}</tbody></table></div>` : ''}` : ''}
+
+    ${removed() ? '' : `<div class="sec"><h3>Cashiers</h3></div>
+    <div class="frame"><table>
+      <colgroup><col><col style="width:170px"><col style="width:160px"><col style="width:280px"><col style="width:210px"></colgroup>
+      <thead><tr><th>Name</th><th>Role</th><th>Last sign-in</th><th>POS</th><th></th></tr></thead>
+      <tbody>${S.people.map(personRow).join('')}</tbody>
+    </table></div>`}
+  `);
+}
+
+function storeList() {
+  const ours = S.store.status;
+  const rows = STORES.map(([code, name, tills]) => {
+    const status = code === 'C003' ? (ours === 'OPEN' ? 'OPEN' : ours) : 'OPEN';
+    return { code, name, tills, status };
+  });
+  const active = rows.filter(r => !['REMOVING', 'REMOVED'].includes(r.status));
+  const gone = [...rows.filter(r => ['REMOVING', 'REMOVED'].includes(r.status)).map(r => ({ ...r, note: 'Today' })),
+                ...REMOVED_STORES.map(([code, name, note]) => ({ code, name, tills: 0, status: 'REMOVED', note }))];
+  const stopped = active.filter(r => ['STOPPING', 'STOPPED'].includes(r.status));
+  const shown = S.chip === 'removed' ? gone : S.chip === 'stopped' ? stopped : active;
+  const chip = (key, icon, label, n) => `<button class="chip${S.chip === key ? ' on' : ''}" data-chip="${key}">${ICON[icon]}${label}<i>${n}</i></button>`;
+  return shell(`
+    <div class="head"><div><h1>Stores</h1></div></div>
+    <div class="bar">
+      ${chip('all', 'store', 'All', active.length)}
+      ${chip('stopped', 'pause', 'Stopped', stopped.length)}
+      ${chip('removed', 'archive', 'Removed', gone.length)}
+      <input class="search" placeholder="Search stores" aria-label="Search stores">
+      <button class="btn primary">Add store</button>
+    </div>
+    <div class="frame"><table>
+      <colgroup><col style="width:34%"><col style="width:16%"><col style="width:16%"><col style="width:34%"></colgroup>
+      <thead><tr><th>Store</th><th>Code</th><th>Tills</th><th>Status</th></tr></thead>
+      <tbody>${shown.map(r => `<tr class="${r.code === 'C003' ? 'link' : ''} ${r.status === 'REMOVED' ? 'gone' : ''}" ${r.code === 'C003' ? 'data-view-link="store"' : ''}>
+        <td class="name">${esc(r.name)}</td><td>${r.code}</td><td>${r.status === 'REMOVED' ? '<span style="color:var(--faint)">—</span>' : r.tills}</td>
+        <td>${st(r.status)}${r.note ? `<span class="g">${esc(r.note)}</span>` : ''}</td></tr>`).join('') || `<tr><td colspan="4" style="color:var(--mute)">No store here.</td></tr>`}</tbody>
+    </table></div>
+  `);
+}
+
+/* ── dialogs ──────────────────────────────────────────────────────────── */
+const fact = (term, value, cls = '') => `<dt>${term}</dt><dd class="${cls}">${value}</dd>`;
+const reasonField = `<label class="field"><span>Reason</span><textarea id="reason" rows="2"></textarea></label>`;
+
+function dialogHtml() {
+  const d = S.dlg;
+  if (d.kind === 'stopTill') {
+    const t = till(d.id);
+    return {
+      title: `Stop Till ${t.n}?`,
+      body: `<dl class="facts">${fact('Machine', esc(t.machine))}${fact('Shift', t.shift ? `${esc(t.shift)} · closing only` : 'None open')}</dl>${reasonField}`,
+      action: `Stop Till ${t.n}`, needsReason: true,
+    };
+  }
+  if (d.kind === 'removeTill') {
+    const t = till(d.id);
+    return {
+      title: `Remove Till ${t.n}?`, sub: 'Can’t be undone',
+      body: `<dl class="facts">${fact('Machine', esc(t.machine))}${fact('Stopped', `${esc(t.at)} · ${esc(t.reason)}`)}${fact('Seat', `Till ${t.n} free for a new PC`)}${fact('Sales', 'Kept')}</dl>`,
+      action: `Remove Till ${t.n}`,
+    };
+  }
+  if (d.kind === 'stopPerson') {
+    const p = person(d.id);
+    const t = p.till && S.tills.find(x => x.n === p.till && x.shift);
+    return {
+      title: `Stop POS for ${p.name}?`,
+      body: `<dl class="facts">${fact('Role', esc(p.role))}${fact('Tills', 'Every store')}${fact('Shift', t ? `Till ${t.n} · ${esc(t.shift.split(' · ')[1])} · closing only` : 'None open')}</dl>${reasonField}`,
+      action: 'Stop POS', needsReason: true,
+    };
+  }
+  if (d.kind === 'stopStore') {
+    const open = openShifts();
+    return {
+      title: `Stop ${STORE.name}?`,
+      body: `<dl class="facts">${fact('Tills', `${S.tills.filter(t => t.status !== 'REMOVED').length} stop selling`)}${fact('Open shifts', open.length ? `${open.map(t => esc(t.shift.split(' · ')[0])).join(', ')} · closing only` : 'None')}${fact('Store server', 'Keeps syncing')}${fact('Store app', 'Receiving and returns go on')}</dl>${reasonField}`,
+      action: 'Stop store', needsReason: true,
+    };
+  }
+  if (d.kind === 'removeStore') {
+    const open = openShifts();
+    return {
+      title: `Remove ${STORE.name}?`, sub: 'Can’t be undone',
+      body: `<dl class="facts">
+          ${fact('Open shifts', open.length ? `${open.length} · close them at the till first` : 'None', open.length ? 'bad' : '')}
+          ${fact('Sales', '18.204 · kept')}
+          ${fact('Stock', '1.204 pcs · kept')}
+          ${fact('Journals', 'Kept')}
+          ${fact('Store server', 'Keeps sending what it holds')}
+          ${fact('Tills', `${S.tills.filter(t => t.status !== 'REMOVED').length} removed`)}
+        </dl>
+        <label class="field"><span>Type ${STORE.code} to remove</span><input id="confirm" autocomplete="off" spellcheck="false"></label>`,
+      action: `Remove ${STORE.name}`, needsCode: true, blocked: open.length > 0,
+    };
+  }
+}
+
+function openDialog(kind, id) {
+  S.dlg = { kind, id };
+  const h = dialogHtml();
+  $('#dlg').innerHTML = `
+    <div class="dlg-h"><div><h2>${esc(h.title)}</h2>${h.sub ? `<p>${h.sub}</p>` : ''}</div><button class="x" data-do="cancel" aria-label="Close">${ICON.x}</button></div>
+    <div class="dlg-b">${h.body}</div>
+    <div class="dlg-f"><button class="btn bad" id="go" data-do="confirm" disabled>${esc(h.action)}</button></div>`;
+  const go = $('#go');
+  const check = () => {
+    const reasonOk = !h.needsReason || ($('#reason')?.value.trim() ?? '') !== '';
+    const codeOk = !h.needsCode || ($('#confirm')?.value.trim().toUpperCase() === STORE.code);
+    go.disabled = !(reasonOk && codeOk) || h.blocked;
+  };
+  $('#dlg').oninput = check;
+  check();
+  $('#scrim').classList.add('open');
+  setTimeout(() => ($('#reason') || $('#confirm') || go).focus(), 60);
+}
+function closeDialog() {
+  $('#scrim').classList.remove('open');
+  S.dlg = null;
+}
+
+function confirmDialog() {
+  const d = S.dlg;
+  const reason = $('#reason')?.value.trim() ?? '';
+  closeDialog();
+  if (d.kind === 'stopTill') {
+    const t = till(d.id);
+    Object.assign(t, { reason, by: 'Hari', at: NOW });
+    settle(t, 'STOPPING', 'STOPPED');
+    toast(`Till ${t.n} stopped`);
+  }
+  if (d.kind === 'removeTill') {
+    const t = till(d.id);
+    Object.assign(t, { at: NOW });
+    settle(t, 'REMOVING', 'REMOVED');
+    toast(`Till ${t.n} removed`);
+  }
+  if (d.kind === 'stopPerson') {
+    const p = person(d.id);
+    Object.assign(p, { reason, by: 'Hari', at: NOW });
+    settle(p, 'STOPPING', 'STOPPED');
+    toast(`POS stopped for ${p.name}`);
+  }
+  if (d.kind === 'stopStore') {
+    Object.assign(S.store, { reason, by: ME, at: NOW });
+    settle(S.store, 'STOPPING', 'STOPPED');
+    toast(`${STORE.name} stopped`);
+  }
+  if (d.kind === 'removeStore') {
+    Object.assign(S.store, { by: ME, at: '24 Oct 15:20' });
+    settle(S.store, 'REMOVING', 'REMOVED', () => {
+      S.tills.forEach(t => { if (t.status !== 'REMOVED') Object.assign(t, { status: 'REMOVED', reason: 'Store removed', by: 'Hari', at: '24 Oct 15:20', shift: '' }); });
+    });
+    toast(`${STORE.name} removed`);
+  }
+}
+
+/* ── POS (Bahasa Indonesia) ───────────────────────────────────────────── */
+function door(inner, kasir = 'Kasir 3') {
+  return `<div class="pos">
+    <div class="d-card">${inner}</div>
+    <p class="d-status"><span class="live"></span><span>Central online</span><span class="dot">·</span><span>${kasir} · ${STORE.code} ${STORE.name}</span><span class="dot">·</span><span>14:07</span></p>
+  </div>`;
+}
+const brandHead = kasir => `${mark('d-mark')}<p class="d-word">Central<i>.</i></p><p class="d-till">${kasir} · ${STORE.code} ${STORE.name}</p>`;
+const closeShift = who => S.shiftsOpen
+  ? `<div class="d-foot"><p>Shift ${who} masih terbuka</p><button class="btn primary" data-do="posClose">Tutup kasir <span class="kbd">Enter</span></button></div>`
+  : '';
+
+function posTill() {
+  return door(`${brandHead('Kasir 3')}
+    <div class="orb" style="color:var(--bad-fg)">${ICON.pause}</div>
+    <p class="d-say">Kasir 3 dihentikan</p>
+    <p class="d-hint">Kantor pusat · 24 Okt 14:05</p>
+    <p class="d-why">PC dibawa servis</p>
+    ${S.shiftsOpen ? '<div class="d-foot"><p>Shift Andi Saputra masih terbuka · tutup di kasir lain</p></div>' : ''}`);
+}
+function posStore() {
+  return door(`${brandHead('Kasir 1')}
+    <div class="orb" style="color:var(--bad-fg)">${ICON.pause}</div>
+    <p class="d-say">Toko dihentikan</p>
+    <p class="d-hint">Kantor pusat · 24 Okt 14:05</p>
+    <p class="d-why">Stok opname sebelum tutup</p>
+    ${closeShift('Andi Saputra')}`, 'Kasir 1');
+}
+function posPerson() {
+  const fp = '<svg viewBox="0 0 24 24"><path d="M12 4.5a7.5 7.5 0 0 0-7.5 7.5v1.5"/><path d="M19.5 13.5V12A7.5 7.5 0 0 0 9 5.1"/><path d="M12 7.5A4.5 4.5 0 0 0 7.5 12v3"/><path d="M16.5 15v-3A4.5 4.5 0 0 0 14 8"/><path d="M12 10.5a1.5 1.5 0 0 0-1.5 1.5v4.5"/><path d="M13.5 12v6"/><path d="M10.5 19.5c-.8-1-1.5-2.2-1.5-3.5"/></svg>';
+  return door(`${brandHead('Kasir 1')}
+    <div class="fp">${fp}</div>
+    <p class="d-say bad">Akses POS dihentikan</p>
+    <p class="d-hint">Rizky Ramadhan · kantor pusat</p>
+    <div class="d-foot"><button class="d-chip">Dibukakan kepala toko <span class="kbd" style="background:rgb(40 98 220/.1)">K</span></button></div>`, 'Kasir 1');
+}
+function posRemoved() {
+  return door(`${brandHead('Kasir 3')}
+    <div class="orb grey" style="color:var(--mute)">${ICON.x}</div>
+    <p class="d-say">Kasir 3 sudah dihapus</p>
+    <p class="d-hint">Kantor pusat · 24 Okt 15:10</p>
+    <div class="d-foot"><button class="btn primary" data-do="posUninstall">Uninstall POS</button></div>`);
+}
+function posUninstall() {
+  return `<div class="win"><div class="wdlg" role="alertdialog">
+    <div class="wt"><span>Central POS</span><span>✕</span></div>
+    <div class="wb"><svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="17" fill="#d70015"/><path d="M12 12l12 12M24 12L12 24" stroke="#fff" stroke-width="3" stroke-linecap="round"/></svg>
+      <div><p style="font-weight:600;margin-bottom:6px">Kasir 3 masih aktif</p><p>Hanya kantor pusat yang bisa menghapus kasir ini.</p></div></div>
+    <div class="wf"><button>OK</button></div>
+  </div></div>`;
+}
+
+/* ── render & events ─────────────────────────────────────────────────── */
+function render() {
+  const v = S.view;
+  $('#app').innerHTML =
+    v === 'store' ? storePage() :
+    v === 'list' ? storeList() :
+    v === 'pos-till' ? posTill() :
+    v === 'pos-store' ? posStore() :
+    v === 'pos-person' ? posPerson() :
+    v === 'pos-removed' ? posRemoved() : posUninstall();
+  document.querySelectorAll('[data-view]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.view === v)));
+  document.querySelectorAll('[data-shift]').forEach(b => b.setAttribute('aria-pressed', String((b.dataset.shift === '1') === S.shiftsOpen)));
+  $('#demo-shift').hidden = !['store', 'pos-till', 'pos-store'].includes(v);
+}
+
+function setShifts(open) {
+  S.shiftsOpen = open;
+  const seed = fresh().tills;
+  S.tills.forEach((t, i) => { if (t.status !== 'REMOVED') t.shift = open ? seed[i].shift : ''; });
+  render();
+}
+
+document.addEventListener('click', e => {
+  const view = e.target.closest('[data-view]');
+  if (view) { S.view = view.dataset.view; render(); window.scrollTo(0, 0); return; }
+  const link = e.target.closest('[data-view-link]');
+  if (link) { S.view = link.dataset.viewLink; render(); return; }
+  const chip = e.target.closest('[data-chip]');
+  if (chip) { S.chip = chip.dataset.chip; render(); return; }
+  const shift = e.target.closest('[data-shift]');
+  if (shift) { setShifts(shift.dataset.shift === '1'); return; }
+  if (e.target.closest('#reset')) { S = { ...fresh(), view: S.view }; closeDialog(); render(); return; }
+  if (e.target === $('#scrim')) { closeDialog(); return; }
+  const btn = e.target.closest('[data-do]');
+  if (!btn) return;
+  const id = btn.dataset.id;
+  switch (btn.dataset.do) {
+    case 'stopTill': case 'removeTill': case 'stopPerson': case 'stopStore': case 'removeStore': openDialog(btn.dataset.do, id); break;
+    case 'resumeTill': { const t = till(id); settle(t, 'RESUMING', 'ACTIVE'); toast(`Till ${t.n} resumed`); break; }
+    case 'resumePerson': { const p = person(id); settle(p, 'RESUMING', 'ACTIVE'); toast(`POS resumed for ${p.name}`); break; }
+    case 'resumeStore': settle(S.store, 'RESUMING', 'OPEN'); toast(`${STORE.name} resumed`); break;
+    case 'cancel': closeDialog(); break;
+    case 'confirm': confirmDialog(); break;
+    case 'fold': S.showRemoved = !S.showRemoved; render(); break;
+    case 'posClose': toast('→ Tutup kasir: hitung laci seperti biasa'); break;
+    case 'posUninstall': toast('→ Windows menjalankan uninstall'); break;
+  }
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && S.dlg) closeDialog();
+  if (e.key === 'Enter' && S.dlg && e.target.tagName !== 'TEXTAREA' && !$('#go').disabled) confirmDialog();
+});
+
+WORD.RESUMING = ['warn', 'Resuming…'];
+render();
+</script>
+</body>
+</html>

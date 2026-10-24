@@ -258,6 +258,7 @@ async fn a_published_price_is_what_the_shop_charges() {
             epcs: vec!["EPC00000001".into()],
             tenders: cash(149_000),
             coupon_authorizations: Vec::new(),
+            untagged: Vec::new(),
         })
         .unwrap_or_else(|e| panic!("sale: {e}"));
 
@@ -306,6 +307,7 @@ async fn a_shop_specific_price_beats_the_company_one_at_the_counter() {
             epcs: vec!["EPC00000002".into()],
             tenders: cash(119_000),
             coupon_authorizations: Vec::new(),
+            untagged: Vec::new(),
         })
         .unwrap_or_else(|e| panic!("sale: {e}"));
     assert_eq!(sale.total_minor, 119_000);
@@ -347,6 +349,7 @@ async fn a_second_price_book_changes_the_price_the_till_takes() {
             epcs: vec!["EPC00000003".into()],
             tenders: cash(99_000),
             coupon_authorizations: Vec::new(),
+            untagged: Vec::new(),
         })
         .unwrap_or_else(|e| panic!("sale: {e}"));
     assert_eq!(
@@ -373,6 +376,7 @@ async fn a_shop_that_has_never_received_a_price_book_can_still_sell() {
             epcs: vec!["EPC00000004".into()],
             tenders: cash(INTAKE_PRICE),
             coupon_authorizations: Vec::new(),
+            untagged: Vec::new(),
         })
         .unwrap_or_else(|e| panic!("sale: {e}"));
     assert_eq!(sale.total_minor, INTAKE_PRICE);
@@ -405,6 +409,7 @@ async fn an_item_missing_from_a_live_price_book_is_refused_not_guessed() {
         epcs: vec!["EPC00000005".into()],
         tenders: cash(INTAKE_PRICE),
         coupon_authorizations: Vec::new(),
+        untagged: Vec::new(),
     });
     assert!(
         refused.is_err(),
@@ -549,6 +554,7 @@ impl Shop {
                 epcs: vec![epc.into()],
                 tenders: cash(handed_over),
                 coupon_authorizations: Vec::new(),
+                untagged: Vec::new(),
             })
             .unwrap_or_else(|e| panic!("sale: {e}"))
     }
@@ -926,6 +932,7 @@ async fn the_centre_accepts_the_sale_it_is_told_about() {
             epcs: vec!["EPC20000002".into(), "EPC20000003".into()],
             tenders: cash(405_000),
             coupon_authorizations: Vec::new(),
+            untagged: Vec::new(),
         })
         .unwrap_or_else(|e| panic!("sale: {e}"));
     // 150,000 + 300,000 = 450,000, less ten per cent = 405,000.
@@ -1293,6 +1300,7 @@ async fn a_sale_tells_the_centre_which_promotion_came_off_and_who_bought_it() {
             epcs: vec!["EPC40000001".into()],
             tenders: cash(160_000),
             coupon_authorizations: Vec::new(),
+            untagged: Vec::new(),
         })
         .unwrap_or_else(|e| panic!("sale: {e}"));
     assert_eq!(sale.total_minor, 160_000);

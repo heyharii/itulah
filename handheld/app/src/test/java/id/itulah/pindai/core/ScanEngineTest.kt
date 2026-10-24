@@ -1,6 +1,7 @@
 package id.itulah.pindai.core
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -173,6 +174,28 @@ class ScanEngineTest {
         val all = engine.takeEvidence(1_000)
         assertEquals(10, all.size)
         assertEquals(0, engine.evidenceBacklog())
+    }
+
+    @Test
+    fun `evidence keeps an RSSI written in either decimal separator`() {
+        // The SDK formats RSSI in the device's locale: Indonesian writes a comma.
+        val engine = engineWith("12345678123")
+        val comma = epc("12345678123", 1)
+        val point = epc("12345678123", 2)
+        val none = epc("12345678123", 3)
+        val empty = epc("12345678123", 4)
+        engine.sweep {
+            offer(comma, "-48,30")
+            offer(point, "-48.30")
+            offer(none, "N/A")
+            offer(empty, "")
+        }
+
+        val rssi = engine.takeEvidence(10).toMap()
+        assertEquals(-48.3f, rssi.getValue(comma)!!, 0.001f)
+        assertEquals(-48.3f, rssi.getValue(point)!!, 0.001f)
+        assertNull(rssi.getValue(none))
+        assertNull(rssi.getValue(empty))
     }
 
     @Test

@@ -1552,6 +1552,44 @@ pub struct AuthPolicySnapshot {
     /// reported as before. Outside the hash for the same reason as `site`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub device_kinds: BTreeMap<String, String>,
+    /// Who and what head office has stopped on the POS here (postgres 0990):
+    /// this node's store, and the people it signs in who may not sell. Always
+    /// sent by a centre that knows about stops, even empty, so the node
+    /// replaces what it held; absent from an older centre, which the node
+    /// reads as "no word" and keeps what it had. Outside the hash for the same
+    /// reason as `site`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pos_stops: Option<PosStops>,
+}
+
+/// What head office has stopped on one node's POS (postgres 0990). A till
+/// is not here: it is a device, stopped with `device.status.set.v1`.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct PosStops {
+    /// The node's own store, stopped or removed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub store: Option<PosStop>,
+    /// The people this node signs in whom head office stopped on the POS.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub people: Vec<PersonPosStop>,
+}
+
+/// One stop: when, by whom, and why — the till shows the why.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct PosStop {
+    pub at: DateTime<Utc>,
+    pub by: String,
+    pub reason: String,
+    /// When the store was removed for good. Only on a store's stop.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub removed_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct PersonPosStop {
+    pub user_id: Uuid,
+    #[serde(flatten)]
+    pub stop: PosStop,
 }
 
 /// What head office says about one site, for a node that keeps no `site`
@@ -2040,6 +2078,73 @@ pub fn parse_sales_voided(payload: &Value) -> Result<SalesVoidedPayload, String>
     Ok(voided)
 }
 
+/// The shop tied a member to a sale already rung (client, 24 Oct 2026): F5
+/// "Daftar member" with the struk's number, the shopper registering after
+/// they paid (`edge::till::attach_member`).
+///
+/// Behind the sale's own `sales.completed` on the same stream, so it is read
+/// after the sale whichever reached the shop's push first. The centre gives
+/// the sale its member and awards the points this carries, exactly as it
+/// would have for a member on the sale fact: keyed on the sale, so a resend
+/// awards once, and only for a sale that had nobody on it — a sale already
+/// somebody's keeps them.
+///
+/// It carries the award, not the sale's recorded one: the shop priced the
+/// basket again with the member on it, because a members-only earning rule
+/// gave the anonymous sale nought. Each line's share comes too, so a return
+/// takes back what that piece earned.
+pub const FACT_SALES_MEMBER_ATTACHED: &str = "sales.member_attached";
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct SalesMemberAttachedPayload {
+    pub sale_id: Uuid,
+    #[serde(default)]
+    pub site_id: Option<String>,
+    #[serde(default)]
+    pub receipt_no: Option<String>,
+    /// The member, as a sale fact names its shopper.
+    pub customer_id: String,
+    pub points_earned: i64,
+    /// Each held piece's share of `points_earned`, by subject.
+    #[serde(default)]
+    pub lines: Vec<AttachedLinePoints>,
+    /// Each unmatched line's share (`unmatched_sale_line`), by its id.
+    #[serde(default)]
+    pub unmatched: Vec<AttachedUnmatchedPoints>,
+    #[serde(default)]
+    pub actor_id: Option<String>,
+    pub attached_at: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct AttachedLinePoints {
+    pub subject_id: Uuid,
+    pub points_earned: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct AttachedUnmatchedPoints {
+    pub id: Uuid,
+    pub points_earned: i64,
+}
+
+/// Parse a member-attached fact: somebody to credit, and an award that is an
+/// award — nought or more, on the sale and on every line.
+pub fn parse_sales_member_attached(payload: &Value) -> Result<SalesMemberAttachedPayload, String> {
+    let attached: SalesMemberAttachedPayload = serde_json::from_value(payload.clone())
+        .map_err(|e| format!("malformed {FACT_SALES_MEMBER_ATTACHED} payload: {e}"))?;
+    if attached.customer_id.trim().is_empty() {
+        return Err("a member tied to a sale has to be named".into());
+    }
+    if attached.points_earned < 0
+        || attached.lines.iter().any(|line| line.points_earned < 0)
+        || attached.unmatched.iter().any(|line| line.points_earned < 0)
+    {
+        return Err("an award of points cannot be negative".into());
+    }
+    Ok(attached)
+}
+
 /// A shop that took money and could not turn it into a sale.
 ///
 /// Sent when a person at the counter closes a checkout as FAILED while a tender
@@ -2327,6 +2432,16 @@ pub struct SalesCompletedPayload {
     /// centre then takes the store's local date of `occurred_at`.
     #[serde(default)]
     pub business_date: Option<chrono::NaiveDate>,
+    /// What the shopper paid for that the till could not take from its own
+    /// store's stock (owner, 23 Oct 2026): nothing moved for these at the
+    /// shop, and head office matches each to a piece later. Absent from an
+    /// older build. The total is `lines` + these + charges.
+    #[serde(default)]
+    pub unmatched: Vec<crate::sync::unmatched::SaleFactUnmatched>,
+    /// The 7-letter transaction number the shopper holds (client, 23 Oct
+    /// 2026). Absent from an older build.
+    #[serde(default)]
+    pub receipt_no: Option<String>,
 }
 
 /// How one sale was settled, as the shop recorded it.
@@ -2419,7 +2534,9 @@ pub struct SaleFactPromotion {
 pub fn parse_sales_completed(payload: &Value) -> Result<SalesCompletedPayload, String> {
     let sale: SalesCompletedPayload = serde_json::from_value(payload.clone())
         .map_err(|e| format!("malformed {FACT_SALES_COMPLETED} payload: {e}"))?;
-    if sale.lines.is_empty() {
+    // A sale may be all unmatched lines — a piece the shop does not hold
+    // still sells — but it is never nothing at all.
+    if sale.lines.is_empty() && sale.unmatched.is_empty() {
         return Err("a completed sale has no lines".into());
     }
     if sale.site_id.trim().is_empty() || sale.actor_id.trim().is_empty() {
@@ -2450,6 +2567,10 @@ pub fn parse_sales_completed(payload: &Value) -> Result<SalesCompletedPayload, S
             .checked_add(amount)
             .ok_or_else(|| "sale total overflows".to_string())?;
     }
+    // The unmatched lines are goods the shopper paid for too.
+    computed = computed
+        .checked_add(crate::sync::unmatched::unmatched_total(&sale.unmatched)?)
+        .ok_or_else(|| "sale total overflows".to_string())?;
     if sale.charge_total_minor < 0 {
         return Err("a sale's charges cannot be negative".into());
     }
@@ -2513,10 +2634,12 @@ pub fn parse_sales_completed(payload: &Value) -> Result<SalesCompletedPayload, S
             // another basket would attribute one shop's discount to another
             // sale's goods, and the join that reads it would look perfectly
             // healthy.
+            // An unmatched line is named by its own id.
             if !sale
                 .lines
                 .iter()
                 .any(|sold| sold.subject_id == line.subject_id)
+                && !sale.unmatched.iter().any(|sold| sold.id == line.subject_id)
             {
                 return Err(format!(
                     "promotion {} names a unit this sale did not sell",

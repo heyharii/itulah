@@ -20,6 +20,7 @@ import {
   type AppModule,
   type NavItem,
 } from "@/lib/navigation"
+import { useOpenUnmatched } from "@/lib/queries/unmatched"
 import { useOpenReturns } from "@/lib/returns"
 import { unsentCount, useSaleQueue } from "@/lib/sale-queue"
 import { useIdentity, useNodeIdentity, useSignOut } from "@/lib/session"
@@ -257,6 +258,7 @@ function ScreenRow({
       <span className="min-w-0 flex-1 truncate">{item.label}</span>
       {item.path === "/stock/returns" && <ReturnsBadge tone={tone} />}
       {item.path === "/stock/count" && <CountBadge tone={tone} />}
+      {item.path === "/money/unmatched" && <UnmatchedTally tone={tone} />}
     </Link>
   )
 }
@@ -281,6 +283,25 @@ function ReturnsBadge({ tone }: { tone: Tone }) {
 
 function CountBadge({ tone }: { tone: Tone }) {
   return <Badge open={useOpenCounts()} tone={tone} />
+}
+
+/// Sales still to be matched, as plain grey figures at the row's end — a tally
+/// to glance at, not a task the shop is asked to do, so no pill.
+function UnmatchedTally({ tone }: { tone: Tone }) {
+  const open = useOpenUnmatched()
+  if (open === 0) return null
+  return (
+    <span
+      className={cn(
+        "ml-2 text-[0.9375rem] font-medium tabular-nums",
+        // Grey on the lit row too: the active row hands its colour to
+        // everything inside it, and the figure is not part of the name.
+        tone === "panel" ? "text-mute!" : "text-rail-mute!",
+      )}
+    >
+      {open}
+    </span>
+  )
 }
 
 /// The navigation as a drawer — under 64rem, and behind the phone's More tab:

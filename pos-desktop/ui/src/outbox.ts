@@ -7,6 +7,7 @@ import {
   type EdgeReply,
   type SaleReply,
   type SaleTender,
+  type UntaggedLine,
 } from "@/api"
 
 /// The outbox for money.
@@ -84,6 +85,12 @@ export type OutboxEntry = {
   /// when it was sent, which may be tomorrow morning.
   readonly takenAt: string
   readonly epcs: readonly string[]
+  /// The pieces sold with no tag, one entry each: a SKU typed off the label,
+  /// or a Barang tak dikenal with the price its Kepala toko approved. Sent
+  /// with the sale as the quote saw them, so the node writes them down as
+  /// unmatched sales for head office to match. A Barang tak dikenal carries
+  /// the `approval_id` of its Kepala toko's yes, which is not a secret.
+  readonly untagged: readonly UntaggedLine[]
   readonly tenders: readonly SaleTender[]
   readonly actorId: string
   readonly couponCodes: readonly string[]
@@ -146,6 +153,7 @@ type SaleRequest = Parameters<typeof sell>[0]
 /// camel-cased where it is this app's, which is the same split `api.ts` keeps.
 export type SaleDraft = {
   readonly epcs: readonly string[]
+  readonly untagged?: readonly UntaggedLine[]
   readonly tenders: readonly SaleTender[]
   readonly actor_id: string
   readonly coupon_codes: readonly string[]
@@ -231,6 +239,8 @@ function revive(row: unknown): Mutable | null {
     takenAt:
       typeof it.takenAt === "string" ? it.takenAt : new Date(0).toISOString(),
     epcs: it.epcs,
+    // A row written before pieces could be sold without a tag carries none.
+    untagged: Array.isArray(it.untagged) ? (it.untagged as UntaggedLine[]) : [],
     tenders: it.tenders as readonly SaleTender[],
     actorId: it.actorId,
     couponCodes: strings(it.couponCodes) ? it.couponCodes : [],
@@ -373,6 +383,7 @@ export function enqueue(sale: SaleDraft): OutboxEntry {
     idempotencyKey: mintKey(),
     takenAt: new Date().toISOString(),
     epcs: [...sale.epcs],
+    untagged: [...(sale.untagged ?? [])],
     tenders: [...sale.tenders],
     actorId: sale.actor_id,
     couponCodes: [...sale.coupon_codes],
@@ -470,6 +481,8 @@ function wire(entry: OutboxEntry): SaleRequest {
     coupon_authorizations: entry.couponAuthorizations,
     customer_id: entry.customerId,
     charges: entry.charges,
+    // Left out when there is none, as the quote does.
+    ...(entry.untagged.length > 0 ? { untagged: entry.untagged } : {}),
   }
 }
 

@@ -341,9 +341,9 @@ export const SHEET_PARAMS = {
   "new-stores": flag,
   /// Which tab a store's own page stands on. Not a sheet: in the URL so the
   /// "Add store" sheet can land somebody on the Server tab, and so a reload
-  /// stays where it was. Anything but these three words is dropped, and no
+  /// stays where it was. Anything but these four words is dropped, and no
   /// word means Overview.
-  "store-tab": oneOf(["overview", "server", "status"] as const),
+  "store-tab": oneOf(["overview", "tills", "server", "status"] as const),
   /// The company's own description — name, legal form, head-office address,
   /// NPWP — over the home screen. A flag: there is one company.
   company: flag,
@@ -549,6 +549,10 @@ export const SHEET_PARAMS = {
   /// The sale-return record. Named `refund` because `return` is a reserved word
   /// and `?return=` reads like a redirect parameter.
   refund: id,
+  /// An unmatched sale — a line a till could not take from its own store's
+  /// stock — open to be matched (Sales › Unmatched sales). It names no record
+  /// kind the server files a history under, so it has no `SHEET_SUBJECT`.
+  unmatched: id,
   /// Whose history is being read. There is no customer search endpoint, so the
   /// member id is typed in — without a key that screen cannot be linked to or
   /// reloaded at all.

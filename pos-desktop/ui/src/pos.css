@@ -5,7 +5,7 @@
 :root{
  font-family:Inter,system-ui,-apple-system,sans-serif;color:#20242c;background:#f6f6f7;font-size:15px;
  --ink:#20242c;--muted:#687280;--dim:#737d8b;--line:#e5e9ef;--line-soft:#eef1f6;
- --blue:#2563eb;--blue-dark:#1d4ed8;--pale:#eff5ff;--green:#327858;--amber:#885610;--red:#ac4949;
+ --blue:#2563eb;--blue-dark:#1d4ed8;--pale:#eff5ff;--green:#327858;--amber:#885610;--red:#d70015;
  --shadow:0 1px 3px #18273c05;--shadow-lg:0 20px 80px #20304a20;
  /* The hub's own tokens (frontend-hub/src/styles), so the till and the back
     office read as one product: hairline #e6e6e9, soft grey #f8f8f9, one blue. */
@@ -28,11 +28,19 @@ button,a{transition:background-color var(--t-hover) var(--ease-out),border-color
 button:disabled{cursor:not-allowed!important;background:#eef1f5!important;border-color:#e2e7ee!important;color:#95a0ae!important;box-shadow:none!important}
 button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid #a8c7ff;outline-offset:3px}
 button:active:not(:disabled){transform:scale(.97)}
-/* Reduced motion keeps colour (it says the till heard you) and drops travel. */
+/* Reduced motion keeps colour and fades (they say the till heard you) and
+   drops travel: each kit below swaps its pops and slides for posFade. */
 @media (prefers-reduced-motion:reduce){
- *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:var(--t-press)!important;scroll-behavior:auto!important}
+ *,*::before,*::after{scroll-behavior:auto!important}
  button:active:not(:disabled){transform:none}
 }
+/* The till's one entrance, as the prototype's .m-veil / .m-pop: the scrim
+   fades, the card comes up from .97 — 200ms on the strong ease-out. Only a
+   dialog opened by a pointer carries .enter; one opened by its key is simply
+   there, and every exit is instant. */
+@keyframes posFade{from{opacity:0}}
+@keyframes posPop{from{opacity:0;transform:scale(.97)}}
+@keyframes posToast{from{opacity:0;transform:translate(-50%,8px)}}
 a{color:inherit;text-decoration:none}
 h1,h2,h3{margin:0;font-weight:600;letter-spacing:-.3px}
 p{margin:0}
@@ -65,7 +73,7 @@ kbd{font-size:15px;line-height:22px;font-family:inherit;padding:0 6px;border-rad
 .badge.plain::before{display:none}
 .badge.ok{background:#edf6f0;color:#347959}
 .badge.warn{background:#fdf4e6;color:var(--amber)}
-.badge.bad{background:#fdf0f0;color:var(--red)}
+.badge.bad{background:#fbeaea;color:var(--red)}
 
 /* ── kerangka ────────────────────────────────────────────────────────── */
 #app{height:100vh;display:flex;flex-direction:column;overflow:hidden;background:var(--soft)}
@@ -97,6 +105,8 @@ kbd{font-size:15px;line-height:22px;font-family:inherit;padding:0 6px;border-rad
 .statusbar .dot{width:7px;height:7px}
 .statusbar .right{margin-left:auto;display:flex;align-items:center;gap:16px}
 .statusbar .dev{display:inline-flex;align-items:center;gap:6px}
+.statusbar .who{display:inline-flex;align-items:center;gap:8px;color:var(--text);white-space:nowrap}
+.statusbar .who .sep{color:var(--faint)}
 .statusbar .dev.on .dot{background:#3f9a6b}
 .statusbar .dev.off .dot{background:#c3c9d2}
 .statusbar .dev.warn .dot{background:#d4891c}
@@ -314,6 +324,18 @@ kbd{font-size:15px;line-height:22px;font-family:inherit;padding:0 6px;border-rad
 .row-item{display:flex;align-items:center;gap:14px;width:100%;padding:15px;border:1px solid var(--line);border-radius:10px;background:#fff;text-align:left;box-shadow:var(--shadow)}
 button.row-item:hover{border-color:#9fbaf0;background:#f7faff}
 .row-item .grow{flex:1;min-width:0}
+/* 7Soft's key row: a keycap over its word, in keyboard order, a small gap between the groups. */
+.t-keys7{display:flex;align-items:center;gap:2px;min-width:0;margin-left:8px}
+.k7-gap{flex:none;width:12px}
+.k7{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;height:52px;min-width:54px;padding:0 8px;border-radius:8px;white-space:nowrap}
+.k7-k{display:inline-grid;place-items:center;min-width:30px;height:22px;padding:0 6px;border-radius:5px;background:#fff;box-shadow:inset 0 0 0 1px var(--hair-2),0 1px 0 var(--hair-2);font-size:15px;line-height:1;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.k7-l{font-size:15px;line-height:18px;color:var(--body)}
+.k7.bad .k7-l{color:var(--bad-fg)}
+.k7.go .k7-k{background:var(--blue);color:#fff;box-shadow:none}
+.k7.go .k7-l{color:var(--blue);font-weight:600}
+.k7.on{background:var(--soft-2)}
+.k7-n{position:absolute;top:1px;right:0;display:grid;place-items:center;min-width:18px;height:18px;padding:0 4px;border-radius:9px;background:var(--blue);color:#fff;font-size:15px;font-weight:600;line-height:18px}
+.k7:disabled{background:none!important;border:0!important;color:var(--text)!important;opacity:.4}
 .row-item h3{font-size:15px;font-weight:600}
 .row-item p{font-size:15px;color:#6b7482;margin-top:3px}
 .kv{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 0;border-bottom:1px solid var(--line);font-size:13px}
@@ -345,7 +367,10 @@ dialog::backdrop{background:#eef2f7b5;backdrop-filter:blur(2px)}
 
 /* ── sheet: panel di atas konter ─────────────────────────────────────── */
 .sheet-wrap{position:fixed;inset:0;z-index:50;display:grid;place-items:center;padding:24px;background:#20242c38;backdrop-filter:blur(2px)}
+.sheet:focus,.overlay-card:focus{outline:none}
 .sheet{width:min(640px,100%);max-height:calc(100dvh - 48px);display:flex;flex-direction:column;background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow-lg);overflow:hidden}
+.sheet-wrap.enter{animation:posFade var(--t-panel) var(--ease-out)}
+.sheet-wrap.enter>.sheet{animation:posPop var(--t-panel) var(--ease-out)}
 .sheet-head{flex:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid var(--line)}
 .sheet-head h2{font-size:17px}
 .sheet-body{flex:1;min-height:0;overflow-y:auto;padding:18px 20px;display:flex;flex-direction:column;gap:14px}
@@ -363,6 +388,8 @@ dialog::backdrop{background:#eef2f7b5;backdrop-filter:blur(2px)}
 
 /* ── overlay ─────────────────────────────────────────────────────────── */
 .overlay{position:fixed;inset:0;z-index:60;display:grid;place-items:center;background:#eef2f7c4;backdrop-filter:blur(2px);padding:24px}
+.overlay.enter{animation:posFade var(--t-panel) var(--ease-out)}
+.overlay.enter>.overlay-card{animation:posPop var(--t-panel) var(--ease-out)}
 .overlay-card{width:340px;padding:30px 26px;border:1px solid #e0e6ef;border-radius:16px;background:#fff;box-shadow:var(--shadow-lg);display:flex;flex-direction:column;align-items:center;gap:14px;text-align:center}
 .seal{width:60px;height:60px;border-radius:50%;display:grid;place-items:center;background:#eaf5ef;color:#388264}
 .seal svg.icon{width:26px;height:26px;stroke-width:2}
@@ -379,7 +406,7 @@ dialog::backdrop{background:#eef2f7b5;backdrop-filter:blur(2px)}
 .overlay-change small{display:block;font-size:15px;color:#7d8b82;margin-bottom:2px}
 .overlay-change strong{font-size:21px;font-weight:600;color:var(--green);letter-spacing:-.5px}
 /* Di halaman pembayaran tombol utama duduk di bawah-tengah, jadi toast naik. */
-#toast{position:fixed;left:50%;bottom:46px;transform:translateX(-50%);z-index:80;max-width:min(460px,calc(100vw - 32px));text-align:center;padding:11px 18px;border-radius:9px;background:#20242c;color:#fff;font-size:12.5px;font-weight:500;box-shadow:0 8px 30px #20304a2e}
+#toast{position:fixed;left:50%;bottom:46px;transform:translateX(-50%);z-index:80;max-width:min(460px,calc(100vw - 32px));text-align:center;padding:11px 18px;border-radius:9px;background:#20242c;color:#fff;font-size:12.5px;font-weight:500;box-shadow:0 8px 30px #20304a2e;animation:posToast var(--t-panel) var(--ease-out)}
 
 /* ── tablet ──────────────────────────────────────────────────────────── */
 body[data-device=tablet]{font-size:15px}
@@ -453,7 +480,7 @@ body[data-device=tablet] .action-bar kbd,body[data-device=tablet] .pay-cta kbd,b
    Look: Today) and drawn in the hub's tokens. Motion: a scan, a new line and
    every F-key are instant; only what a pointer opens animates (menus 150ms,
    the payment dialog 200ms), and every press scales to .97. Nothing under 15px. */
-.t-hdr{height:58px;flex:none;display:flex;align-items:center;gap:6px;padding:0 12px 0 16px;background:#fff;border-bottom:1px solid var(--hair);position:relative;z-index:20}
+.t-hdr{height:64px;flex:none;display:flex;align-items:center;gap:6px;padding:0 12px 0 16px;background:#fff;border-bottom:1px solid var(--hair);position:relative;z-index:20}
 .t-mark{width:30px;height:30px;flex:none}
 .t-bar{display:flex;align-items:center;gap:2px;margin-left:8px}
 .grow{flex:1;min-width:0}
@@ -465,7 +492,7 @@ body[data-device=tablet] .action-bar kbd,body[data-device=tablet] .pay-cta kbd,b
 .t-tb.on{background:var(--soft-2)}
 .t-tb:disabled{background:none!important;border:0!important;color:var(--text)!important;opacity:.4}
 .t-count{display:inline-grid;place-items:center;min-width:22px;height:22px;padding:0 6px;border-radius:11px;background:var(--blue);color:#fff;font-size:15px;font-weight:600;line-height:22px}
-.t-me{display:inline-flex;align-items:center;gap:4px;height:44px;padding:0 8px 0 6px;border-radius:22px;margin-left:6px}
+.t-me{display:inline-flex;align-items:center;gap:4px;height:44px;padding:0 8px 0 6px;border-radius:22px;margin-left:6px;flex:none}
 .t-me .av{width:32px;height:32px;border-radius:50%;background:#e9edf7;color:#4a5a86;display:grid;place-items:center;font-size:15px;font-weight:600}
 .t-me .car svg.icon{color:var(--ico)}
 .t-meid{display:flex;flex-direction:column;align-items:flex-start;line-height:1.15;margin:0 4px 0 6px;text-align:left}
@@ -477,7 +504,7 @@ body[data-device=tablet] .action-bar kbd,body[data-device=tablet] .pay-cta kbd,b
 .t-pop{position:absolute;top:calc(100% + 6px);z-index:31;min-width:260px;padding:6px;background:#fff;border:1px solid var(--hair);border-radius:12px;box-shadow:var(--shadow-pop);display:flex;flex-direction:column}
 .t-pop.l{left:0;transform-origin:top left}
 .t-pop.r{right:0;transform-origin:top right}
-.t-pop.enter{animation:tMenuIn .15s var(--ease-out)}
+.t-pop.enter{animation:tMenuIn var(--t-pop) var(--ease-out)}
 @keyframes tMenuIn{from{opacity:0;transform:scale(.97)}}
 .t-pop button{display:flex;align-items:center;gap:12px;height:44px;padding:0 10px;border-radius:8px;font-size:15px;color:var(--ink);text-align:left;white-space:nowrap}
 .t-pop button svg.icon{color:var(--ico)}
@@ -549,6 +576,23 @@ body[data-device=tablet] .action-bar kbd,body[data-device=tablet] .pay-cta kbd,b
 .t-round{display:grid;place-items:center;width:40px;height:40px;border:1px solid var(--hair-2);border-radius:20px;color:var(--text)}
 .t-round svg.icon{width:18px;height:18px}
 
+/* the last three receipts of this shift, under the member / coupon / bags rows */
+.t-lr{padding:0 20px 12px}
+.t-lr-h{display:flex;align-items:center;justify-content:space-between;min-height:44px}
+.t-lr-h h3{font-size:16px;font-weight:600;letter-spacing:0;color:var(--ink)}
+.t-lr-none{padding:4px 0 8px;color:var(--mute);font-size:16px}
+.t-rc{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:0 12px;width:100%;padding:6px 12px;border-radius:10px;text-align:left}
+.t-rc.on{background:var(--accent-bg)}
+.t-rc .no{font-size:16px;font-weight:500;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.t-rc .amt{font-size:16px;font-weight:500;color:var(--ink);text-align:right}
+.t-rc .sub{font-size:15px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.t-rc .st{justify-self:end;display:inline-flex;align-items:center;gap:8px;font-size:15px;color:var(--text);white-space:nowrap}
+.t-rc .st::before{content:"";flex:none;width:7px;height:7px;border-radius:50%;background:var(--mute)}
+.t-rc .st.ok::before{background:#3f9a6b}
+.t-rc .st.warn{color:#a64a08}
+.t-rc .st.warn::before{background:#d4891c}
+.t-rc .st.bad{color:var(--bad-fg)}
+.t-rc .st.bad::before{background:var(--bad-fg)}
 .t-tot{flex:none;padding:8px 20px 20px;border-top:1px solid var(--hair)}
 .t-totals{display:flex;flex-direction:column;gap:2px}
 .t-tl{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:32px;font-size:16px;color:var(--body)}
@@ -585,6 +629,14 @@ body[data-device=tablet] .action-bar kbd,body[data-device=tablet] .pay-cta kbd,b
 .t-amt span{font-size:20px;color:var(--mute)}
 .t-amt input{flex:1;min-width:0;border:0;outline:0;background:none;text-align:right;font-size:34px;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums;color:var(--ink)}
 .t-amt input::placeholder{color:var(--faint)}
+/* quick amounts above the amount field: F1 exact, F2–F4 round-ups */
+.t-quick{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.t-qk{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;height:64px;min-width:0;padding:0 8px;border:1px solid var(--hair-2);border-radius:10px;background:#fff}
+.t-qk-t{display:inline-flex;align-items:center;gap:8px;font-size:15px;line-height:22px;color:var(--body);white-space:nowrap}
+.t-qk-v{font-size:16px;font-weight:600;line-height:20px;color:var(--ink);white-space:nowrap}
+.t-qk.on{border-color:var(--blue);background:var(--accent-bg)}
+.t-qk.on .t-qk-v{color:var(--blue)}
+@media (hover:hover) and (pointer:fine){.t-qk:not(.on):not(:disabled):hover{background:var(--soft)}}
 .t-slot{display:flex;gap:8px;height:52px;overflow-x:auto;scrollbar-width:none}
 .t-slot.pre{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}
 .t-slot.pre button{height:52px;border:1px solid var(--hair-2);border-radius:10px;background:#fff;font-size:16px;font-weight:500;font-variant-numeric:tabular-nums}
@@ -619,9 +671,10 @@ body[data-device=tablet] .action-bar kbd,body[data-device=tablet] .pay-cta kbd,b
 .t-done strong{color:var(--ok-fg);font-weight:600}
 
 /* press feedback everywhere; hover only where a hover exists */
-.t-tb:active:not(:disabled),.t-me:active,.t-pop button:active,.t-link:active:not(:disabled),.t-ib:active:not(:disabled),.t-bpk:active,.t-round:active,.t-meth button:active:not(:disabled),.t-slot button:active,.t-chip:active,.t-np button:active,.t-paybtn:active:not(:disabled){transform:scale(.97)}
+.t-tb:active:not(:disabled),.k7:active:not(:disabled),.t-me:active,.t-pop button:active,.t-link:active:not(:disabled),.t-ib:active:not(:disabled),.t-bpk:active,.t-round:active,.t-meth button:active:not(:disabled),.t-slot button:active,.t-chip:active,.t-np button:active,.t-paybtn:active:not(:disabled){transform:scale(.97)}
 @media (hover:hover) and (pointer:fine){
-  .t-tb:hover:not(:disabled),.t-me:hover,.t-ib:hover:not(:disabled){background:var(--soft-2)}
+  .t-tb:hover:not(:disabled),.k7:hover:not(:disabled),.t-me:hover,.t-ib:hover:not(:disabled){background:var(--soft-2)}
+  .t-rc:hover:not(.on){background:var(--soft)}
   .t-tb.bad:hover:not(:disabled){background:var(--bad-bg)}
   .t-pop button:hover{background:var(--soft)}
   .t-link:hover:not(:disabled){background:var(--accent-bg)}
@@ -632,11 +685,14 @@ body[data-device=tablet] .action-bar kbd,body[data-device=tablet] .pay-cta kbd,b
   .t-paybtn:hover:not(:disabled){background:var(--blue-dark)}
 }
 @media (prefers-reduced-motion:reduce){
-  .t-scrim.enter,.t-paydlg.enter,.t-pop.enter{animation:tFade .15s linear}
+  .t-scrim.enter,.t-paydlg.enter,.t-pop.enter,.sheet-wrap.enter>.sheet,.overlay.enter>.overlay-card{animation:posFade 150ms var(--ease-out)}
+  #toast{animation:posFade 150ms var(--ease-out)}
 }
 
 /* a tablet or a narrow window: labels fold into icons, the money column eases */
 @media (max-width:1279px){
+  .k7{min-width:0;padding:0 5px}
+  .k7-gap{width:6px}
   .t-tb .tbl{display:none}
   .t-tb{padding:0 10px;height:44px}
   .t-main{gap:12px;padding:12px 14px 14px}
@@ -654,3 +710,207 @@ body[data-device=tablet] .action-bar kbd,body[data-device=tablet] .pay-cta kbd,b
   .t-paydlg{grid-template-columns:1fr;overflow-y:auto}
   .t-pd-side{border-left:0;border-top:1px solid var(--hair);padding-top:28px}
 }
+
+/* ── The door, as the prototype draws it (pos-classic-prototype.html, owner
+   23 Oct 2026: "sesuaikan aja dengan prototype"). Its own tokens, scoped. ── */
+.pdoor{--ink:#1d1d1f;--body:#6e6e73;--faint:#c7c7cc;--soft-2:#f2f2f5;--segment-track:#f2f2f4;--hairline-2:#dcdce1;--stone:#e8ebf0;--accent:#2862dc;--accent-bg:#eef3fc;--ok:#36b827;--bad:#d70015;--bad-fg:#d70015;--avatar-from:#e8def4;--avatar-to:#f8dde8;--shadow-page:0 0 0 1px rgba(0,0,0,.05),0 2px 8px rgba(0,0,0,.04),0 24px 72px rgba(0,0,0,.08);--shadow-focus:0 0 0 2px rgba(40,98,220,.12);--field:40px;--r-inner:8px;--r-sheet:16px;--ease-out:cubic-bezier(.23,1,.32,1);--ease-in-out:cubic-bezier(.77,0,.175,1);
+  position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--stone);color:var(--ink);font-size:15px;line-height:1.45;letter-spacing:normal}
+.pdoor *{box-sizing:border-box}
+.pdoor p{margin:0}
+.pdoor button{font:inherit;border:0;background:none;color:inherit;cursor:pointer;padding:0;margin:0}
+.pdoor button:disabled{cursor:default}
+/* pos.css presses with transform; the door presses with scale. One, not both. */
+.pdoor button:active:not(:disabled){transform:none}
+.pdoor .kbd{display:inline-grid;place-items:center;min-width:26px;height:22px;padding:0 5px;border-radius:5px;background:#f4f4f6;box-shadow:inset 0 0 0 1px var(--hairline-2);font-size:15px;line-height:1;font-weight:500;color:var(--body);font-variant-numeric:tabular-nums;white-space:nowrap}
+.pdoor .av{display:inline-grid;place-items:center;flex:none;width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,var(--avatar-from),var(--avatar-to));color:var(--ink);font-size:15px;font-weight:600;letter-spacing:-.01em}
+.pdoor .av.md{width:44px;height:44px;font-size:16px}
+.pdoor .live{width:8px;height:8px;border-radius:50%;background:var(--ok);flex:none;animation:pd-live 2.4s var(--ease-out) infinite}
+@keyframes pd-live{from{box-shadow:0 0 0 0 rgb(54 184 39/45%)}to{box-shadow:0 0 0 6px rgb(54 184 39/0%)}}
+.pdoor .pd-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;height:48px;border-radius:var(--r-inner);background:var(--accent);color:#fff;font-size:16px;font-weight:600;transition:scale 160ms var(--ease-out),opacity 150ms ease}
+.pdoor .pd-btn:active{scale:.98}
+.pdoor .pd-btn:disabled{opacity:.45}
+.pdoor .pd-btn .kbd{background:rgba(255,255,255,.16);box-shadow:inset 0 0 0 1px rgba(255,255,255,.25);color:#fff}
+.pdoor .d-err{color:var(--bad-fg)}
+.pdoor .d-sims{margin-top:12px;display:flex;gap:8px}
+.pdoor .d-sims button{height:30px;padding:0 10px;border-radius:7px;font-weight:600;color:var(--accent);background:var(--accent-bg)}
+.pdoor .d-sims button.ok{color:#1d7a32;background:#e7f6ea}
+.pdoor .d-sims button.bad{color:var(--bad-fg);background:#fdecee}
+/* the Kepala toko's approval, the prototype's sheet: a card over the till */
+.pdoor.papr{z-index:90;background:rgba(29,29,31,.32);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);animation:posFade var(--t-panel) var(--ease-out)}
+.pdoor .sup{width:400px;max-width:calc(100vw - 32px);padding:26px 28px 22px;border-radius:var(--r-sheet);background:#fff;box-shadow:var(--shadow-page);display:flex;flex-direction:column;align-items:center;text-align:center;animation:posPop var(--t-panel) var(--ease-out) both}
+.pdoor .sup .d-sub{align-self:auto}
+.pdoor .sup .d-pw{text-align:left}
+.pdoor .sup-foot{margin-top:16px;display:flex;gap:8px;justify-content:center}
+@keyframes pd-lift{from{opacity:0;transform:translateY(8px) scale(.985)}}
+@keyframes pd-swapIn{from{opacity:0;transform:translateY(4px)}}
+@keyframes pd-rise{from{opacity:0;transform:translateY(10px);filter:blur(4px)}}
+@keyframes pd-blink{50%{opacity:0}}
+.pdoor .m-lift{animation:pd-lift 480ms var(--ease-out) both}
+.pdoor .m-swap{animation:pd-swapIn 200ms var(--ease-out) both}
+.pdoor .m-rise{animation:pd-rise 560ms var(--ease-out) both;animation-delay:calc(var(--i,0) * 80ms)}
+@media (prefers-reduced-motion:reduce){
+  .pdoor .m-lift,.pdoor .m-swap,.pdoor .sup{animation:posFade 150ms var(--ease-out) both}
+  .pdoor .m-rise{animation:posFade 220ms var(--ease-out) both}
+  .pdoor .fp.no,.pdoor .fp.idle::after,.pdoor .fp.reading .fp-beam,.pdoor .live{animation:none}
+  .pdoor .fp.reading .fp-ink path{animation-duration:200ms;animation-delay:0ms}
+  .pdoor .w-orb.run .w-blue,.pdoor .w-orb.run .w-check{animation:none;opacity:0}
+  .pdoor .w-orb.run .w-av{animation:posFade 220ms var(--ease-out) both}
+  .pdoor :active{scale:none!important}
+}
+/* ── The door: sign in; a locked till unlocks by finger with a welcome ── */
+.pdoor .d-card{position:relative;width:420px;height:612px;border-radius:var(--r-sheet);background:#fff;box-shadow:var(--shadow-page);overflow:hidden}
+.pdoor .d-in{position:absolute;inset:0;padding:40px 32px 30px;display:flex;flex-direction:column;align-items:center}
+.pdoor .d-mark{width:60px;height:60px}
+.pdoor .d-word{margin-top:14px;font-size:28px;line-height:1;font-weight:700;letter-spacing:-.04em}
+.pdoor .d-word i{font-style:normal;color:#efa614}
+.pdoor .d-till{margin-top:10px;color:var(--body)}
+.pdoor .d-lockname{margin-top:12px;font-size:17px;font-weight:600;letter-spacing:-.2px}
+.pdoor .d-say{margin-top:26px;font-size:17px;line-height:24px;font-weight:600;letter-spacing:-.2px;text-align:center}
+.pdoor .d-say.bad{color:var(--bad-fg)}
+.pdoor .d-hint{margin-top:4px;min-height:22px;color:var(--body);text-align:center}
+.pdoor .d-foot{margin-top:auto;display:flex;justify-content:center;gap:8px}
+.pdoor .d-chip{display:inline-flex;align-items:center;height:32px;padding:0 12px;border-radius:var(--r-inner);background:var(--accent-bg);color:var(--accent);font-size:15px;font-weight:600;white-space:nowrap;transition:background-color 150ms ease,scale 160ms var(--ease-out)}
+.pdoor .d-chip:active{scale:.97}
+@media (hover:hover) and (pointer:fine){.pdoor .d-chip:hover{background:color-mix(in srgb,var(--accent) 15%,transparent)}}
+.pdoor .d-status{margin-top:22px;display:flex;align-items:center;gap:10px;color:var(--body)}
+.pdoor .d-status .dot{color:var(--faint)}
+
+/* The sensor. Idle it breathes; a finger draws the ridges in from the
+   centre while a beam reads down; a match fills it blue with a check. */
+.pdoor .fp{position:relative;margin-top:44px;width:152px;height:152px;border-radius:50%;display:grid;place-items:center;background:var(--soft-2);isolation:isolate;transition:scale 160ms var(--ease-out),background-color 200ms ease}
+.pdoor .fp:active{scale:.98}
+.pdoor .fp::before{content:"";position:absolute;inset:0;border-radius:50%;box-shadow:inset 0 0 0 1px var(--hairline-2);transition:box-shadow 200ms ease;z-index:0}
+.pdoor .fp.idle::after{content:"";position:absolute;inset:0;border-radius:50%;animation:pd-breathe 2.8s var(--ease-in-out) infinite}
+@keyframes pd-breathe{0%{box-shadow:0 0 0 0 rgb(40 98 220/20%)}70%,100%{box-shadow:0 0 0 16px rgb(40 98 220/0%)}}
+@media (hover:hover) and (pointer:fine){.pdoor .fp.idle:hover{background:var(--segment-track)}}
+.pdoor .fp-glyph{position:relative;z-index:1;width:92px;height:92px}
+.pdoor .fp-glyph path{fill:none;stroke-width:1.05;stroke-linecap:round;stroke-linejoin:round}
+.pdoor .fp-base path{stroke:var(--faint)}
+.pdoor .fp-ink path{stroke:var(--accent);stroke-dasharray:1;stroke-dashoffset:1;opacity:0}
+.pdoor .fp.reading::before{box-shadow:inset 0 0 0 2px var(--accent)}
+.pdoor .fp.reading .fp-ink path{animation:pd-draw 440ms var(--ease-out) both;animation-delay:calc(var(--o) * 70ms + 60ms)}
+.pdoor .fp.done .fp-ink path,.pdoor .fp.no .fp-ink path{stroke-dashoffset:0;opacity:1}
+@keyframes pd-draw{0%{stroke-dashoffset:1;opacity:0}10%{opacity:1}100%{stroke-dashoffset:0;opacity:1}}
+.pdoor .fp-clip{position:absolute;inset:0;border-radius:50%;overflow:hidden;pointer-events:none;z-index:2}
+.pdoor .fp-beam{position:absolute;left:0;right:0;top:-52px;height:52px;opacity:0;background:linear-gradient(180deg,rgb(40 98 220/0) 0%,rgb(40 98 220/.08) 55%,rgb(40 98 220/.42) 96%,rgb(40 98 220/0) 100%)}
+.pdoor .fp.reading .fp-beam{animation:pd-beam 940ms var(--ease-in-out) forwards}
+@keyframes pd-beam{0%{opacity:0;transform:translateY(0)}14%{opacity:1}86%{opacity:1}100%{opacity:0;transform:translateY(204px)}}
+.pdoor .fp-fill{position:absolute;inset:0;border-radius:50%;background:var(--accent);opacity:0;transform:scale(.55);z-index:3}
+.pdoor .fp.done .fp-fill{animation:pd-fill 340ms var(--ease-out) forwards}
+@keyframes pd-fill{to{opacity:1;transform:scale(1)}}
+.pdoor .fp.done .fp-glyph{animation:pd-fadeBlur 220ms var(--ease-out) forwards}
+@keyframes pd-fadeBlur{to{opacity:0;filter:blur(3px)}}
+.pdoor .fp-check{position:absolute;z-index:4;width:60px;height:60px;opacity:0}
+.pdoor .fp.done .fp-check{opacity:1}
+.pdoor .fp-check path{fill:none;stroke:#fff;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:1;stroke-dashoffset:1}
+.pdoor .fp.done .fp-check path{animation:pd-draw 320ms var(--ease-out) 170ms both}
+.pdoor .fp.no::before{box-shadow:inset 0 0 0 2px var(--bad)}
+.pdoor .fp.no .fp-ink path{stroke:var(--bad)}
+.pdoor .fp.no{animation:pd-shake 400ms var(--ease-out)}
+@keyframes pd-shake{0%,100%{transform:translateX(0)}18%{transform:translateX(-9px)}38%{transform:translateX(8px)}58%{transform:translateX(-5px)}78%{transform:translateX(2px)}}
+.pdoor .fp.sm{margin-top:20px;width:120px;height:120px}
+.pdoor .fp.sm .fp-glyph{width:72px;height:72px}
+.pdoor .fp.sm .fp-check{width:48px;height:48px}
+
+/* welcome: the blue check folds into the person's avatar, then the name rises */
+.pdoor .d-center{justify-content:center;padding-bottom:56px;cursor:default}
+.pdoor .w-orb{position:relative;margin-top:44px;width:152px;height:152px;display:grid;place-items:center;flex:none}
+.pdoor .w-av{width:108px;height:108px;border-radius:50%;display:grid;place-items:center;background:linear-gradient(135deg,var(--avatar-from),var(--avatar-to));font-size:36px;font-weight:600;letter-spacing:-.03em;color:var(--ink)}
+.pdoor .w-blue{position:absolute;inset:0;border-radius:50%;background:var(--accent);opacity:0;pointer-events:none}
+.pdoor .w-check{position:absolute;width:60px;height:60px;opacity:0;pointer-events:none}
+.pdoor .w-check path{fill:none;stroke:#fff;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+.pdoor .w-orb.run .w-blue{animation:pd-orbOut 560ms var(--ease-out) both}
+.pdoor .w-orb.run .w-check{animation:pd-checkOut 200ms var(--ease-out) both}
+.pdoor .w-orb.run .w-av{animation:pd-avIn 600ms var(--ease-out) both}
+@keyframes pd-orbOut{0%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(.7)}}
+@keyframes pd-checkOut{0%{opacity:1}100%{opacity:0;transform:scale(.8)}}
+@keyframes pd-avIn{0%{opacity:0;transform:scale(1.32)}40%{opacity:1}100%{opacity:1;transform:scale(1)}}
+.pdoor .d-hello{margin-top:22px;font-size:17px;line-height:24px;color:var(--body)}
+.pdoor .d-name{margin-top:2px;font-size:30px;line-height:36px;font-weight:600;letter-spacing:-.035em;text-align:center}
+.pdoor .d-meta{margin-top:10px;color:var(--body);text-align:center}
+.pdoor .d-progress{position:absolute;left:32px;right:32px;bottom:34px;height:3px;border-radius:3px;background:#edf1f8;overflow:hidden}
+.pdoor .d-progress i{position:absolute;inset:0;border-radius:inherit;background:var(--accent);transform:scaleX(0);transform-origin:left}
+.pdoor .d-progress.run i{animation:pd-prog 1900ms linear forwards}
+@keyframes pd-prog{to{transform:scaleX(1)}}
+
+/* opening float */
+.pdoor .d-float{padding:30px 32px 28px;align-items:stretch}
+.pdoor .f-who{display:flex;align-items:center;gap:12px}
+.pdoor .f-who-t{flex:1;min-width:0;line-height:20px}
+.pdoor .f-who-t b{display:block;font-weight:600}
+.pdoor .f-who-t span{color:var(--body)}
+.pdoor .f-title{margin-top:22px;font-size:17px;line-height:24px;font-weight:600;letter-spacing:-.3px}
+.pdoor .f-amt{margin-top:10px;height:64px;border-radius:var(--r-inner);background:#fff;display:flex;align-items:center;justify-content:center;gap:10px;border:1px solid var(--accent);box-shadow:var(--shadow-focus)}
+.pdoor .f-amt .cur{font-size:20px;font-weight:500;color:var(--body)}
+.pdoor .f-amt .v{font-size:34px;line-height:40px;font-weight:600;letter-spacing:-.035em;font-variant-numeric:tabular-nums}
+.pdoor .f-amt .v.zero{color:var(--faint)}
+.pdoor .f-amt .v.sel{margin:0 -4px;padding:0 4px;border-radius:6px;background:var(--accent-bg)}
+.pdoor .caret{width:2px;height:30px;border-radius:1px;background:var(--accent);animation:pd-blink 1.06s steps(1) infinite}
+.pdoor .f-pre{margin-top:12px;display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.pdoor .f-pre button{height:40px;border-radius:var(--r-inner);background:var(--accent-bg);color:var(--accent);font-weight:600;font-variant-numeric:tabular-nums;transition:scale 120ms var(--ease-out),background-color 150ms ease}
+.pdoor .f-pre button:active{scale:.97}
+.pdoor .f-pre button.on{background:var(--accent);color:#fff}
+.pdoor .f-pad{margin-top:14px;display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.pdoor .f-pad button{height:52px;border-radius:var(--r-inner);background:var(--soft-2);font-size:22px;font-weight:500;font-variant-numeric:tabular-nums;display:grid;place-items:center;transition:scale 120ms var(--ease-out),background-color 150ms ease}
+.pdoor .f-pad button:active{scale:.96}
+@media (hover:hover) and (pointer:fine){.pdoor .f-pad button:hover{background:var(--segment-track)}.pdoor .f-pre button:not(.on):hover{background:color-mix(in srgb,var(--accent) 15%,transparent)}}
+.pdoor .f-open{margin-top:18px;width:100%;height:52px;border-radius:var(--r-inner);justify-content:space-between;padding:0 14px 0 20px;font-size:17px}
+.pdoor .f-open[disabled]{opacity:.45}
+
+.pdoor .d-chip .kbd{margin:0 -4px 0 8px;height:20px;min-width:22px;background:transparent;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 30%,transparent);color:var(--accent)}
+
+/* opened by the Kepala toko: her finger or her password, then whose name */
+.pdoor .d-headtop{align-self:stretch;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.pdoor .d-ttl{font-size:17px;line-height:24px;font-weight:600;letter-spacing:-.3px}
+.pdoor .d-sub{align-self:stretch;margin-top:4px;color:var(--body)}
+.pdoor .bh-list{margin-top:12px;display:flex;flex-direction:column;gap:6px}
+.pdoor .bh-row{display:flex;align-items:center;gap:12px;height:60px;padding:0 14px 0 12px;border-radius:var(--r-inner);background:var(--soft-2);text-align:left;transition:scale 120ms var(--ease-out),background-color 150ms ease}
+.pdoor .bh-row:active{scale:.98}
+.pdoor .bh-row.on{background:var(--accent-bg);box-shadow:inset 0 0 0 1.5px var(--accent)}
+.pdoor .bh-t{min-width:0;display:flex;flex-direction:column;line-height:20px}
+.pdoor .bh-t b{font-weight:600}
+.pdoor .bh-t span{color:var(--body)}
+.pdoor .bh-list+.f-open{margin-top:auto}
+@media (hover:hover) and (pointer:fine){.pdoor .bh-row:not(.on):hover{background:var(--segment-track)}}
+
+/* password: the Kepala toko's only */
+.pdoor .d-pw{margin-top:30px;width:100%;display:flex;flex-direction:column;gap:14px}
+.pdoor .d-pw label{display:flex;flex-direction:column;gap:8px;color:var(--body)}
+.pdoor .d-pw input{height:var(--field);padding:0 14px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:#fff;font-size:16px;color:var(--ink);transition:border-color 120ms ease,box-shadow 120ms ease}
+.pdoor .d-pw input:focus{border-color:var(--accent);box-shadow:var(--shadow-focus)}
+.pdoor .d-pw .ds-btn{height:48px;margin-top:6px;font-size:16px;border-radius:var(--r-inner)}
+
+
+.kasir-gate .page-head{margin-bottom:10px}
+.kasir-gate .page-head h1{font-size:17px}
+
+/* ── close cash: Settle EDC, then the count; the closing paper ─────────── */
+.edc-row{display:grid;grid-template-columns:minmax(0,1fr) 220px;align-items:center;gap:14px}
+.edc-row>span:first-child{display:flex;flex-direction:column;line-height:20px}
+.edc-row strong{font-weight:600}
+.closing-paper{display:none}
+@media print{
+  body *{visibility:hidden}
+  .closing-paper,.closing-paper *{visibility:visible}
+  .closing-paper{display:block;position:absolute;left:0;top:0;width:76mm;padding:2mm;color:#000;font:12px/1.4 ui-monospace,Menlo,monospace}
+  .closing-paper .cp-co{font-weight:700;font-size:14px}
+  .closing-paper .cp-title{margin-top:6px;font-weight:700;letter-spacing:.05em}
+  .closing-paper dl{display:grid;grid-template-columns:auto 1fr;gap:1px 8px;margin:6px 0}
+  .closing-paper .cp-sec{margin-top:6px;font-weight:700}
+  .closing-paper table{width:100%;border-collapse:collapse}
+  .closing-paper td{border:1px solid #000;padding:1px 4px}
+  .closing-paper td+td{text-align:right}
+  .closing-paper .cp-tot{text-align:right;font-weight:700;margin-top:4px}
+  .closing-paper .cp-sign{display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;margin-top:10px}
+  .closing-paper .cp-line{margin-top:28px;border-top:1px solid #000}
+}
+
+/* the discount sheet: what the node applied, one row each */
+.t-disc{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:52px;border-bottom:1px solid var(--hair);font-size:16px;color:var(--ink)}
+.t-disc .v{color:var(--ok-fg);font-weight:500}
+.t-disc.sum{border-bottom:0;font-weight:600}
+
+/* Penjualan / Return / Void on the receipt lists */
+.kind-pill{display:inline-flex;align-items:center;height:22px;margin-left:8px;padding:0 8px;border-radius:6px;font-size:15px;font-weight:500;vertical-align:1px;background:#f2f2f5;color:#6e6e73}
+.kind-pill.kind-return{background:#faeacd;color:#a66c1f}
+.kind-pill.kind-void{background:#fdeeee;color:#d70015}

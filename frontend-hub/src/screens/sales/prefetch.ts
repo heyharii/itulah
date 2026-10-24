@@ -12,6 +12,7 @@ import {
   recentSalesQuery,
   returnsPageQuery,
 } from "@/lib/queries/storeops"
+import { unmatchedQuery } from "@/lib/queries/unmatched"
 import { breakdownQuery } from "@/screens/sales/breakdown-data"
 import type { By } from "@/screens/sales/breakdown"
 import {
@@ -132,6 +133,16 @@ export const prefetch: PrefetchMap = {
   // filtered. Mirrors `ReturnsList` in `returns.tsx`.
   "/sales/returns": async (client) => {
     await warmInfinite(client, returnsPageQuery(RETURNS_OPENING_SCOPE))
+  },
+
+  // Unmatched sales opens on To match, and its tab counts and kind chips read
+  // the other two tabs as well. Mirrors `UnmatchedBody` in `unmatched.tsx`.
+  "/sales/unmatched": async (client) => {
+    await Promise.all([
+      warmQuery(client, unmatchedQuery("open")),
+      warmQuery(client, unmatchedQuery("matched")),
+      warmQuery(client, unmatchedQuery("found")),
+    ])
   },
 
   // Shop Floor: the last 500 sales and returns. Mirrors `ShopFloor` in

@@ -25,6 +25,31 @@
 
 import { useEffect, useRef } from "react"
 
+/// Whether the last thing the person did was point at the screen. Motion is for
+/// a mouse or a finger: F10, Enter and Esc are pressed hundreds of times a day
+/// and get none, and a scanner types its tag as keys, so it gets none either.
+/// A dialog reads it once, when it mounts: `useState(viaPointer)`.
+let pointed = false
+if (typeof window !== "undefined") {
+  window.addEventListener(
+    "pointerdown",
+    () => {
+      pointed = true
+    },
+    true,
+  )
+  window.addEventListener(
+    "keydown",
+    () => {
+      pointed = false
+    },
+    true,
+  )
+}
+export function viaPointer(): boolean {
+  return pointed
+}
+
 /// Every spelling of a modifier, and the one name it is written under.
 const MODIFIERS: Readonly<Record<string, string | undefined>> = {
   ctrl: "ctrl",
@@ -65,6 +90,17 @@ const ALIASES: Readonly<Record<string, string | undefined>> = {
 /// counted as a function key would fire a shortcut in the middle of a word.
 const FUNCTION_KEY = /^f([1-9]|1[0-2])$/
 
+/// Keys a text field has no use for, beyond the F-row.
+///
+/// Ctrl and a letter is a command, not typing — except the letters a field
+/// itself answers to (select all, copy, paste, cut, undo, redo), which a
+/// cashier expects to keep working in the scan field. The numpad's + and − are
+/// 7Soft's New and Remove on the sale screen: they are told apart from the main
+/// row's by `event.code` (see `pressed`), so "-" typed in a coupon code or a
+/// name still types.
+const FIELD_EDITING = new Set(["a", "c", "v", "x", "z", "y"])
+const NUMPAD_COMMANDS = new Set(["NumpadAdd", "NumpadSubtract"])
+
 /// Rewrite a name from the map into the one spelling a pressed key is named
 /// with, so the two meet in the middle. Case and modifier order stop mattering.
 function canonical(name: string): string {
@@ -93,7 +129,17 @@ function pressed(event: KeyboardEvent): string {
   if (event.altKey) held.push("alt")
   if (event.shiftKey) held.push("shift")
   if (event.metaKey) held.push("meta")
-  return [...held, event.key.toLowerCase()].join("+")
+  const key = NUMPAD_COMMANDS.has(event.code) ? event.code : event.key
+  return [...held, key.toLowerCase()].join("+")
+}
+
+/// Whether a key may fire while the caret is in a text field: it must mean
+/// nothing to the field. F1–F12 never do; neither does ctrl and a letter the
+/// field does not answer to, nor a numpad + or −, which only the till reads.
+function firesInField(event: KeyboardEvent, base: string): boolean {
+  if (FUNCTION_KEY.test(base)) return true
+  if (NUMPAD_COMMANDS.has(event.code)) return true
+  return event.ctrlKey && !event.altKey && !event.metaKey && base.length === 1 && !FIELD_EDITING.has(base)
 }
 
 /// Whether this is somebody typing rather than somebody reaching for a
@@ -150,8 +196,9 @@ export function useShortcuts(
       const base = name.slice(name.lastIndexOf("+") + 1)
       // The distinction the whole hook is for: a function key means nothing to
       // a text field, so it fires from inside the scan field where a cashier's
-      // hands already are. Everything else is left to whoever is typing.
-      if (!FUNCTION_KEY.test(base) && typingIn(event.target)) return
+      // hands already are — and so do ctrl-letter commands and the numpad's
+      // + and − (`firesInField`). Everything else is left to whoever is typing.
+      if (!firesInField(event, base) && typingIn(event.target)) return
 
       const action = bound.current[name]
       // Claimed keys only — see the head of this file.

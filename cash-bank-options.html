@@ -1,0 +1,1571 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cash &amp; Bank options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="frontend-hub/design-system/tokens.css">
+<link rel="stylesheet" href="frontend-hub/design-system/bundle.css">
+<style>
+:root{--font-sans:"Inter Variable","Inter",system-ui,-apple-system,"Segoe UI",sans-serif;--bar-h:57px}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--stone);font-family:var(--font-sans);font-size:15px;line-height:1.45;color:var(--ink);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;cursor:pointer}
+
+/* ── prototype chrome (not part of the design) ── */
+.pbar{position:sticky;top:0;z-index:40;display:flex;flex-wrap:wrap;align-items:center;gap:10px;min-height:var(--bar-h);padding:10px 16px;background:#fff;border-bottom:1px solid var(--hairline)}
+.pbar b{font-weight:600;margin-right:2px}
+.seg{display:inline-flex;flex-wrap:wrap;gap:2px;padding:3px;border-radius:var(--r-segment-track);background:var(--segment-track)}
+.seg button{border:0;background:none;padding:5px 12px;border-radius:var(--r-segment);color:var(--body);white-space:nowrap}
+.seg button.on{background:#fff;color:var(--ink);box-shadow:var(--shadow-segment)}
+.seg .star{color:var(--accent)}
+
+/* ── desk shell (hub sizes) ── */
+.stage{overflow-x:auto}
+.shell{min-width:1260px;min-height:calc(100vh - var(--bar-h));align-items:flex-start}
+.shell .ds-rail{position:sticky;top:var(--bar-h);align-self:flex-start}
+.shell .ds-rail-btn{border-radius:var(--r-inner)}
+.shell .ds-rail-btn .ds-ico{width:18px;height:18px}
+.shell .ds-rail-btn.is-current{color:var(--accent)}
+.shell .ds-rail .find{margin-bottom:10px;color:var(--rail-text)}
+.shell .ds-panel{position:sticky;top:calc(var(--bar-h) + var(--float));display:flex;flex-direction:column;height:calc(100vh - var(--bar-h) - 2 * var(--float));padding:0}
+.p-head{display:flex;align-items:center;height:52px;padding:0 8px 0 16px}
+.p-head .ds-panel-title{flex:1;padding:0}
+.p-fold{display:grid;place-items:center;width:32px;height:32px;border:0;border-radius:var(--r-inner);background:none;color:var(--body)}
+@media (hover:hover){.p-fold:hover{background:var(--soft-2)}}
+.shell .ds-rail-btn[role=button]{cursor:pointer}
+.p-body{flex:1;padding:6px 10px;overflow:auto}
+.p-body .ds-nav-row.is-active{font-weight:600}
+.nav-label{display:inline-block;margin:14px 0 4px 10px;padding:0 7px;border-radius:var(--r-chip);background:var(--soft-2);color:var(--body);font-size:15px;line-height:22px}
+.p-foot{display:flex;align-items:center;gap:10px;height:52px;padding:0 16px;font-weight:500;color:var(--panel-ink);font-variant-numeric:tabular-nums}
+.p-foot .ds-ico{width:18px;height:18px;color:var(--line-ico)}
+.shell .ds-page{min-height:calc(100vh - var(--bar-h) - 2 * var(--float));overflow:visible}
+
+/* door head: title + actions, then the door's tabs (DoorTabs) */
+.door-head{display:flex;flex-direction:column;gap:12px;margin:0 calc(-1 * var(--page-gutter)) 24px;padding:0 var(--page-gutter);border-bottom:1px solid var(--hairline)}
+.door-top{display:flex;align-items:center;justify-content:space-between;gap:20px;min-height:36px}
+.door-actions{position:relative;display:flex;align-items:center;gap:8px}
+.door-tabs{margin-bottom:0;box-shadow:none}
+.ds-tab:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* figures that filter */
+.kpis .ds-kpi{border:0;background:none;text-align:left;font:inherit;color:inherit}
+.kpis button.ds-kpi{cursor:pointer}
+@media (hover:hover){.kpis button.ds-kpi:hover .ds-kpi-label{color:var(--ink)}}
+.kpis .ds-kpi.on .ds-kpi-label,.kpis .ds-kpi.on .ds-kpi-value{color:var(--accent)}
+.page .kpis{margin-bottom:24px}
+
+/* bar */
+.sel{position:relative;flex:none}
+.sel select{appearance:none;-webkit-appearance:none;height:var(--control);padding:0 34px 0 12px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);font:inherit;color:var(--ink);cursor:pointer;outline:none}
+.sel select:focus-visible{border-color:var(--accent);box-shadow:var(--shadow-focus)}
+.sel .ds-ico{position:absolute;right:11px;top:50%;margin-top:-8px;color:var(--line-ico);pointer-events:none}
+.bar-count{color:var(--body);white-space:nowrap}
+@media (max-width:1500px){.page .ds-search{flex-basis:200px}}
+@media (max-width:1300px){.page .ds-search{flex-basis:160px}.page .chip{padding:0 10px}}
+
+/* table */
+.tbl{table-layout:fixed}
+.tbl td{white-space:nowrap}
+.tbl td:first-child{font-weight:400}
+.tbl td.fx{white-space:normal;overflow-wrap:anywhere}
+.tbl td.fx > *{display:block}
+.tbl td.wrap{white-space:normal;overflow-wrap:anywhere}
+.tbl td.wrap > *{display:block}
+.tbl .nm{font-weight:500}
+.tbl tr.grp td{padding:9px 16px;background:var(--band);color:var(--body);font-weight:500}
+.tbl tr.opening td{color:var(--body)}
+@media (hover:hover){.tbl tr.ds-opens:hover td{background:var(--soft)}}
+.tbl td.act{text-align:right;padding-top:0;padding-bottom:0}
+.tbl tfoot td{white-space:nowrap}
+.mute{color:var(--body)}
+.late{color:var(--bad-fg)}
+.need{color:var(--warn-fg)}
+.okc{display:inline-flex;align-items:center;gap:6px;color:var(--body)}
+.okc .ds-ico{color:var(--ok-fg)}
+.one{display:block;overflow:hidden;text-overflow:ellipsis}
+.one .nm{font-weight:500}
+.ds-btn--sm.cell{height:30px;padding:0 12px}
+.tbl td.mcell{white-space:normal}
+.mc{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.mc-t{display:flex;flex-direction:column;min-width:0}
+
+/* the New menu (Menu card) */
+.menu{position:absolute;top:calc(100% + 4px);right:0;z-index:20;min-width:220px;padding:5px;border:1px solid var(--hairline);border-radius:var(--r-card);background:var(--canvas);box-shadow:var(--shadow-pop);transform-origin:top right;animation:pop var(--t-pop) var(--ease-out)}
+.menu button{display:flex;justify-content:space-between;gap:16px;width:100%;padding:7px 8px;border:0;border-radius:var(--r-inner);background:none;text-align:left;white-space:nowrap}
+@media (hover:hover){.menu button:hover{background:var(--soft-2)}}
+@keyframes pop{from{opacity:0;transform:scale(.97)}}
+
+/* layers: a sheet slides in from the right; what's under it dims and stays put */
+.layers{position:fixed;inset:0;z-index:60;pointer-events:none}
+.layers.open{pointer-events:auto}
+.layers .veil{position:absolute;inset:0;background:var(--scrim);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);opacity:0;transition:opacity var(--t-sheet) var(--ease-out)}
+.layers.open .veil{opacity:1}
+.sheet-wrap{position:absolute;top:var(--float);right:var(--float);bottom:var(--float);display:flex;max-width:calc(100vw - 2 * var(--float));transform:translateX(calc(100% + 24px));transition:transform var(--t-sheet) var(--ease-drawer)}
+.sheet-wrap.on{transform:none}
+.sheet-wrap.out{transform:translateX(calc(100% + 24px));transition:transform var(--t-exit) var(--ease-out)}
+.sheet-wrap .ds-sheet{height:100%;max-width:calc(100vw - 2 * var(--float))}
+.sheet-wrap .ds-sheet-body{flex:1;overflow:auto}
+.sheet-wrap.under .ds-sheet::after{content:"";position:absolute;inset:0;z-index:5;border-radius:inherit;background:var(--scrim)}
+.ds-sheet--rail{width:var(--sheet-rail)}
+.ds-sheet--wide{width:var(--sheet-wide)}
+.ds-sheet--workspace{width:var(--sheet-workspace)}
+.sheet-wrap .ds-kpis{margin-bottom:0}
+.sec-head{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:36px}
+.foot-left{margin-right:auto}
+.acts{display:flex;flex-direction:column;gap:6px}
+.acts div{display:flex;gap:16px}
+.acts .mute{flex:none;width:112px}
+.purpose{line-height:22px}
+
+/* E · one account: two big balances, money in beside money out */
+.bal2{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--hairline);border-radius:var(--r-card)}
+.bal2 > div{padding:20px 24px}
+.bal2 > div + div{border-left:1px solid var(--hairline)}
+.bal2 .big{margin:6px 0 2px;font-size:24px;line-height:30px;font-weight:600;letter-spacing:-0.6px;font-variant-numeric:tabular-nums}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start}
+
+/* E · account cards, as Hari drew them.
+   Hierarchy: who (name, place chip) → the two balances (the one thing to read) → this month's flow → what to do. */
+.kpi-row{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+.kpi-row .kpis{flex:1;min-width:0}
+.acards{display:grid;grid-template-columns:repeat(auto-fill,minmax(440px,1fr));gap:20px}
+.acard{display:flex;flex-direction:column;border:1px solid var(--hairline);border-radius:var(--r-card);background:var(--canvas);cursor:pointer;overflow:hidden;
+  transition:border-color var(--t-hover) var(--ease-out),scale var(--t-press) var(--ease-out)}
+@media (hover:hover) and (pointer:fine){.acard:hover{border-color:var(--hairline-strong)}}
+.acard:active:not(:has(button:active)){scale:.99}
+.acard:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.ac-name{display:flex;align-items:center;gap:14px;padding:24px 24px 0;min-width:0}
+.ac-id{flex:1;min-width:0}
+.acard .nm{font-weight:600;line-height:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.acard .place{flex:none;align-self:flex-start}
+.place{color:#fff;box-shadow:none;background:#d9661c;height:20px;padding:0 6px;line-height:20px;font-weight:500;border-radius:5px}
+[data-chip="green"] .place{background:var(--ok-fg)}
+.ac-row{display:flex;align-items:center;gap:12px;min-width:0}
+.mark.sm{width:38px;height:38px;font-size:15px;letter-spacing:-.6px}
+.tbl .ac-row .nm{font-weight:500;white-space:normal;overflow-wrap:anywhere}
+.ac-nameline{flex-wrap:wrap;row-gap:2px}
+.tbl .up{color:var(--ok-fg)}
+.ac-act-row{display:flex;justify-content:flex-end;gap:6px}
+.ds-btn.ico-only{width:30px;padding:0}
+.tbl tr.ds-opens > td.act:last-child{padding-right:16px}
+.tbl tr.ds-opens > td.act:last-child::after{display:none}
+.mark{display:grid;place-items:center;flex:none;width:44px;height:44px;border-radius:var(--r-inner);color:#fff;font-size:15px;font-weight:700;letter-spacing:-.2px}
+.mark.cash{background:var(--soft-2);color:var(--body)}
+.acard .up{color:var(--ok-fg)}
+.ac-lab{margin-top:2px;font-size:15px;line-height:18px;color:var(--line-ico);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ac-two{display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:end;padding:22px 24px 20px}
+.ac-two .ac-lab{margin:0 0 4px}
+.ac-hero{font-size:26px;line-height:32px;font-weight:600;letter-spacing:-0.7px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ac-second{font-size:19px;line-height:26px;font-weight:500;letter-spacing:-0.3px;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap}
+.ac-flow{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin:0 24px;padding:12px 0;border-top:1px solid var(--row-line);font-weight:500;font-variant-numeric:tabular-nums}
+.ac-group{display:flex;align-items:baseline;gap:12px;margin:28px 0 12px;font-weight:600}
+.ac-group:first-child{margin-top:4px}
+.ac-gn,.grp-in .ac-gn{font-weight:400;color:var(--body);font-variant-numeric:tabular-nums}
+.grp-in{display:flex;align-items:baseline;gap:12px;color:var(--ink);font-weight:600}
+.ac-nameline{display:flex;align-items:center;gap:8px;min-width:0}
+.ac-nameline .place{flex:none}
+.tbl .books{display:block;font-weight:600;font-variant-numeric:tabular-nums}
+.tbl.roomy td{padding-top:18px;padding-bottom:18px}
+.tbl.roomy td.is-num,.tbl.roomy th.is-num{padding-left:32px}
+.tbl.roomy td.act{padding-left:24px}
+/* a narrower window gives the room back to the account names */
+@media (max-width:1400px){
+  .tbl.roomy col:nth-child(2){width:172px !important}
+  .tbl.roomy col:nth-child(3){width:176px !important}
+  .tbl.roomy col:nth-child(4){width:164px !important}
+  .tbl.roomy col:nth-child(5){width:164px !important}
+  .tbl.roomy td.is-num,.tbl.roomy th.is-num{padding-left:16px}
+  .tbl.roomy td.act{padding-left:16px}
+}
+.tbl.roomy tr.grp td{padding-top:12px;padding-bottom:12px}
+.ac-act{display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:4px 24px 20px}
+@media (prefers-reduced-motion:reduce){.acard:active:not(:has(button:active)){scale:1}}
+
+/* F · a quieter account hierarchy; scoped so E stays available for comparison. */
+[data-variant="f"] .shell{min-width:0}
+[data-variant="f"] .door-top .ds-title{font-size:22px;line-height:30px;letter-spacing:-.5px}
+[data-variant="f"] .door-actions > .ds-btn--tint{background:transparent;color:var(--body)}
+.account-refined .door-head{margin-bottom:20px}
+.account-refined .kpis{margin-bottom:20px}
+.account-refined .ds-kpi-label{font-size:13px;line-height:20px}
+.account-refined .ds-kpi-value{padding-top:6px;font-size:22px;line-height:28px;letter-spacing:-.4px}
+.account-refined .ds-kpi:last-child .ds-kpi-value{color:var(--warn-fg)}
+.account-tools{display:grid;grid-template-columns:auto minmax(190px,1fr) auto;align-items:center;gap:12px;margin-bottom:20px}
+.account-tools .chips{gap:2px;padding:3px;background:var(--soft-2);border-radius:var(--r-inner);min-width:0}
+.account-tools .chip{height:32px;gap:6px;padding:0 10px;border:0;background:transparent;color:var(--body);font-size:13px;font-weight:500}
+.account-tools .chip[aria-checked="true"]{background:var(--canvas);color:var(--ink);box-shadow:var(--shadow-segment)}
+.account-tools .chip .n{font-size:12px;color:var(--body)}
+.account-tools .ds-search{flex:1 1 200px;min-width:190px;margin-left:auto}
+.account-tools .ds-search input{font-size:13px}
+.view-toggle{display:flex;gap:2px;padding:3px;background:var(--soft-2);border-radius:var(--r-inner)}
+.view-toggle button{display:grid;place-items:center;width:32px;height:32px;border:0;border-radius:6px;background:transparent;color:var(--body)}
+.view-toggle [aria-checked="true"]{background:var(--canvas);color:var(--ink);box-shadow:var(--shadow-segment)}
+.view-toggle button:focus-visible,.ac-open:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.account-section + .account-section{margin-top:24px}
+.account-section-head{display:flex;align-items:baseline;justify-content:space-between;gap:16px;margin-bottom:10px}
+.account-section-title{display:flex;align-items:baseline;gap:9px}
+.account-section-title h2{margin:0;font-size:16px;line-height:24px;font-weight:600}
+.account-section-count,.account-section-total{font-size:13px;color:var(--body);font-variant-numeric:tabular-nums}
+.account-section-total b{margin-left:6px;color:var(--ink);font-weight:500}
+.account-refined .acards{grid-template-columns:repeat(auto-fill,minmax(min(100%,380px),1fr));gap:12px}
+.account-refined .acard{cursor:default;container-type:inline-size}
+.account-refined .acard:active{scale:1}
+.account-refined .ac-name{gap:10px;padding:16px 16px 0}
+.account-refined .mark{width:32px;height:32px;font-size:11px;border-radius:7px}
+.account-refined .ac-open{display:block;max-width:100%;padding:0;border:0;background:transparent;text-align:left;font-size:15px;font-weight:600;line-height:21px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (hover:hover){.account-refined .ac-open:hover{color:var(--accent)}}
+.account-refined .ac-lab{font-size:13px;line-height:18px;color:var(--body)}
+.account-refined .place{align-self:center;height:22px;padding:0 7px;background:var(--soft-2);color:var(--body);font-size:12px;font-weight:500;box-shadow:none}
+.ac-balance{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:18px 16px 16px}
+.ac-balance > div{min-width:0}
+.account-refined .ac-balance .ac-lab{margin:0 0 5px;font-size:12px;line-height:17px}
+.account-refined .ac-hero{margin:0;font-size:21px;line-height:27px;letter-spacing:-.6px}
+.ac-check{padding-left:16px;border-left:1px solid var(--row-line)}
+.ac-check .ac-second{font-size:18px;line-height:27px;font-weight:500;letter-spacing:-.4px}
+.account-refined .ac-flow{grid-template-columns:auto 1fr 1fr;align-items:center;gap:12px;margin:0 16px;padding:10px 0;font-size:13px;line-height:20px;white-space:nowrap}
+.ac-flow-month{font-size:12px;font-weight:400;color:var(--body)}
+.ac-flow-cell{text-align:right}
+.account-refined .ac-act{justify-content:space-between;gap:10px;margin-top:auto;padding:8px 16px;border-top:1px solid var(--row-line);min-height:46px}
+@container(max-width:405px){
+  .account-refined .ac-hero{font-size:19px;letter-spacing:-.5px}
+  .ac-check .ac-second{font-size:16px;letter-spacing:-.3px}
+  .ac-balance{gap:12px}
+  .ac-check{padding-left:12px}
+  .account-refined .ac-flow{gap:8px;font-size:12px}
+}
+@container(max-width:350px){
+  .ac-balance{grid-template-columns:1fr;gap:8px;padding-top:14px;padding-bottom:12px}
+  .account-refined .ac-hero{font-size:22px}
+  .ac-check{display:flex;align-items:baseline;justify-content:space-between;gap:8px;padding:0;border:0}
+  .account-refined .ac-check .ac-lab{margin:0}
+}
+.ac-review{display:flex;align-items:center;gap:6px;min-width:0;font-size:12px;line-height:18px;color:var(--body)}
+.ac-review .ds-ico{width:13px;height:13px;flex:none}
+.ac-review.is-warn{color:var(--warn-fg)}
+.ac-review.is-bad{color:var(--bad-fg)}
+.account-refined .ac-act .ds-btn{height:28px;padding:0 9px;font-size:12px;white-space:nowrap}
+.account-refined .tbl .place{background:var(--soft-2);color:var(--body);font-size:12px;box-shadow:none}
+.account-refined .tbl .ac-act-row .ds-btn--primary{background:var(--accent-bg);color:var(--accent);box-shadow:none}
+.account-refined .ds-table-card{overflow-x:auto}
+.account-refined .tbl{min-width:950px}
+@media(max-width:1100px){
+  [data-variant="f"] .shell .ds-panel{display:none}
+}
+@media(max-width:850px){
+  .account-tools{grid-template-columns:minmax(0,1fr) auto}
+  .account-tools .chips{grid-column:1/-1;flex-wrap:nowrap;overflow-x:auto}
+  .account-tools .ds-search{width:100%;min-width:0;margin:0}
+}
+@media(max-width:650px){
+  [data-variant="f"] .pbar{position:relative}
+  [data-variant="f"] .shell .ds-rail{display:none}
+  [data-variant="f"] .shell .ds-page{margin:8px;--page-gutter:18px}
+  [data-variant="f"] .door-top{align-items:flex-start;flex-direction:column;gap:12px}
+  [data-variant="f"] .door-actions{flex-wrap:wrap}
+  .account-refined .ds-kpis{gap:16px 0}
+  .account-refined .ds-kpi-value{font-size:19px}
+  .account-tools .chip{padding:0 7px}
+  .account-section-total{display:none}
+}
+
+/* E · calmer card (19 Oct "semuanya minta attention"): one soft band for in/out, small buttons, more air */
+.page:not(.account-refined) .acards{gap:24px}
+.page:not(.account-refined) .ac-name{padding:24px 26px 0}
+.page:not(.account-refined) .ac-two{padding:24px 26px 26px}
+.page:not(.account-refined) .ac-hero{font-size:24px;line-height:30px;letter-spacing:-0.6px}
+.page:not(.account-refined) .ac-second{font-size:18px;line-height:24px}
+.page:not(.account-refined) .ac-flow{margin:0;padding:14px 26px;border-top:1px solid var(--row-line);border-bottom:1px solid var(--row-line);background:var(--soft);font-size:15px}
+.page:not(.account-refined) .ac-act{padding:14px 26px 16px}
+
+/* E · card variants */
+.ds-ico-book{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20'/%3E%3C/svg%3E")}
+.ds-ico-arrow-in{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M17 7 7 17'/%3E%3Cpath d='M17 17H7V7'/%3E%3C/svg%3E")}
+.ds-ico-arrow-out{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 17 17 7'/%3E%3Cpath d='M7 7h10v10'/%3E%3C/svg%3E")}
+.ilab{display:flex;align-items:center;gap:8px}
+.ilab .ds-ico{color:var(--line-ico);width:18px;height:18px;flex:none}
+.ac-flow .ilab .ds-ico{color:currentColor;width:16px;height:16px}
+.ipad{padding-left:26px}
+.ac-stack{display:flex;flex-direction:column;gap:4px;padding:22px 26px 22px}
+.ac-receipt{display:flex;flex-direction:column;padding:14px 26px 8px}
+.ac-receipt > div{display:flex;justify-content:space-between;gap:16px;padding:9px 0;border-bottom:1px solid var(--row-line);font-variant-numeric:tabular-nums}
+.ac-receipt > div:last-child{border-bottom:0}
+.ac-receipt span:first-child{color:var(--body)}
+.ac-receipt b{font-weight:600}
+.ac-receipt > div:first-child b{font-size:20px}
+.acard.v6{border-left:4px solid var(--tone)}
+.ac-brand{display:flex;align-items:flex-start;gap:12px;padding:18px 26px;color:#fff}
+.ac-brand .nm{color:#fff}
+.ac-brand .sub{color:rgb(255 255 255/.8)}
+.ac-brand .place{background:#fff !important;color:var(--ink)}
+.acard.v7 .ac-flow,.acard.v11 .ac-flow{border-top:1px solid var(--row-line)}
+.ac-bar{display:grid;grid-template-columns:1fr 1fr;border-top:1px solid var(--row-line)}
+.ac-bar .ds-btn{height:48px;border-radius:0;border:0;box-shadow:none}
+.ac-bar .ds-btn + .ds-btn{border-left:1px solid var(--row-line)}
+.ac-bar .ds-btn:only-child{grid-column:1 / -1}
+.ac-pill{align-self:flex-start;margin-top:8px;padding:2px 10px;border-radius:var(--r-chip);font-weight:500}
+.ac-pill.ok{background:var(--ok-bg);color:var(--ok-fg)}
+.ac-pill.warn{background:var(--warn-bg);color:var(--warn-fg)}
+.ac-pill.bad{background:var(--bad-bg);color:var(--bad-fg)}
+.ac-mini{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:16px 22px 16px}
+.ac-mini > div{display:flex;flex-direction:column;gap:2px}
+.ac-mini b{font-size:18px;line-height:24px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.page:not(.account-refined) .acard.v10 .ac-name{padding:18px 22px 0}
+.page:not(.account-refined) .acard.v10 .ac-flow{padding:10px 22px}
+.page:not(.account-refined) .acard.v10 .ac-act{padding:10px 22px 12px}
+.page:not(.account-refined) .acards:has(.v10){grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:16px}
+
+/* E · cards a touch more solid (Hari 19 Oct): firmer edge and a soft lift */
+.page:not(.account-refined) .acard,.gcard{border-color:var(--hairline-2);box-shadow:0 1px 2px rgb(16 24 40/.05),0 2px 8px rgb(16 24 40/.04)}
+@media (hover:hover) and (pointer:fine){.page:not(.account-refined) .acard:hover,.gcard:hover{border-color:var(--hairline-strong);box-shadow:0 2px 4px rgb(16 24 40/.06),0 8px 20px rgb(16 24 40/.06)}}
+.page:not(.account-refined) .acard,.gcard{transition:border-color var(--t-hover) var(--ease-out),box-shadow var(--t-hover) var(--ease-out),scale var(--t-press) var(--ease-out)}
+
+/* E · cards 12–13: thin brand header, figures right, something useful left */
+.ac-thin{display:flex;align-items:center;gap:10px;padding:10px 22px;color:#fff;min-width:0}
+.ac-thin .nm{color:#fff;font-weight:600;white-space:nowrap}
+.ac-thin .sub{color:rgb(255 255 255/.8);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
+.ac-thin .place{background:#fff !important;color:var(--ink);flex:none}
+.ac-split{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;padding:22px 24px 20px}
+.ac-left{display:flex;flex-direction:column;gap:6px;font-weight:500;font-variant-numeric:tabular-nums;min-width:0}
+.ac-left .ac-pill{margin:0}
+.ac-right{display:flex;flex-direction:column;align-items:flex-end;gap:2px;text-align:right;white-space:nowrap}
+.ac-left .ac-pill,.ac-left > span{white-space:nowrap}
+.acard.v12 .ac-act{border-top:1px solid var(--row-line);padding-top:12px}
+.acard.v13 .ac-flow,.acard.v14 .ac-flow{border-top:1px solid var(--row-line)}
+.ac-stack.right{align-items:flex-end;text-align:right;white-space:nowrap;gap:2px}
+/* card 14 is the smaller one: three across at 1440, less empty space */
+.page:not(.account-refined) .acards:has(.v14){grid-template-columns:repeat(auto-fill,minmax(288px,1fr));gap:14px}
+.page:not(.account-refined) .acard.v14 .ac-thin{padding:9px 18px}
+.page:not(.account-refined) .acard.v14 .ac-stack{padding:16px 18px 14px}
+.page:not(.account-refined) .acard.v14 .ac-hero{font-size:22px;line-height:28px}
+.page:not(.account-refined) .acard.v14 .ac-flow{padding:10px 18px;gap:12px}
+.page:not(.account-refined) .acard.v14 .ac-act{padding:10px 14px 12px;gap:6px}
+.page:not(.account-refined) .acard.v14 .ac-act .ds-btn{padding:0 10px}
+.page:not(.account-refined) .acard.v14 .ac-flow span{white-space:nowrap}
+.page:not(.account-refined) .acard.v14 .ac-flow{padding:10px 14px;gap:10px}
+.page:not(.account-refined) .acard.v14 .ac-stack{padding:16px 14px 14px}
+.page:not(.account-refined) .acard.v14 .ac-thin{padding:9px 14px}
+
+/* E · giro board */
+.gboard{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;align-items:start}
+.gcol{background:var(--soft-3);border-radius:var(--r-card);padding:12px}
+.gcol header{display:flex;flex-direction:column;gap:2px;padding:2px 4px 12px}
+.gtitle{font-weight:600}
+.gsum{color:var(--body);font-variant-numeric:tabular-nums;white-space:nowrap}
+.gcards{display:flex;flex-direction:column;gap:8px}
+.gcard{display:flex;flex-direction:column;gap:2px;padding:16px 18px;border:1px solid var(--hairline);border-radius:var(--r-inner);background:var(--canvas);cursor:pointer;transition:border-color var(--t-hover) var(--ease-out),scale var(--t-press) var(--ease-out)}
+@media (hover:hover) and (pointer:fine){.gcard:hover{border-color:var(--hairline-strong)}}
+.gcard:active:not(:has(button:active)){scale:.98}
+.gcard:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.gcard .nm{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gamt{margin:4px 0 2px;font-size:18px;line-height:24px;font-weight:600;letter-spacing:-0.3px;font-variant-numeric:tabular-nums}
+.gwhen{margin-top:4px}
+.gbank{color:var(--info-fg)}
+.gchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.gchip{display:inline-flex;align-items:center;height:24px;padding:0 8px;border-radius:6px;background:var(--soft-2);color:var(--body);font-size:15px;white-space:nowrap}.gchip.warn{background:#fff4e5;color:#a35200}.gchip.ok{background:#e9f7ee;color:#1a7f37}.gchip.info{background:var(--accent-bg);color:var(--accent)}.gchip.bad{background:#fdecec;color:#c4291c}.gcard.drag{opacity:.5}.gcol.over{outline:2px dashed var(--accent);outline-offset:-2px}
+.gok{display:inline-flex;align-items:center;gap:4px;color:var(--ok-fg,#1a7f37)}.gok .ds-ico{width:15px;height:15px}
+.gact{margin-top:10px}
+.gempty{padding:20px 8px;color:var(--body);text-align:center}
+@media (prefers-reduced-motion:reduce){.gcard:active:not(:has(button:active)){scale:1}}
+
+/* form sheet */
+.fields{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.fields label{display:flex;flex-direction:column;gap:8px;color:var(--body)}
+.fields label.wide{grid-column:1 / -1}
+.fields .ds-input{color:var(--ink)}
+
+/* toasts (bottom left) */
+.toasts{position:fixed;left:16px;bottom:16px;z-index:90;display:flex;flex-direction:column;gap:8px}
+.toasts .ds-toast{align-items:center;transition:opacity 160ms var(--ease-out),transform 160ms var(--ease-out)}
+.toasts .ds-toast.in{animation:toast-in 220ms var(--ease-out)}
+.toasts .ds-toast.gone{opacity:0;transform:translateY(6px)}
+@keyframes toast-in{from{opacity:0;transform:translateY(10px)}}
+.ds-toast-action{cursor:pointer}
+
+/* filters are icon radios: icon, word, count; one picked */
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{display:inline-flex;align-items:center;gap:7px;height:var(--control);padding:0 12px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);color:var(--ink);font-weight:500;white-space:nowrap;transition:background-color var(--t-hover) var(--ease-out),color var(--t-hover) var(--ease-out),scale var(--t-press) var(--ease-out)}
+.chip .ds-ico{color:var(--line-ico)}
+.chip .n{color:var(--body);font-weight:400;font-variant-numeric:tabular-nums}
+.chip[aria-checked="true"]{background:var(--accent-bg);border-color:transparent;color:var(--accent)}
+.chip[aria-checked="true"] .ds-ico,.chip[aria-checked="true"] .n{color:var(--accent)}
+.chips.seg{gap:2px;padding:3px;background:var(--soft-2);border-radius:var(--r-inner)}
+.chips.seg .chip{height:calc(var(--control) - 6px);border:0;border-radius:6px;background:transparent;color:var(--body)}
+.chips.seg .chip .ds-ico{color:var(--body)}
+.chips.seg .chip[aria-checked="true"]{background:var(--canvas);color:var(--ink);box-shadow:var(--shadow-segment)}
+.chips.seg .chip[aria-checked="true"] .ds-ico{color:var(--ink)}
+@media (hover:hover){.chip[aria-checked="false"]:hover{background:var(--soft-2)}}
+.chip:active{scale:.97}
+.chip:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* secondary actions still look like buttons: tinted; one solid primary per place */
+.ds-btn--tint{background:var(--accent-bg);color:var(--accent);font-weight:500}
+.ds-btn--tint-bad{background:var(--bad-bg);color:var(--bad-fg);font-weight:500}
+@media (hover:hover){.ds-btn--tint:hover{background:#e2ebfb}.ds-btn--tint-bad:hover{background:#f8dcdc}}
+.ds-ico-list{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 12h.01'/%3E%3Cpath d='M3 18h.01'/%3E%3Cpath d='M3 6h.01'/%3E%3Cpath d='M8 12h13'/%3E%3Cpath d='M8 18h13'/%3E%3Cpath d='M8 6h13'/%3E%3C/svg%3E")}
+.ds-ico-book-check{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20'/%3E%3Cpath d='m9 9.5 2 2 4-4'/%3E%3C/svg%3E")}
+.ds-ico-ban{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='m4.9 4.9 14.2 14.2'/%3E%3C/svg%3E")}
+.ds-ico-circle-check{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='m9 12 2 2 4-4'/%3E%3C/svg%3E")}
+.ds-ico-landmark{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='3' x2='21' y1='22' y2='22'/%3E%3Cline x1='6' x2='6' y1='18' y2='11'/%3E%3Cline x1='10' x2='10' y1='18' y2='11'/%3E%3Cline x1='14' x2='14' y1='18' y2='11'/%3E%3Cline x1='18' x2='18' y1='18' y2='11'/%3E%3Cpolygon points='12 2 20 7 4 7'/%3E%3C/svg%3E")}
+.ds-ico-coins{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='8' cy='8' r='6'/%3E%3Cpath d='M18.09 10.37A6 6 0 1 1 10.34 18'/%3E%3Cpath d='M7 6h1v4'/%3E%3Cpath d='m16.71 13.88.7.71-2.82 2.82'/%3E%3C/svg%3E")}
+.ds-ico-link{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E")}
+.ds-ico-layers{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z'/%3E%3Cpath d='m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65'/%3E%3Cpath d='m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65'/%3E%3C/svg%3E")}
+.ds-ico-upload{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4'/%3E%3Cpolyline points='17 8 12 3 7 8'/%3E%3Cline x1='12' x2='12' y1='3' y2='15'/%3E%3C/svg%3E")}
+.ds-ico-arrows{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 3 4 7l4 4'/%3E%3Cpath d='M4 7h16'/%3E%3Cpath d='m16 21 4-4-4-4'/%3E%3Cpath d='M20 17H4'/%3E%3C/svg%3E")}
+
+/* Now: today's screens */
+.now{padding:16px 24px 40px}
+.now-pick{margin-bottom:14px}
+.now-shot{display:flex;justify-content:center}
+.now-shot img{display:block;width:100%;max-width:1440px;height:auto;border-radius:12px;box-shadow:var(--shadow-page);background:#fff}
+
+@media (prefers-reduced-motion:reduce){
+  .sheet-wrap,.sheet-wrap.on,.sheet-wrap.out{transform:none!important;transition:opacity 150ms ease!important}
+  .sheet-wrap{opacity:0}.sheet-wrap.on{opacity:1}.sheet-wrap.out{opacity:0}
+  .toasts .ds-toast.in,.menu{animation:none}
+}
+</style>
+</head>
+<body>
+<div class="pbar">
+  <b>Cash &amp; Bank</b>
+  <div class="seg" id="optSeg"></div>
+  <div class="seg" id="chipSeg" title="Place chip colour"></div>
+  <div class="seg" id="cardSeg" title="Card layout"></div>
+</div>
+<div class="stage" id="stage"></div>
+<div class="layers" id="layers"></div>
+<div class="toasts" id="toasts"></div>
+
+<script>
+/* ───────────── format ───────────── */
+const TODAY = '2026-10-18', WEEK_END = '2026-10-25'
+const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+const day = iso => { const [y, m, d] = iso.split('-'); return `${d} ${MON[+m - 1]} ${y}` }
+const dots = n => Math.round(Math.abs(n)).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+const money = n => (n < 0 ? '−' : '') + 'Rp ' + dots(n)
+const signed = n => (n > 0 ? '+' : n < 0 ? '−' : '') + 'Rp ' + dots(n)
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+const ago = iso => Math.round((Date.parse(TODAY) - Date.parse(iso)) / 864e5)
+const plural = (n, w) => `${n} ${n === 1 ? w : w + 's'}`
+const hit = (q, ...xs) => !q || xs.some(x => String(x ?? '').toLowerCase().includes(q.toLowerCase()) || (q.replace(/\D/g, '') && String(x ?? '').replace(/\D/g, '').includes(q.replace(/\D/g, ''))))
+const $ = (s, el = document) => el.querySelector(s)
+const DASH = '<span class="ds-empty-value">—</span>'
+
+/* ───────────── data (head office books, today 18 Oct 2026) ───────────── */
+const ACC = {
+  bca:   { name: 'BCA Giro', short: 'BCA', no: '873 012 3456', bank: true, bankName: 'Bank BCA', open: 1180000000, bankOpen: 1211500000, stmt: '2026-10-16' },
+  mdr:   { name: 'Mandiri Giro', short: 'Mandiri', no: '132 00 1234567 8', bank: true, bankName: 'Bank Mandiri', open: 398000000, bankOpen: 398000000, stmt: '2026-10-16' },
+  bni:   { name: 'BNI Savings', short: 'BNI', no: '0451 234 567', bank: true, bankName: 'Bank BNI', open: 25000000, bankOpen: 25000000, stmt: '2026-09-30' },
+  cash:  { name: 'Cash', short: 'Cash', no: 'Head office', bank: false, open: 8920000, counted: '2026-10-17' },
+  petty: { name: 'Petty cash', short: 'Petty cash', no: 'Head office', bank: false, open: 345000, counted: '2026-10-15' },
+}
+const HO = ['bca', 'mdr', 'bni', 'cash', 'petty'], BANKS = ['bca', 'mdr', 'bni']
+
+// kind: BKK money out · BKM money in · TF transfer (acct → to) · DEP store deposit · DAY card & QRIS takings
+const P = (id, kind, no, date, acct, party, memo, amt, status, extra = {}) => ({ id, kind, no, date, acct, party, memo, amt, status, method: 'Transfer', by: 'Rina Kusuma', ...extra })
+let E = [
+  // October · BKK
+  P('k01', 'BKK', 'BKK-26-10-00001', '2026-10-01', 'bca', 'Asuransi Sinar Mas, PT', 'Property insurance · DC · Oct 2026 – Sep 2027', 1200000, 'Posted', { acc: '1151 Prepaid insurance' }),
+  P('k02', 'BKK', 'BKK-26-10-00002', '2026-10-02', 'bca', 'Garmen Mitra Sentosa, PT', 'Bill INV/GMS/2026/0877', 58000000, 'Posted', { method: 'Giro', giro: { no: 'BCA-GRV-0258', given: '2026-10-03', due: '2026-10-12' }, acc: '2101 Accounts payable' }),
+  P('k03', 'BKK', 'BKK-26-10-00003', '2026-10-03', 'bca', 'Digital Print Nusantara, PT', 'Promo banners · October', 2175000, 'Posted', { acc: '6201 Promotion' }),
+  P('k04', 'BKK', 'BKK-26-10-00004', '2026-10-06', 'cash', 'Toko ATK Jaya', 'Printer paper & receipt rolls', 385000, 'Posted', { method: 'Cash', acc: '6041 Office supplies' }),
+  P('k05', 'BKK', 'BKK-26-10-00005', '2026-10-07', 'petty', 'Ojek online', 'Courier · documents to Store 03', 45000, 'Posted', { method: 'Cash', acc: '6072 Courier' }),
+  P('k06', 'BKK', 'BKK-26-10-00006', '2026-10-08', 'bca', 'Dingin Sejuk AC Service, CV', 'AC service · DC', 1152750, 'Posted', { acc: '6081 Repairs & maintenance' }),
+  P('k07', 'BKK', 'BKK-26-10-00007', '2026-10-09', 'bca', 'JNE Express', 'Delivery · September 2026', 2790000, 'Posted', { acc: '6071 Delivery' }),
+  P('k08', 'BKK', 'BKK-26-10-00008', '2026-10-10', 'bca', 'Properti Cikupa, PT', 'Rent · Store 08 · Oct – Dec 2026', 97500000, 'Posted', { acc: '1152 Prepaid rent' }),
+  P('k09', 'BKK', 'BKK-26-10-00009', '2026-10-12', 'bca', 'PDAM Tirta', 'Water · 6 stores · September 2026', 1870000, 'Posted', { acc: '6053 Water' }),
+  P('k10', 'BKK', 'BKK-26-10-00010', '2026-10-13', 'bca', 'Garmen Nusantara, PT', 'Bill INV/GN/2026/1102', 37840000, 'Posted', { method: 'Giro', giro: { no: 'BCA-GRV-0261', given: '2026-10-14', due: '2026-10-20' }, acc: '2101 Accounts payable' }),
+  P('k11', 'BKK', 'BKK-26-10-00011', '2026-10-14', 'bca', 'Telkom Indonesia (IndiHome Bisnis)', 'Internet & phone · 14 units · September 2026', 6245000, 'Posted', { acc: '6061 Telephone & internet' }),
+  P('t01', 'TF', 'TF-26-10-00001', '2026-10-14', 'bca', 'Petty cash · Head office', 'Top up petty cash', 1000000, 'Posted', { to: 'petty', method: 'Cash withdrawal', acc: '1003 Petty cash' }),
+  P('k12', 'BKK', 'BKK-26-10-00012', '2026-10-15', 'bca', 'PLN (Persero)', 'Electricity · 9 stores · September 2026', 14820000, 'Posted', { acc: '6052 Electricity' }),
+  P('k13', 'BKK', 'BKK-26-10-00013', '2026-10-15', 'bca', 'Sepatu Sejahtera, CV', 'Bills INV/SS/2026/0931 and 0935', 48600000, 'Posted', { method: 'Giro', giro: { no: 'BCA-GRV-0262', due: '2026-10-30' }, acc: '2101 Accounts payable' }),
+  P('k19', 'BKK', 'BKK-26-10-00017', '2026-10-09', 'bca', 'Sepatu Sejahtera, CV', 'Bill INV/SS/2026/0918', 15750000, 'Posted', { method: 'Giro', giro: { no: 'BCA-GRV-0260', given: '2026-10-10', due: '2026-10-19' }, acc: '2101 Accounts payable' }),
+  P('k20', 'BKK', 'BKK-26-10-00018', '2026-10-11', 'bca', 'Garmen Mitra Sentosa, PT', 'Bill INV/GMS/2026/0901', 32500000, 'Posted', { method: 'Giro', giro: { no: 'BCA-GRV-0259', given: '2026-10-12', due: '2026-10-25' }, acc: '2101 Accounts payable' }),
+  P('k21', 'BKK', 'BKK-26-10-00019', '2026-10-16', 'bca', 'Busana Anggun Lestari, CV', 'Bill INV/BAL/2026/0788', 21300000, 'Posted', { method: 'Giro', giro: { no: 'BCA-GRV-0263', due: '2026-11-06' }, acc: '2101 Accounts payable' }),
+  P('k14', 'BKK', 'BKK-26-10-00014', '2026-10-16', 'petty', 'Toko Sumber Rejeki', 'Drinking water & soap', 85000, 'Approved', { method: 'Cash', acc: '6042 Pantry', appr: 'Andi Wijaya' }),
+  P('k15', 'BKK', 'BKK-26-10-00015', '2026-10-16', 'bca', 'Karya Bangun Renovasi, CV', 'Renovation · Store 05 · final stage', 38200000, 'Approved', { acc: '1053 Advances to contractors', appr: 'Andi Wijaya' }),
+  P('k16', 'BKK', 'BKK-26-10-00016', '2026-10-16', 'bca', 'Solusi Komputer Prima, PT', 'Laptops · 2 units · Finance', 17980000, 'Approved', { acc: '1241 Office equipment', appr: 'Andi Wijaya' }),
+  P('k17', 'BKK', null, '2026-10-16', 'bca', 'Lembaga Pelatihan Ritel Nusantara', 'Cashier training · Store 01', 400000, 'Draft', { acc: '6091 Training' }),
+  P('k18', 'BKK', null, '2026-10-17', 'cash', 'Yusuf Ramadhan', 'Advance · trip to supplier in Bandung', 750000, 'Draft', { method: 'Cash', acc: '1121 Employee advances' }),
+  // September · BKK
+  P('s01', 'BKK', 'BKK-26-09-00001', '2026-09-01', 'bca', 'Properti Cikupa, PT', 'Rent · Store 02 · Sep – Nov 2026', 64500000, 'Posted', { acc: '1152 Prepaid rent' }),
+  P('s02', 'BKK', 'BKK-26-09-00002', '2026-09-01', 'cash', 'Toko Sumber Rejeki', 'Pantry supplies', 120000, 'Posted', { method: 'Cash', acc: '6042 Pantry' }),
+  P('s03', 'BKK', 'BKK-26-09-00003', '2026-09-02', 'bca', 'Garmen Nusantara, PT', 'Bill INV/GN/2026/0811', 24800000, 'Posted', { acc: '2101 Accounts payable' }),
+  P('s04', 'BKK', 'BKK-26-09-00004', '2026-09-03', 'bca', 'Asuransi Sinar Mas, PT', 'Vehicle insurance · 2 vans', 2350000, 'Posted', { acc: '1151 Prepaid insurance' }),
+  P('t02', 'TF', 'TF-26-09-00001', '2026-09-05', 'bca', 'Petty cash · Head office', 'Petty cash · September', 1000000, 'Posted', { to: 'petty', method: 'Cash withdrawal', acc: '1003 Petty cash' }),
+  P('s05', 'BKK', 'BKK-26-09-00005', '2026-09-10', 'bca', 'Cahaya ATK & Percetakan, CV', 'Bill INV/CA/2026/0388 · giro bounced', 1125000, 'Cancelled', { method: 'Giro', giro: { no: 'BCA-GRV-0254', given: '2026-09-11', due: '2026-09-28', bounced: '2026-09-29' }, acc: '2101 Accounts payable' }),
+  P('s06', 'BKK', 'BKK-26-09-00006', '2026-09-12', 'bca', 'Telkom Indonesia (IndiHome Bisnis)', 'Internet & phone · August 2026', 6120000, 'Posted', { acc: '6061 Telephone & internet' }),
+  P('s07', 'BKK', 'BKK-26-09-00007', '2026-09-15', 'bca', 'Sepatu Sejahtera, CV', 'Bill INV/SS/2026/0905', 12000000, 'Posted', { method: 'Giro', giro: { no: 'BCA-GRV-0256', given: '2026-09-16', due: '2026-10-05' }, acc: '2101 Accounts payable', open30: true }),
+  P('s08', 'BKK', 'BKK-26-09-00008', '2026-09-16', 'petty', 'Toko ATK Jaya', 'Stationery', 60000, 'Posted', { method: 'Cash', acc: '6041 Office supplies' }),
+  P('s09', 'BKK', 'BKK-26-09-00009', '2026-09-18', 'bca', 'PLN (Persero)', 'Electricity · 9 stores · August 2026', 13960000, 'Posted', { acc: '6052 Electricity' }),
+  P('s10', 'BKK', 'BKK-26-09-00010', '2026-09-19', 'petty', 'Ojek online', 'Courier · documents', 40000, 'Posted', { method: 'Cash', acc: '6072 Courier' }),
+  P('s11', 'BKK', 'BKK-26-09-00011', '2026-09-22', 'bca', 'Auto Mandiri Bekasi, PT', 'Delivery van service', 2400000, 'Posted', { acc: '6081 Repairs & maintenance' }),
+  P('t03', 'TF', 'TF-26-09-00002', '2026-09-22', 'bca', 'Petty cash · Head office', 'Top up petty cash', 185000, 'Posted', { to: 'petty', method: 'Cash withdrawal', acc: '1003 Petty cash' }),
+  P('s12', 'BKK', 'BKK-26-09-00012', '2026-09-24', 'bca', 'Karya Bangun Renovasi, CV', 'Renovation · Store 05 · stage 2', 114600000, 'Posted', { acc: '1053 Advances to contractors' }),
+  P('s13', 'BKK', 'BKK-26-09-00013', '2026-09-26', 'bca', 'Bank BCA', 'Bank charges · September 2026', 25000, 'Posted', { acc: '6043 Bank charges' }),
+  P('s14', 'BKK', 'BKK-26-09-00014', '2026-09-29', 'bca', 'Busana Anggun Lestari, CV', 'Bill INV/BAL/2026/0712', 19500000, 'Posted', { method: 'Giro', giro: { no: 'BCA-GRV-0257', given: '2026-09-30', due: '2026-10-14' }, acc: '2101 Accounts payable', open30: true }),
+  // October · BKM
+  P('m01', 'BKM', 'BKM-26-10-00001', '2026-10-02', 'bca', 'Bank BCA', 'Working capital loan · drawdown', 150000000, 'Posted', { acc: '2201 Bank loan' }),
+  P('m02', 'BKM', 'BKM-26-10-00002', '2026-10-06', 'cash', 'Dian Pertiwi', 'Advance returned · ADV-000025', 340000, 'Posted', { method: 'Cash', acc: '1121 Employee advances' }),
+  P('m03', 'BKM', 'BKM-26-10-00003', '2026-10-09', 'bca', 'Garmen Nusantara, PT', 'Refund · short delivery PO-101026-003', 3060000, 'Posted', { acc: '2101 Accounts payable' }),
+  P('m04', 'BKM', 'BKM-26-10-00004', '2026-10-12', 'cash', 'Pengepul Barokah', 'Scrap sale · hangers & cartons', 315000, 'Posted', { method: 'Cash', acc: '7101 Other income' }),
+  P('m05', 'BKM', 'BKM-26-10-00005', '2026-10-14', 'bca', 'Properti Cikupa, PT', 'Rent deposit refund · warehouse', 800000, 'Posted', { method: 'Giro', giro: { no: 'MDR-GRV-1188', due: '2026-10-20', in: true }, acc: '1161 Rent deposits' }),
+  P('m06', 'BKM', 'BKM-26-10-00006', '2026-10-16', 'bca', 'Asuransi Sinar Mas, PT', 'Insurance claim · water damage Store 05', 4250000, 'Approved', { acc: '7103 Insurance claims', appr: 'Andi Wijaya' }),
+  P('m07', 'BKM', null, '2026-10-17', 'cash', 'Yusuf Ramadhan', 'Advance returned · ADV-000031', 50000, 'Draft', { method: 'Cash', acc: '1121 Employee advances' }),
+  // September · BKM
+  P('n01', 'BKM', 'BKM-26-09-00001', '2026-09-01', 'bca', 'Hendra Wijaya', "Owner's capital", 150000000, 'Posted', { acc: "3001 Owner's capital" }),
+  P('n02', 'BKM', 'BKM-26-09-00002', '2026-09-08', 'bca', 'Garmen Mitra Sentosa, PT', 'Refund · price difference INV/GMS/2026/0802', 1240000, 'Posted', { acc: '2101 Accounts payable' }),
+  P('n03', 'BKM', 'BKM-26-09-00003', '2026-09-20', 'cash', 'Pengepul Barokah', 'Scrap sale', 230000, 'Posted', { method: 'Cash', acc: '7101 Other income' }),
+  P('n04', 'BKM', 'BKM-26-09-00004', '2026-09-26', 'cash', 'Maya Anggraini', 'Advance returned · ADV-000019', 80000, 'Posted', { method: 'Cash', acc: '1121 Employee advances' }),
+  P('n05', 'BKM', 'BKM-26-09-00005', '2026-09-30', 'mdr', 'Bank Mandiri', 'Interest · September 2026', 96300, 'Posted', { acc: '7102 Interest income' }),
+  P('n06', 'BKM', 'BKM-26-09-00006', '2026-09-30', 'bca', 'Bank BCA', 'Interest · September 2026', 405300, 'Posted', { acc: '7102 Interest income' }),
+  // October · store money that lands in the bank (Stores door documents)
+  P('d01', 'DEP', 'DEP-26-10-0011', '2026-10-05', 'bca', 'Cikupa', 'Store deposit · takings 03 Oct 2026', 11240000, 'Posted', { by: 'Store Cikupa' }),
+  P('d02', 'DEP', 'DEP-26-10-0034', '2026-10-12', 'bca', 'Bumiayu', 'Store deposit · takings 11 Oct 2026', 7420000, 'Posted', { by: 'Store Bumiayu' }),
+  P('c01', 'DAY', 'SD-26-10-0398', '2026-10-13', 'bca', 'Cikupa', 'Card & QRIS · sales 13 Oct 2026', 9410000, 'Posted', { by: 'Store Cikupa' }),
+  P('d03', 'DEP', 'DEP-26-10-0041', '2026-10-15', 'bca', 'Cikupa', 'Store deposit · takings 14 Oct 2026', 12180000, 'Posted', { by: 'Store Cikupa' }),
+  P('d04', 'DEP', 'DEP-26-10-0047', '2026-10-16', 'bca', 'Pasuruan', 'Store deposit · takings 15 Oct 2026', 5240000, 'Posted', { by: 'Store Pasuruan' }),
+  P('d05', 'DEP', 'DEP-26-10-0049', '2026-10-17', 'bca', 'Wonosobo', 'Store deposit · takings 16 Oct 2026', 4880000, 'Posted', { by: 'Store Wonosobo' }),
+  P('c02', 'DAY', 'SD-26-10-0352', '2026-10-04', 'mdr', 'Jambi', 'Card & QRIS · sales 04 Oct 2026', 4120000, 'Posted', { by: 'Store Jambi' }),
+  P('d06', 'DEP', 'DEP-26-10-0018', '2026-10-07', 'mdr', 'Jambi', 'Store deposit · takings 06 Oct 2026', 5300000, 'Posted', { by: 'Store Jambi' }),
+  P('c03', 'DAY', 'SD-26-10-0401', '2026-10-13', 'mdr', 'Muaro Bungo', 'Card & QRIS · sales 13 Oct 2026', 2503800, 'Posted', { by: 'Store Muaro Bungo' }),
+  P('d07', 'DEP', 'DEP-26-10-0038', '2026-10-14', 'mdr', 'Jambi', 'Store deposit · takings 13 Oct 2026', 6150000, 'Posted', { by: 'Store Jambi' }),
+  P('c04', 'DAY', 'SD-26-10-0415', '2026-10-14', 'mdr', 'Jambi', 'Card & QRIS · sales 14 Oct 2026', 4935000, 'Posted', { by: 'Store Jambi' }),
+  P('c05', 'DAY', 'SD-26-10-0416', '2026-10-14', 'mdr', 'Sipin', 'Card & QRIS · sales 14 Oct 2026', 3240000, 'Posted', { by: 'Store Sipin' }),
+  P('d08', 'DEP', 'DEP-26-10-0046', '2026-10-16', 'mdr', 'Sipin', 'Store deposit · takings 15 Oct 2026', 3450000, 'Posted', { by: 'Store Sipin' }),
+]
+
+// statement lines, 1–16 Oct. match = entries it is matched to; suggest = the entry we think it is; book = what to book when nothing fits
+const BL = (id, acct, date, says, out, inn, x = {}) => ({ id, acct, date, says, out, in: inn, match: null, ...x })
+let L = [
+  BL('b01', 'bca', '2026-10-01', 'BIAYA ADM', 15000, 0, { book: { party: 'Bank BCA', memo: 'Bank charges · October 2026', acc: '6043 Bank charges' } }),
+  BL('b02', 'bca', '2026-10-01', 'BIAYA METERAI', 10000, 0, { book: { party: 'Bank BCA', memo: 'Stamp duty · October 2026', acc: '6043 Bank charges' } }),
+  BL('b03', 'bca', '2026-10-01', 'TRSF E-BANKING DB 0110/FTSCY/WS95011 ASURANSI SINAR MAS', 1200000, 0, { match: ['k01'] }),
+  BL('b04', 'bca', '2026-10-02', 'KR OTOMATIS PENCAIRAN KMK 0210', 0, 150000000, { match: ['m01'] }),
+  BL('b05', 'bca', '2026-10-03', 'TRSF E-BANKING DB 0310/FTSCY/WS95032 DIGITAL PRINT NUS', 2175000, 0, { match: ['k03'] }),
+  BL('b06', 'bca', '2026-10-05', 'SETORAN TUNAI 0310 CIKUPA', 0, 11240000, { match: ['d01'] }),
+  BL('b07', 'bca', '2026-10-06', 'KLIRING BG 0256 SEPATU SEJAHTERA', 12000000, 0, { match: ['s07'] }),
+  BL('b08', 'bca', '2026-10-08', 'TRSF E-BANKING DB 0810/FTSCY/WS95081 DINGIN SEJUK AC', 1152750, 0, { match: ['k06'] }),
+  BL('b09', 'bca', '2026-10-09', 'TRSF E-BANKING DB 0910/FTSCY/WS95093 JNE EXPRESS', 2790000, 0, { match: ['k07'] }),
+  BL('b10', 'bca', '2026-10-09', 'TRSF E-BANKING CR 0910 GARMEN NUSANTARA PT', 0, 3060000, { match: ['m03'] }),
+  BL('b11', 'bca', '2026-10-12', 'TRSF E-BANKING DB 1210/FTSCY/WS95120 PROPERTI CIKUPA', 97500000, 0, { suggest: 'k08' }),
+  BL('b12', 'bca', '2026-10-12', 'SETORAN TUNAI 1110 BUMIAYU', 0, 7420000, { match: ['d02'] }),
+  BL('b13', 'bca', '2026-10-13', 'KLIRING BG 0258 GARMEN MITRA SENTOSA', 58000000, 0, { suggest: 'k02' }),
+  BL('b14', 'bca', '2026-10-13', 'TRSF E-BANKING DB 1310/FTSCY/WS95133 PDAM TIRTA', 1870000, 0, { suggest: 'k09' }),
+  BL('b15', 'bca', '2026-10-14', 'TRSF E-BANKING DB 1410/FTSCY/WS95141 TELKOM INDONESIA', 6245000, 0, { suggest: 'k11' }),
+  BL('b16', 'bca', '2026-10-14', 'TARIK TUNAI 1410 KCU BANDUNG', 1000000, 0, { suggest: 't01' }),
+  BL('b17', 'bca', '2026-10-14', 'KR OTOMATIS EDC BCA 1310 CIKUPA', 0, 9348600, { suggest: 'c01' }),
+  BL('b18', 'bca', '2026-10-15', 'TRSF E-BANKING DB 1510/FTSCY/WS95152 PLN PERSERO', 14820000, 0, { suggest: 'k12' }),
+  BL('b19', 'bca', '2026-10-15', 'SETORAN TUNAI 1410 CIKUPA', 0, 12180000, { suggest: 'd03' }),
+  BL('b20', 'bca', '2026-10-16', 'BIAYA TRF ONLINE 01-15 OKT', 6500, 0, { book: { party: 'Bank BCA', memo: 'Transfer fees · 1–15 Oct 2026', acc: '6043 Bank charges' } }),
+  BL('r01', 'mdr', '2026-10-01', 'BIAYA ADM', 12500, 0, { book: { party: 'Bank Mandiri', memo: 'Bank charges · October 2026', acc: '6043 Bank charges' } }),
+  BL('r02', 'mdr', '2026-10-05', 'KR OTOMATIS EDC MANDIRI 0410 JAMBI', 0, 4120000, { match: ['c02'] }),
+  BL('r03', 'mdr', '2026-10-07', 'SETORAN TUNAI 0610 JAMBI', 0, 5300000, { match: ['d06'] }),
+  BL('r04', 'mdr', '2026-10-14', 'SETORAN TUNAI 1310 JAMBI', 0, 6150000, { suggest: 'd07' }),
+  BL('r05', 'mdr', '2026-10-15', 'KR OTOMATIS QRIS 1310 MUARO BUNGO', 0, 2486300, { suggest: 'c03' }),
+  BL('r06', 'mdr', '2026-10-16', 'KR OTOMATIS EDC MANDIRI 1410 JAMBI', 0, 4902400, { suggest: 'c04' }),
+  BL('r07', 'mdr', '2026-10-16', 'KR OTOMATIS EDC MANDIRI 1410 SIPIN', 0, 3218950, { suggest: 'c05' }),
+]
+
+const G_OLD = [ // giros that cleared before September's documents
+  { id: 'g53', no: 'BCA-GRV-0253', party: 'Busana Anggun Lestari, CV', voucher: 'BKK-26-08-00019', due: '2026-09-08', amt: 21300000, status: 'Cleared', cleared: '2026-09-08' },
+  { id: 'g55', no: 'BCA-GRV-0255', party: 'Cahaya ATK & Percetakan, CV', voucher: 'BKK-26-09-00015', due: '2026-10-07', amt: 1125000, status: 'Cleared', cleared: '2026-10-07' },
+]
+
+let ADV = [
+  { id: 'a31', no: 'ADV-000031', date: '2026-10-13', who: 'Yusuf Ramadhan', why: 'Trip to supplier in Bandung', given: 300000, out: 50000, back: 0 },
+  { id: 'a30', no: 'ADV-000030', date: '2026-10-12', who: 'Dian Pertiwi', why: 'Branch operations · Store 02', given: 180000, out: 180000, back: 0 },
+  { id: 'a29', no: 'ADV-000029', date: '2026-10-10', who: 'Maya Anggraini', why: 'Personal', given: 240000, out: 80000, back: 0 },
+  { id: 'a27', no: 'ADV-000027', date: '2026-10-08', who: 'Nina Oktaviani', why: 'Business trip · Jambi', given: 460000, out: 460000, back: 0 },
+  { id: 'a24', no: 'ADV-000024', date: '2026-10-03', who: 'Maya Anggraini', why: 'Office event', given: 310000, out: 310000, back: 0 },
+  { id: 'a21', no: 'ADV-000021', date: '2026-09-25', who: 'Rina Kusuma', why: 'Personal', given: 420000, out: 420000, back: 0 },
+  { id: 'a18', no: 'ADV-000018', date: '2026-09-12', who: 'Yusuf Ramadhan', why: 'Branch operations · Store 05', given: 460000, out: 460000, back: 0 },
+  { id: 'a25', no: 'ADV-000025', date: '2026-09-08', who: 'Dian Pertiwi', why: 'Business trip · Purbalingga', given: 340000, out: 0, back: 340000 },
+  { id: 'a13', no: 'ADV-000013', date: '2026-09-01', who: 'Yusuf Ramadhan', why: 'Business trip · Brebes', given: 260000, out: 0, back: 0 },
+]
+const advStatus = a => a.out === 0 ? 'Settled' : a.out < a.given ? 'Partially settled' : 'Paid'
+
+// E · all the money accounts the client's chart keeps (Kas & Setara Kas). The five real ones above carry
+// their transactions; the rest get a few generated October lines so every account opens.
+const STORES = [['C001', 'Cikupa'], ['C002', 'Muaro Bungo'], ['C003', 'Purbalingga'], ['C004', 'Bumiayu'], ['C005', 'Jambi'], ['C006', 'Wiramode'], ['C007', 'Brebes'], ['C008', 'Pasuruan'], ['C009', 'WMJB'], ['C010', 'WMBA'], ['C011', 'Sipin'], ['C012', 'Banjaran'], ['C013', 'Wonosobo']]
+const KIND = { giro: 'Giro', savings: 'Savings', deposit: 'Time deposit', cash: 'Cash on hand', petty: 'Petty cash', float: 'Cashier float' }
+let rnd = 7; const R = () => (rnd = (rnd * 9301 + 49297) % 233280) / 233280
+const round = (n, to) => Math.round(n / to) * to
+function genRows(kind, place, n) {
+  const rows = []
+  for (let i = 0; i < n; i++) {
+    const d = `2026-10-${String(2 + Math.floor(R() * 15)).padStart(2, '0')}`
+    if (kind === 'cash') rows.push(R() < .55 ? { date: d, dir: 'in', party: 'Cash takings', memo: `Sales ${day(d)}`, amt: round(4e6 + R() * 9e6, 1000) } : { date: d, dir: 'out', party: 'Deposit to BCA Giro', memo: `DEP-26-10-${String(100 + i).padStart(4, '0')}`, amt: round(3e6 + R() * 9e6, 1000) })
+    else if (kind === 'petty') rows.push(R() < .25 ? { date: d, dir: 'in', party: 'Top up from head office', memo: 'TF-26-10-' + String(10 + i).padStart(5, '0'), amt: 500000 } : { date: d, dir: 'out', party: ['Toko ATK', 'Ojek online', 'Galon & sabun', 'Parkir & tol'][Math.floor(R() * 4)], memo: `${place} · petty cash`, amt: round(20000 + R() * 120000, 500) })
+    else if (kind === 'deposit') rows.push({ date: '2026-10-12', dir: 'in', party: 'Interest', memo: 'Time deposit · 1 month', amt: 1875000 })
+    else rows.push(R() < .5 ? { date: d, dir: 'in', party: R() < .5 ? 'Transfer from BCA Giro' : 'Interest', memo: 'Bank statement', amt: round(2e5 + R() * 2e7, 1000) } : { date: d, dir: 'out', party: R() < .5 ? 'Bank charges' : 'Transfer to BCA Giro', memo: 'Bank statement', amt: round(1e4 + R() * 8e6, 500) })
+  }
+  return rows.sort((a, b) => a.date.localeCompare(b.date))
+}
+const XA = [
+  { id: 'bca', real: true, kind: 'giro', place: 'Head office' }, { id: 'mdr', real: true, kind: 'giro', place: 'Head office' },
+  { id: 'bri', kind: 'giro', name: 'BRI Giro', no: '0337 01 000123 30 9', place: 'Head office', books: 64250000, bank: 64250000, stmt: '2026-10-16', toMatch: 0 },
+  { id: 'bnig', kind: 'giro', name: 'BNI Giro', no: '0451 777 888', place: 'Head office', books: 18400000, bank: 18400000, stmt: '2026-09-30', toMatch: 0 },
+  { id: 'dnm', kind: 'giro', name: 'Danamon Giro', no: '0035 9876 5432', place: 'Head office', books: 2500000, bank: 2500000, stmt: '2026-09-30', toMatch: 0 },
+  { id: 'bcas', kind: 'savings', name: 'BCA Savings', no: '873 555 1212', place: 'Head office', books: 45780000, bank: 45780000, stmt: '2026-10-16', toMatch: 0 },
+  { id: 'mdrs', kind: 'savings', name: 'Mandiri Savings', no: '132 00 7654321 0', place: 'Head office', books: 12600000, bank: 12615000, stmt: '2026-10-16', toMatch: 1 },
+  { id: 'bris', kind: 'savings', name: 'BRI Savings', no: '0337 01 555666 50 2', place: 'Head office', books: 8150000, bank: 8150000, stmt: '2026-10-16', toMatch: 0 },
+  { id: 'bni', real: true, kind: 'savings', place: 'Head office' },
+  { id: 'btn', kind: 'savings', name: 'BTN Savings', no: '0001 5012 3456', place: 'Head office', books: 3200000, bank: 3200000, stmt: '2026-09-30', toMatch: 0 },
+  { id: 'dep', kind: 'deposit', name: 'BCA Time deposit', no: 'Matures 12 Dec 2026', place: 'Head office', books: 500000000, bank: 500000000, stmt: '2026-10-12', toMatch: 0 },
+  { id: 'cash', real: true, kind: 'cash', place: 'Head office' },
+  { id: 'petty', real: true, kind: 'petty', place: 'Head office' },
+  { id: 'flo', kind: 'float', name: 'Cashier float', no: 'Head office', place: 'Head office', books: 1000000, counted: 1000000, cdate: '2026-10-17' },
+  ...STORES.flatMap(([code, place], i) => [
+    { id: 'c' + code, kind: 'cash', name: 'Cash on hand', no: `${place} · ${code}`, place, books: round(2e6 + R() * 11e6, 1000), cdate: i % 5 === 3 ? '2026-10-13' : '2026-10-17', short: i === 6 ? 50000 : 0 },
+    { id: 'p' + code, kind: 'petty', name: 'Petty cash', no: `${place} · ${code}`, place, books: round(150000 + R() * 600000, 500), cdate: '2026-10-15', short: 0 },
+    { id: 'f' + code, kind: 'float', name: 'Cashier float', no: `${place} · ${code}`, place, books: 1000000, cdate: '2026-10-17', short: 0 },
+  ]),
+]
+for (const x of XA) {
+  if (x.real) { const a = ACC[x.id]; Object.assign(x, { name: x.id === 'cash' ? 'Cash on hand' : x.id === 'petty' ? 'Petty cash' : a.name, no: a.no }); continue }
+  if (x.counted == null && x.kind !== 'giro' && x.kind !== 'savings' && x.kind !== 'deposit') x.counted = x.books - (x.short || 0)
+  x.rows = genRows(x.kind, x.place, x.kind === 'float' ? 0 : x.kind === 'deposit' ? 1 : 3 + Math.floor(R() * 5))
+}
+const isBankX = x => x.kind === 'giro' || x.kind === 'savings' || x.kind === 'deposit'
+function xState(x) { // balances and what is left to do, the same for real and generated accounts
+  if (x.real) {
+    const a = ACC[x.id], bk = books(x.id)
+    if (a.bank) { const r = recon(x.id); return { books: bk, check: r.bank, date: a.stmt, toMatch: r.toMatch.length, bank: true } }
+    return { books: bk, check: bk, date: a.counted, bank: false }
+  }
+  return isBankX(x) ? { books: x.books, check: x.bank, date: x.stmt, toMatch: x.toMatch, bank: true } : { books: x.books, check: x.counted, date: x.cdate, bank: false }
+}
+function xTodo(x) {
+  const st = xState(x)
+  if (st.bank) {
+    if (st.toMatch) return { w: `Reconcile · ${st.toMatch}`, tone: 'warn', act: 'recon' }
+    if (ago(st.date) > 7) return { w: 'Upload statement', tone: 'warn', act: 'upload' }
+    return null
+  }
+  if (st.check !== st.books) return { w: `Short ${money(st.books - st.check)}`, tone: 'bad', act: 'count' }
+  if (ago(st.date) > 3) return { w: 'Count cash', tone: 'warn', act: 'count' }
+  return null
+}
+function xRows(x) {
+  if (!x.real) return x.rows
+  return E.filter(e => e.status === 'Posted' && e.date >= '2026-10-01' && inAcct(e, x.id)).sort((a, b) => a.date.localeCompare(b.date))
+    .map(e => ({ date: e.date, dir: sgn(e, x.id) > 0 ? 'in' : 'out', party: e.kind === 'TF' ? (e.acct === x.id ? `To ${ACC[e.to].name}` : `From ${ACC[e.acct].name}`) : e.party, memo: `${e.no} · ${e.memo}`, amt: e.amt, id: e.id }))
+}
+
+/* ───────────── derived ───────────── */
+const byId = id => E.find(e => e.id === id)
+const line = id => L.find(l => l.id === id)
+const inAcct = (e, acct) => e.acct === acct || e.to === acct
+const sgn = (e, acct) => (e.kind === 'BKK' || (e.kind === 'TF' && e.acct === acct)) ? -1 : 1
+const lineOf = e => L.find(l => (l.match || []).includes(e.id)) || null
+const suggestOf = e => L.find(l => !l.match && l.suggest === e.id) || null
+const lineAmt = l => l.in || -l.out
+
+function books(acct) {
+  return ACC[acct].open + E.filter(e => e.status === 'Posted' && e.date >= '2026-10-01' && inAcct(e, acct)).reduce((s, e) => s + sgn(e, acct) * e.amt, 0)
+}
+function recon(acct) {
+  const a = ACC[acct], lines = L.filter(l => l.acct === acct)
+  const bank = a.bankOpen + lines.reduce((s, l) => s + lineAmt(l), 0)
+  const bk = books(acct)
+  const atBank = e => lines.some(l => (l.match || []).includes(e.id) || (!l.match && l.suggest === e.id))
+  const posted = E.filter(e => e.status === 'Posted' && inAcct(e, acct) && (e.date >= '2026-10-01' || e.open30))
+  const waiting = posted.filter(e => !atBank(e))
+  const giroOut = waiting.filter(e => sgn(e, acct) < 0)
+  const onWay = waiting.filter(e => sgn(e, acct) > 0)
+  const toBook = lines.filter(l => !l.match && !l.suggest)
+  const fees = lines.filter(l => !l.match && l.suggest && byId(l.suggest).amt !== Math.abs(lineAmt(l)))
+  const r = {
+    bank, books: bk, diff: bk - bank, giroOut, onWay, toBook, fees,
+    giroSum: giroOut.reduce((s, e) => s - e.amt, 0),
+    waySum: onWay.reduce((s, e) => s + e.amt, 0),
+    bookSum: toBook.reduce((s, l) => s - lineAmt(l), 0),
+    feeSum: fees.reduce((s, l) => s + byId(l.suggest).amt - Math.abs(lineAmt(l)), 0),
+    toMatch: lines.filter(l => !l.match),
+  }
+  console.assert(Math.abs(r.diff - (r.giroSum + r.waySum + r.bookSum + r.feeSum)) < 1, 'reconciliation does not add up', acct, r)
+  return r
+}
+const toMatchCount = () => L.filter(l => !l.match).length
+function giros() {
+  return E.filter(e => e.giro).map(e => {
+    const ln = lineOf(e), sug = suggestOf(e)
+    const status = e.giro.bounced ? 'Bounced' : (ln || e.giro.cleared) ? 'Cleared' : 'Waiting'
+    return { id: e.id, e, no: e.giro.no, party: e.party, voucher: e.no, due: e.giro.due, amt: e.amt, in: !!e.giro.in, status, given: e.giro.given, cleared: ln ? ln.date : e.giro.cleared || e.giro.bounced, sug }
+  }).concat(G_OLD)
+}
+
+/* ───────────── state ───────────── */
+const OPT = {
+  now: { label: 'Now' },
+  a: { label: 'A · Same tabs', tabs: ['bkk', 'bkm', 'giro', 'bank', 'adv'] },
+  b: { label: 'B · Accounts first', tabs: ['accounts', 'bkk', 'bkm', 'giro'] },
+  c: { label: 'C · Bank lines first', tabs: ['match', 'bkk', 'bkm', 'giro', 'adv'] },
+  d: { label: 'D · One book', tabs: ['book', 'giro', 'bank', 'adv'] },
+  e: { label: 'E · Every account', star: true, tabs: ['acct', 'bkk', 'bkm', 'giroB'] },
+  f: { label: 'F · Refined', tabs: ['acct', 'bkk', 'bkm', 'giro'] },
+}
+const TAB = { giroB: 'Giro', acct: 'Accounts', bkk: 'BKK', bkm: 'BKM', giro: 'Giro', bank: 'Bank', adv: 'Advances', accounts: 'Accounts', match: 'To match', book: 'Book' }
+const FDEF = {
+  bkk: { q: '', status: '', month: '2026-10' }, bkm: { q: '', status: '', month: '2026-10' },
+  giro: { q: '', status: 'Waiting' }, adv: { q: '', status: 'open' },
+  match: { q: '', acct: '', show: 'to' }, book: { q: '', acct: 'bca', month: '2026-10' },
+  bank: {}, accounts: {}, acct: { q: '', kind: '', view: 'list' }, giroB: { q: '', stage: '' },
+}
+const qs = new URLSearchParams(location.search)
+const S = { card: +qs.get('card') || 1, fold: qs.get('tab') === 'giroB', chip: qs.get('chip') === 'green' ? 'green' : 'orange', opt: OPT[qs.get('v')] ? qs.get('v') : 'a', tab: {}, now: qs.get('now') || 'bkk', F: {}, stack: [], sheetShow: 'to', menu: false }
+if (qs.get('tab') && OPT[S.opt].tabs?.includes(qs.get('tab'))) S.tab[S.opt] = qs.get('tab')
+const curTab = () => S.tab[S.opt] || OPT[S.opt].tabs[0]
+const f = t => S.F[t] || (S.F[t] = { ...FDEF[t] })
+
+/* ───────────── small parts ───────────── */
+const ST = { Draft: 'warn', Approved: 'warn', Posted: 'ok', Cancelled: 'neutral', Rejected: 'neutral', Waiting: 'info', Cleared: 'ok', Bounced: 'bad', Paid: 'warn', 'Partially settled': 'warn', Settled: 'ok' }
+const status = w => `<span class="ds-status ds-status--${ST[w] || 'neutral'}">${w}</span>`
+const pill = w => `<span class="ds-pill ds-pill--${{ Draft: 'warn', Approved: 'warn', Posted: 'ok', Paid: 'warn', 'Partially settled': 'warn', Settled: 'ok' }[w] || 'neutral'}">${w}</span>`
+const ico = (n, size = '') => `<span class="ds-ico ds-ico-${n} ${size}"></span>`
+const btn = (label, on, kind = 'ghost', extra = '') => `<button class="ds-btn ds-btn--${kind} ${extra}" type="button" onclick="event.stopPropagation();${on}">${label}</button>`
+const cellBtn = (label, on) => btn(label, on, 'tint', 'ds-btn--sm cell')
+const fromCell = e => esc(ACC[e.acct].short) + (e.giro ? ` · giro ${e.giro.no.split('-').pop()}` : '')
+const nameSub = (n, s) => `<span class="nm">${esc(n)}</span><span class="ds-sub">${esc(s)}</span>`
+const monthOpts = [['2026-10', 'October 2026'], ['2026-09', 'September 2026'], ['', 'All months']]
+const kindName = { BKK: 'BKK', BKM: 'BKM', TF: 'Transfer', DEP: 'Store deposit', DAY: 'Card & QRIS' }
+const byDateDesc = (a, b) => b.date.localeCompare(a.date) || String(b.no || 'Z').localeCompare(String(a.no || 'Z'))
+const NEW = { bkk: `soon('The BKK page opens, as it is today')`, bkm: `soon('The BKM page opens, as it is today')`, tf: `soon('The transfer form opens: from one of our accounts to another')`, adv: `soon('The advance form opens: employee, purpose, amount')`, up: `soon('Choose the statement file the bank sent')` }
+
+/* ───────────── views: each returns { head, kpis, bar, cols, rows, foot, empty } ───────────── */
+function voucherView(t) {
+  const out = t === 'bkk', ff = f(t)
+  const base = E.filter(e => out ? (e.kind === 'BKK' || e.kind === 'TF') : e.kind === 'BKM')
+  const drafts = base.filter(e => e.status === 'Draft'), appr = base.filter(e => e.status === 'Approved')
+  const sumOct = base.filter(e => e.status === 'Posted' && e.date.startsWith('2026-10')).reduce((s, e) => s + e.amt, 0)
+  const inMonth = base.filter(e => (!ff.month || e.date.startsWith(ff.month)) && hit(ff.q, e.no, e.party, e.memo, e.amt, ACC[e.acct].name))
+  const list = inMonth.filter(e => !ff.status || e.status === ff.status).sort(byDateDesc)
+  const n = st => inMonth.filter(e => e.status === st).length
+  const sum = xs => xs.reduce((s, e) => s + e.amt, 0)
+  return {
+    head: out ? [...(S.opt === 'e' ? [] : [{ label: 'New transfer', on: NEW.tf, icon: 'arrows' }]), { label: 'New BKK', on: NEW.bkk, primary: true }] : [{ label: 'New BKM', on: NEW.bkm, primary: true }],
+    kpis: [
+      { label: out ? 'Paid in October' : 'Received in October', value: money(sumOct) },
+      { label: `To approve · ${drafts.length}`, value: money(sum(drafts)) },
+      { label: `To post · ${appr.length}`, value: money(sum(appr)) },
+    ],
+    bar: [
+      { t: 'search', ph: out ? 'Search BKK' : 'Search BKM', tab: t },
+      { t: 'chips', tab: t, key: 'status', label: 'Status', opts: [['', 'All', 'list', inMonth.length], ['Draft', 'Draft', 'pencil', n('Draft')], ['Approved', 'Approved', 'check', n('Approved')], ['Posted', 'Posted', 'book-check', n('Posted')], ...(n('Cancelled') ? [['Cancelled', 'Cancelled', 'ban', n('Cancelled')]] : [])] },
+      { t: 'select', tab: t, key: 'month', opts: monthOpts },
+      { t: 'spacer' },
+      ...(ff.status === 'Approved' && appr.length ? [{ t: 'btn', label: `Post all ${appr.length}`, on: `postAll('${t}')` }] : []),
+    ],
+    cols: [
+      { k: 'date', l: 'Date', w: 116 }, { k: 'no', l: 'Number', w: 152 },
+      { k: 'party', l: out ? 'Paid to' : 'Received from', fx: true },
+      { k: 'acct', l: out ? 'From' : 'Into', w: 144 },
+      { k: 'amt', l: 'Amount', w: 152, num: true }, { k: 'st', l: 'Status', w: 140 },
+    ],
+    rows: list.map(e => ({ on: `openSheet('entry','${e.id}')`, c: { date: day(e.date), no: e.no ? esc(e.no) : DASH, party: nameSub(e.party, e.memo), acct: fromCell(e), amt: money(e.amt), st: status(e.status) } })),
+    empty: out ? 'No BKK here' : 'No BKM here',
+  }
+}
+
+function giroView() {
+  const ff = f('giro'), all = giros(), wait = all.filter(g => g.status === 'Waiting')
+  const late = wait.filter(g => g.due < TODAY), week = wait.filter(g => g.due >= TODAY && g.due <= WEEK_END)
+  const sum = xs => xs.reduce((s, g) => s + g.amt, 0)
+  const list = all.filter(g => (!ff.status || g.status === ff.status) && hit(ff.q, g.no, g.party, g.voucher, g.amt))
+    .sort((a, b) => ff.status === 'Waiting' ? a.due.localeCompare(b.due) : b.due.localeCompare(a.due))
+  return {
+    head: [],
+    kpis: [
+      { label: `Late · ${late.length}`, value: money(sum(late)), bad: late.length > 0 },
+      { label: 'Due this week', value: money(sum(week)) },
+      { label: 'Not cleared', value: money(sum(wait)) },
+    ],
+    bar: [
+      { t: 'search', ph: 'Search giro', tab: 'giro' },
+      { t: 'chips', tab: 'giro', key: 'status', label: 'Status', opts: [['', 'All', 'list', all.length], ['Waiting', 'Not cleared', 'clock', wait.length], ['Cleared', 'Cleared', 'circle-check', all.filter(g => g.status === 'Cleared').length], ['Bounced', 'Bounced', 'ban', all.filter(g => g.status === 'Bounced').length]] },
+      { t: 'spacer' },
+    ],
+    cols: [
+      { k: 'due', l: 'Due', w: 116 }, { k: 'no', l: 'Giro', w: 144 },
+      { k: 'party', l: 'Paid to / received from', fx: true }, { k: 'amt', l: 'Amount', w: 152, num: true },
+      { k: 'st', l: 'Status', w: 120 }, { k: 'act', l: '', w: 164, act: true },
+    ],
+    rows: list.map(g => {
+      const lateG = g.status === 'Waiting' && g.due < TODAY
+      const act = g.status === 'Waiting' && g.due <= WEEK_END ? cellBtn(g.sug ? 'Match bank line' : 'Mark cleared', `clearGiro('${g.id}')`)
+        : g.status !== 'Waiting' ? `<span class="mute">${day(g.cleared)}</span>` : ''
+      const sub = `${g.voucher}${g.in ? ' · received' : ''}`
+      return {
+        on: byId(g.id) ? `openSheet('entry','${g.id}')` : '',
+        c: { due: `<span class="${lateG ? 'late' : ''}">${day(g.due)}</span>`, no: esc(g.no), party: nameSub(g.party, sub), amt: money(g.amt), st: status(g.status), act },
+      }
+    }),
+    empty: 'No giros here',
+  }
+}
+
+function bankView() {
+  const R = BANKS.map(id => ({ id, a: ACC[id], ...recon(id) }))
+  const tot = k => R.reduce((s, r) => s + r[k], 0)
+  return {
+    head: [{ label: 'Upload statement', on: NEW.up, primary: true, icon: 'upload' }],
+    kpis: [
+      { label: 'Bank', value: money(tot('bank')) },
+      { label: 'Books', value: money(tot('books')) },
+      { label: 'Lines to match', value: toMatchCount() },
+    ],
+    bar: [],
+    cols: [
+      { k: 'acc', l: 'Account', fx: true }, { k: 'stmt', l: 'Statement', w: 130 },
+      { k: 'bank', l: 'Bank', w: 164, num: true }, { k: 'books', l: 'Books', w: 164, num: true },
+      { k: 'diff', l: 'Difference', w: 152, num: true }, { k: 'tm', l: 'To match', w: 124, num: true },
+    ],
+    rows: R.map(r => ({
+      on: `openSheet('recon','${r.id}')`,
+      c: { acc: nameSub(r.a.name, r.a.no), stmt: day(r.a.stmt), bank: money(r.bank), books: money(r.books), diff: r.diff ? signed(r.diff) : DASH, tm: r.toMatch.length ? `<span class="need">${r.toMatch.length}</span>` : DASH },
+    })),
+    empty: '',
+  }
+}
+
+function advView() {
+  const ff = f('adv'), open = ADV.filter(a => a.out > 0), old = open.filter(a => ago(a.date) > 30)
+  const sum = (xs, k) => xs.reduce((s, a) => s + a[k], 0)
+  const list = ADV.filter(a => (ff.status === 'open' ? a.out > 0 : ff.status === 'Settled' ? a.out === 0 : true) && hit(ff.q, a.no, a.who, a.why, a.given))
+  return {
+    head: [{ label: 'New advance', on: NEW.adv, primary: true }],
+    kpis: [
+      { label: 'Still with people', value: money(sum(open, 'out')) },
+      { label: 'People', value: new Set(open.map(a => a.who)).size },
+      { label: `Over 30 days · ${old.length}`, value: money(sum(old, 'out')), bad: old.length > 0 },
+    ],
+    bar: [
+      { t: 'search', ph: 'Search advances', tab: 'adv' },
+      { t: 'chips', tab: 'adv', key: 'status', label: 'Status', opts: [['', 'All', 'list', ADV.length], ['open', 'Not settled', 'clock', open.length], ['Settled', 'Settled', 'circle-check', ADV.length - open.length]] },
+      { t: 'spacer' },
+    ],
+    cols: [
+      { k: 'date', l: 'Date', w: 116 }, { k: 'who', l: 'Employee', fx: true },
+      { k: 'given', l: 'Given', w: 136, num: true }, { k: 'out', l: 'Still out', w: 136, num: true },
+      { k: 'age', l: 'Age', w: 96, num: true }, { k: 'st', l: 'Status', w: 184 },
+    ],
+    rows: list.map(a => ({
+      on: `openSheet('adv','${a.id}')`,
+      c: { date: day(a.date), who: nameSub(a.who, `${a.no} · ${a.why}`), given: money(a.given), out: a.out ? money(a.out) : DASH, age: a.out ? `<span class="${ago(a.date) > 30 ? 'late' : ''}">${ago(a.date)} days</span>` : DASH, st: status(advStatus(a)) },
+    })),
+    empty: 'No advances here',
+  }
+}
+
+function accountsView() {
+  const apprSum = E.filter(e => (e.kind === 'BKK' || e.kind === 'TF') && e.status === 'Approved').reduce((s, e) => s + e.amt, 0)
+  const hoBooks = HO.reduce((s, k) => s + books(k), 0)
+  const advOut = ADV.reduce((s, a) => s + a.out, 0), advPeople = new Set(ADV.filter(a => a.out).map(a => a.who)).size
+  const rows = HO.map(k => {
+    const a = ACC[k], r = a.bank ? recon(k) : null
+    return {
+      on: `openSheet('passbook','${k}')`,
+      c: { acc: nameSub(a.name, a.no), books: money(books(k)), bank: r ? money(r.bank) : DASH, tm: r && r.toMatch.length ? `<span class="need">${r.toMatch.length}</span>` : DASH, chk: `<span class="mute">${a.bank ? `Statement ${day(a.stmt)}` : `Counted ${day(a.counted)}`}</span>` },
+    }
+  })
+  rows.push({ on: `openSheet('advlist','')`, c: { acc: nameSub('With employees', 'Advances not settled'), books: money(advOut), bank: DASH, tm: DASH, chk: `<span class="mute">${advPeople} people</span>` } })
+  rows.push({ on: `soon('Opens Stores › Cash: what each store holds')`, c: { acc: nameSub("Stores' cash", '13 stores'), books: money(86420500), bank: DASH, tm: DASH, chk: `<span class="mute">Counted ${day('2026-10-17')}</span>` } })
+  return {
+    head: [{ label: 'Upload statement', on: NEW.up, icon: 'upload' }, { label: 'New transfer', on: NEW.tf, primary: true }],
+    kpis: [
+      { label: 'Books', value: money(hoBooks) },
+      { label: 'Approved, not paid', value: money(apprSum), on: `setTab('bkk');pickStatus('bkk','Approved')` },
+      { label: 'Free to spend', value: money(hoBooks - apprSum) },
+    ],
+    bar: [],
+    cols: [
+      { k: 'acc', l: 'Account', fx: true }, { k: 'books', l: 'Books', w: 168, num: true },
+      { k: 'bank', l: 'Bank', w: 168, num: true }, { k: 'tm', l: 'To match', w: 100, num: true },
+      { k: 'chk', l: 'Last checked', w: 220 },
+    ],
+    rows,
+    foot: { acc: 'Head office accounts', books: money(hoBooks) },
+    empty: '',
+  }
+}
+
+function matchView() {
+  const ff = f('match')
+  const mine = L.filter(l => (!ff.acct || l.acct === ff.acct) && hit(ff.q, l.says, l.out, l.in, l.suggest && byId(l.suggest).no))
+  const list = mine.filter(l => ff.show === 'to' ? !l.match : ff.show === 'done' ? !!l.match : true)
+    .sort((a, b) => b.date.localeCompare(a.date))
+  const sugg = list.filter(l => !l.match && l.suggest)
+  const kpis = [{ label: 'All accounts', value: `${toMatchCount()} to match`, on: `setF('match','acct','')`, sel: !ff.acct }]
+  for (const k of ['bca', 'mdr']) {
+    const n = L.filter(l => l.acct === k && !l.match).length
+    kpis.push({ label: ACC[k].name, value: n ? `${n} to match` : 'All matched', on: `setF('match','acct','${k}')`, sel: ff.acct === k })
+  }
+  return {
+    head: [{ label: 'Upload statement', on: NEW.up, primary: true, icon: 'upload' }],
+    kpis,
+    bar: [
+      { t: 'search', ph: 'Search bank lines', tab: 'match' },
+      { t: 'chips', tab: 'match', key: 'show', label: 'Show', opts: [['', 'All', 'list', mine.length], ['to', 'To match', 'link', mine.filter(l => !l.match).length], ['done', 'Matched', 'circle-check', mine.filter(l => l.match).length]] },
+      { t: 'spacer' },
+      ...(sugg.length ? [{ t: 'btn', label: `Match all suggested · ${sugg.length}`, on: `matchAll('${ff.acct}')` }] : []),
+    ],
+    cols: [
+      { k: 'date', l: 'Date', w: 116 }, { k: 'says', l: 'Description', wrap: true },
+      { k: 'db', l: 'Debit', w: 136, num: true }, { k: 'cr', l: 'Credit', w: 136, num: true },
+      { k: 'ours', l: 'Books', w: 284, mcell: true },
+    ],
+    rows: list.map(l => ({
+      on: l.match ? `openSheet('entry','${l.match[0]}')` : l.suggest ? `openSheet('entry','${l.suggest}')` : `openSheet('book','${l.id}')`,
+      c: { date: day(l.date), says: `<span>${esc(l.says)}</span><span class="ds-sub">${esc(ACC[l.acct].name)}</span>`, db: l.out ? money(l.out) : '', cr: l.in ? money(l.in) : '', ours: matchCell(l) },
+    })),
+    empty: ff.show === 'to' ? 'Every bank line is matched' : 'No lines',
+  }
+}
+function matchCell(l) {
+  const box = (top, sub, button = '') => `<div class="mc"><div class="mc-t">${top}${sub ? `<span class="ds-sub">${sub}</span>` : ''}</div>${button}</div>`
+  if (l.match) {
+    const e = byId(l.match[0])
+    return box(`<span class="okc">${ico('check')}${esc(e.no)}</span>`, esc(e.party))
+  }
+  if (l.suggest) {
+    const e = byId(l.suggest), fee = e.amt - Math.abs(lineAmt(l))
+    return box(`<span>${esc(e.no)}</span>`, esc(fee > 0 ? `${e.party} · card fee ${money(fee)}` : e.party), cellBtn('Match', `matchLine('${l.id}')`))
+  }
+  return box('<span class="mute">Not in the books</span>', '', cellBtn(l.out ? 'Book BKK' : 'Book BKM', `openSheet('book','${l.id}')`))
+}
+
+function bookView() {
+  const ff = f('book'), acct = ff.acct, all = !acct
+  const s = e => all ? (e.kind === 'BKK' ? -1 : e.kind === 'TF' ? 0 : 1) : sgn(e, acct)
+  const list = E.filter(e => (all ? true : inAcct(e, acct)) && (!ff.month || e.date.startsWith(ff.month)) && hit(ff.q, e.no, e.party, e.memo, e.amt))
+    .sort((a, b) => a.date.localeCompare(b.date) || String(a.no || 'Z').localeCompare(String(b.no || 'Z')))
+  const keys = all ? HO : [acct]
+  const startOf = k => ff.month === '2026-09' ? ACC[k].open - E.filter(e => e.status === 'Posted' && e.date.startsWith('2026-09') && inAcct(e, k)).reduce((x, e) => x + sgn(e, k) * e.amt, 0) : ACC[k].open
+  const opening = keys.reduce((x, k) => x + startOf(k), 0)
+  const posted = list.filter(e => e.status === 'Posted')
+  const mIn = posted.reduce((x, e) => x + (s(e) > 0 ? e.amt : 0), 0), mOut = posted.reduce((x, e) => x + (s(e) < 0 ? e.amt : 0), 0)
+  let bal = opening
+  const first = (ff.month || '2026-10') + '-01'
+  const rows = [{ cls: 'opening', c: { date: day(first), no: '', desc: '<span>Opening balance</span>', bal: money(opening) } }]
+  for (const e of list) {
+    const sign = s(e), ok = e.status === 'Posted'
+    if (ok) bal += sign * e.amt
+    const other = e.kind === 'TF' && !all ? (e.acct === acct ? `To ${ACC[e.to].name}` : `From ${ACC[e.acct].name}`) : e.party
+    rows.push({
+      on: `openSheet('entry','${e.id}')`,
+      c: {
+        date: day(e.date), no: e.no ? esc(e.no) : DASH,
+        desc: nameSub(other, e.memo),
+        in: sign > 0 ? money(e.amt) : '', out: sign < 0 ? money(e.amt) : '', acc: esc(ACC[e.acct].short),
+        bal: ok ? money(bal) : status(e.status),
+      },
+    })
+  }
+  return {
+    head: [{ label: 'New', on: `toggleMenu(event)`, primary: true, menu: true }],
+    kpis: [
+      { label: `Opening · ${day(first)}`, value: money(opening) },
+      { label: 'Money in', value: money(mIn) },
+      { label: 'Money out', value: money(mOut) },
+      { label: 'Balance', value: money(opening + mIn - mOut) },
+    ],
+    bar: [
+      { t: 'chips', tab: 'book', key: 'acct', label: 'Account', opts: HO.map(k => [k, ACC[k].short, ACC[k].bank ? 'landmark' : k === 'cash' ? 'wallet' : 'coins']) },
+      { t: 'select', tab: 'book', key: 'month', opts: monthOpts.slice(0, 2) },
+      { t: 'search', ph: 'Search', tab: 'book' },
+    ],
+    cols: [
+      { k: 'date', l: 'Date', w: 116 }, { k: 'no', l: 'Number', w: 152 }, { k: 'desc', l: 'Description', fx: true },
+      { k: 'in', l: 'In', w: 140, num: true }, { k: 'out', l: 'Out', w: 140, num: true },
+      all ? { k: 'acc', l: 'Account', w: 120 } : { k: 'bal', l: 'Balance', w: 164, num: true },
+    ],
+    rows, empty: 'Nothing in this month',
+  }
+}
+
+// one card per account: the books balance big, the check and this month's flow as two quiet lines
+const compact = n => n >= 1e9 ? `Rp ${(n / 1e9).toFixed(2).replace('.', ',')} B` : n >= 1e6 ? `Rp ${(n / 1e6).toFixed(1).replace('.', ',')} M` : n >= 1e3 ? `Rp ${Math.round(n / 1e3)} K` : money(n)
+const BANK_TONE = { BCA: '#0060af', Mandiri: '#003d79', BRI: '#00529c', BNI: '#f15a23', Danamon: '#f7941e', BTN: '#0e4c92' }
+function cashCode(x) { // the client's chart: 1011001 + 001 cash · 002 petty · 003 float, then 00 HO or the store number
+  const kind = { cash: '001', petty: '002', float: '003' }[x.kind]
+  const store = (STORES.find(([, pl]) => pl === x.place) || ['C000'])[0].slice(2)
+  return `1011001${kind}${store}`
+}
+function bankMark(x, small) {
+  const b = Object.keys(BANK_TONE).find(k => x.name.startsWith(k))
+  if (b) return `<span class="mark ${small ? 'sm' : ''}" style="background:${BANK_TONE[b]}">${b === 'Mandiri' ? 'MDR' : b === 'Danamon' ? 'DNM' : b}</span>`
+  return `<span class="mark cash ${small ? 'sm' : ''}">${ico(x.kind === 'cash' ? 'wallet' : 'coins', small ? '' : 'ds-ico--20')}</span>`
+}
+function acctBits(x) {
+  const st = xState(x), rows = xRows(x)
+  const tot = d => rows.filter(r => r.dir === d).reduce((s, r) => s + r.amt, 0)
+  const inn = tot('in'), out = tot('out')
+  const recon = st.bank && x.real && ACC[x.id].bank ? `openSheet('recon','${x.id}')` : `openSheet('xacct','${x.id}')`
+  const count = `soon('The cash count form opens: notes and coins')`
+  return {
+    st,
+    sub: isBankX(x) ? x.no : [STORES.find(([, pl]) => pl === x.place)?.[0], cashCode(x)].filter(Boolean).join(' · '),
+    chip: `<span class="ds-tag place">${esc(x.place === 'Head office' ? 'HO' : x.place)}</span>`,
+    inn: inn ? `<span class="up">+${money(inn)}</span>` : '<span class="mute">Rp 0</span>',
+    out: out ? `<span class="late">−${money(out)}</span>` : '<span class="mute">Rp 0</span>',
+    acts: (size, long, iconOnly) => st.bank ? btn('Reconcile', recon, 'primary', size) + (iconOnly ? `<button class="ds-btn ds-btn--ghost ${size} ico-only" type="button" aria-label="Upload statement" title="Upload statement" onclick="event.stopPropagation();${NEW.up}">${ico('upload')}</button>` : btn(ico('upload') + (long ? 'Upload statement' : 'Upload'), NEW.up, 'ghost', size)) : btn('Count cash', count, 'primary', size),
+  }
+}
+// E · ten ways to lay out the same account card (Hari 19 Oct: "coba beberapa opsi cardnya 10")
+const CARD_V = [
+  [1, 'Labels'], [2, 'No labels'], [3, 'Icon labels'], [4, 'Stacked'], [5, 'Receipt'],
+  [6, 'Brand edge'], [7, 'Brand header'], [8, 'Button bar'], [9, 'Difference'], [10, 'Compact'], [11, 'Brand header + stacked'], [12, 'Thin header · flow left'], [13, 'Thin header · status left'], [14, 'Stacked 11 · thin · right'],
+]
+const toneOf = x => { const b = Object.keys(BANK_TONE).find(k => x.name.startsWith(k)); return b ? BANK_TONE[b] : '#8e8e93' }
+function acctCard(x) {
+  const b = acctBits(x), st = b.st, v = S.card
+  const short = !st.bank && st.check !== st.books
+  const name = `<div class="ac-id"><div class="nm">${esc(x.name)}</div><div class="ac-lab">${esc(b.sub)}</div></div>`
+  const head = `<div class="ac-name">${bankMark(x)}${name}${b.chip}</div>`
+  const books = money(st.books), check = money(st.check), date = day(st.date), checkWord = st.bank ? 'Bank' : 'Counted'
+  const flow = `<div class="ac-flow">${b.inn}${b.out}</div>`
+  const acts = `<div class="ac-act">${b.acts('ds-btn--sm cell', true)}</div>`
+  const open = `role="button" tabindex="0" onclick="openSheet('xacct','${x.id}')"`
+  const diff = st.books - st.check
+  let body
+  switch (v) {
+    case 2: body = head + `<div class="ac-two"><div class="ac-hero">${books}</div><div><div class="ac-second ${short ? 'late' : ''}">${check}</div><div class="ac-lab">${date}</div></div></div>` + flow + acts; break
+    case 3: body = head + `<div class="ac-two"><div class="ilab">${ico('book')}<span class="ac-hero">${books}</span></div><div><div class="ilab">${ico(st.bank ? 'landmark' : 'wallet')}<span class="ac-second ${short ? 'late' : ''}">${check}</span></div><div class="ac-lab ipad">${date}</div></div></div>`
+      + `<div class="ac-flow"><span class="ilab up">${ico('arrow-in')}${b.inn.replace(/<[^>]+>/g, '').replace('+', '')}</span><span class="ilab late">${ico('arrow-out')}${b.out.replace(/<[^>]+>/g, '').replace('−', '')}</span></div>` + acts; break
+    case 4: body = head + `<div class="ac-stack"><div class="ac-hero">${books}</div><div class="${short ? 'late' : 'mute'}">${check} · ${date}</div></div>` + flow + acts; break
+    case 5: body = head + `<div class="ac-receipt"><div><span>Books</span><b>${books}</b></div><div><span>${checkWord} · ${date}</span><b class="${short ? 'late' : ''}">${check}</b></div><div><span>In</span>${b.inn}</div><div><span>Out</span>${b.out}</div></div>` + acts; break
+    case 6: body = `<div class="ac-name">${name}${b.chip}</div><div class="ac-two"><div class="ac-hero">${books}</div><div><div class="ac-second ${short ? 'late' : ''}">${check}</div><div class="ac-lab">${date}</div></div></div>` + flow + acts; break
+    case 7: body = `<div class="ac-brand" style="background:${toneOf(x)}"><div class="ac-id"><div class="nm">${esc(x.name)}</div><div class="sub">${esc(b.sub)}</div></div>${b.chip}</div><div class="ac-two"><div><div class="ac-lab">Books</div><div class="ac-hero">${books}</div></div><div><div class="ac-lab">${checkWord} · ${date}</div><div class="ac-second ${short ? 'late' : ''}">${check}</div></div></div>` + flow + acts; break
+    case 8: body = head + `<div class="ac-two"><div><div class="ac-lab">Books</div><div class="ac-hero">${books}</div></div><div><div class="ac-lab">${checkWord} · ${date}</div><div class="ac-second ${short ? 'late' : ''}">${check}</div></div></div>` + flow + `<div class="ac-bar">${b.acts('', true)}</div>`; break
+    case 9: body = head + `<div class="ac-stack"><div class="ac-hero">${books}</div><div class="mute">${checkWord} ${check} · ${date}</div><div class="ac-pill ${diff ? (st.bank ? 'warn' : 'bad') : 'ok'}">${diff ? (st.bank ? `Differs ${signed(diff)}` : `Short ${money(diff)}`) : st.bank ? 'Matches the bank' : 'Matches the count'}</div></div>` + flow + acts; break
+    case 10: body = `<div class="ac-name">${bankMark(x, true)}${name}${b.chip}</div><div class="ac-mini"><div><span class="ac-lab">Books</span><b>${books}</b></div><div><span class="ac-lab">${checkWord}</span><b class="${short ? 'late' : ''}">${check}</b></div></div><div class="ac-flow">${b.inn}${b.out}</div>` + acts; break
+    case 11: body = `<div class="ac-brand" style="background:${toneOf(x)}"><div class="ac-id"><div class="nm">${esc(x.name)}</div><div class="sub">${esc(b.sub)}</div></div>${b.chip}</div>`
+      + `<div class="ac-stack"><div class="ac-hero">${books}</div><div class="${short ? 'late' : 'mute'}">${checkWord} ${check} · ${date}</div></div>` + flow + acts; break
+    case 14:
+      body = `<div class="ac-thin" style="background:${toneOf(x)}"><span class="nm">${esc(x.name)}</span><span class="sub">${esc(b.sub)}</span>${b.chip}</div>`
+        + `<div class="ac-stack right"><div class="ac-hero">${books}</div><div class="${short ? 'late' : 'mute'}">${checkWord} ${check} · ${date}</div></div>` + flow + acts
+      break
+    case 12: case 13: {
+      const thin = `<div class="ac-thin" style="background:${toneOf(x)}"><span class="nm">${esc(x.name)}</span><span class="sub">${esc(b.sub)}</span>${b.chip}</div>`
+      const right = `<div class="ac-right"><div class="ac-hero">${books}</div><div class="${short ? 'late' : 'mute'}">${checkWord} ${check} · ${date}</div></div>`
+      const left = v === 12
+        ? `<div class="ac-left">${b.inn}${b.out}</div>`
+        : `<div class="ac-left"><span class="ac-pill ${diff ? (st.bank ? 'warn' : 'bad') : 'ok'}">${diff ? (st.bank ? `Differs ${diff < 0 ? '−' : '+'}${compact(Math.abs(diff))}` : `Short ${compact(diff)}`) : st.bank ? 'Matches the bank' : 'Matches the count'}</span><span class="mute">${st.bank ? 'Statement' : 'Counted'} ${date}</span></div>`
+      body = thin + `<div class="ac-split">${left}${right}</div>` + (v === 13 ? flow : '') + acts
+      break
+    }
+    default: body = head + `<div class="ac-two"><div><div class="ac-lab">Books</div><div class="ac-hero">${books}</div></div><div><div class="ac-lab">${checkWord} · ${date}</div><div class="ac-second ${short ? 'late' : ''}">${check}</div></div></div>` + flow + acts
+  }
+  return `<div class="acard v${v}" ${open} ${v === 6 ? `style="--tone:${toneOf(x)}"` : ''}>${body}</div>`
+}
+
+function refinedAcctCard(x) {
+  const b = acctBits(x), st = b.st, task = xTodo(x)
+  const open = `openSheet('xacct','${x.id}')`
+  const review = !task ? 'Up to date' : task.act === 'recon' ? `${plural(st.toMatch, 'line')} to match`
+    : task.act === 'upload' ? 'Statement overdue' : task.tone === 'bad' ? task.w : 'Cash count due'
+  const action = !task ? btn('View account ' + ico('chevron-right'), open, 'quiet')
+    : task.act === 'upload' ? btn('Upload statement', NEW.up, 'tint')
+    : task.act === 'count' ? btn('Count cash', `soon('The cash count form opens: notes and coins')`, 'tint')
+    : btn('Reconcile ' + ico('chevron-right'), x.real ? `openSheet('recon','${x.id}')` : open, 'tint')
+  return `<article class="acard" aria-label="${esc(x.name + ' · ' + x.place)}">
+    <div class="ac-name">${bankMark(x)}<div class="ac-id"><button class="ac-open" type="button" onclick="${open}" aria-label="Open ${esc(x.name + ' · ' + x.place)}">${esc(x.name)}</button><div class="ac-lab">${esc(b.sub)}</div></div>${b.chip}</div>
+    <div class="ac-balance"><div><div class="ac-lab">Book balance</div><div class="ac-hero">${money(st.books)}</div></div>
+      <div class="ac-check"><div class="ac-lab">${st.bank ? 'Bank' : 'Counted'} · ${day(st.date)}</div><div class="ac-second ${!st.bank && st.check !== st.books ? 'late' : ''}">${money(st.check)}</div></div></div>
+    <div class="ac-flow"><span class="ac-flow-month">Oct 2026</span><div class="ac-flow-cell" aria-label="Money in · Oct 2026" title="Money in · Oct 2026">${b.inn}</div><div class="ac-flow-cell" aria-label="Money out · Oct 2026" title="Money out · Oct 2026">${b.out}</div></div>
+    <div class="ac-act"><span class="ac-review ${task ? 'is-' + task.tone : ''}">${task ? ico('clock') : ''}${esc(review)}</span>${action}</div>
+  </article>`
+}
+
+function refinedAccountGroups(list) {
+  return GROUP.map(([kind, label]) => {
+    const xs = list.filter(x => kind === 'bank' ? isBankX(x) : x.kind === kind)
+    if (!xs.length) return ''
+    const total = xs.reduce((sum, x) => sum + xState(x).books, 0)
+    return `<section class="account-section" aria-label="${label}"><div class="account-section-head"><div class="account-section-title"><h2>${label}</h2><span class="account-section-count">${plural(xs.length, 'account')}</span></div><span class="account-section-total">Book balance <b>${money(total)}</b></span></div><div class="acards">${xs.map(refinedAcctCard).join('')}</div></section>`
+  }).join('')
+}
+
+function refinedAccountTools() {
+  const ff = f('acct')
+  const filters = chipsHTML({tab:'acct',key:'kind',label:'Kind',opts:[['','All',null,XA.length],...GROUP.map(([k,l]) => [k,k === 'cash' ? 'Cash' : k === 'float' ? 'Float' : l,null,XA.filter(x => k === 'bank' ? isBankX(x) : x.kind === k).length])]})
+  return `<div class="account-tools">${filters}<label class="ds-search">${ico('search')}<input type="search" placeholder="Search accounts" aria-label="Search accounts" value="${esc(ff.q)}" data-search="acct" oninput="onSearch(this)"></label><div class="view-toggle" role="radiogroup" aria-label="View">${[['cards','Cards','layers'],['list','List','columns']].map(([v,l,i]) => `<button type="button" role="radio" aria-label="${l}" title="${l}" aria-checked="${ff.view === v}" onclick="setF('acct','view','${v}')">${ico(i)}</button>`).join('')}</div></div>`
+}
+
+const GROUP = [['bank', 'Bank'], ['cash', 'Cash on hand'], ['petty', 'Petty cash'], ['float', 'Cashier float']]
+function groups(list) {
+  const gx = list.map(x => isBankX(x) ? 'bank' : x.kind)
+  const kinds = GROUP.filter(([k]) => gx.includes(k))
+  if (kinds.length < 2) return [['', list]]
+  return kinds.map(([k, name]) => {
+    const xs = list.filter((x, i) => gx[i] === k)
+    const total = xs.reduce((t, x) => t + xState(x).books, 0)
+    return [`<span>${name}</span><span class="ac-gn">${money(total)}</span>`, xs]
+  })
+}
+
+function acctView() {
+  const ff = f('acct')
+  const n = k => XA.filter(x => k === 'bank' ? isBankX(x) : x.kind === k).length
+  const list = XA.filter(x => (!ff.kind || (ff.kind === 'bank' ? isBankX(x) : x.kind === ff.kind)) && hit(ff.q, x.name, x.no, x.place, KIND[x.kind]))
+  const S_ = XA.map(xState)
+  const sum = pred => XA.reduce((t, x, i) => t + (pred(x) ? S_[i].books : 0), 0)
+  const todo = XA.filter(xTodo).length
+  return {
+    head: [{ label: 'Upload statement', on: NEW.up, icon: 'upload', ghost: S.opt === 'e' }, { label: 'New transfer', on: NEW.tf, primary: true }],
+    kpis: [
+      ...(S.opt === 'f' ? [
+        { label: 'In banks', value: money(sum(isBankX)) },
+        { label: 'In cash', value: money(sum(x => !isBankX(x))) },
+      ] : [
+        { label: 'Books', value: money(sum(() => true)) },
+        { label: 'Banks', value: money(XA.reduce((t, x, i) => t + (isBankX(x) ? S_[i].check : 0), 0)) },
+        { label: 'Cash', value: money(sum(x => !isBankX(x))) },
+      ]),
+      { label: S.opt === 'f' ? 'Needs review' : 'Cash count', value: S.opt === 'f' ? todo : money(XA.reduce((t, x, i) => t + (isBankX(x) ? 0 : S_[i].check), 0)) },
+    ],
+    bar: [
+      { t: 'search', ph: 'Search accounts', tab: 'acct' },
+      { t: 'chips', tab: 'acct', key: 'kind', label: 'Kind', opts: [['', 'All', 'list', XA.length], ['bank', 'Bank', 'landmark', n('bank')], ['cash', 'Cash', 'wallet', n('cash')], ['petty', 'Petty cash', 'coins', n('petty')], ['float', 'Float', 'coins', n('float')]] },
+    ],
+    side: null,
+    tools: S.opt === 'f' ? refinedAccountTools() : null,
+    cards: S.opt === 'f' ? S.opt === 'f' ? refinedAccountGroups(list) : groups(list).map(([g, xs]) => `${g ? `<div class="ac-group">${g}</div>` : ''}<div class="acards">${xs.map(acctCard).join('')}</div>`).join('') : null,
+    cols: [
+      { k: 'acc', l: 'Account', mcell: true }, { k: 'books', l: 'Books', w: 196, num: true },
+      { k: 'check', l: 'Bank / counted', w: 204, num: true }, { k: 'flow', l: 'Credit / Debit', w: 204, num: true },
+      { k: 'act', l: '', w: 172, act: true },
+    ],
+    rows: groups(list).flatMap(([g, xs]) => [...(g ? [{ group: g }] : []), ...xs.map(x => {
+      const b = acctBits(x), st = b.st
+      return {
+        on: `openSheet('xacct','${x.id}')`,
+        c: {
+          acc: `<div class="ac-row">${bankMark(x, true)}<div class="ac-id"><div class="ac-nameline"><span class="nm">${esc(x.name)}</span>${b.chip}</div><div class="ac-lab">${esc(b.sub)}</div></div></div>`,
+          books: `<span class="books">${money(st.books)}</span><span class="ds-sub">${day(TODAY)}</span>`,
+          check: `<span class="nm ${!st.bank && st.check !== st.books ? 'late' : ''}">${money(st.check)}</span><span class="ds-sub">${day(st.date)}</span>`,
+          flow: `${b.inn}<br>${b.out}`,
+          act: `<div class="ac-act-row">${b.acts('ds-btn--sm cell', false, true)}</div>`,
+        },
+      }
+    })]),
+    tbl: 'roomy',
+    empty: 'No accounts match',
+  }
+}
+
+// E · giro as a board: one column per step a giro we issued goes through; the bank statement moves cards to Cleared
+function giroBoardView() {
+  const all = giros().filter(g => !g.in)
+  const col = g => g.status === 'Bounced' ? 'bounced' : g.status === 'Cleared' || g.sug ? 'cashed' : !g.given ? 'written' : g.due > TODAY ? 'given' : 'due'
+  const COLS = [['written', 'Written'], ['given', 'With supplier'], ['due', 'Can be cashed'], ['cashed', 'Cashed · October'], ['bounced', 'Bounced']]
+  const when = g => g.cleared || (g.sug && g.sug.date) || ''
+  const inCol = k => all.filter(g => col(g) === k && (k !== 'cashed' || when(g).startsWith('2026-10')))
+    .sort((a, b) => k === 'cashed' ? when(b).localeCompare(when(a)) : a.due.localeCompare(b.due))
+  const open = all.filter(g => ['written', 'given', 'due'].includes(col(g))), sum = xs => xs.reduce((t, g) => t + g.amt, 0)
+  const card = g => {
+    const k = col(g), matched = k === 'cashed' && !(g.sug && g.status !== 'Cleared')
+    const chip = k === 'cashed' ? `<span class="gchip ok">Cashed ${day(when(g))}</span>${matched ? '' : '<span class="gchip info">Not matched</span>'}`
+      : k === 'bounced' ? `<span class="gchip bad">Bounced ${day(g.cleared)}</span>`
+      : `<span class="gchip ${k === 'due' ? 'warn' : ''}">Due ${day(g.due)}</span>`
+    return `<div class="gcard" draggable="true" ondragstart="event.dataTransfer.setData('text/plain','${g.id}');this.classList.add('drag')" ondragend="this.classList.remove('drag')" ${byId(g.id) ? `role="button" tabindex="0" onclick="openSheet('entry','${g.id}')"` : ''}>
+      <div class="nm">${esc(g.party)}</div>
+      <div class="gamt">${money(g.amt)}</div>
+      <div class="mute">Giro ${esc(g.no.split('-').pop())}</div>
+      <div class="gchips">${chip}</div>
+    </div>`
+  }
+  const board = `<div class="gboard">${COLS.map(([k, label]) => { const xs = inCol(k); return `<section class="gcol" ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="this.classList.remove('over');dropGiro(event.dataTransfer.getData('text/plain'),'${k}')">
+    <header><div><span class="gtitle">${label}</span> <span class="mute">${xs.length}</span></div><div class="gsum">${money(sum(xs))}</div></header>
+    <div class="gcards">${xs.map(card).join('') || '<div class="gempty">Nothing here</div>'}</div></section>` }).join('')}</div>`
+  return {
+    head: [],
+    kpis: [
+      { label: 'Will leave the bank', value: money(sum(open)) },
+      { label: `Can be cashed now · ${inCol('due').length}`, value: money(sum(inCol('due'))) },
+    ],
+    board,
+    bar: [], cols: [], rows: [],
+    empty: 'No giros here',
+  }
+}
+
+const VIEWS = { giroB: giroBoardView, acct: acctView, bkk: () => voucherView('bkk'), bkm: () => voucherView('bkm'), giro: giroView, bank: bankView, adv: advView, accounts: accountsView, match: matchView, book: bookView }
+
+/* ───────────── page ───────────── */
+function rail() {
+  const b = (n, label, cur, dot) => `<span class="ds-rail-btn ${cur ? 'is-current' : ''}" aria-label="${label}" title="${cur && S.fold ? 'Show the Finance screens' : label}" ${cur ? 'role="button" onclick="S.fold=!S.fold;render()"' : ''}>${ico(n)}${dot ? '<span class="ds-dot-alert"></span>' : ''}</span>`
+  return `<nav class="ds-rail"><span class="ds-rail-btn find" aria-label="Search">${ico('search')}</span>${b('cart', 'Procurement', 0, 1)}${b('shirt', 'Merchandise', 0, 1)}${b('package', 'Inventory', 0, 1)}${b('megaphone', 'Marketing')}${b('store', 'Sales')}${b('wallet', 'Finance', 1)}${b('users', 'People', 0, 1)}</nav>`
+}
+function panel() {
+  const row = (label, n, on) => `<span class="ds-nav-row ${on ? 'is-active' : ''}">${label}${n ? `<span class="ds-count">${n}</span>` : ''}</span>`
+  if (S.fold) return ''
+  return `<aside class="ds-panel"><div class="p-head"><div class="ds-panel-title">Finance</div><button class="p-fold" type="button" aria-label="Hide the screens" title="Hide the screens" onclick="S.fold=true;render()">${ico('chevron-left')}</button></div>
+    <div class="p-body"><div class="ds-nav">${row('Overview')}</div>
+      <span class="nav-label">Daily work</span><div class="ds-nav">${row('Stores')}${row('Payables', 55)}${row('Cash &amp; Bank', toMatchCount(), 1)}</div>
+      <span class="nav-label">Accounting</span><div class="ds-nav">${row('Journal')}${row('Assets')}${row('Month End')}${row('Reports')}</div>
+      <span class="nav-label">Configuration</span><div class="ds-nav">${row('Setup', 45)}</div></div>
+    <div class="p-foot">${ico('clock')}18 Oct 2026 · 19:54</div></aside>`
+}
+function headBtns(h) {
+  const menu = S.menu ? `<div class="menu" role="menu">${[['New BKK', 'Money out', NEW.bkk], ['New BKM', 'Money in', NEW.bkm], ['New transfer', 'Between our accounts', NEW.tf]].map(([l, s, on]) => `<button type="button" role="menuitem" onclick="S.menu=false;${on};render()"><span>${l}</span><span class="mute">${s}</span></button>`).join('')}</div>` : ''
+  return h.map(b => `<button class="ds-btn ds-btn--${b.primary ? 'primary' : b.ghost ? 'ghost' : 'tint'}" type="button" onclick="${b.on}" ${b.menu ? `aria-expanded="${S.menu}"` : ''}>${b.icon ? ico(b.icon) : b.primary && /^New/.test(b.label) ? ico('plus') : ''}${b.label}${b.menu ? ico('chevron-down') : ''}</button>`).join('') + menu
+}
+function kpisHTML(kpis) {
+  if (!kpis?.length) return ''
+  return `<div class="ds-kpis kpis">${kpis.map(k => {
+    const tag = k.on ? 'button' : 'div'
+    return `<${tag} class="ds-kpi ${k.sel ? 'on' : ''}" ${k.on ? `type="button" onclick="${k.on}"` : ''}><div class="ds-kpi-label">${k.label}</div><div class="ds-kpi-value ${k.bad ? 'is-bad' : ''}">${k.value}</div></${tag}>`
+  }).join('')}</div>`
+}
+function barHTML(bar) {
+  if (!bar?.length) return ''
+  return `<div class="ds-bar">${bar.map(x => {
+    if (x.t === 'search') return `<label class="ds-search">${ico('search')}<input type="search" placeholder="${x.ph}" aria-label="${x.ph}" value="${esc(f(x.tab).q)}" data-search="${x.tab}" oninput="onSearch(this)"></label>`
+    if (x.t === 'select') return `<span class="sel"><select aria-label="${x.key}" onchange="setF('${x.tab}','${x.key}',this.value)">${x.opts.map(([v, l]) => `<option value="${v}" ${f(x.tab)[x.key] === v ? 'selected' : ''}>${l}</option>`).join('')}</select>${ico('chevron-down')}</span>`
+    if (x.t === 'spacer') return '<span class="ds-bar-spacer"></span>'
+    if (x.t === 'btn') return btn(x.label, x.on, 'tint')
+    if (x.t === 'chips') return chipsHTML(x)
+    if (x.t === 'count') return `<span class="bar-count">${x.text}</span>`
+    return ''
+  }).join('')}</div>`
+}
+function chipsHTML(x) {
+  const cur = f(x.tab)[x.key]
+  return `<div class="chips${x.seg ? ' seg' : ''}" role="radiogroup" aria-label="${x.label || x.key}">${x.opts.map(([v, l, icon, n]) => `<button class="chip" type="button" role="radio" aria-checked="${cur === v}" onclick="setF('${x.tab}','${x.key}','${v}')">${icon ? ico(icon) : ''}${l}${n != null ? `<span class="n">${n}</span>` : ''}</button>`).join('')}</div>`
+}
+function tableHTML(m) {
+  if (!m.rows.length) return `<div class="ds-table-card"><div class="ds-empty"><p>${m.empty}</p></div></div>`
+  const td = (c, r) => `<td class="${c.num ? 'is-num' : ''} ${c.fx ? 'fx' : ''} ${c.wrap ? 'wrap' : ''} ${c.mcell ? 'mcell' : ''} ${c.act ? 'act' : ''}">${r.c[c.k] ?? ''}</td>`
+  return `<div class="ds-table-card"><table class="ds-table tbl ${m.tbl || ''}">
+    <colgroup>${m.cols.map(c => `<col${c.w ? ` style="width:${c.w}px"` : ''}>`).join('')}</colgroup>
+    <thead><tr>${m.cols.map(c => `<th class="${c.num ? 'is-num' : ''}">${c.l}</th>`).join('')}</tr></thead>
+    <tbody>${m.rows.map(r => r.group ? `<tr class="grp"><td colspan="${m.cols.length}"><div class="grp-in">${r.group}</div></td></tr>` : `<tr class="${r.on ? 'ds-opens' : ''} ${r.cls || ''}" ${r.on ? `onclick="${r.on}"` : ''}>${m.cols.map(c => td(c, r)).join('')}</tr>`).join('')}</tbody>
+    ${m.foot ? `<tfoot><tr>${m.cols.map(c => `<td class="${c.num ? 'is-num' : ''}">${m.foot[c.k] ?? ''}</td>`).join('')}</tr></tfoot>` : ''}
+  </table></div>`
+}
+function deskView() {
+  const o = OPT[S.opt], t = curTab(), m = VIEWS[t]()
+  return `<div class="ds ds-shell shell">${rail()}${panel()}
+    <main class="ds-page page ${S.opt === 'f' && t === 'acct' ? 'account-refined' : ''}"><div class="ds-page-content">
+      <div class="door-head">
+        <div class="door-top"><h1 class="ds-title">Cash &amp; Bank</h1><div class="door-actions">${headBtns(m.head)}</div></div>
+        <div class="ds-tabs door-tabs" role="tablist">${o.tabs.map(x => `<button class="ds-tab ${x === t ? 'is-selected' : ''}" role="tab" aria-selected="${x === t}" type="button" onclick="setTab('${x}')">${TAB[x]}</button>`).join('')}</div>
+      </div>
+      ${m.side ? `<div class="kpi-row">${kpisHTML(m.kpis)}${m.side}</div>` : kpisHTML(m.kpis)}${m.tools || (m.board ? '' : barHTML(m.bar))}${m.board ? m.board : m.cards != null ? (m.cards || `<div class="ds-empty"><p>${m.empty}</p></div>`) : tableHTML(m)}
+    </div></main></div>`
+}
+
+/* ───────────── now (screenshots of today's hub) ───────────── */
+const NOW = [['bkk', 'BKK', 'cash-bank-bkk'], ['bkm', 'BKM', 'cash-bank-bkm'], ['giro', 'Giro', 'cash-bank-giro'],
+  ['rec', 'Bank › Reconciliation', 'cash-bank-bank-reconciliation'], ['acc', 'Bank › Accounts', 'cash-bank-bank-accounts'],
+  ['lines', 'Bank › Statement lines', 'cash-bank-bank-transactions'], ['sum', 'Bank › Month summary', 'reports-bank-reconciliation-summary'],
+  ['rules', 'Bank › Matching rules', 'cash-bank-bank-rules'], ['adv', 'Advances', 'receivables-employee']]
+function nowView() {
+  const cur = NOW.find(x => x[0] === S.now) || NOW[0]
+  return `<div class="now"><div class="seg now-pick">${NOW.map(([k, l]) => `<button class="${k === cur[0] ? 'on' : ''}" type="button" onclick="S.now='${k}';render()">${l}</button>`).join('')}</div>
+    <div class="now-shot"><img src="finance-review/shots/desk-${cur[2]}.png" alt="Today: ${cur[1]}"></div></div>`
+}
+
+/* ───────────── sheets ───────────── */
+function sheetFrame({ size = 'wide', crumb, title, pill: p, body, foot }) {
+  return `<div class="ds ds-sheet ds-sheet--${size}" role="dialog" aria-label="${esc(title.replace(/<[^>]+>/g, ''))}">
+    <div class="ds-sheet-head"><div class="ds-sheet-headtext">${crumb ? `<div class="ds-sheet-crumb">${crumb.map(esc).join('<span class="ds-sep">/</span>')}</div>` : ''}
+      <div class="ds-sheet-titlerow"><h2 class="ds-sheet-title">${title}</h2>${p || ''}</div></div>
+      <button class="ds-sheet-close" type="button" aria-label="Close" onclick="closeTop()">${ico('x', 'ds-ico--17')}</button></div>
+    <div class="ds-sheet-body">${body}</div>
+    ${foot ? `<div class="ds-sheet-foot">${foot}</div>` : ''}</div>`
+}
+const sheetKpis = ks => `<div class="ds-kpis ds-kpis--in-sheet kpis">${ks.map(([l, v, bad]) => `<div class="ds-kpi"><div class="ds-kpi-label">${l}</div><div class="ds-kpi-value ${bad ? 'is-bad' : ''}">${v}</div></div>`).join('')}</div>`
+const section = (title, inner, right = '') => `<div class="ds-section"><div class="sec-head"><h3 class="ds-section-title">${title}</h3>${right}</div>${inner}</div>`
+const printBtn = what => `<span class="foot-left">${btn(ico('printer') + 'Print', `soon('Prints ${what}')`, 'tint', 'ds-btn--foot')}</span>`
+
+// one document: who and how much on top, what it paid for, then what happened to it
+function entrySheet(id) {
+  const e = byId(id), out = sgn(e, e.acct) < 0, ln = lineOf(e), sug = suggestOf(e), store = e.kind === 'DEP' || e.kind === 'DAY'
+  const acctLabel = ACC[e.acct].name + (e.kind === 'TF' ? ` → ${ACC[e.to].name}` : '') + (e.giro ? ` · giro ${e.giro.no.split('-').pop()}` : '')
+  const bank = !ACC[e.acct].bank ? '—'
+    : ln ? `Matched · ${day(ln.date)}`
+    : sug ? `Bank · ${day(sug.date)}`
+    : e.giro && !e.giro.bounced && !e.giro.cleared ? `Giro due ${day(e.giro.due)}`
+    : e.status === 'Posted' ? 'Not at the bank yet' : '—'
+  const lines = `<div class="ds-table-card"><table class="ds-table tbl"><colgroup><col><col style="width:260px"><col style="width:168px"></colgroup>
+    <thead><tr><th>For</th><th>Account</th><th class="is-num">Amount</th></tr></thead>
+    <tbody><tr><td class="fx"><span>${esc(e.memo)}</span></td><td class="fx"><span>${esc(e.acc || (e.kind === 'DEP' ? '1101 Cash in transit' : 'Card & QRIS takings'))}</span></td><td class="is-num">${money(e.amt)}</td></tr></tbody></table></div>`
+  const acts = [[e.date, `Recorded by ${e.by}`]]
+  if (!store && e.status !== 'Draft' && e.status !== 'Rejected') acts.push([e.date, `Approved by ${e.appr || 'Andi Wijaya'}`])
+  if (e.status === 'Posted' || e.status === 'Cancelled') acts.push([e.date, 'Posted to the books'])
+  if (ln) acts.push([ln.date, 'Matched to the bank statement'])
+  if (e.giro?.cleared) acts.push([e.giro.cleared, 'Giro marked cleared'])
+  if (e.giro?.bounced) acts.push([e.giro.bounced, 'Giro bounced · the bill is open again'])
+  if (e.status === 'Rejected') acts.push([TODAY, 'Rejected'])
+  const actsHTML = `<div class="acts">${acts.map(([d, w]) => `<div><span class="mute">${day(d)}</span><span>${esc(w)}</span></div>`).join('')}</div>`
+  let foot = printBtn(`the ${kindName[e.kind]} slip`)
+  if (e.status === 'Draft') foot += btn('Reject', `setStatus('${e.id}','Rejected')`, 'tint-bad', 'ds-btn--foot') + btn('Approve', `setStatus('${e.id}','Approved')`, 'primary', 'ds-btn--foot')
+  else if (e.status === 'Approved') foot += btn('Post to the books', `setStatus('${e.id}','Posted')`, 'primary', 'ds-btn--foot')
+  else if (e.giro && !e.giro.in && !e.giro.given && !e.giro.bounced) foot += btn('Given to supplier', `giveGiro('${e.id}')`, 'primary', 'ds-btn--foot')
+  else if (e.giro && !ln && !e.giro.cleared && !e.giro.bounced) foot += (e.giro.in ? '' : btn('Giro bounced', `bounce('${e.id}')`, 'tint-bad', 'ds-btn--foot')) + btn(sug ? 'Match bank line' : 'Mark cleared', `clearGiro('${e.id}')`, 'primary', 'ds-btn--foot')
+  const crumb = store ? ['Stores', e.kind === 'DEP' ? 'Deposits' : 'Card & QRIS', e.no] : ['Cash & Bank', kindName[e.kind], e.no || 'Draft']
+  const body = sheetKpis([['Date', day(e.date)], [out ? 'Paid from' : 'Received into', esc(acctLabel)], ['Bank', bank], ['Amount', money(e.amt)]])
+    + section(store ? 'Takings' : out ? 'Paid for' : 'Received for', lines) + section('Activity', actsHTML)
+  return sheetFrame({ size: 'wide', crumb, title: esc(e.party), pill: pill(e.status), body, foot })
+}
+
+// reconcile one bank account: the statement as the bank prints it (debit = out, credit = in),
+// each line ticked or waiting for Match / Book; below it, what the books have and the bank does not yet
+function reconSheet(id) {
+  const a = ACC[id], r = recon(id), show = S.sheetShow
+  const all = L.filter(l => l.acct === id).sort((x, y) => x.date.localeCompare(y.date) || x.id.localeCompare(y.id))
+  let bal = a.bankOpen
+  const withBal = all.map(l => ({ l, bal: (bal += lineAmt(l)) }))
+  const shown = withBal.filter(({ l }) => show === 'to' ? !l.match : show === 'done' ? !!l.match : true)
+  const opening = show === '' ? `<tr class="opening"><td>01 Oct 2026</td><td>Opening balance</td><td></td><td></td><td class="is-num">${money(a.bankOpen)}</td><td></td></tr>` : ''
+  const statement = `<div class="ds-table-card"><table class="ds-table tbl"><colgroup><col style="width:116px"><col><col style="width:132px"><col style="width:132px"><col style="width:160px"><col style="width:272px"></colgroup>
+    <thead><tr><th>Date</th><th>Description</th><th class="is-num">Debit</th><th class="is-num">Credit</th><th class="is-num">Balance</th><th>Books</th></tr></thead>
+    <tbody>${opening}${shown.map(({ l, bal }) => `<tr><td>${day(l.date)}</td><td class="wrap"><span>${esc(l.says)}</span></td><td class="is-num">${l.out ? money(l.out) : ''}</td><td class="is-num">${l.in ? money(l.in) : ''}</td><td class="is-num">${money(bal)}</td><td class="mcell">${matchCell(l)}</td></tr>`).join('') || `<tr><td colspan="6" class="mute">Every line is matched</td></tr>`}</tbody></table></div>`
+  const chips = `<div class="chips" role="radiogroup" aria-label="Show">${[['', 'All', 'list', all.length], ['to', 'To match', 'link', r.toMatch.length], ['done', 'Matched', 'circle-check', all.length - r.toMatch.length]].map(([v, l, i, n]) => `<button class="chip" type="button" role="radio" aria-checked="${show === v}" onclick="S.sheetShow='${v}';renderLayers()">${ico(i)}${l}<span class="n">${n}</span></button>`).join('')}</div>`
+  const waiting = [...r.giroOut, ...r.onWay].sort((x, y) => x.date.localeCompare(y.date))
+  const books = waiting.length ? section(`Books, not at the bank yet · ${waiting.length}`, `<div class="ds-table-card"><table class="ds-table tbl"><colgroup><col style="width:116px"><col><col style="width:132px"><col style="width:132px"><col style="width:272px"></colgroup>
+    <thead><tr><th>Date</th><th>Description</th><th class="is-num">Debit</th><th class="is-num">Credit</th><th>Waiting for</th></tr></thead>
+    <tbody>${waiting.map(e => { const out = sgn(e, id) < 0, late = e.giro && e.giro.due < TODAY
+      const why = e.giro ? `<span class="${late ? 'late' : ''}">Giro ${e.giro.no.split('-').pop()} · due ${day(e.giro.due)}</span>` : `<span class="mute">Deposit to land · ${ago(e.date)} ${ago(e.date) === 1 ? 'day' : 'days'}</span>`
+      return `<tr class="ds-opens" onclick="openSheet('entry','${e.id}')"><td>${day(e.date)}</td><td class="fx">${nameSub(e.party, `${e.no} · ${e.memo}`)}</td><td class="is-num">${out ? money(e.amt) : ''}</td><td class="is-num">${out ? '' : money(e.amt)}</td><td>${why}</td></tr>` }).join('')}</tbody></table></div>`) : ''
+  const body = sheetKpis([[`Bank · ${day(a.stmt)}`, money(r.bank)], [`Books · ${day(TODAY)}`, money(r.books)], ['To match', r.toMatch.length || 'None']])
+    + section(`Bank statement · 01 – ${day(a.stmt)}`, statement, chips) + books
+  return sheetFrame({ size: 'workspace', crumb: ['Cash & Bank', 'Bank'], title: `${a.name} <span class="mute" style="font-weight:400">${a.no}</span>`, body,
+    foot: printBtn(`the reconciliation statement for ${a.name}`) + btn(ico('upload') + 'Upload statement', NEW.up, 'primary', 'ds-btn--foot') })
+}
+
+// B · one account's book, like a passbook; what the bank has and the books don't sits on top
+function passbookSheet(id) {
+  const a = ACC[id], r = a.bank ? recon(id) : null
+  const list = E.filter(e => e.status === 'Posted' && e.date >= '2026-10-01' && inAcct(e, id)).sort((x, y) => x.date.localeCompare(y.date) || String(x.no).localeCompare(String(y.no)))
+  let bal = a.open, mIn = 0, mOut = 0
+  const n = a.bank ? 6 : 5
+  const rows = list.map(e => {
+    const s = sgn(e, id); bal += s * e.amt; s > 0 ? mIn += e.amt : mOut += e.amt
+    const ln = lineOf(e), sug = suggestOf(e)
+    const bankCell = !a.bank ? '' : `<td class="act" style="text-align:left">${ln ? `<span class="okc">${ico('check')}${day(ln.date).slice(0, 6)}</span>` : sug ? cellBtn('Match', `matchLine('${sug.id}')`) : `<span class="mute">${e.giro ? 'Giro waiting' : 'On its way'}</span>`}</td>`
+    const other = e.kind === 'TF' ? (e.acct === id ? `To ${ACC[e.to].name}` : `From ${ACC[e.acct].name}`) : e.party
+    return `<tr class="ds-opens" onclick="openSheet('entry','${e.id}')"><td>${day(e.date)}</td><td class="fx">${nameSub(other, `${e.no} · ${e.memo}`)}</td><td class="is-num">${s > 0 ? money(e.amt) : ''}</td><td class="is-num">${s < 0 ? money(e.amt) : ''}</td><td class="is-num">${money(bal)}</td>${bankCell}</tr>`
+  })
+  const toBook = r ? r.toBook : []
+  const bankOnly = toBook.length ? `<tr class="grp"><td colspan="${n}">Bank, not in the books · ${toBook.length}</td></tr>` + toBook.map(l => `<tr><td>${day(l.date)}</td><td class="wrap"><span>${esc(l.says)}</span></td><td class="is-num">${l.in ? money(l.in) : ''}</td><td class="is-num">${l.out ? money(l.out) : ''}</td><td></td><td class="act" style="text-align:left">${cellBtn(l.out ? 'Book BKK' : 'Book BKM', `openSheet('book','${l.id}')`)}</td></tr>`).join('') : ''
+  const table = `<div class="ds-table-card"><table class="ds-table tbl"><colgroup><col style="width:124px"><col><col style="width:168px"><col style="width:168px"><col style="width:184px">${a.bank ? '<col style="width:136px">' : ''}</colgroup>
+    <thead><tr><th>Date</th><th>Description</th><th class="is-num">In</th><th class="is-num">Out</th><th class="is-num">Balance</th>${a.bank ? '<th>Bank</th>' : ''}</tr></thead>
+    <tbody>${bankOnly}${toBook.length ? `<tr class="grp"><td colspan="${n}">Books</td></tr>` : ''}<tr class="opening"><td>01 Oct 2026</td><td>Opening balance</td><td></td><td></td><td class="is-num">${money(a.open)}</td>${a.bank ? '<td></td>' : ''}</tr>${rows.join('')}</tbody></table></div>`
+  const figs = sheetKpis([
+    ['Opening · 01 Oct 2026', money(a.open)], ['Money in', money(mIn)], ['Money out', money(mOut)],
+    [`Books · ${day(TODAY)}`, money(bal)],
+    r ? [`Bank · ${day(a.stmt)}`, money(r.bank)] : ['Last counted', day(a.counted)],
+  ])
+  const body = figs + section('October 2026', table)
+  return sheetFrame({ size: 'workspace', crumb: ['Cash & Bank', 'Accounts'], title: `${a.name} <span class="mute" style="font-weight:400">${a.no}</span>`, body,
+    foot: printBtn(`the ${a.name} book for October 2026`) + (a.bank ? btn('Upload statement', NEW.up, 'primary', 'ds-btn--foot') : btn('Record count', `soon('The cash count form opens')`, 'primary', 'ds-btn--foot')) })
+}
+
+function bookSheet(lineId) {
+  const l = line(lineId), out = l.out > 0, a = ACC[l.acct]
+  const fld = (label, v, wide) => `<label class="${wide ? 'wide' : ''}">${label}<input class="ds-input" value="${esc(v)}"></label>`
+  const body = `<div class="fields">${fld('Date', day(l.date))}${fld('Amount', money(Math.abs(lineAmt(l))))}${fld(out ? 'Paid from' : 'Received into', a.name)}${fld(out ? 'Paid to' : 'Received from', l.book.party)}${fld('For', l.book.memo, true)}${fld('Account', l.book.acc, true)}</div>`
+    + section('Bank says', `<p class="mute">${esc(l.says)} · ${day(l.date)}</p>`)
+  return sheetFrame({ size: 'rail', crumb: ['Cash & Bank', a.name], title: out ? 'New BKK' : 'New BKM', body, foot: btn('Post to the books', `bookLine('${l.id}')`, 'primary', 'ds-btn--foot') })
+}
+
+function advSheet(id) {
+  const a = ADV.find(x => x.id === id)
+  const used = a.given - a.out - a.back
+  const acts = [[a.date, `Given · ${money(a.given)}`]]
+  if (used) acts.push([a.date, `Settled with receipts · ${money(used)}`])
+  if (a.back) acts.push([a.date, `Returned · ${money(a.back)}`])
+  const body = sheetKpis([['Given on', day(a.date)], ['Given', money(a.given)], ['Still out', money(a.out), a.out && ago(a.date) > 30], ['Age', a.out ? `${ago(a.date)} days` : '—', a.out && ago(a.date) > 30]])
+    + section('Purpose', `<p class="purpose">${esc(a.why)}</p>`) + section('Activity', `<div class="acts">${acts.map(([d, w]) => `<div><span class="mute">${day(d)}</span><span>${esc(w)}</span></div>`).join('')}</div>`)
+  return sheetFrame({ size: 'wide', crumb: ['Cash & Bank', 'Advances', a.no], title: esc(a.who), pill: pill(advStatus(a)), body,
+    foot: a.out ? btn('Record settlement', `soon('Receipts and money returned are recorded against ${a.no}')`, 'primary', 'ds-btn--foot') : '' })
+}
+
+function advListSheet() {
+  const list = ADV.filter(a => a.out > 0)
+  const table = `<div class="ds-table-card"><table class="ds-table tbl"><colgroup><col><col style="width:160px"><col style="width:160px"><col style="width:112px"></colgroup><thead><tr><th>Employee</th><th class="is-num">Given</th><th class="is-num">Still out</th><th class="is-num">Age</th></tr></thead><tbody>${list.map(a => `<tr class="ds-opens" onclick="openSheet('adv','${a.id}')"><td class="fx">${nameSub(a.who, `${a.no} · ${a.why}`)}</td><td class="is-num">${money(a.given)}</td><td class="is-num">${money(a.out)}</td><td class="is-num"><span class="${ago(a.date) > 30 ? 'late' : ''}">${ago(a.date)} days</span></td></tr>`).join('')}</tbody></table></div>`
+  return sheetFrame({ size: 'wide', crumb: ['Cash & Bank', 'Accounts'], title: 'With employees', body: sheetKpis([['Still out', money(list.reduce((s, a) => s + a.out, 0))], ['People', new Set(list.map(a => a.who)).size], ['Over 30 days', money(list.filter(a => ago(a.date) > 30).reduce((s, a) => s + a.out, 0)), true]]) + table,
+    foot: btn('New advance', NEW.adv, 'primary', 'ds-btn--foot') })
+}
+
+function xAcctSheet(id) {
+  const x = XA.find(a => a.id === id), st = xState(x), t = xTodo(x), rows = xRows(x)
+  const ins = rows.filter(r => r.dir === 'in'), outs = rows.filter(r => r.dir === 'out')
+  const tot = xs => xs.reduce((s, r) => s + r.amt, 0)
+  const side = (title, xs) => section(`${title} · ${money(tot(xs))}`, `<div class="ds-table-card"><table class="ds-table tbl"><colgroup><col style="width:116px"><col><col style="width:144px"></colgroup>
+    <thead><tr><th>Date</th><th>Description</th><th class="is-num">Amount</th></tr></thead>
+    <tbody>${xs.map(r => `<tr class="${r.id ? 'ds-opens' : ''}" ${r.id ? `onclick="openSheet('entry','${r.id}')"` : ''}><td>${day(r.date)}</td><td class="fx">${nameSub(r.party, r.memo)}</td><td class="is-num">${money(r.amt)}</td></tr>`).join('') || `<tr><td colspan="3" class="mute">Nothing in October</td></tr>`}</tbody></table></div>`)
+  const diff = st.books - st.check
+  const balances = `<div class="bal2">
+    <div><div class="ds-kpi-label">Books · ${day(TODAY)}</div><div class="big">${money(st.books)}</div></div>
+    <div><div class="ds-kpi-label">${st.bank ? 'Bank' : 'Counted'} · ${day(st.date)}</div><div class="big">${money(st.check)}</div>${diff ? `<div class="${st.bank ? 'mute' : 'late'}">${st.bank ? `Difference ${signed(diff)}` : `Short ${money(diff)}`}</div>` : ''}</div></div>`
+  const body = balances + `<div class="two">${side('Money in', ins)}${side('Money out', outs)}</div>`
+  const canRecon = st.bank && x.real && ACC[id].bank
+  const next = t ? t.act : st.bank ? 'upload' : 'count'
+  let foot = printBtn(`the ${x.name} book for October 2026`)
+  if (st.bank) {
+    const reconOn = canRecon ? `openSheet('recon','${id}')` : `soon('${st.toMatch ? 'The statement lines open here' : 'Every line of the last statement is matched'}')`
+    foot += btn(ico('upload') + 'Upload statement', NEW.up, 'tint', 'ds-btn--foot')
+    foot += btn(`Reconcile${st.toMatch ? ` · ${st.toMatch}` : ''}`, reconOn, 'primary', 'ds-btn--foot')
+  } else foot += btn('Count cash', `soon('The cash count form opens: notes and coins')`, 'primary', 'ds-btn--foot')
+  return sheetFrame({ size: 'workspace', crumb: ['Cash & Bank', 'Accounts'], title: `${esc(x.name)} <span class="mute" style="font-weight:400">${esc(isBankX(x) ? x.no : x.place)}</span>`, body, foot })
+}
+
+const SHEETS = { xacct: xAcctSheet, entry: entrySheet, recon: reconSheet, passbook: passbookSheet, book: bookSheet, adv: advSheet, advlist: advListSheet }
+
+function openSheet(t, id) {
+  S.menu = false
+  const top = S.stack[S.stack.length - 1]
+  if (top && top.t === t && top.id === id) return
+  const at = S.stack.findIndex(s => s.t === t && s.id === id) // already open lower down: go back to it
+  if (at >= 0) { S.stack = S.stack.slice(0, at + 1); renderLayers(); return }
+  if (t === 'recon') S.sheetShow = ''
+  S.stack.push({ t, id, fresh: true }); renderLayers()
+}
+function closeTop(instant) {
+  const host = $('#layers'); if (!S.stack.length) return
+  const wraps = host.querySelectorAll('.sheet-wrap'), el = wraps[wraps.length - 1]
+  const done = () => { S.stack.pop(); renderLayers() }
+  if (instant || !el || matchMedia('(prefers-reduced-motion: reduce)').matches) return done()
+  el.classList.remove('on'); el.classList.add('out')
+  if (S.stack.length === 1) host.classList.remove('open')
+  setTimeout(done, 200)
+}
+function renderLayers() {
+  const host = $('#layers')
+  const keep = [...host.querySelectorAll('.ds-sheet-body')].map(b => b.scrollTop)
+  if (!S.stack.length) { host.classList.remove('open'); host.innerHTML = '<div class="veil"></div>'; return }
+  host.innerHTML = `<div class="veil" onclick="closeTop()"></div>` + S.stack.map((s, i) => `<div class="sheet-wrap ${s.fresh ? '' : 'on'} ${i < S.stack.length - 1 ? 'under' : ''}">${SHEETS[s.t](s.id)}</div>`).join('')
+  host.querySelectorAll('.ds-sheet-body').forEach((b, i) => { if (keep[i] != null) b.scrollTop = keep[i] })
+  host.classList.add('open')
+  if (S.stack.some(s => s.fresh)) {
+    S.stack.forEach(s => s.fresh = false)
+    requestAnimationFrame(() => requestAnimationFrame(() => host.querySelectorAll('.sheet-wrap:not(.on)').forEach(el => el.classList.add('on'))))
+  }
+}
+
+/* ───────────── actions ───────────── */
+function snapshot() { return JSON.stringify({ E, L, ADV }) }
+function restore(s) { const o = JSON.parse(s); E = o.E; L = o.L; ADV = o.ADV; render(); renderLayers() }
+function nextNo(kind, date) {
+  const pre = { BKK: 'BKK', BKM: 'BKM', TF: 'TF' }[kind] + '-' + date.slice(2, 4) + '-' + date.slice(5, 7) + '-'
+  const n = Math.max(0, ...E.filter(e => e.no && e.no.startsWith(pre)).map(e => +e.no.slice(pre.length))) + 1
+  return pre + String(n).padStart(5, '0')
+}
+function toast(title, desc, undo) {
+  const host = $('#toasts'), el = document.createElement('div')
+  el.className = 'ds-toast ds-toast--ok in'
+  el.innerHTML = `${ico('check')}<div class="ds-toast-text"><div class="ds-toast-title">${title}</div>${desc ? `<div class="ds-toast-desc">${desc}</div>` : ''}</div>${undo ? '<button class="ds-toast-action" type="button">Undo</button>' : ''}`
+  const kill = () => { el.classList.add('gone'); setTimeout(() => el.remove(), 170) }
+  if (undo) el.querySelector('button').onclick = () => { undo(); kill() }
+  host.appendChild(el); setTimeout(kill, 5200)
+  while (host.children.length > 3) host.firstChild.remove()
+}
+function soon(what) { toast(what, 'Prototype: this opens the existing screen') }
+function setStatus(id, st) {
+  const e = byId(id), was = snapshot()
+  if (st === 'Approved' && !e.no) e.no = nextNo(e.kind, e.date)
+  e.status = st; if (st === 'Approved') e.appr = 'Andi Wijaya'
+  toast(st === 'Posted' ? `${e.no} posted to the books` : st === 'Approved' ? `${e.no} approved` : 'Rejected', esc(e.party), () => restore(was))
+  render(); renderLayers()
+}
+function postAll(t) {
+  const was = snapshot(), xs = E.filter(e => (t === 'bkk' ? (e.kind === 'BKK' || e.kind === 'TF') : e.kind === 'BKM') && e.status === 'Approved')
+  xs.forEach(e => e.status = 'Posted'); f(t).status = ''; f(t).month = '2026-10'
+  toast(`${xs.length} posted to the books`, xs.map(e => e.no).join(', '), () => restore(was)); render()
+}
+function matchLine(id, quiet) {
+  const l = line(id), e = byId(l.suggest), was = quiet ? null : snapshot()
+  l.match = [e.id]
+  let msg = `Matched to ${e.no}`
+  const fee = e.amt - Math.abs(lineAmt(l))
+  if (fee > 0) {
+    const nid = 'x' + Date.now() + Math.random().toString(36).slice(2, 5)
+    E.push(P(nid, 'BKK', nextNo('BKK', l.date), l.date, l.acct, ACC[l.acct].bankName, `Card fee (MDR) · ${e.party} · ${day(e.date)}`, fee, 'Posted', { acc: '6044 Card fees (MDR)', appr: 'Andi Wijaya' }))
+    l.match.push(nid); msg += ` · card fee ${money(fee)} booked`
+  }
+  if (!quiet) { toast(msg, esc(l.says), () => restore(was)); render(); renderLayers() }
+}
+function matchAll(acct) {
+  const was = snapshot(), xs = L.filter(l => !l.match && l.suggest && (!acct || l.acct === acct))
+  xs.forEach(l => matchLine(l.id, true))
+  toast(`${xs.length} lines matched`, 'Card fees booked where the bank paid less', () => restore(was)); render(); renderLayers()
+}
+function bookLine(id) {
+  const l = line(id), was = snapshot(), kind = l.out ? 'BKK' : 'BKM', nid = 'x' + Date.now(), no = nextNo(kind, l.date)
+  E.push(P(nid, kind, no, l.date, l.acct, l.book.party, l.book.memo, Math.abs(lineAmt(l)), 'Posted', { acc: l.book.acc, appr: 'Andi Wijaya' }))
+  l.match = [nid]
+  closeTop(true)
+  toast(`Booked as ${no}`, esc(l.book.memo), () => restore(was)); render(); renderLayers()
+}
+function clearGiro(id) {
+  const g = giros().find(x => x.id === id), e = byId(id)
+  if (g.sug) return matchLine(g.sug.id)
+  const was = snapshot(); e.giro.cleared = TODAY
+  toast(`Giro ${e.giro.no.split('-').pop()} cleared`, esc(e.party), () => restore(was)); render(); renderLayers()
+}
+function dropGiro(id, k) {
+  const e = byId(id); if (!e) return
+  const was = snapshot(), g = e.giro
+  if (k === 'written') { delete g.given; delete g.cleared; delete g.bounced; e.status = 'Posted' }
+  if (k === 'given' || k === 'due') { g.given = g.given || TODAY; delete g.cleared; delete g.bounced; e.status = 'Posted' }
+  if (k === 'cashed') { g.given = g.given || TODAY; g.cleared = g.cleared || TODAY; delete g.bounced; e.status = 'Posted' }
+  if (k === 'bounced') { g.bounced = TODAY; delete g.cleared; e.status = 'Cancelled' }
+  toast(`Giro ${g.no.split('-').pop()} moved`, esc(e.party), () => restore(was)); render(); renderLayers()
+}
+function giveGiro(id) {
+  const e = byId(id), was = snapshot(); e.giro.given = TODAY
+  toast(`Giro ${e.giro.no.split('-').pop()} given to ${esc(e.party)}`, `Due ${day(e.giro.due)}`, () => restore(was)); render(); renderLayers()
+}
+function bounce(id) {
+  const e = byId(id), was = snapshot(); e.giro.bounced = TODAY; e.status = 'Cancelled'
+  toast(`Giro ${e.giro.no.split('-').pop()} bounced`, 'The bill is open again in Payables', () => restore(was)); render(); renderLayers()
+}
+
+/* ───────────── state changes ───────────── */
+function setTab(t) { if (t === 'giroB') S.fold = true; S.tab[S.opt] = t; S.stack = []; S.menu = false; renderLayers(); render(); window.scrollTo(0, 0) }
+function setF(t, k, v) { f(t)[k] = v; render() }
+function pickStatus(t, st) { const ff = f(t); ff.status = ff.status === st ? '' : st; ff.month = ff.status ? '' : '2026-10'; render() }
+function toggleMenu(ev) { ev.stopPropagation(); S.menu = !S.menu; render() }
+function onSearch(inp) {
+  const t = inp.dataset.search, pos = inp.selectionStart
+  f(t).q = inp.value; render()
+  const again = document.querySelector(`[data-search="${t}"]`)
+  if (again) { again.focus(); again.setSelectionRange(pos, pos) }
+}
+
+/* ───────────── render ───────────── */
+function render() {
+  $('#optSeg').innerHTML = Object.entries(OPT).map(([k, o], i) => `<button type="button" class="${k === S.opt ? 'on' : ''}" onclick="setOpt('${k}')" title="Key ${i}">${o.label}${o.star ? ' <span class="star">★</span>' : ''}</button>`).join('')
+  document.body.dataset.chip = S.chip
+  document.body.dataset.variant = S.opt
+  $('#chipSeg').style.display = S.opt === 'e' ? '' : 'none'
+  const cardsOn = S.opt === 'e' && curTab() === 'acct' && f('acct').view === 'cards'
+  $('#cardSeg').style.display = cardsOn ? '' : 'none'
+  $('#cardSeg').innerHTML = CARD_V.map(([n, l]) => `<button type="button" class="${S.card === n ? 'on' : ''}" title="${l}" onclick="S.card=${n};render()">${n}${S.card === n ? ` · ${l}` : ''}</button>`).join('')
+  $('#chipSeg').innerHTML = [['orange', 'Chip: Orange'], ['green', 'Green']].map(([v, l]) => `<button type="button" class="${S.chip === v ? 'on' : ''}" onclick="S.chip='${v}';render()">${l}</button>`).join('')
+  $('#stage').innerHTML = S.opt === 'now' ? nowView() : deskView()
+  const p = new URLSearchParams({ v: S.opt })
+  if (S.opt !== 'now') p.set('tab', curTab()); else p.set('now', S.now)
+  if (S.opt === 'e' && S.card !== 1) p.set('card', S.card)
+  history.replaceState(null, '', '?' + p)
+}
+function setOpt(k) { S.opt = k; S.stack = []; S.menu = false; renderLayers(); render() }
+addEventListener('click', () => { if (S.menu) { S.menu = false; render() } })
+addEventListener('keydown', ev => {
+  if (ev.target.matches('input, select, textarea')) { if (ev.key === 'Escape') ev.target.blur(); return }
+  if (ev.key === 'Escape') { if (S.menu) { S.menu = false; return render() } return closeTop() }
+  const keys = Object.keys(OPT)
+  if (/^[0-6]$/.test(ev.key)) setOpt(keys[+ev.key])
+})
+render()
+</script>
+</body>
+</html>

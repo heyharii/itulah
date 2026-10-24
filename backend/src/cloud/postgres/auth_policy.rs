@@ -1308,6 +1308,10 @@ pub async fn publish_auth_policy(
         });
     }
     let (site, sites) = site_profiles(&mut tx, &node, issued_at).await?;
+    // Stops on the POS here (0990): always sent, even empty, so the node
+    // drops a stop head office has lifted.
+    let pos_stops =
+        super::pos_access::pos_stops_for(&mut tx, origin_id, node.site_id.as_str()).await?;
     tx.commit().await?;
 
     let mut snapshot = AuthPolicySnapshot {
@@ -1329,6 +1333,7 @@ pub async fn publish_auth_policy(
         site,
         sites,
         device_kinds,
+        pos_stops: Some(pos_stops),
     };
     snapshot.content_hash = auth_policy_content_hash(&snapshot);
     let payload = serde_json::to_value(&snapshot)?;

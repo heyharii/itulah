@@ -1,0 +1,1416 @@
+<!doctype html>
+<html lang="en" data-look="white">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Payables options</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+:root{
+  --ink:#1d1d1f;--body:#6e6e73;--faint:#c7c7cc;--soft:#fafafb;--soft-2:#f2f2f5;--soft-3:#f5f5f7;--canvas:#e8ebf0;
+  --hairline:#e8e8ec;--row:#eeeef1;--band:#fafafb;--line-strong:#dcdce1;--accent:#2862dc;--accent-bg:#eef3fc;
+  --bad:#d70015;--bad-bg:#fdeeee;--ok:#248a3d;--warn:#a66c1f;
+  --r-card:10px;--r-inner:8px;--ease:cubic-bezier(.23,1,.32,1);--drawer:cubic-bezier(.32,.72,0,1);
+  --ring:0 0 0 1px rgb(0 0 0/5%),0 2px 8px rgb(0 0 0/4%),0 24px 64px rgb(0 0 0/14%);
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font:15px/1.45 Inter,-apple-system,system-ui,sans-serif;color:var(--ink);background:var(--canvas);-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+.num,.r,.fig{font-variant-numeric:tabular-nums}
+
+/* switcher above the mock (chrome, not product) */
+.bar{position:sticky;top:0;z-index:50;display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 16px;background:#fff;border-bottom:1px solid var(--hairline)}
+.bar b{font-weight:600;margin-right:4px}
+.seg{display:inline-flex;background:var(--soft-2);border-radius:9px;padding:3px;gap:2px;flex-wrap:wrap}
+.seg button{border:0;background:none;padding:5px 12px;border-radius:7px;color:var(--body)}
+.seg button.on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgb(0 0 0/12%)}
+
+/* desk shell, measured on the hub at 1440 */
+.stage{padding:12px}
+.app{display:flex;gap:12px;min-height:calc(100vh - 82px);max-width:1440px;margin:0 auto}
+.rail{width:56px;flex:none;display:flex;flex-direction:column;align-items:center;gap:18px;padding-top:14px}
+.rail i{width:22px;height:22px;border-radius:6px;background:#d5d9e1;display:block}
+.rail i.on{background:var(--accent)}
+.side{width:216px;flex:none;background:#fff;border-radius:16px;padding:18px 10px;box-shadow:0 0 0 1px rgb(0 0 0/5%)}
+.side h3{margin:0 10px 16px;font-size:20px;letter-spacing:-.02em}
+.side a{display:flex;justify-content:space-between;align-items:center;height:36px;padding:0 10px;border-radius:8px;color:var(--ink);text-decoration:none}
+.side a.on{background:var(--accent-bg);color:var(--accent)}
+.side .chip{display:inline-block;margin:14px 10px 4px;padding:1px 7px;border-radius:6px;background:var(--soft-2);color:var(--body)}
+.side .n{background:var(--bad);color:#fff;border-radius:10px;padding:0 7px;font-weight:600;line-height:20px}
+.page{flex:1;min-width:0;background:#fff;border-radius:16px;box-shadow:0 0 0 1px rgb(0 0 0/5%),0 2px 8px rgb(0 0 0/4%);padding:24px 28px 96px;position:relative}
+.head{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:36px}
+.head h1{font-size:17px;font-weight:600;letter-spacing:-.3px;margin:0}
+.head .acts{display:flex;gap:8px}
+.tabs{display:flex;align-items:flex-end;gap:20px;border-bottom:1px solid var(--hairline);margin:10px -28px 18px;padding:0 28px}
+.tabs .t{border:0;background:none;padding:10px 0 11px;color:var(--body);font-weight:500;white-space:nowrap}
+.tabs .t.on{color:var(--ink);box-shadow:inset 0 -2px 0 var(--ink)}
+.tabs .t .n{color:var(--body);font-weight:400;margin-left:6px}
+.tabs .vw{margin-left:auto;display:flex;align-items:center;gap:10px;padding-bottom:6px;color:var(--body)}
+.btn{border:0;background:var(--accent);color:#fff;border-radius:8px;height:36px;padding:0 14px;font-weight:600;transition:transform 160ms var(--ease),opacity 160ms;white-space:nowrap}
+.btn:active{transform:scale(.97)}
+.btn[disabled]{opacity:.4;cursor:default;transform:none}
+.btn.red{background:var(--bad)}
+.tint{border:0;background:var(--accent-bg);color:var(--accent);border-radius:8px;height:36px;padding:0 14px;font-weight:500;transition:transform 160ms var(--ease);white-space:nowrap}
+.tint:active{transform:scale(.97)}
+.tint.red{background:var(--bad-bg);color:var(--bad)}
+.tint[disabled]{opacity:.45;cursor:default}
+.tools{display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+.tools .sp{flex:1}
+.field{height:36px;border:1px solid var(--line-strong);border-radius:var(--r-inner);padding:0 12px;background:#fff;color:var(--ink);outline:none}
+select.field{appearance:none;padding-right:30px;background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='%236e6e73' stroke-width='1.6'%3E%3Cpath d='M3 4.5l3 3 3-3'/%3E%3C/svg%3E") no-repeat right 11px center;cursor:pointer}
+.field:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.search{width:300px}
+.chips{display:inline-flex;gap:6px;flex-wrap:wrap;align-items:center}
+.chip-r{display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 12px;border-radius:8px;border:1px solid var(--line-strong);background:#fff;color:var(--ink);white-space:nowrap;transition:transform 160ms var(--ease)}
+.chip-r:active{transform:scale(.97)}
+.chip-r svg{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;color:var(--body)}
+.chip-r .n{color:var(--body)}
+.chip-r.on{border-color:var(--accent);background:var(--accent-bg);color:var(--accent)}
+.chip-r.on svg,.chip-r.on .n{color:var(--accent)}
+.tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.tile{display:flex;gap:10px;align-items:center;text-align:left;border:1px solid var(--line-strong);background:#fff;border-radius:10px;padding:10px 12px;min-height:56px;transition:transform 160ms var(--ease)}
+.tile:active{transform:scale(.98)}
+.tile svg{width:20px;height:20px;flex:none;stroke:var(--body);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.tile .s{display:block;color:var(--body)}
+.tile.on{border-color:var(--accent);background:var(--accent-bg)}
+.tile.on svg{stroke:var(--accent)}
+.fgroup{margin-top:18px}
+.fgroup .l{color:var(--body);margin-bottom:8px}
+
+/* figures */
+.kpis{display:flex;margin:0 0 18px}
+.kpi{border:0;background:none;text-align:left;padding:2px 26px;border-left:1px solid var(--hairline);display:flex;flex-direction:column;gap:2px;border-radius:0;cursor:pointer}
+.kpi:first-child{padding-left:0;border-left:0}
+.kpi .l{color:var(--body)}
+.kpi .v{font-size:16px;font-weight:600}
+.kpi .v.bad{color:var(--bad)}
+.kpi .v.mute{color:var(--faint)}
+.kpi.on .l{color:var(--accent)}
+.kpi.on .v{box-shadow:inset 0 -2px 0 var(--accent)}
+@media (hover:hover){.kpi:hover .l{color:var(--ink)}}
+
+/* calm table */
+table{width:100%;border-collapse:collapse;table-layout:fixed}
+.tbl{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden}
+th{font-weight:500;color:var(--body);text-align:left;height:40px;padding:0 16px;background:var(--band);border-bottom:1px solid var(--hairline);white-space:nowrap}
+td{padding:14px 16px;border-bottom:1px solid var(--row);vertical-align:top;overflow-wrap:anywhere}
+tbody tr:last-child td{border-bottom:0}
+.r{text-align:right;white-space:nowrap}
+th.ck,td.ck{width:44px;padding-left:16px;padding-right:0}
+.ck input{width:17px;height:17px;margin:2px 0 0;accent-color:var(--accent);cursor:pointer}
+.ck input:disabled{cursor:default;opacity:.35}
+tbody tr.go{cursor:pointer}
+@media (hover:hover){tbody tr.go:hover td{background:var(--soft)}}
+tr.sel td{background:var(--accent-bg)!important}
+.grey{color:var(--body)}
+.nw{white-space:nowrap}
+.lateTxt{color:var(--bad)}
+.warnTxt{color:var(--warn)}
+.okTxt{color:var(--ok)}
+.strike{text-decoration:line-through;color:var(--body)}
+tr.sec td{background:var(--band);padding:10px 16px;font-weight:500}
+tr.sec .sh{display:flex;align-items:center;gap:10px}
+tr.sec .sh .c{color:var(--body);font-weight:400}
+tr.sec .sh .tot{margin-left:auto;white-space:nowrap;font-variant-numeric:tabular-nums}
+tr.sec .ck{padding:0}
+tr.sec input{width:17px;height:17px;margin:0;accent-color:var(--accent)}
+tr.none td{color:var(--body);padding:22px 16px;text-align:center}
+tr.tot td{background:var(--band);font-weight:600;border-top:1px solid var(--hairline)}
+.lk{color:inherit;text-decoration:none;cursor:pointer;border-radius:4px}
+@media (hover:hover){.lk:hover{color:var(--accent)}}
+.tight td,.tight th{padding-left:12px;padding-right:12px}
+.tight td:first-child,.tight th:first-child{padding-left:16px}
+.empty{border:1px solid var(--hairline);border-radius:var(--r-card);padding:40px;text-align:center;color:var(--body)}
+
+/* selection bar */
+.selbar{position:fixed;left:50%;bottom:22px;z-index:40;display:flex;align-items:center;gap:14px;padding:8px 8px 8px 20px;background:#fff;border-radius:14px;box-shadow:var(--ring);transform:translate(-50%,24px);opacity:0;pointer-events:none;transition:transform 220ms var(--ease),opacity 180ms var(--ease);white-space:nowrap}
+.selbar.on{transform:translate(-50%,0);opacity:1;pointer-events:auto}
+.selbar .what{font-weight:500}
+.selbar .what span+span::before{content:" · ";color:var(--body)}
+.phone .selbar .what{display:flex;flex-direction:column;line-height:1.3}
+.phone .selbar .what span+span::before{content:none}
+
+/* sheets */
+.veil{position:fixed;inset:0;background:rgb(40 30 20/10%);z-index:60;opacity:0;transition:opacity 200ms var(--ease)}
+.veil.on{opacity:1}
+.sheet{position:fixed;top:12px;right:12px;bottom:12px;width:min(880px,calc(100vw - 24px));background:#fff;border-radius:16px;box-shadow:var(--ring);z-index:61;display:flex;flex-direction:column;transform:translateX(calc(100% + 24px));transition:transform 200ms var(--ease)}
+.sheet.on{transform:none;transition:transform 300ms var(--drawer)}
+.sheet.wide{width:min(1040px,calc(100vw - 24px))}
+.instant,.instant *{transition:none!important}
+.sh-head{padding:20px 24px 14px;border-bottom:1px solid var(--hairline);display:flex;gap:12px;align-items:flex-start}
+.sh-head .t{font-size:17px;font-weight:600;letter-spacing:-.3px}
+.sh-head .st{color:var(--body);margin-top:2px}
+.sh-head .x{margin-left:auto;border:0;background:var(--soft-2);font-size:20px;line-height:1;color:var(--body);width:32px;height:32px;border-radius:50%;flex:none}
+.pill{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--hairline);border-radius:6px;padding:1px 8px;color:var(--body);white-space:nowrap;margin-top:1px}
+.pill::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.pill.ok{color:var(--ok)}.pill.warn{color:var(--warn)}.pill.bad{color:var(--bad)}.pill.info{color:var(--accent)}
+.sh-body{flex:1;overflow:auto;padding:20px 24px 28px;position:relative}
+.sh-foot{padding:14px 24px;border-top:1px solid var(--hairline);display:flex;gap:8px;align-items:center}
+.sh-foot .sp{flex:1}
+.figs{display:flex;margin-bottom:20px}
+.figs>div{padding:0 24px;border-left:1px solid var(--hairline)}
+.figs>div:first-child{padding-left:0;border-left:0}
+.figs .l{color:var(--body)}
+.figs .v{font-size:16px;font-weight:600}
+.facts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px 20px;margin-bottom:22px}
+.facts .l{color:var(--body)}
+.facts .w2{grid-column:span 2}
+.sec-t{font-weight:600;margin:6px 0 10px;display:flex;align-items:center;gap:10px}
+.sec-t .c{color:var(--body);font-weight:400}
+.box{border:1px solid var(--hairline);border-radius:var(--r-card);padding:14px 16px;margin-bottom:20px}
+.box.warn{border-color:#efd9b5;background:#fdf8ef}
+.trail{color:var(--body);margin-top:18px}
+.inline{border-top:1px solid var(--hairline);margin-top:20px;padding-top:16px}
+.inline textarea{width:100%;min-height:76px;border:1px solid var(--line-strong);border-radius:var(--r-inner);padding:10px 12px;resize:vertical;outline:none}
+.inline textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.inline .row{display:flex;gap:8px;justify-content:flex-end;margin-top:10px}
+.stamp{position:absolute;right:28px;top:18px;transform:rotate(-8deg);border:3px double var(--ok);color:var(--ok);border-radius:8px;padding:4px 12px;font-weight:700;letter-spacing:.02em;opacity:.85;animation:land 240ms var(--ease)}
+@keyframes land{from{transform:rotate(-8deg) scale(1.15);opacity:0}}
+.form{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px 16px;margin-bottom:20px}
+.form label{display:block;color:var(--body);margin-bottom:6px}
+.form .field{width:100%;height:44px}
+.form .w2{grid-column:span 2}
+.form .w4{grid-column:span 4}
+.check{display:flex;gap:10px;align-items:center;height:44px;cursor:pointer}
+.check input{width:18px;height:18px;accent-color:var(--accent)}
+.payblk{border:1px solid var(--hairline);border-radius:var(--r-card);margin-bottom:16px;overflow:hidden}
+.payblk .bh{display:flex;gap:10px;align-items:baseline;padding:12px 16px;background:var(--band);border-bottom:1px solid var(--hairline)}
+.payblk .bh .t{font-weight:600}
+.payblk .bh .tot{margin-left:auto;font-weight:600;white-space:nowrap}
+.payblk td{padding:10px 16px}
+.payblk input.amt{width:150px;height:36px;border:1px solid var(--line-strong);border-radius:8px;padding:0 10px;text-align:right;outline:none;font-variant-numeric:tabular-nums}
+.payblk input.amt:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.totbox{display:flex;justify-content:space-between;align-items:baseline;gap:20px;border:1px solid var(--hairline);border-radius:var(--r-card);padding:14px 16px}
+.totbox .v{font-size:20px;font-weight:600;white-space:nowrap}
+.totbox .words{color:var(--body);font-style:italic}
+.segctl{display:inline-flex;background:var(--soft-2);border-radius:9px;padding:3px;gap:2px;height:44px;align-items:stretch;width:100%}
+.segctl button{flex:1;border:0;background:none;border-radius:7px;color:var(--body)}
+.segctl button.on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgb(0 0 0/12%)}
+
+/* toast */
+.toast{position:fixed;left:50%;bottom:22px;z-index:90;display:flex;gap:14px;align-items:center;background:#fff;border-radius:12px;box-shadow:var(--ring);padding:10px 10px 10px 18px;transform:translate(-50%,24px);opacity:0;pointer-events:none;transition:transform 220ms var(--ease),opacity 180ms var(--ease);white-space:nowrap}
+.toast.on{transform:translate(-50%,0);opacity:1;pointer-events:auto}
+.toast.up{bottom:86px}
+
+/* compare + now */
+.wrap{max-width:1180px;margin:0 auto;padding:8px 4px 60px}
+.cmp{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:12px}
+.card-o{background:#fff;border-radius:16px;box-shadow:0 0 0 1px rgb(0 0 0/5%);padding:20px 22px}
+.card-o h2{font-size:17px;margin:0 0 12px;letter-spacing:-.3px;display:flex;gap:8px;align-items:center}
+.card-o h2 .star{color:var(--accent)}
+.card-o .tb{display:grid;grid-template-columns:118px 1fr;gap:4px 14px;padding:9px 0;border-top:1px solid var(--row)}
+.card-o .tb b{font-weight:600}
+.card-o .tb .grey{grid-column:2}
+.jobs td,.jobs th{padding:11px 14px}
+.jobs th{height:auto}
+.jobs .best{color:var(--accent);font-weight:600}
+.now-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;max-width:1440px;margin:0 auto 12px}
+.now img{display:block;max-width:1440px;width:100%;margin:0 auto;border-radius:12px;box-shadow:var(--ring)}
+.now.ph img{max-width:414px}
+
+/* phone */
+.phone-wrap{display:flex;justify-content:center;padding:16px 0 30px}
+.phone{width:414px;height:896px;background:#fff;border-radius:40px;box-shadow:0 0 0 10px #1d1d1f,var(--ring);overflow:clip;position:relative;isolation:isolate;z-index:0;display:flex;flex-direction:column}
+.ph-top{padding:50px 18px 10px;font-size:17px;font-weight:600;letter-spacing:-.3px;text-align:center;border-bottom:1px solid var(--hairline)}
+.ph-list{flex:1;overflow:auto;padding:0 0 150px}
+.ph-kpis{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px;padding:14px 18px;border-bottom:1px solid var(--row)}
+.ph-kpis button{border:0;background:none;text-align:left;padding:0;display:flex;flex-direction:column}
+.ph-kpis .l{color:var(--body)}
+.ph-kpis .v{font-size:16px;font-weight:600}
+.ph-kpis .v.bad{color:var(--bad)}
+.ph-kpis button.on .l{color:var(--accent)}
+.ph-sec{display:flex;align-items:center;gap:10px;padding:12px 18px 9px;background:var(--band);border-bottom:1px solid var(--row);font-weight:500}
+.ph-sec .c{color:var(--body);font-weight:400}
+.ph-sec .tot{margin-left:auto;white-space:nowrap;font-variant-numeric:tabular-nums}
+.ph-sec input,.pc input{width:20px;height:20px;accent-color:var(--accent);margin:0;flex:none}
+.pc{display:flex;gap:12px;padding:12px 18px;border-bottom:1px solid var(--row);cursor:pointer}
+.pc.sel{background:var(--accent-bg)}
+.pc .m{flex:1;min-width:0}
+.pc .top{display:flex;justify-content:space-between;gap:12px}
+.pc .ttl{font-weight:500;overflow-wrap:anywhere}
+.pc .fig{white-space:nowrap}
+.pc .sub{color:var(--body);overflow-wrap:anywhere}
+.pc .meta{display:flex;gap:6px 12px;flex-wrap:wrap;color:var(--body)}
+.pc .kv{display:grid;grid-template-columns:auto 1fr;gap:1px 10px;margin-top:4px;color:var(--body)}
+.pc .kv span:nth-child(even){color:var(--ink);text-align:right;font-variant-numeric:tabular-nums}
+.ph-none{padding:30px 18px;color:var(--body);text-align:center}
+.dock{position:absolute;left:12px;right:12px;bottom:28px;display:flex;gap:8px;padding:8px;background:rgb(255 255 255/92%);backdrop-filter:blur(12px);border-radius:999px;box-shadow:var(--ring);z-index:20}
+.dock .c{border:0;background:var(--soft-2);border-radius:999px;padding:0 14px;height:44px;font-weight:500;white-space:nowrap}
+.dock .q{flex:1;min-width:0;height:44px;border:0;background:var(--soft-2);border-radius:999px;padding:0 14px;outline:none}
+.dock .p{border:0;background:var(--accent);color:#fff;border-radius:999px;width:44px;height:44px;font-size:24px;line-height:1;flex:none}
+.phone .selbar{position:absolute;left:12px;right:12px;bottom:92px;transform:translateY(16px);border-radius:14px;padding:8px 8px 8px 16px;z-index:21}
+.phone .selbar.on{transform:none}
+.phone .selbar .what{flex:1;white-space:normal}
+.phone .veil{position:absolute;z-index:60}
+.phone .sheet{position:absolute;top:44px;left:0;right:0;bottom:0;width:auto;border-radius:16px 16px 0 0;transform:translateY(100%)}
+.phone .sheet.on{transform:none}
+.phone .sheet.fit{top:auto;max-height:calc(100% - 44px)}
+.phone .sheet.fit .sh-body{padding-bottom:34px}
+.phone .sh-head{padding:16px 18px 12px}
+.phone .sh-body{padding:16px 18px 24px}
+.phone .sh-foot{padding:12px 18px 30px;flex-wrap:wrap}
+.phone .facts{grid-template-columns:1fr 1fr}
+.phone .figs{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px}
+.phone .figs>div{padding:0;border:0}
+.phone .form{grid-template-columns:1fr 1fr}
+.phone .form .w2,.phone .form .w4{grid-column:span 2}
+.phone .totbox{flex-direction:column}
+.phone .payblk input.amt{width:110px}
+.phone .tiles{grid-template-columns:1fr}
+.phone .stamp{right:18px}
+.phone .toast{position:absolute;bottom:100px}
+.tabsheet a{display:flex;justify-content:space-between;padding:14px 4px;border-bottom:1px solid var(--row);color:var(--ink);text-decoration:none;cursor:pointer}
+.tabsheet a.on{color:var(--accent);font-weight:600}
+.tabsheet .grey{font-weight:400}
+.mini td,.mini th{padding:10px 12px}
+.mini th{height:auto}
+@media (prefers-reduced-motion:reduce){.sheet,.sheet.on,.selbar,.toast{transition:opacity 150ms}.sheet{transform:none;opacity:0}.sheet.on{opacity:1}.phone .sheet{transform:none}.stamp{animation:none}}
+</style>
+</head>
+<body>
+<div class="bar">
+  <b>Payables</b>
+  <div class="seg" id="optSeg"></div>
+  <div class="seg" id="devSeg"><button data-dev="desk">Desk</button><button data-dev="phone">Phone</button></div>
+  <span class="grey" id="wordLbl">First tab</span><div class="seg" id="wordSeg"></div>
+</div>
+<div class="stage" id="stage"></div>
+<div id="layers"></div>
+<div class="toast" id="toast"></div>
+<script>
+/* ---------- helpers ---------- */
+const TODAY = '2026-10-18'
+const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+const pad = n => String(n).padStart(2, '0')
+const D = s => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d) }
+const iso = d => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
+const add = (s, n) => { const d = D(s); d.setDate(d.getDate() + n); return iso(d) }
+const diff = (a, b) => Math.round((D(b) - D(a)) / 864e5)
+const fmt = s => s ? pad(D(s).getDate()) + ' ' + MON[D(s).getMonth()] + ' ' + D(s).getFullYear() : '—'
+const MONTH = ['January','February','March','April','May','June','July','August','September','October','November','December']
+const monthOf = s => MONTH[D(s).getMonth()] + ' ' + D(s).getFullYear()
+const num = n => Math.abs(Math.round(n)).toLocaleString('id-ID')
+const rp = n => (n < 0 ? '−' : '') + 'Rp ' + num(n)
+const sum = (a, f) => a.reduce((s, x) => s + f(x), 0)
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+const place = site => site === 'dc' ? 'DC & head office' : 'Store ' + site.slice(6)
+const plural = (n, w) => n + ' ' + w + (n === 1 ? '' : 's')
+function terbilang(n) {
+  const s = ['', 'satu', 'dua', 'tiga', 'empat', 'lima', 'enam', 'tujuh', 'delapan', 'sembilan', 'sepuluh', 'sebelas']
+  const f = x => {
+    x = Math.floor(x)
+    if (x < 12) return s[x]
+    if (x < 20) return f(x - 10) + ' belas'
+    if (x < 100) return f(x / 10) + ' puluh ' + f(x % 10)
+    if (x < 200) return 'seratus ' + f(x - 100)
+    if (x < 1000) return f(x / 100) + ' ratus ' + f(x % 100)
+    if (x < 2000) return 'seribu ' + f(x - 1000)
+    if (x < 1e6) return f(x / 1000) + ' ribu ' + f(x % 1000)
+    if (x < 1e9) return f(x / 1e6) + ' juta ' + f(x % 1e6)
+    return f(x / 1e9) + ' miliar ' + f(x % 1e9)
+  }
+  return n <= 0 ? 'nol rupiah' : (f(n) + ' rupiah').replace(/\s+/g, ' ').trim()
+}
+
+const ICON = {
+  grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+  dc: '<path d="M3 21V9l9-5 9 5v12"/><path d="M7 21v-7h10v7"/><path d="M7 17h10"/>',
+  store: '<path d="M4 11v9h16v-9"/><path d="M3 11l2-6h14l2 6"/><path d="M3 11h18"/><path d="M10 20v-5h4v5"/>',
+  cal: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/>',
+  open: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.5"/>',
+  draft: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M9 16l5-5"/>',
+  posted: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="m9 15 2 2 4-4"/>',
+  goods: '<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/>',
+  paid: '<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>',
+  list: '<path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>',
+  wallet: '<rect x="3" y="6" width="18" height="14" rx="2"/><path d="M3 10h18M16 15h2"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  bank: '<path d="M3 21h18M5 21v-9M19 21v-9M9.5 21v-9M14.5 21v-9M2 10l10-6 10 6z"/>',
+  cash: '<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/>',
+}
+const svg = k => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICON[k] || ''}</svg>`
+const chipsHTML = (name, opts, cur) => `<div class="chips" role="radiogroup">${opts.map(o => `<button class="chip-r${o.v === cur ? ' on' : ''}" role="radio" aria-checked="${o.v === cur}" data-chip="${name}" data-val="${esc(o.v)}">${o.i ? svg(o.i) : ''}<span>${o.l}</span>${o.n != null ? `<span class="n">${o.n}</span>` : ''}</button>`).join('')}</div>`
+
+/* ---------- data: the demo rig on 18 Oct 2026 (bills, receipts, payments, giro, loan) ---------- */
+const SUPS = {
+  'Sepatu Sejahtera, CV': ['0002', 'Cash on delivery', 'BCA 731 045 6789'],
+  'Garmen Nusantara, PT': ['0001', 'Net 30', 'Mandiri 123 000 456 7890'],
+  'CV Karya Bangun Renovasi': ['KARYA-GA', 'Net 30', 'BRI 0345 0100 2211 506'],
+  'Yayasan Griya Usaha': ['0009', 'Net 30', 'BNI 0231 556 781'],
+  'PLN (Persero) Area': ['0003', 'Net 30', 'Virtual account PLN'],
+  'PDAM Tirta': ['0004', 'Net 30', 'Virtual account PDAM'],
+  'Telkom Indonesia (IndiHome Bisnis)': ['0005', 'Net 30', 'Virtual account Telkom'],
+  'Kaos & Kemeja Prima, CV': ['0027', 'Net 30', 'BCA 271 330 4412'],
+  'Busana Anggun Lestari, CV': ['0023', 'Net 30', 'BCA 552 018 9930'],
+  'Konveksi Sentral Jaya, PT': ['0026', 'Net 30', 'Mandiri 157 000 882 1034'],
+  'Tas & Aksesoris Nusantara, CV': ['0025', 'Net 30', 'BCA 610 445 2087'],
+  'Garmen Mitra Sentosa, PT': ['0022', 'Net 30', 'BNI 0119 870 233'],
+  'Sepatu Karya Indah, PT': ['0024', 'Net 30', 'BCA 488 021 7765'],
+  'Dingin Sejuk AC Service, CV': ['0017', 'Net 30', 'BCA 039 772 1180'],
+  'J&T Logistik Indonesia, PT': ['0013', 'Net 30', 'BCA 520 300 7788'],
+  'JNE Ekspress, PT': ['0012', 'Net 30', 'BCA 520 100 1234'],
+  'SiCepat Ekspres, PT': ['0014', 'Net 30', 'BCA 520 400 5566'],
+  'Bengkel Maju Jaya Motor': ['0019', 'Net 30', 'BCA 145 662 0391'],
+  'Solusi Komputer Prima, PT': ['0018', 'Net 30', 'BCA 377 015 6620'],
+  'Digital Print Nusantara, PT': ['0016', 'Net 30', 'Mandiri 118 000 734 2290'],
+  'Cahaya ATK & Percetakan, CV': ['0015', 'Net 30', 'BCA 228 410 0057'],
+  'Satria Pengamanan Nusantara, PT': ['0011', 'Net 30', 'BNI 0442 113 908'],
+  'Bersih Selalu Cleaning Service, CV': ['0010', 'Net 30', 'BCA 301 776 2214'],
+  'Renovasi Bangun Sentosa, CV': ['0020', 'Net 30', 'BRI 0611 0100 3378 502'],
+  'PT Auto Mandiri Bekasi': ['AUTO-GA', 'Net 30', 'BCA 671 220 0045'],
+  'Kencana Komputer': ['KENCANA-GA', 'Net 30', 'BCA 233 908 1176'],
+  'CV Sejuk Teknik Mandiri': ['SEJUK-GA', 'Net 30', 'BCA 090 554 3321'],
+  'Bank BCA': ['LOAN', 'Every 25th', 'Auto-debit BCA 0123 456 789'],
+}
+const formOK = F => !!(F.sup && F.no.trim() && F.amount > 0)
+const ACC = { LST: '6204 · Listrik', TLP: '6205 · Telepon & internet', NET: '6205 · Telepon & internet', PDAM: '6206 · Air', SEWA: '6201 · Sewa toko', CLN: '6210 · Kebersihan', SEC: '6211 · Keamanan', ATK: '6215 · ATK & cetakan', CTK: '6302 · Promosi & cetakan', ONGKIR: '6220 · Ongkos kirim', RPR: '6230 · Perbaikan & pemeliharaan', SPBU: '6240 · BBM & kendaraan', ADV: '6220 · Ongkos kirim', INV: '1053 · Uang muka kontraktor' }
+
+let BILLS = []
+let seq = 0
+function bill(no, sup, kind, site, date, due, k, paidK, st, from, what, x = {}) {
+  BILLS.push(Object.assign({ id: 'b' + (seq++), t: 'b', no, sup, kind, site, date, due, total: Math.round(k * 1000), paid: Math.round(paidK * 1000), st, from, what, by: from === 'GA' ? 'Administrator' : 'Rina' }, x))
+}
+// Ready drafts the GA and Receiving sent, and repeating bills
+bill('SPBU-3441-901', 'PT Auto Mandiri Bekasi', 'E', 'dc', '2026-10-17', '2026-11-16', 340, 0, 'D', 'GA', 'BBM mobil operasional DC')
+bill('SPBU-3441-889', 'Bengkel Maju Jaya Motor', 'E', 'dc', '2026-10-17', '2026-11-16', 390, 0, 'D', 'GA', 'Ganti oli mobil operasional DC')
+bill('INV-0001-001', 'Garmen Nusantara, PT', 'M', 'dc', '2026-09-26', '2026-10-20', 1980, 0, 'M', 'RCV', 'GRN-HO-GUDANG-000001 · 36 pcs', { grn: 'GRN-HO-GUDANG-000001', po: 'PO-DEMO-001' })
+bill('RPR-024-202609', 'Dingin Sejuk AC Service, CV', 'E', 'store-10', '2026-09-25', '2026-10-09', 1250, 0, 'D', '', 'Servis AC Store 10')
+bill('ONGKIR-034-202609', 'J&T Logistik Indonesia, PT', 'E', 'dc', '2026-09-23', '2026-10-07', 980, 0, 'D', '', 'Ongkos kirim DC · Sep 2026')
+bill('RPR-016-202609', 'Bengkel Maju Jaya Motor', 'E', 'store-03', '2026-09-22', '2026-10-06', 2400, 0, 'D', '', 'Servis kendaraan Store 03')
+bill('RPR-035-202609', 'Solusi Komputer Prima, PT', 'E', 'store-03', '2026-09-20', '2026-10-04', 2050, 0, 'D', '', 'Perbaikan komputer kasir Store 03')
+bill('CTK-010-202609', 'Digital Print Nusantara, PT', 'E', 'dc', '2026-09-15', '2026-09-29', 3000, 0, 'D', '', 'Cetak brosur & label toko · Sep 2026')
+bill('ATK-HO-202609', 'Cahaya ATK & Percetakan, CV', 'E', 'dc', '2026-09-15', '2026-10-15', 1575, 0, 'D', 'REP', 'ATK & cetakan kantor pusat · Sep 2026')
+for (const [s, k, d, due] of [['12', 400, '15', '29'], ['11', 550, '15', '29'], ['13', 540, '13', '27'], ['10', 560, '13', '27'], ['09', 490, '12', '26'], ['08', 490, '11', '25'], ['05', 420, '11', '25'], ['03', 420, '10', '24'], ['07', 460, '08', '22'], ['06', 530, '08', '22'], ['04', 390, '08', '22'], ['02', 580, '08', '22'], ['01', 550, '08', '22']])
+  bill('TLP-store-' + s + '-202609', 'Telkom Indonesia (IndiHome Bisnis)', 'E', 'store-' + s, '2026-09-' + d, '2026-09-' + due, k, 0, 'D', 'REP', 'Internet & telepon Store ' + s + ' · Sep 2026')
+for (const [s, k, d, due] of [['12', 4150, '08', '29'], ['09', 7800, '08', '29'], ['11', 5250, '07', '28'], ['10', 7950, '06', '27'], ['07', 3500, '06', '27'], ['04', 8150, '06', '27'], ['13', 8950, '05', '26'], ['08', 5850, '05', '26'], ['02', 7500, '05', '26'], ['06', 8350, '03', '24'], ['05', 8850, '03', '24'], ['03', 3800, '03', '24'], ['01', 8200, '03', '24']])
+  bill('LST-store-' + s + '-202609', 'PLN (Persero) Area', 'E', 'store-' + s, '2026-09-' + d, '2026-09-' + due, k, 0, 'D', 'REP', 'Listrik Store ' + s + ' · Sep 2026')
+bill('RPR-031-202609', 'Dingin Sejuk AC Service, CV', 'E', 'store-13', '2026-09-05', '2026-09-19', 1925, 0, 'D', '', 'Servis AC Store 13')
+bill('NET-HO-202609', 'Telkom Indonesia (IndiHome Bisnis)', 'E', 'dc', '2026-09-05', '2026-09-19', 1810, 0, 'D', 'REP', 'Internet kantor pusat · Sep 2026')
+bill('RPR-010-202609', 'Renovasi Bangun Sentosa, CV', 'E', 'store-12', '2026-09-04', '2026-09-18', 775, 0, 'D', '', 'Perbaikan rak & furnitur Store 12')
+bill('ONGKIR-027-202609', 'SiCepat Ekspres, PT', 'E', 'store-09', '2026-09-04', '2026-09-18', 4360, 0, 'D', '', 'Ongkos kirim Store 09 · Sep 2026')
+bill('SEC-HO-202609', 'Satria Pengamanan Nusantara, PT', 'E', 'dc', '2026-09-03', '2026-10-03', 6450, 0, 'D', 'REP', 'Satpam kantor pusat · Sep 2026')
+bill('CLN-HO-202609', 'Bersih Selalu Cleaning Service, CV', 'E', 'dc', '2026-09-03', '2026-10-03', 4750, 0, 'D', 'REP', 'Kebersihan kantor pusat · Sep 2026')
+bill('ONGKIR-009-202609', 'JNE Ekspress, PT', 'E', 'dc', '2026-09-02', '2026-09-16', 680, 0, 'D', '', 'Ongkos kirim DC · Sep 2026')
+bill('RPR-014-202609', 'Renovasi Bangun Sentosa, CV', 'E', 'store-02', '2026-09-01', '2026-09-15', 1150, 0, 'D', '', 'Perbaikan rak & furnitur Store 02')
+bill('CN-26-10-002', 'Sepatu Sejahtera, CV', 'C', 'dc', '2026-10-16', '2026-10-16', -230, 0, 'D', 'RTN', 'Retur 2 pasang salah ukuran · INV-0002-002', { forNo: 'INV-0002-002' })
+// Posted and still owed
+bill('INV-GRN-HO-GUDANG-000005', 'Sepatu Sejahtera, CV', 'M', 'dc', '2026-09-26', '2026-10-20', 2310, 0, 'P', 'RCV', 'GRN-HO-GUDANG-000005 · 66 pasang', { grn: 'GRN-HO-GUDANG-000005' })
+bill('INV-GRN-HO-GUDANG-000004', 'Garmen Nusantara, PT', 'M', 'dc', '2026-09-26', '2026-10-20', 1080, 0, 'P', 'RCV', 'GRN-HO-GUDANG-000004 · 24 pcs', { grn: 'GRN-HO-GUDANG-000004' })
+bill('INV-GRN-HO-GUDANG-000003', 'Sepatu Sejahtera, CV', 'M', 'dc', '2026-09-26', '2026-10-20', 3420, 0, 'P', 'RCV', 'GRN-HO-GUDANG-000003 · 95 pasang', { grn: 'GRN-HO-GUDANG-000003' })
+bill('INV-0002-002', 'Sepatu Sejahtera, CV', 'M', 'dc', '2026-09-26', '2026-10-20', 3480, 0, 'P', 'RCV', 'GRN-HO-GUDANG-000002 · 96 pasang', { grn: 'GRN-HO-GUDANG-000002' })
+bill('INV/KBR/2026/0908', 'CV Karya Bangun Renovasi', 'E', 'dc', '2026-09-08', '2026-10-08', 114600, 0, 'P', 'GA', 'Renovasi gudang DC (aset)', { bkk: 'KK-26-09-00010' })
+bill('ADV-BILL-0002-202608-05', 'Sepatu Sejahtera, CV', 'E', 'dc', '2026-08-19', '2026-09-09', 310, 140, 'P', '', 'Ongkos kirim tambahan · Aug 2026')
+bill('ADV-BILL-0001-202608-02', 'Garmen Nusantara, PT', 'E', 'dc', '2026-08-18', '2026-09-08', 500, 440, 'P', '', 'Ongkos kirim tambahan · Aug 2026')
+bill('LST-store-01-202608', 'PLN (Persero) Area', 'E', 'store-01', '2026-08-03', '2026-08-24', 6900, 4002, 'P', 'REP', 'Listrik Store 01 · Aug 2026')
+bill('SEWA-store-12-202607', 'Yayasan Griya Usaha', 'E', 'store-12', '2026-07-01', '2026-07-15', 89500, 0, 'P', 'REP3', 'Sewa toko Store 12 · Jul–Sep 2026')
+bill('ADV-BILL-0002-202606-04', 'Sepatu Sejahtera, CV', 'E', 'dc', '2026-06-16', '2026-07-07', 850, 0, 'P', '', 'Ongkos kirim tambahan · Jun 2026')
+bill('ADV-BILL-0001-202605-01', 'Garmen Nusantara, PT', 'E', 'dc', '2026-05-13', '2026-06-03', 850, 0, 'P', '', 'Ongkos kirim tambahan · May 2026')
+bill('PDAM-store-02-202604', 'PDAM Tirta', 'E', 'store-02', '2026-04-06', '2026-04-27', 840, 0, 'P', 'REP3', 'Air PDAM Store 02 · Apr–Jun 2026', { hold: 'Angka meter beda, cek ke toko' })
+bill('PDAM-store-10-202604', 'PDAM Tirta', 'E', 'store-10', '2026-04-05', '2026-04-26', 990, 396, 'P', 'REP3', 'Air PDAM Store 10 · Apr–Jun 2026')
+bill('ADV-BILL-0002-202603-03', 'Sepatu Sejahtera, CV', 'E', 'dc', '2026-03-14', '2026-04-04', 790, 620, 'P', '', 'Ongkos kirim tambahan · Mar 2026')
+bill('ADV-BILL-0001-202602-00', 'Garmen Nusantara, PT', 'E', 'dc', '2026-02-12', '2026-03-05', 480, 400, 'P', '', 'Ongkos kirim tambahan · Feb 2026')
+
+let RECEIPTS = [
+  ['GRN-HO-GUDANG-000019', 'Garmen Nusantara, PT', '2026-10-14', 'PO-0001-1010', '', [['Kemeja flanel kotak', 24, 35000], ['Kaos polos basic', 30, 15000]]],
+  ['GRN-HO-GUDANG-000010', 'Garmen Nusantara, PT', '2026-10-16', 'PO-0001-1016-01', 'INV-PO-161026-001', [['Celana chino slim', 12, 40000]]],
+  ['GRN-HO-GUDANG-000011', 'Garmen Nusantara, PT', '2026-10-16', 'PO-0001-1016-02', 'INV-PO-161026-002', [['Kaos polos basic', 10, 20000]]],
+  ['GRN-HO-GUDANG-000012', 'Garmen Nusantara, PT', '2026-10-16', 'PO-0001-1016-03', 'INV-PO-161026-003', [['Kaos polos basic', 10, 20000]]],
+  ['GRN-HO-GUDANG-000013', 'Garmen Nusantara, PT', '2026-10-16', 'PO-0001-1016-03', 'INV-PO-161026-003', [['Kaos lengan panjang', 6, 20000]]],
+  ['GRN-HO-GUDANG-000014', 'Garmen Nusantara, PT', '2026-10-16', 'PO-0001-1016-04', 'INV-PO-161026-004', [['Kemeja oxford', 8, 40000]]],
+  ['GRN-HO-GUDANG-000015', 'Garmen Nusantara, PT', '2026-10-16', 'PO-0001-1016-05', 'INV-PO-161026-005', [['Celana pendek', 8, 35000]]],
+  ['GRN-HO-GUDANG-000016', 'Garmen Nusantara, PT', '2026-10-16', 'PO-0001-1016-06', '', [['Kemeja oxford', 8, 40000]]],
+  ['GRN-HO-GUDANG-000018', 'Kaos & Kemeja Prima, CV', '2026-10-16', 'PO-0027-1012', '', [['Kemeja batik', 10, 60000], ['Kaos polo', 12, 45000], ['Kemeja linen', 4, 65000], ['Kaos anak', 5, 20000]]],
+  ['GRN-HO-GUDANG-2026-000002', 'Garmen Nusantara, PT', '2026-10-17', 'PO-0001-1017-01', '', [['Jaket denim', 10, 180000], ['Celana jeans', 10, 120000], ['Kaos polos basic', 14, 15000]]],
+  ['GRN-HO-GUDANG-2026-000001', 'Garmen Nusantara, PT', '2026-10-17', 'PO-0001-1017-02', '', [['Kemeja oxford', 8, 40000]]],
+].map(([no, sup, arrived, po, theirNo, lines], i) => ({ id: 'r' + i, t: 'r', no, sup, arrived, po, theirNo, lines, site: 'dc', total: sum(lines, l => l[1] * l[2]), what: po + ' · ' + plural(sum(lines, l => l[1]), 'pc').replace('pcs', 'pcs').replace(/pc$/, 'pc'), billed: false }))
+
+// Every delivery becomes a draft bill when the DC posts it, numbered from the
+// delivery note or INV-<GRN> like the INV-GRN-… bills; Finance only posts it.
+{
+  const groups = {}
+  for (const r of RECEIPTS) (groups[r.theirNo || 'INV-' + r.no] = groups[r.theirNo || 'INV-' + r.no] || []).push(r)
+  for (const [no, rs] of Object.entries(groups)) {
+    const r0 = rs[0], pcs = sum(rs.flatMap(r => r.lines), l => l[1])
+    bill(no, r0.sup, 'M', 'dc', r0.arrived, add(r0.arrived, (SUPS[r0.sup] || [])[1] === 'Cash on delivery' ? 0 : 30), sum(rs, r => r.total) / 1000, 0, 'M', 'RCV', rs.map(r => r.no).join(' + ') + ' · ' + pcs + ' pcs', { grn: rs.map(r => r.no).join(', '), po: r0.po, by: 'Gudang HO' })
+    rs.forEach(r => { r.billed = true })
+  }
+}
+
+let PAYS = [
+  ['KK-26-08-00001', '2026-08-20', 'Bengkel Maju Jaya Motor', 'RPR-018-202608', 'Servis kendaraan Store 05', 2975, 'Transfer'],
+  ['KK-26-08-00002', '2026-08-20', 'Renovasi Bangun Sentosa, CV', 'RPR-008-202608', 'Perbaikan rak & furnitur Store 08', 2300, 'Transfer'],
+  ['KK-26-08-00003', '2026-08-21', 'Telkom Indonesia (IndiHome Bisnis)', 'NET-HO-202608', 'Internet kantor pusat · Aug 2026', 1860, 'Transfer'],
+  ['KK-26-08-00004', '2026-08-22', 'JNE Ekspress, PT', 'ONGKIR-031-202608', 'Ongkos kirim Store 11 · Aug 2026', 492.8, 'Transfer'],
+  ['KK-26-08-00005', '2026-08-22', 'Dingin Sejuk AC Service, CV', 'RPR-033-202608', 'Servis AC Store 06', 1309, 'Cash'],
+  ['KK-26-08-00006', '2026-08-22', 'PLN (Persero) Area', 'LST-store-05-202608', 'Listrik Store 05 · Aug 2026', 1660, 'Transfer'],
+  ['KK-26-08-00007', '2026-08-23', 'Digital Print Nusantara, PT', 'CTK-001-202608', 'Cetak brosur & label toko · Aug 2026', 1275, 'Transfer'],
+  ['KK-26-08-00008', '2026-08-23', 'Dingin Sejuk AC Service, CV', 'RPR-001-202608', 'Servis AC Store 01', 950, 'Giro', ['BCA-GRV-0095', 'cleared', '2026-09-17', '2026-09-17']],
+  ['KK-26-08-00009', '2026-08-23', 'JNE Ekspress, PT', 'ONGKIR-014-202608', 'Ongkos kirim DC · Aug 2026', 2790, 'Transfer'],
+  ['KK-26-08-00010', '2026-08-24', 'JNE Ekspress, PT', 'ONGKIR-017-202608', 'Ongkos kirim Store 03 · Aug 2026', 1200, 'Transfer'],
+  ['KK-26-08-00011', '2026-08-25', 'PLN (Persero) Area', 'LST-store-01-202608', 'Listrik Store 01 · Aug 2026', 4002, 'Cash'],
+  ['KK-26-08-00012', '2026-08-25', 'JNE Ekspress, PT', 'ONGKIR-019-202608', 'Ongkos kirim Store 07 · Aug 2026', 1860, 'Transfer'],
+  ['KK-26-08-00013', '2026-08-26', 'JNE Ekspress, PT', 'ONGKIR-023-202608', 'Ongkos kirim Store 12 · Aug 2026', 1330, 'Giro', ['BCA-GRV-0271', 'due', '2026-09-20']],
+  ['KK-26-08-00014', '2026-08-27', 'J&T Logistik Indonesia, PT', 'ONGKIR-022-202608', 'Ongkos kirim DC · Aug 2026', 2010, 'Transfer'],
+  ['KK-26-08-00015', '2026-08-27', 'PLN (Persero) Area', 'LST-store-12-202608', 'Listrik Store 12 · Aug 2026', 3350, 'Cash'],
+  ['KK-26-09-00001', '2026-09-02', 'CV Sejuk Teknik Mandiri', 'INV/STM/2026/0905', 'AC kantor pusat (aset)', 12000, 'Transfer'],
+  ['KK-26-09-00002', '2026-09-12', 'Kencana Komputer', 'INV/KK/2026/0911', 'Komputer kasir 8 unit (aset)', 63600, 'Transfer'],
+  ['KK-26-09-00003', '2026-09-13', 'Sepatu Sejahtera, CV', 'ONGKIR-0002-0912', 'Ongkos kirim tambahan · Sep 2026', 123.2, 'Transfer'],
+  ['KK-26-09-00004', '2026-09-15', 'Sepatu Sejahtera, CV', 'SERVIS-0002-0915', 'Servis rak display · Sep 2026', 500, 'Giro', ['BCA-GR-000102', 'written', '2026-10-15']],
+  ['KK-26-09-00005', '2026-09-16', 'Sepatu Sejahtera, CV', 'ONGKIR-0002-0916', 'Ongkos kirim tambahan · Sep 2026', 500, 'Giro', ['BCA-GR-000103', 'handed', '2026-10-16']],
+  ['KK-26-09-00006', '2026-09-17', 'Sepatu Sejahtera, CV', 'SERVIS-0002-0917', 'Servis rak display · Sep 2026', 500, 'Giro', ['BCA-GR-000104', 'cleared', '2026-10-17', '2026-10-17']],
+  ['KK-26-09-00007', '2026-09-18', 'Sepatu Sejahtera, CV', 'SERVIS-0002-0918', 'Servis rak display · Sep 2026', 500, 'Giro', ['BCA-GR-000105', 'bounced', '2026-09-25', '2026-09-25', 'KK-26-09-00012']],
+  ['KK-26-09-00008', '2026-09-22', 'PT Auto Mandiri Bekasi', 'INV/AMB/2026/0903', 'Mobil operasional DC (aset)', 240000, 'Transfer'],
+  ['KK-26-09-00009', '2026-09-23', 'Sepatu Sejahtera, CV', 'ONGKIR-0002-0912', 'Ongkos kirim tambahan · Sep 2026', 96.8, 'Transfer'],
+  ['KK-26-09-00011', '2026-09-26', 'Garmen Nusantara, PT', 'ONGKIR-0001-0926', 'Ongkos kirim tambahan · Sep 2026', 150, 'Transfer'],
+  ['KK-26-09-00012', '2026-09-28', 'Sepatu Sejahtera, CV', 'SERVIS-0002-0918', 'Servis rak display · Sep 2026', 500, 'Transfer'],
+].map(([no, date, sup, forNo, what, k, method, g], i) => ({ id: 'p' + i, t: 'p', no, date, sup, forNo, what, amount: Math.round(k * 1000), method, giro: g ? { no: g[0], st: g[1], due: g[2], on: g[3], by: g[4] } : null, posted: true }))
+
+{ const k = BILLS.find(b => b.no === 'INV/KBR/2026/0908'); PAYS.push({ id: 'pk', t: 'p', no: 'KK-26-09-00010', date: '2026-09-24', sup: k.sup, forNo: k.no, what: k.what, amount: k.total, method: 'Transfer', giro: null, posted: false, lines: [[k.no, k.what, k.total]], ids: [k.id] }) }
+
+let CREDITS = [
+  { id: 'c0', t: 'c', no: 'CN-26-09-001', date: '2026-09-24', sup: 'Garmen Nusantara, PT', forNo: 'ONGKIR-0001-0926', what: 'Potongan ongkir telat kirim', total: 50000, st: 'Used in KK-26-09-00011' },
+  { id: 'c1', t: 'c', no: 'CN-26-08-004', date: '2026-08-29', sup: 'Dingin Sejuk AC Service, CV', forNo: 'RPR-033-202608', what: 'Servis dibatalkan sebagian', total: 300000, st: 'Refunded by KM-26-08-00006' },
+]
+
+const LOAN = { id: 'l0', t: 'l', sup: 'Bank BCA', no: 'FAC-0001', borrowed: 12000000, start: '2026-08-25', ends: '2027-08-25', what: 'Pinjaman modal kerja', paidCount: 1 }
+const instalments = () => Array.from({ length: 12 }, (_, i) => {
+  const due = add('2026-09-25', 0).slice(0, 5) + pad(((8 + i) % 12) + 1) + '-25'
+  const y = 2026 + Math.floor((8 + i) / 12)
+  return { n: i + 1, due: y + due.slice(4), principal: 1000000, interest: (12 - i) * 10000, paid: i < LOAN.paidCount }
+})
+const loanLeft = () => sum(instalments().filter(x => !x.paid), x => x.principal)
+const nextInst = () => instalments().find(x => !x.paid)
+
+let REPEATS = [
+  ['Listrik toko', 'PLN (Persero) Area', 'Every month', '13 stores', '2026-11-03', 88300000],
+  ['Internet & telepon toko', 'Telkom Indonesia (IndiHome Bisnis)', 'Every month', '13 stores', '2026-11-08', 6380000],
+  ['Internet kantor pusat', 'Telkom Indonesia (IndiHome Bisnis)', 'Every month', 'DC & head office', '2026-11-05', 1810000],
+  ['Satpam kantor pusat', 'Satria Pengamanan Nusantara, PT', 'Every month', 'DC & head office', '2026-11-03', 6450000],
+  ['Kebersihan kantor pusat', 'Bersih Selalu Cleaning Service, CV', 'Every month', 'DC & head office', '2026-11-03', 4750000],
+  ['ATK & cetakan kantor pusat', 'Cahaya ATK & Percetakan, CV', 'Every month', 'DC & head office', '2026-11-15', 1575000],
+  ['Air PDAM toko', 'PDAM Tirta', 'Every 3 months', '13 stores', '2027-01-05', 11920000],
+  ['Sewa toko', '4 landlords', 'Every 3 months', '4 stores', '2027-01-01', 377500000],
+].map(([what, sup, every, where, next, amount], i) => ({ id: 'rp' + i, what, sup, every, where, next, amount, on: true }))
+
+/* ---------- derived ---------- */
+const owed = b => b.total - b.paid
+const isDraft = b => b.st === 'D' || b.st === 'M'
+const isOpen = b => b.st === 'P' && owed(b) !== 0
+const late = b => b.due && b.due < TODAY
+const lateDays = b => diff(b.due, TODAY)
+const checkRows = () => BILLS.filter(isDraft)
+const payRows = () => BILLS.filter(isOpen)
+const supOf = n => SUPS[n] || ['—', 'Net 30', '—']
+function payBucket(b) {
+  if (b.t === 'i') return b.due <= add(TODAY, 7) ? 'week' : 'later'
+  if (b.hold) return 'hold'
+  if (b.bkk) return 'paying'
+  if (late(b)) return 'late'
+  if (b.due <= add(TODAY, 7)) return 'week'
+  return 'later'
+}
+const loanRow = () => { const x = nextInst(); return x ? { id: 'i0', t: 'i', no: LOAN.no + ' · instalment ' + x.n + ' of 12', sup: 'Bank BCA', what: 'Pokok Rp 1.000.000 + bunga', due: x.due, total: x.principal + x.interest, paid: 0, site: 'dc' } : null }
+
+/* ---------- state ---------- */
+const q0 = new URLSearchParams(location.search)
+const S = { word: q0.get('w') || 'post', v: q0.get('v') || 'a', t: q0.get('t') || null, view: q0.get('view') || 'pay', dev: q0.get('dev') || 'desk', q: '', place: 'all', flt: null, asOf: TODAY, dStatus: 'open', sel: new Set(), stack: [], nowTab: 0, nowView: 0, pay: null, form: null, inline: null, mode: null }
+
+const OPTS = [
+  { id: 'now', name: 'Now' },
+  { id: 'a', name: 'A · Three steps', star: true },
+  { id: 'b', name: 'B · Five jobs' },
+  { id: 'c', name: 'C · One list' },
+  { id: 'd', name: 'D · Like 7Soft' },
+  { id: 'cmp', name: 'Compare' },
+]
+const WORDS = { post: ['To post', 'Not posted', 'To post ★'], draft: ['Drafts', 'Draft', 'Drafts'], inbox: ['Inbox', 'Not posted', 'Inbox'] }
+const W = () => WORDS[S.word][0]
+const nCheck = () => checkRows().length
+const nPay = () => payRows().length
+const TABS = {
+  a: [{ id: 'check', get l() { return W() }, n: nCheck }, { id: 'pay', l: 'To pay', n: nPay, views: [['pay', 'To pay'], ['aging', 'Aging']] }, { id: 'paid', l: 'Paid' }],
+  b: [{ id: 'check', get l() { return W() }, n: nCheck }, { id: 'pay', l: 'To pay', n: nPay }, { id: 'paid', l: 'Paid' }, { id: 'sup', l: 'Suppliers' }, { id: 'loans', l: 'Loans' }],
+  c: [{ id: 'check', get l() { return W() }, n: nCheck }, { id: 'pay', l: 'To pay', n: () => nPay() + 1 }, { id: 'paid', l: 'Paid' }, { id: 'all', l: 'All bills' }, { id: 'sup', l: 'Suppliers' }],
+  d: [{ id: 'bills', l: 'Bills' }, { id: 'pays', l: 'Payments' }, { id: 'returns', l: 'Returns' }, { id: 'sup', l: 'Suppliers' }, { id: 'loans', l: 'Loans' }],
+}
+const tabsOf = () => TABS[S.v] || []
+if (!S.t || !tabsOf().some(t => t.id === S.t)) S.t = (tabsOf()[0] || {}).id
+
+/* ---------- shared cells ---------- */
+const supLink = n => `<a class="lk" data-sup="${esc(n)}">${esc(n)}</a>`
+const dueCell = r => !r.due ? '<span class="grey">—</span>' : (r.due < TODAY && !(r.t === 'b' && owed(r) === 0 && r.st === 'P') ? `<span class="lateTxt nw">${fmt(r.due)}</span>` : `<span class="nw">${fmt(r.due)}</span>`)
+function noteOf(r) {
+  if (r.t === 'r') return `<span class="grey">Arrived ${fmt(r.arrived)}</span>`
+  if (r.t === 'i') return '<span class="grey">Loan instalment</span>'
+  if (r.t !== 'b') return ''
+  if (r.kind === 'C') return '<span class="grey">Credit note</span>'
+  if (isDraft(r)) {
+    if (r.st === 'M' || r.from === 'RCV') return '<span class="grey">Matches receipt</span>'
+    if (r.from === 'GA') return '<span class="grey">From GA</span>'
+    if (r.from === 'REP') return '<span class="grey">Repeats monthly</span>'
+    if (r.from === 'REP3') return '<span class="grey">Repeats quarterly</span>'
+    return ''
+  }
+  if (r.hold) return `<span class="grey">On hold · ${esc(r.hold)}</span>`
+  if (r.bkk) return `<span class="warnTxt">BKK not posted</span>`
+  if (r.paid > 0) return `<span class="grey">Part paid</span>`
+  return ''
+}
+const statusWord = r => {
+  if (r.t === 'r') return '<span class="grey">Received, not billed</span>'
+  if (r.t === 'i') return dueSoon(r)
+  if (isDraft(r)) return `<span class="grey">${WORDS[S.word][1]}</span>`
+  if (r.st === 'X') return '<span class="grey">Rejected</span>'
+  if (owed(r) === 0) return '<span class="grey">Paid</span>'
+  if (r.hold) return '<span class="grey">On hold</span>'
+  if (r.bkk) return '<span class="warnTxt">Being paid</span>'
+  if (late(r)) return `<span class="lateTxt">${lateDays(r)} days late</span>`
+  return dueSoon(r)
+}
+const dueSoon = r => { const d = diff(TODAY, r.due); return `<span class="grey">${d === 0 ? 'Due today' : 'Due in ' + plural(d, 'day')}</span>` }
+function paidBy(p) {
+  if (!p.posted) return `<span class="warnTxt">Not posted</span>`
+  if (!p.giro) return `<span class="grey">${p.method}</span>`
+  const g = p.giro
+  if (g.st === 'cleared') return `<span class="grey">Giro cleared ${fmt(g.on)}</span>`
+  if (g.st === 'bounced') return `<span class="grey">Giro bounced · paid again</span>`
+  if (g.due < TODAY) return `<span class="warnTxt">Giro not cleared</span>`
+  return `<span class="grey">Giro due ${fmt(g.due)}</span>`
+}
+const payCounts = p => !(p.giro && p.giro.st === 'bounced')
+const paidBill = p => ({ id: 'pb_' + p.id, t: 'pb', no: p.forNo, sup: p.sup, what: p.what, due: add(p.date, -6), date: add(p.date, -20), total: p.amount, amount: p.amount, st: 'P', paid: p.amount, pay: p })
+
+const COL = {
+  sup: (label = 'Supplier', w = 200) => ({ label, w, cell: r => supLink(r.sup), ph: 'title' }),
+  doc: (label = 'Invoice', w = 190) => ({ label, w, cell: r => `<span class="grey">${esc(r.no)}</span>`, ph: 'sub' }),
+  docT: (label = 'Invoice', w = 220) => ({ label, w, cell: r => esc(r.no), ph: 'title' }),
+  what: (label = 'What for') => ({ label, cell: r => esc(r.what), ph: 'sub2' }),
+  due: (label = 'Due', w = 120) => ({ label, w, cell: dueCell, ph: 'meta' }),
+  date: (label = 'Date', w = 120, k = 'date') => ({ label, w, cell: r => `<span class="nw">${fmt(r[k] || r.arrived)}</span>`, ph: 'meta' }),
+  note: (label = 'Note', w = 160) => ({ label, w, cell: noteOf, ph: 'note' }),
+  status: (label = 'Status', w = 150) => ({ label, w, cell: statusWord, ph: 'note' }),
+  amt: (label = 'Amount', w = 144, f = r => r.total) => ({ label, w, r: true, cell: r => rp(f(r)), ph: 'fig' }),
+  owed: (label = 'Owed', w = 144) => ({ label, w, r: true, cell: r => rp(r.t === 'r' ? r.total : owed(r)), ph: 'fig' }),
+}
+
+/* ---------- filtering ---------- */
+const qOK = r => { const q = S.q.trim().toLowerCase(); if (!q) return true; return [r.sup, r.no, r.what, r.forNo].some(x => (x || '').toLowerCase().includes(q)) }
+const placeOK = r => S.place === 'all' || !r.site || (S.place === 'dc' ? r.site === 'dc' : r.site.startsWith('store'))
+const ok = r => qOK(r) && placeOK(r)
+const byDue = (a, b) => (a.due || '9') < (b.due || '9') ? -1 : (a.due || '9') > (b.due || '9') ? 1 : 0
+const byDateDesc = (a, b) => (a.date || a.arrived) < (b.date || b.arrived) ? 1 : -1
+
+/* ---------- views ---------- */
+function kpi(l, v, act, tone) { return { l, v, act, tone } }
+const fig = (rows, f = r => r.t === 'r' ? r.total : (isDraft(r) ? r.total : owed(r))) => rows.length ? rp(sum(rows, f)) : '—'
+
+function vCheck(flat) {
+  const drafts = checkRows().filter(ok).sort(byDue)
+  const ready = drafts
+  const recs = RECEIPTS.filter(r => !r.billed && ok(r)).sort((a, b) => a.arrived < b.arrived ? -1 : 1)
+  const cols = flat
+    ? [COL.sup(), COL.doc(), COL.what(), COL.due(), COL.status('Status', 170), COL.amt()]
+    : [COL.sup('Supplier', 246), COL.doc('Invoice', 220), COL.what(), COL.due('Due', 124), COL.amt()]
+  const sections = [{ id: 'all', title: null, rows: flat ? [...drafts, ...recs] : ready, sel: true }]
+  return {
+    head: [['Record bill', 'record', 'btn']],
+    kpis: [kpi('Ready to post', fig(ready), null), kpi('From receiving', fig(ready.filter(b => b.from === 'RCV')), null), kpi('Past due', String(drafts.filter(late).length) + ' of ' + drafts.length, null, drafts.some(late) ? 'bad' : '')],
+    bar: { search: 'Search supplier, invoice, what for', place: true, right: [['Repeating', 'repeats', 'tint']] },
+    table: { cols, sections, sel: 'post' },
+  }
+}
+
+function payFilter(rows) { return S.flt ? rows.filter(r => payBucket(r) === S.flt) : rows }
+function payKpis(rows) {
+  const by = k => rows.filter(r => payBucket(r) === k)
+  return [kpi('Late', fig(by('late')), 'flt:late', by('late').length ? 'bad' : ''), kpi('Next 7 days', fig(by('week')), 'flt:week'), kpi('Later', fig(by('later')), 'flt:later', by('later').length ? '' : 'mute'), kpi('Being paid', fig(by('paying')), 'flt:paying', by('paying').length ? '' : 'mute')]
+}
+
+function vPayGrouped() {
+  const lr = loanRow()
+  const all = [...payRows(), ...(lr ? [lr] : [])].filter(ok)
+  const rows = payFilter(all)
+  const groups = {}
+  for (const r of rows) (groups[r.sup] = groups[r.sup] || []).push(r)
+  const order = Object.entries(groups).map(([sup, rs]) => ({ sup, rs: rs.sort(byDue), first: rs.map(r => r.due).sort()[0] })).sort((a, b) => a.first < b.first ? -1 : 1)
+  return {
+    kpis: payKpis(all),
+    bar: { search: 'Search supplier, invoice, what for', place: true },
+    table: {
+      cols: [COL.docT('Invoice', 264), COL.what(), COL.due(), COL.note('Note', 196), COL.owed()],
+      sections: order.map(g => ({ id: 'g:' + g.sup, title: g.sup === 'Bank BCA' ? `${supLink('Bank BCA')} <span class="c">· still owed ${rp(loanRow() ? loanLeft() : 0)}</span>` : supLink(g.sup), rawTitle: g.sup, count: plural(g.rs.length, g.sup === 'Bank BCA' ? 'instalment' : 'bill'), rows: g.rs, sel: true, total: sum(g.rs, r => owed(r)) })),
+      sel: 'pay', empty: S.flt ? 'Nothing here' : 'Nothing to pay',
+    },
+  }
+}
+
+function vPayUrgency(withLoan) {
+  const lr = withLoan ? loanRow() : null
+  const all = [...payRows(), ...(lr ? [lr] : [])].filter(ok)
+  const rows = payFilter(all)
+  const sec = (id, title) => ({ id, title, rows: rows.filter(r => payBucket(r) === id).sort(byDue), sel: true })
+  return {
+    kpis: payKpis(all),
+    bar: { search: 'Search supplier, invoice, what for', place: true },
+    table: {
+      cols: [COL.sup(), COL.doc('Invoice', 180), COL.what(), COL.due(), COL.note('Note', 150), COL.owed()],
+      sections: [sec('late', 'Late'), sec('week', 'Next 7 days'), sec('later', 'Later'), sec('paying', 'Being paid'), sec('hold', 'On hold')].filter(s => s.rows.length),
+      sel: 'pay', empty: 'Nothing to pay',
+    },
+  }
+}
+
+function paymentsList(all) { return PAYS.filter(p => (all || p.posted) && ok(p)).sort((a, b) => a.date < b.date ? 1 : a.date > b.date ? -1 : (a.no < b.no ? 1 : -1)) }
+function paidKpis() {
+  const ps = PAYS.filter(p => p.posted && payCounts(p))
+  const inMonth = m => ps.filter(p => p.date.slice(0, 7) === m)
+  const open = PAYS.filter(p => p.giro && p.giro.st !== 'cleared' && p.giro.st !== 'bounced')
+  const bounced = PAYS.filter(p => p.giro && p.giro.st === 'bounced')
+  return [kpi('Paid in October', inMonth('2026-10').length ? rp(sum(inMonth('2026-10'), p => p.amount)) : '—', 'go:2026-10', inMonth('2026-10').length ? '' : 'mute'), kpi('Paid in September', rp(sum(inMonth('2026-09'), p => p.amount)), 'go:2026-09'), kpi('Giro not cleared', open.length ? rp(sum(open, p => p.amount)) + ' · ' + open.length : '—', 'go:2026-09', open.some(p => p.giro.due < TODAY) ? 'bad' : ''), kpi('Bounced', String(bounced.length), 'go:2026-09')]
+}
+function vPaid() {
+  const ps = paymentsList()
+  const months = [...new Set(ps.map(p => p.date.slice(0, 7)))]
+  return {
+    kpis: paidKpis(),
+    bar: { search: 'Search supplier, BKK, invoice' },
+    table: {
+      cols: [COL.sup('Supplier', 210), { label: 'BKK', w: 164, cell: p => `<span class="grey nw">${p.no}</span>`, ph: 'sub' }, { label: 'For', w: 190, cell: p => esc(p.forNo), ph: 'sub2' }, COL.date('Paid on'), { label: 'Paid by', cell: paidBy, ph: 'note' }, { label: 'Amount', w: 144, r: true, cell: p => payCounts(p) ? rp(p.amount) : `<span class="strike">${rp(p.amount)}</span>`, ph: 'fig' }],
+      sections: months.map(m => { const rs = ps.filter(p => p.date.slice(0, 7) === m); return { id: m, title: monthOf(m + '-01'), rows: rs, sel: false, total: sum(rs.filter(payCounts), p => p.amount) } }),
+      sel: null, empty: 'No payments',
+    },
+  }
+}
+
+function agingRows(asOf) {
+  const out = {}
+  const put = (sup, k, v) => { const o = out[sup] = out[sup] || { id: 's:' + sup, t: 's', sup, nb: 0, nd: 0, d30: 0, d60: 0, d90: 0, d91: 0 }; o[k] += v }
+  const bucket = (due, v, sup) => { const d = diff(due, asOf); put(sup, d <= 0 ? 'nd' : d <= 30 ? 'd30' : d <= 60 ? 'd60' : d <= 90 ? 'd90' : 'd91', v) }
+  for (const b of BILLS) {
+    if (b.date > asOf || b.st === 'X') continue
+    if (b.st === 'P') { const o = owed(b) + sum(PAYS.filter(p => p.forNo === b.no && p.date > asOf && payCounts(p)), p => p.amount); if (o) bucket(b.due, o, b.sup) }
+    else if (b.st === 'M' && b.kind !== 'C') bucket(b.due, b.total, b.sup)
+  }
+  for (const r of RECEIPTS) if (!r.billed && r.arrived <= asOf) bucket(add(r.arrived, 30), r.total, r.sup)
+  for (const p of PAYS) if (p.date > asOf && p.posted && payCounts(p) && !BILLS.some(b => b.no === p.forNo)) { const billDate = add(p.date, -20); if (billDate <= asOf) bucket(add(billDate, 14), p.amount, p.sup) }
+  return Object.values(out).filter(placeOKsup).map(o => Object.assign(o, { owedAll: o.nb + o.nd + o.d30 + o.d60 + o.d90 + o.d91 })).filter(o => o.owedAll !== 0 && qOK(o)).sort((a, b) => (b.d91 + b.d90 + b.d60 + b.d30) - (a.d91 + a.d90 + a.d60 + a.d30) || b.owedAll - a.owedAll)
+}
+const placeOKsup = () => true
+function vAging() {
+  const rows = agingRows(S.asOf)
+  const t = k => sum(rows, r => r[k])
+  const totalAll = t('owedAll')
+  const lateSum = t('d30') + t('d60') + t('d90') + t('d91')
+  const m = k => ({ label: { nb: 'Not billed', nd: 'Not due', d30: '1–30', d60: '31–60', d90: '61–90', d91: 'Over 90' }[k], w: 122, r: true, cell: r => r[k] ? num(r[k]) : '<span class="grey">—</span>', ph: 'kv' })
+  return {
+    kpis: [kpi('Owed', rp(totalAll), null), kpi('Late', rp(lateSum), null, lateSum ? 'bad' : ''), kpi('Not due', rp(t('nd')), null), kpi('In the books · 2101', rp(totalAll) + ' ✓', null)],
+    bar: { search: 'Search supplier', right: [['As at', null, 'label'], ['asof', null, 'asof'], ['Export', 'export', 'tint']] },
+    table: {
+      cols: [{ label: 'Supplier', cell: r => supLink(r.sup), ph: 'title' }, m('nd'), m('d30'), m('d60'), m('d90'), m('d91'), { label: 'Owed', w: 132, r: true, cell: r => num(r.owedAll), ph: 'fig' }],
+      sections: [{ id: 'all', title: null, rows, sel: false }], cls: 'tight',
+      sel: null, empty: 'Nothing owed',
+      foot: n => `<tr class="tot"><td>Total · ${plural(rows.length, 'supplier')}</td>${['nd', 'd30', 'd60', 'd90', 'd91'].map(k => `<td class="r">${t(k) ? num(t(k)) : '—'}</td>`).join('')}<td class="r">${num(totalAll)}</td></tr>`,
+    },
+  }
+}
+
+function vLoans() {
+  const x = nextInst()
+  const row = { id: 'l0', t: 'l', sup: 'Bank BCA', no: LOAN.no, what: LOAN.what }
+  return {
+    kpis: [kpi('Still owed', rp(loanLeft()), null), kpi('Due in 12 months', rp(loanLeft()), null), kpi('Next payment', x ? fmt(x.due) : '—', null), kpi('Interest paid', rp(sum(instalments().filter(i => i.paid), i => i.interest)), null)],
+    bar: { search: 'Search loans' },
+    table: {
+      cols: [{ label: 'Lender', cell: r => supLink(r.sup), ph: 'title' }, { label: 'Loan', w: 130, cell: r => `<span class="grey">${r.no}</span>`, ph: 'sub' }, { label: 'Borrowed', w: 140, r: true, cell: () => rp(LOAN.borrowed), ph: 'kv' }, { label: 'Still owed', w: 140, r: true, cell: () => rp(loanLeft()), ph: 'fig' }, { label: 'Next payment', w: 150, r: true, cell: () => x ? rp(x.principal + x.interest) : '—', ph: 'kv' }, { label: 'Due', w: 130, cell: () => x ? fmt(x.due) : '—', ph: 'meta' }, { label: 'Ends', w: 130, cell: () => fmt(LOAN.ends), ph: 'meta' }],
+      sections: [{ id: 'all', title: null, rows: qOK(row) ? [row] : [], sel: false }],
+      sel: null, empty: 'No loans',
+    },
+  }
+}
+
+function vC(tab) {
+  const lr = loanRow()
+  const cols = [COL.sup(), COL.doc(), COL.what(), COL.due(), COL.status(), COL.amt(tab === 'check' ? 'Amount' : tab === 'paid' ? 'Paid' : tab === 'all' ? 'Amount' : 'Owed', 140, r => r.t === 'p' ? r.amount : tab === 'pay' ? owed(r) : r.total)]
+  let rows = [], k = []
+  const paidRows = PAYS.filter(p => p.posted && payCounts(p)).map(p => Object.assign(paidBill(p), { date: p.date }))
+  if (tab === 'check') { rows = [...checkRows(), ...RECEIPTS.filter(r => !r.billed)].filter(ok).sort(byDue); k = [kpi('Bills', String(rows.length), null), kpi('Amount', fig(rows), null), kpi('Past due', String(rows.filter(late).length), null, rows.some(late) ? 'bad' : '')] }
+  if (tab === 'pay') { rows = [...payRows(), ...(lr ? [lr] : [])].filter(ok).sort(byDue); k = [kpi('Bills', String(rows.length), null), kpi('Owed', fig(rows), null), kpi('Late', fig(rows.filter(r => payBucket(r) === 'late')), null, 'bad')] }
+  if (tab === 'paid') { rows = paidRows.filter(ok).sort(byDateDesc); k = [kpi('Bills', String(rows.length), null), kpi('Paid', fig(rows, r => r.amount), null), kpi('Giro not cleared', String(PAYS.filter(p => p.giro && !['cleared', 'bounced'].includes(p.giro.st)).length), null, 'bad')] }
+  if (tab === 'all') { rows = [...BILLS.filter(b => b.st !== 'X'), ...paidRows].filter(ok).sort(byDateDesc); k = [kpi('Bills', String(rows.length), null), kpi('Amount', fig(rows, r => r.total), null), kpi('Still owed', fig(payRows()), null)] }
+  if (tab === 'paid') cols[4] = { label: 'Status', w: 170, cell: r => `<span class="grey">Paid ${fmt(r.date)}</span>`, ph: 'note' }
+  return {
+    head: tab === 'check' ? [['Record bill', 'record', 'btn']] : [],
+    kpis: k,
+    bar: { search: 'Search supplier, invoice, what for', place: true, right: tab === 'check' ? [['Repeating', 'repeats', 'tint']] : [] },
+    table: { cols, sections: [{ id: 'all', title: null, rows, sel: tab === 'check' || tab === 'pay' }], sel: tab === 'check' ? 'post' : tab === 'pay' ? 'pay' : null, empty: 'Nothing here' },
+  }
+}
+
+function vDBills() {
+  const st = S.dStatus
+  const paidRows = PAYS.filter(p => p.posted && payCounts(p)).map(paidBill)
+  let rows
+  if (st === 'open') rows = BILLS.filter(b => isDraft(b) || isOpen(b))
+  if (st === 'draft') rows = checkRows()
+  if (st === 'posted') rows = payRows()
+  if (st === 'paid') rows = paidRows
+  if (st === 'goods') rows = RECEIPTS.filter(r => !r.billed)
+  if (st === 'all') rows = [...BILLS.filter(b => b.st !== 'X'), ...paidRows]
+  rows = rows.filter(ok).sort(byDateDesc)
+  const dStatus = r => r.t === 'r' ? '<span class="grey">Not billed</span>' : r.t === 'pb' ? '<span class="grey">Paid</span>' : isDraft(r) ? '<span class="grey">Draft</span>' : r.paid > 0 && owed(r) > 0 ? '<span class="grey">Part paid</span>' : owed(r) === 0 ? '<span class="grey">Paid</span>' : '<span class="grey">Posted</span>'
+  return {
+    head: [['Record bill', 'record', 'btn']],
+    kpis: [kpi('Draft', fig(checkRows(), r => r.total), null), kpi('Posted, unpaid', fig(payRows()), null), kpi('Late', fig(payRows().filter(late)), null, 'bad')],
+    bar: { search: 'Search supplier, invoice, what for', status: true, right: [['Repeating', 'repeats', 'tint']] },
+    table: { cols: [COL.date('Date', 120), COL.doc('Bill', 172), COL.sup('Supplier', 184), COL.what(), COL.due('Due', 120), { label: 'Owed', w: 144, r: true, cell: r => rp(r.t === 'pb' ? 0 : r.t === 'r' ? r.total : isDraft(r) ? r.total : owed(r)), ph: 'fig' }, { label: 'Status', w: 98, cell: dStatus, ph: 'note' }], sections: [{ id: 'all', title: null, rows, sel: st === 'draft' || st === 'posted' || st === 'open' }], sel: 'mixed', empty: 'No bills' },
+  }
+}
+function vDPays() {
+  const v = vPaid()
+  v.head = [['New payment', 'newpay', 'btn']]
+  v.table.cols = [COL.date('Date', 120), { label: 'BKK', w: 164, cell: p => `<span class="grey nw">${p.no}</span>`, ph: 'sub' }, COL.sup('Supplier', 220), { label: 'For', cell: p => esc(p.forNo), ph: 'sub2' }, { label: 'Paid by', w: 240, cell: paidBy, ph: 'note' }, { label: 'Amount', w: 144, r: true, cell: p => payCounts(p) ? rp(p.amount) : `<span class="strike">${rp(p.amount)}</span>`, ph: 'fig' }]
+  v.table.sections = [{ id: 'all', title: null, rows: paymentsList(true), sel: false }]
+  return v
+}
+function vDReturns() {
+  const drafts = BILLS.filter(b => b.kind === 'C' && b.st !== 'X').map(b => Object.assign(b, {}))
+  const rows = [...drafts, ...CREDITS].filter(ok).sort(byDateDesc)
+  const st = r => r.t === 'b' ? (isDraft(r) ? '<span class="grey">Draft</span>' : owed(r) !== 0 ? '<span class="grey">Posted · to use</span>' : '<span class="grey">Used</span>') : `<span class="grey">${esc(r.st.split(' ')[0])}</span>`
+  return {
+    head: [['New credit note', 'newcredit', 'btn']],
+    kpis: [kpi('Draft', fig(drafts.filter(isDraft), r => -r.total), null), kpi('To use', fig(BILLS.filter(b => b.kind === 'C' && isOpen(b)), r => -owed(r)), null), kpi('Used this year', rp(sum(CREDITS, c => c.total)), null)],
+    bar: { search: 'Search supplier, credit note, bill' },
+    table: { cols: [COL.date('Date', 120), COL.doc('Credit note', 150), COL.sup('Supplier', 190), { label: 'For bill', w: 170, cell: r => esc(r.forNo), ph: 'sub2' }, { label: 'Reason', cell: r => esc(r.what.split(' · ')[0]), ph: 'sub2' }, { label: 'Status', w: 140, cell: st, ph: 'note' }, { label: 'Amount', w: 144, r: true, cell: r => rp(Math.abs(r.total)), ph: 'fig' }], sections: [{ id: 'all', title: null, rows, sel: false }], sel: null, empty: 'No credit notes' },
+  }
+}
+
+const PLACES = [['all', 'All places', 'grid'], ['dc', 'DC & head office', 'dc'], ['stores', 'Stores', 'store']]
+const ASOF = [['2026-10-18', 'Today'], ['2026-09-30', '30 Sep 2026'], ['2026-08-31', '31 Aug 2026']]
+const DSTAT = [['open', 'Open', 'open'], ['draft', 'Draft', 'draft'], ['posted', 'Posted', 'posted'], ['paid', 'Paid', 'paid'], ['all', 'All', 'list']]
+function countFor(place) { const keep = S.place; S.place = place; const V = build(); S.place = keep; return V.table.sections.reduce((n, x) => n + x.rows.length, 0) }
+function dCount(v) { const keep = S.dStatus; S.dStatus = v; const V = vDBills(); S.dStatus = keep; return V.table.sections[0].rows.length }
+function build() {
+  const v = S.v, t = S.t
+  if (v === 'a') return t === 'check' ? vCheck(false) : t === 'pay' ? (S.view === 'aging' ? vAging() : vPayGrouped()) : vPaid()
+  if (v === 'b') return t === 'check' ? vCheck(false) : t === 'pay' ? vPayUrgency(false) : t === 'paid' ? vPaid() : t === 'sup' ? vAging() : vLoans()
+  if (v === 'c') return t === 'sup' ? vAging() : vC(t)
+  if (v === 'd') return t === 'bills' ? vDBills() : t === 'pays' ? vDPays() : t === 'returns' ? vDReturns() : t === 'sup' ? vAging() : vLoans()
+}
+
+/* ---------- row registry ---------- */
+let ROWS = {}
+function rowById(id) {
+  if (ROWS[id]) return ROWS[id]
+  if (id.startsWith('pb_')) { const p = PAYS.find(q => q.id === id.slice(3)); return p ? paidBill(p) : null }
+  return BILLS.find(b => b.id === id) || RECEIPTS.find(r => r.id === id) || PAYS.find(p => p.id === id) || CREDITS.find(c => c.id === id) || (id === 'i0' ? loanRow() : null) || (id === 'l0' ? LOAN : null)
+}
+const selectable = (r, kind) => {
+  if (kind === 'post') return r.t === 'b' && isDraft(r)
+  if (kind === 'pay') return (r.t === 'b' && isOpen(r) && !r.hold && !r.bkk) || r.t === 'i'
+  if (kind === 'mixed') return r.t === 'b' && (isDraft(r) || (isOpen(r) && !r.hold && !r.bkk))
+  return false
+}
+
+/* ---------- desk render ---------- */
+function headHTML(V) {
+  const acts = (V.head || []).map(([l, a, k]) => `<button class="${k}" data-act="${a}">${l}</button>`).join('')
+  return `<div class="head"><h1>Payables</h1><div class="acts">${acts}</div></div>`
+}
+function tabsHTML() {
+  const tabs = tabsOf()
+  const cur = tabs.find(t => t.id === S.t)
+  const vw = cur && cur.views ? `<div class="vw">${chipsHTML('view', cur.views.map(([k, l]) => ({ v: k, l, i: k === 'pay' ? 'wallet' : 'clock' })), S.view)}</div>` : ''
+  return `<div class="tabs">${tabs.map(t => `<button class="t${t.id === S.t ? ' on' : ''}" data-tab="${t.id}">${t.l}${t.n ? `<span class="n">${t.n()}</span>` : ''}</button>`).join('')}${vw}</div>`
+}
+function kpisHTML(V) {
+  if (!V.kpis || !V.kpis.length) return ''
+  return `<div class="kpis">${V.kpis.map(k => `<button class="kpi${k.act && S.flt && k.act === 'flt:' + S.flt ? ' on' : ''}" ${k.act ? `data-kpi="${k.act}"` : 'tabindex="-1" style="cursor:default"'}><span class="l">${k.l}</span><span class="v ${k.tone || ''}">${k.v}</span></button>`).join('')}</div>`
+}
+function barHTML(V) {
+  const b = V.bar || {}
+  let h = '<div class="tools">'
+  if (b.search) h += `<input class="field search" data-q placeholder="${b.search}" value="${esc(S.q)}">`
+  if (b.place) h += chipsHTML('place', PLACES.map(([v, l, i]) => ({ v, l, i, n: countFor(v) })), S.place)
+  if (b.status) h += chipsHTML('dstatus', DSTAT.map(([v, l, i]) => ({ v, l, i, n: dCount(v) })), S.dStatus)
+  h += '<span class="sp"></span>'
+  for (const [l, a, k] of b.right || []) {
+    if (k === 'label') h += `<span class="grey">${l}</span>`
+    else if (k === 'asof') h += chipsHTML('asof', ASOF.map(([v, l]) => ({ v, l, i: 'cal' })), S.asOf)
+    else h += `<button class="${k}" data-act="${a}">${l}</button>`
+  }
+  return h + '</div>'
+}
+function tableHTML(T) {
+  ROWS = {}
+  const n = T.cols.length + (T.sel ? 1 : 0)
+  const rowsAll = T.sections.flatMap(s => s.rows)
+  rowsAll.forEach(r => { ROWS[r.id] = r })
+  if (!rowsAll.length) return `<div class="empty">${T.empty || 'Nothing here'}</div>`
+  let h = `<div class="tbl ${T.cls || ''}"><table><colgroup>${T.sel ? '<col style="width:44px">' : ''}${T.cols.map(c => `<col${c.w ? ` style="width:${c.w}px"` : ''}>`).join('')}</colgroup><thead><tr>`
+  if (T.sel) { const ids = rowsAll.filter(r => selectable(r, T.sel)).map(r => r.id); h += `<th class="ck"><input type="checkbox" data-allsel="${ids.join(',')}" ${ids.length && ids.every(i => S.sel.has(i)) ? 'checked' : ''} ${ids.length ? '' : 'disabled'} aria-label="Select all"></th>` }
+  h += T.cols.map(c => `<th class="${c.r ? 'r' : ''}">${c.label}</th>`).join('') + '</tr></thead><tbody>'
+  for (const s of T.sections) {
+    if (s.title != null) {
+      const ids = s.rows.filter(r => selectable(r, T.sel)).map(r => r.id)
+      const total = s.total != null ? s.total : sum(s.rows, r => r.t === 'r' ? r.total : r.t === 'p' ? r.amount : isDraft(r) ? r.total : owed(r))
+      const box = T.sel ? `<input type="checkbox" data-secsel="${ids.join(',')}" ${ids.length && ids.every(i => S.sel.has(i)) ? 'checked' : ''} ${ids.length ? '' : 'disabled'} aria-label="Select section">` : ''
+      h += `<tr class="sec" id="sec-${esc(s.id)}"><td colspan="${n}"><div class="sh">${box}<span class="t">${s.title}</span><span class="c">${s.count || s.rows.length}</span><span class="tot">${rp(total)}</span></div></td></tr>`
+    }
+    if (!s.rows.length && s.empty) h += `<tr class="none"><td colspan="${n}">${s.empty}</td></tr>`
+    for (const r of s.rows) {
+      const can = T.sel && selectable(r, T.sel)
+      h += `<tr class="go${S.sel.has(r.id) ? ' sel' : ''}" data-open="${r.id}">`
+      if (T.sel) h += `<td class="ck"><input type="checkbox" data-sel="${r.id}" ${S.sel.has(r.id) ? 'checked' : ''} ${can ? '' : 'disabled'} aria-label="Select"></td>`
+      h += T.cols.map(c => `<td class="${c.r ? 'r' : ''}">${c.cell(r)}</td>`).join('') + '</tr>'
+    }
+  }
+  if (T.foot) h += T.foot(n)
+  return h + '</tbody></table></div>'
+}
+function sideHTML() {
+  return `<nav class="side"><h3>Finance</h3><a>Overview</a><span class="chip">Daily work</span><a>Stores</a><a class="on">Payables <span class="n">${nCheck() + nPay()}</span></a><a>Cash &amp; Bank <span class="n">19</span></a><span class="chip">Accounting</span><a>Journal</a><a>Assets</a><a>Month End</a><a>Reports</a><span class="chip">Configuration</span><a>Setup <span class="n">45</span></a></nav>`
+}
+function deskHTML(V) {
+  const rail = '<div class="rail">' + '<i></i>'.repeat(5) + '<i class="on"></i>' + '<i></i>'.repeat(3) + '</div>'
+  return `<div class="app">${rail}${sideHTML()}<main class="page">${headHTML(V)}${tabsHTML()}${kpisHTML(V)}${barHTML(V)}${tableHTML(V.table)}</main></div>`
+}
+
+/* ---------- phone render ---------- */
+function phoneHTML(V) {
+  ROWS = {}
+  const T = V.table
+  const rowsAll = T.sections.flatMap(s => s.rows)
+  rowsAll.forEach(r => { ROWS[r.id] = r })
+  const k = (V.kpis || []).map(x => `<button class="${x.act && S.flt && x.act === 'flt:' + S.flt ? 'on' : ''}" ${x.act ? `data-kpi="${x.act}"` : ''}><span class="l">${x.l}</span><span class="v ${x.tone || ''}">${x.v}</span></button>`).join('')
+  let list = k ? `<div class="ph-kpis">${k}</div>` : ''
+  if (!rowsAll.length) list += `<div class="ph-none">${T.empty || 'Nothing here'}</div>`
+  for (const s of T.sections) {
+    if (s.title != null && s.rows.length) {
+      const ids = s.rows.filter(r => selectable(r, T.sel)).map(r => r.id)
+      const total = s.total != null ? s.total : sum(s.rows, r => r.t === 'r' ? r.total : r.t === 'p' ? r.amount : isDraft(r) ? r.total : owed(r))
+      list += `<div class="ph-sec" id="sec-${esc(s.id)}">${T.sel && ids.length ? `<input type="checkbox" data-secsel="${ids.join(',')}" ${ids.every(i => S.sel.has(i)) ? 'checked' : ''}>` : ''}<span>${s.title}</span><span class="c">${s.count || s.rows.length}</span><span class="tot">${rp(total)}</span></div>`
+    }
+    for (const r of s.rows) list += cardHTML(r, T)
+  }
+  if (T.foot && T.sections[0].rows.length) list += `<div class="ph-sec"><span>Total</span><span class="tot">${rp(sum(T.sections[0].rows, r => r.owedAll || 0))}</span></div>`
+  const tab = tabsOf().find(t => t.id === S.t)
+  const primary = (V.head || [])[0]
+  return `<div class="phone-wrap"><div class="phone"><div class="ph-top">Payables</div><div class="ph-list">${list}</div>${selbarHTML()}<div class="dock"><button class="c" data-act="tabsheet">${tab ? tab.l : ''}${S.v === 'a' && S.t === 'pay' && S.view === 'aging' ? ' · Aging' : ''} ▾</button><input class="q" data-q placeholder="Search" value="${esc(S.q)}">${primary ? `<button class="p" data-act="${primary[1]}" aria-label="${primary[0]}">+</button>` : ''}</div></div></div>`
+}
+function cardHTML(r, T) {
+  const role = p => T.cols.filter(c => c.ph === p)
+  const cell = c => c.cell(r)
+  const title = role('title').map(cell).join(' ')
+  const figc = role('fig').map(cell).join(' ')
+  const sub = [...role('sub'), ...role('sub2')].map(cell).filter(x => x && x !== '<span class="grey"></span>').join(' · ')
+  const meta = [...role('meta'), ...role('note')].map(cell).filter(Boolean)
+  const kv = role('kv').map(c => `<span>${c.label}</span><span>${cell(c) || '—'}</span>`).join('')
+  const can = T.sel && selectable(r, T.sel)
+  return `<div class="pc${S.sel.has(r.id) ? ' sel' : ''}" data-open="${r.id}">${T.sel ? `<input type="checkbox" data-sel="${r.id}" ${S.sel.has(r.id) ? 'checked' : ''} ${can ? '' : 'disabled'}>` : ''}<div class="m"><div class="top"><span class="ttl">${title}</span><span class="fig">${figc}</span></div>${sub ? `<div class="sub">${sub}</div>` : ''}${meta.length ? `<div class="meta">${meta.map(x => `<span>${x}</span>`).join('')}</div>` : ''}${kv ? `<div class="kv">${kv}</div>` : ''}</div></div>`
+}
+
+/* ---------- selection ---------- */
+function selInfo() {
+  const rows = [...S.sel].map(rowById).filter(Boolean)
+  const drafts = rows.filter(r => r.t === 'b' && isDraft(r))
+  const pays = rows.filter(r => (r.t === 'b' && isOpen(r)) || r.t === 'i')
+  return { rows, drafts, pays }
+}
+function selbarHTML() {
+  const { rows, drafts, pays } = selInfo()
+  let inner = ''
+  if (rows.length) {
+    const sups = new Set(pays.map(r => r.sup)).size
+    if (drafts.length && !pays.length) inner = `<span class="what"><span>${plural(drafts.length, 'bill')}</span><span class="grey">${rp(sum(drafts, r => r.total))}</span></span><button class="tint" data-act="clearsel">Clear</button><button class="btn" data-act="post">Post ${plural(drafts.length, 'bill')}</button>`
+    else if (pays.length && !drafts.length) inner = `<span class="what"><span>${plural(pays.length, 'bill')} · ${plural(sups, 'supplier')}</span><span class="grey">${rp(sum(pays, r => owed(r)))}</span></span><button class="tint" data-act="clearsel">Clear</button><button class="btn" data-act="paysel">Pay ${plural(pays.length, 'bill')}</button>`
+    else inner = `<span class="what">Pick drafts or posted bills, not both</span><button class="tint" data-act="clearsel">Clear</button>`
+  }
+  return `<div class="selbar${rows.length ? ' on' : ''}" id="selbar">${inner}</div>`
+}
+function updateSel() {
+  document.querySelectorAll('[data-sel]').forEach(el => { el.checked = S.sel.has(el.dataset.sel); const row = el.closest('tr,.pc'); if (row) row.classList.toggle('sel', el.checked) })
+  document.querySelectorAll('[data-secsel],[data-allsel]').forEach(el => { const ids = (el.dataset.secsel ?? el.dataset.allsel).split(',').filter(Boolean); el.checked = ids.length > 0 && ids.every(i => S.sel.has(i)) })
+  const old = document.getElementById('selbar')
+  if (old) { const tmp = document.createElement('div'); tmp.innerHTML = selbarHTML(); const nu = tmp.firstChild; old.className = nu.className; old.innerHTML = nu.innerHTML }
+}
+
+/* ---------- now + compare ---------- */
+const NOW = [
+  ['Bills', [['Bills', 'payables-bills'], ['Recurring bills', 'payables-recurring-bills']]],
+  ['Due dates', [['Payment calendar', 'payables-projection'], ['Aging', 'payables-aging']]],
+  ['Suppliers', [['Summary', 'reports-accounts-payable-summary'], ['Ledger', 'payables-supplier-ledger']]],
+  ['Credit notes', [['Credit notes', 'payables-credit-notes']]],
+  ['Loans', [['Loans', 'financing-loans']]],
+]
+function nowHTML() {
+  const [tab, views] = NOW[S.nowTab]
+  const view = views[Math.min(S.nowView, views.length - 1)]
+  const sel = views.length > 1 ? chipsHTML('nowview', views.map((v, i) => ({ v: String(i), l: v[0] })), String(S.nowView)) : ''
+  return `<div class="now-bar"><div class="seg">${NOW.map((t, i) => `<button class="${i === S.nowTab ? 'on' : ''}" data-nowtab="${i}">${t[0]}</button>`).join('')}</div>${sel}</div><div class="now${S.dev === 'phone' ? ' ph' : ''}"><img alt="${tab} · ${view[0]} in the hub today" src="finance-review/shots/${S.dev}-${view[1]}.png"></div>`
+}
+const SPEC = {
+  a: { tabs: [['To check', 'Supplier · Invoice · What for · Due · Amount', 'One list, oldest due first; deliveries arrive here as drafts'], ['To pay', 'Invoice · What for · Due · Note · Owed', 'One group per supplier = one BKK; the bank loan is a group too · View: Aging'], ['Paid', 'Supplier · BKK · For · Paid on · Paid by · Amount', 'By month; giro shows cleared, due or not cleared']], clicks: [2, 5, 2, 3, 4] },
+  b: { tabs: [['To check', 'Supplier · Invoice · What for · Due · Amount', 'One list, oldest due first; deliveries arrive here as drafts'], ['To pay', 'Supplier · Invoice · What for · Due · Note · Owed', 'Sections: Late · Next 7 days · Later · Being paid · On hold'], ['Paid', 'Supplier · BKK · For · Paid on · Paid by · Amount', 'By month'], ['Suppliers', 'Supplier · Not due · 1–30 · 31–60 · 61–90 · Over 90 · Owed', 'As at a date; click = statement'], ['Loans', 'Lender · Loan · Borrowed · Still owed · Next payment · Due · Ends', 'Click = schedule']], clicks: [2, 8, 2, 3, 3] },
+  c: { tabs: [['To check · To pay · Paid · All bills', 'Supplier · Invoice · What for · Due · Status · Amount', 'The same table on every tab; the tabs only filter it'], ['Suppliers', 'Supplier · Not due · 1–30 · 31–60 · 61–90 · Over 90 · Owed', 'As at a date; click = statement']], clicks: [2, 8, 2, 3, 3] },
+  d: { tabs: [['Bills', 'Date · Bill · Supplier · What for · Due · Owed · Status', 'Status chips: Open · Draft · Posted · Paid · All'], ['Payments', 'Date · BKK · Supplier · For · Paid by · Amount', 'New payment = pick supplier, tick bills (7Soft BKK)'], ['Returns', 'Date · Credit note · Supplier · For bill · Reason · Status · Amount', ''], ['Suppliers', 'Aging, as at a date', 'Click = kartu hutang'], ['Loans', 'Lender · Loan · Borrowed · Still owed · Next payment · Due · Ends', '']], clicks: [3, 13, 2, 3, 3] },
+}
+function compareHTML() {
+  const jobs = ['Post the 44 bills that are ready', 'Pay what is due in the next 7 days, loan included', 'Has INV-0002-002 been paid?', "Print Garmen Nusantara's statement", 'Aging at 30 Sep for the auditor']
+  const now = [88, 20, 2, 6, 6]
+  const cols = [['Now', now], ...['a', 'b', 'c', 'd'].map(k => [OPTS.find(o => o.id === k).name.split(' · ')[0], SPEC[k].clicks])]
+  const best = jobs.map((_, i) => Math.min(...cols.map(c => c[1][i])))
+  const cards = ['a', 'b', 'c', 'd'].map(k => { const o = OPTS.find(x => x.id === k); return `<div class="card-o"><h2>${o.name}${o.star ? ' <span class="star">★</span>' : ''}</h2>${SPEC[k].tabs.map(([t, c, n]) => `<div class="tb"><b>${t.replace('To check', W())}</b><span>${c}</span>${n ? `<span class="grey">${n}</span>` : ''}</div>`).join('')}</div>` }).join('')
+  const table = `<div class="card-o"><h2>Clicks for five jobs</h2><div class="tbl"><table class="jobs"><colgroup><col><col style="width:110px">${'<col style="width:90px">'.repeat(4)}</colgroup><thead><tr><th>Job</th>${cols.map(c => `<th class="r">${c[0]}</th>`).join('')}</tr></thead><tbody>${jobs.map((j, i) => `<tr><td>${j}</td>${cols.map(c => `<td class="r${c[1][i] === best[i] ? ' best' : ''}">${c[1][i]}</td>`).join('')}</tr>`).join('')}<tr class="tot"><td>Total</td>${cols.map(c => `<td class="r">${sum(c[1], x => x)}</td>`).join('')}</tr></tbody></table></div></div>`
+  return `<div class="wrap"><div class="cmp">${cards}</div>${table}</div>`
+}
+
+/* ---------- sheets ---------- */
+const root = () => S.dev === 'phone' && document.querySelector('.phone') ? document.querySelector('.phone') : document.getElementById('layers')
+function openSheet(kind, arg) {
+  if (S.stack.length && S.stack[S.stack.length - 1].kind === kind && S.stack[S.stack.length - 1].arg === arg) return
+  const at = S.stack.findIndex(s => s.kind === kind && s.arg === arg)
+  if (at >= 0) { while (S.stack.length > at + 1) closeTop(); return }
+  S.inline = null
+  S.stack.push({ kind, arg })
+  const r = root()
+  const veil = document.createElement('div'); veil.className = 'veil'; veil.dataset.act = 'close'
+  const sh = document.createElement('div'); sh.className = 'sheet'
+  const depth = S.stack.length
+  veil.style.zIndex = 58 + depth * 2; sh.style.zIndex = 59 + depth * 2
+  fill(sh, S.stack[depth - 1], depth)
+  r.append(veil, sh)
+  sh.getBoundingClientRect()
+  veil.classList.add('on'); sh.classList.add('on')
+  const f = sh.querySelector('[autofocus]'); if (f && S.dev === 'desk') setTimeout(() => f.focus(), 320)
+}
+function closeTop() {
+  const r = root(); const sheets = r.querySelectorAll(':scope > .sheet'); const veils = r.querySelectorAll(':scope > .veil')
+  const sh = sheets[sheets.length - 1], veil = veils[veils.length - 1]
+  const top = S.stack.pop(); S.inline = null
+  if (top && top.kind === 'pay') S.pay = null
+  if (top && (top.kind === 'record' || top.kind === 'newcredit')) S.form = null
+  if (!sh) return
+  sh.classList.remove('on'); veil.classList.remove('on')
+  setTimeout(() => { sh.remove(); veil.remove() }, 220)
+}
+function rerenderSheets() {
+  const r = root(); const sheets = [...r.querySelectorAll(':scope > .sheet')]
+  if (sheets.length !== S.stack.length) {
+    r.querySelectorAll(':scope > .sheet, :scope > .veil').forEach(e => e.remove())
+    S.stack.forEach((s, i) => {
+      const veil = document.createElement('div'); veil.className = 'veil on instant'; veil.dataset.act = 'close'; veil.style.zIndex = 60 + i * 2
+      const sh = document.createElement('div'); sh.className = 'sheet on instant'; sh.style.zIndex = 61 + i * 2
+      fill(sh, s, i + 1); r.append(veil, sh)
+      requestAnimationFrame(() => { veil.classList.remove('instant'); sh.classList.remove('instant') })
+    })
+    return
+  }
+  sheets.forEach((sh, i) => { const keep = sh.querySelector('.sh-body')?.scrollTop || 0; fill(sh, S.stack[i], i + 1); const b = sh.querySelector('.sh-body'); if (b) b.scrollTop = keep })
+}
+function fill(sh, s, depth) {
+  const m = SHEETS[s.kind](s.arg)
+  sh.classList.toggle('wide', !!m.wide)
+  sh.classList.toggle('fit', !!m.fit)
+  if (S.dev === 'desk') sh.style.right = (12 + (depth - 1) * 12) + 'px'
+  sh.innerHTML = `<div class="sh-head"><div><div class="t">${m.title}</div>${m.sub ? `<div class="st">${m.sub}</div>` : ''}</div>${m.pill || ''}<button class="x" data-act="close" aria-label="Close">×</button></div><div class="sh-body">${m.body}</div>${m.foot ? `<div class="sh-foot">${m.foot}</div>` : ''}`
+}
+const figsHTML = a => `<div class="figs">${a.map(([l, v, c]) => `<div><div class="l">${l}</div><div class="v${c ? ' ' + c : ''}">${v}</div></div>`).join('')}</div>`
+const factsHTML = a => `<div class="facts">${a.map(([l, v, w]) => `<div class="${w ? 'w2' : ''}"><div class="l">${l}</div><div>${v}</div></div>`).join('')}</div>`
+const linesOf = b => {
+  if (b.kind === 'M') { const pcs = parseInt((b.what.match(/(\d+) (pcs|pasang)/) || [0, 1])[1]); return [[b.po ? b.po : (b.grn || 'Goods'), 'Barang dagang · ' + pcs + ' ' + ((b.what.match(/pasang/) ? 'pasang' : 'pcs')), b.total]] }
+  if (b.kind === 'C') return [['Retur', b.what, b.total]]
+  const key = Object.keys(ACC).find(k => b.no.startsWith(k)) || 'INV'
+  return [[ACC[key], b.what, b.total]]
+}
+function paysFor(no) { return PAYS.filter(p => p.forNo === no) }
+const synthKK = b => 'KK-26-' + add(b.due, -3).slice(5, 7) + '-' + String(20 + BILLS.indexOf(b)).padStart(5, '0')
+
+const SHEETS = {
+  bill(id) {
+    const b = rowById(id) || BILLS.find(x => x.id === id)
+    if (!b) return { title: 'Bill', body: '' }
+    if (b.t === 'pb') return SHEETS.paidbill(b)
+    if (b.t === 'p') return SHEETS.payment(b.id)
+    const o = owed(b)
+    const pill = isDraft(b) ? '<span class="pill">Draft</span>' : b.st === 'X' ? '<span class="pill">Rejected</span>' : o === 0 ? '<span class="pill ok">Paid</span>' : b.hold ? '<span class="pill">On hold</span>' : b.bkk ? '<span class="pill warn">Being paid</span>' : late(b) ? '<span class="pill bad">' + lateDays(b) + ' days late</span>' : '<span class="pill info">Posted</span>'
+    const from = { GA: 'GA', RCV: 'Receiving · ' + (b.grn || ''), REP: 'Repeats monthly', REP3: 'Repeats every 3 months', RTN: 'Return to supplier', '': 'Typed in by Finance' }[b.from || '']
+    let check = ''
+    if (isDraft(b) && (b.st === 'M' || b.from === 'RCV')) check = `<div class="box">${figsHTML([['Ordered', rp(b.total)], ['Received', rp(b.total)], ['Billed', rp(b.total)], ['Difference', 'Rp 0']])}<div class="grey" style="margin-top:-8px">Against ${esc(b.grn)}</div></div>`
+    const ps = paysFor(b.no)
+    const payTbl = ps.length || b.paid ? `<div class="sec-t">Payments</div><div class="tbl" style="margin-bottom:20px"><table class="mini"><tbody>${(ps.length ? ps : [{ no: synthKK(b), date: add(b.due, -3), amount: b.paid, method: 'Transfer' }]).map(p => `<tr><td>${fmt(p.date)}</td><td class="grey">${p.no}</td><td>${p.giro ? 'Giro ' + p.giro.no : p.method}</td><td class="r">${rp(p.amount)}</td></tr>`).join('')}</tbody></table></div>` : ''
+    const lines = linesOf(b)
+    const inl = S.inline && S.inline.id === b.id ? inlineHTML(S.inline.mode) : ''
+    let foot = '<button class="tint" data-act="print">Print</button><span class="sp"></span>'
+    if (isDraft(b)) foot += `<button class="tint red" data-act="inline:reject:${b.id}">${b.from === 'GA' ? 'Return to GA' : 'Reject'}</button><button class="tint" data-act="inline:hold:${b.id}">Hold</button><button class="btn" data-act="postone:${b.id}">Post</button>`
+    else if (b.st === 'P' && o !== 0 && b.hold) foot += `<button class="btn" data-act="release:${b.id}">Release hold</button>`
+    else if (b.st === 'P' && o !== 0 && b.bkk) foot += `<button class="btn" data-act="openbkk:${b.id}">Open ${b.bkk}</button>`
+    else if (b.st === 'P' && o !== 0) foot += `${b.kind !== 'C' ? `<button class="tint" data-act="credit:${b.id}">Credit note</button>` : ''}<button class="tint" data-act="inline:hold:${b.id}">Hold</button><button class="btn" data-act="payone:${b.id}">Pay ${rp(o)}</button>`
+    return {
+      title: esc(b.no), sub: supLink(b.sup), pill,
+      body: `${o === 0 && b.st === 'P' ? '<div class="stamp">Paid</div>' : ''}${figsHTML([['Amount', rp(b.total)], ['Paid', rp(b.paid)], ['Owed', rp(isDraft(b) ? 0 : o)], ['Due', b.due ? fmt(b.due) : '—', late(b) && o ? 'lateTxt' : '']])}${factsHTML([['Invoice date', fmt(b.date)], ['Place', place(b.site)], ['From', esc(from)], ['Recorded by', b.by], ['What for', esc(b.what), 1], ['Tax', 'No PPN · not PKP'], ['On hold', b.hold ? esc(b.hold) : 'No']])}${check}<div class="sec-t">Lines</div><div class="tbl" style="margin-bottom:20px"><table class="mini"><thead><tr><th>Account</th><th>Description</th><th class="r">Amount</th></tr></thead><tbody>${lines.map(l => `<tr><td>${esc(l[0])}</td><td>${esc(l[1])}</td><td class="r">${rp(l[2])}</td></tr>`).join('')}</tbody></table></div>${payTbl}<div class="trail">Recorded by ${b.by} · ${fmt(b.date)}${b.st === 'P' ? ' · posted by Rina' : ''}</div>${inl}`,
+      foot,
+    }
+  },
+  paidbill(b) {
+    const p = b.pay
+    return { title: esc(b.no), sub: supLink(b.sup), pill: '<span class="pill ok">Paid</span>', body: `<div class="stamp">Paid · ${pad(D(p.date).getDate())} ${MON[D(p.date).getMonth()]}</div>${figsHTML([['Amount', rp(b.total)], ['Paid', rp(b.total)], ['Owed', 'Rp 0'], ['Paid on', fmt(p.date)]])}${factsHTML([['What for', esc(b.what), 1], ['Paid by', p.giro ? 'Giro ' + p.giro.no : p.method], ['BKK', `<a class="lk" data-act="openpay:${p.id}">${p.no}</a>`]])}`, foot: '<button class="tint" data-act="print">Print</button>' }
+  },
+  receipt(id) {
+    const r = RECEIPTS.find(x => x.id === id)
+    return {
+      title: r.no, sub: supLink(r.sup), pill: '<span class="pill warn">Not billed</span>',
+      body: `${figsHTML([['Value at order price', rp(r.total)], ['Arrived', fmt(r.arrived)], ['Waiting', plural(diff(r.arrived, TODAY), 'day')], ['Lines', String(r.lines.length)]])}${factsHTML([['Order', r.po], ['Their invoice no', r.theirNo || '—'], ['Place', 'DC & head office'], ['Received by', 'Gudang HO']])}<div class="tbl"><table class="mini"><thead><tr><th>Article</th><th class="r">Quantity</th><th class="r">Price</th><th class="r">Value</th></tr></thead><tbody>${r.lines.map(l => `<tr><td>${l[0]}</td><td class="r">${l[1]} pcs</td><td class="r">${rp(l[2])}</td><td class="r">${rp(l[1] * l[2])}</td></tr>`).join('')}</tbody></table></div>`,
+      foot: `<span class="sp"></span><button class="btn" data-act="billfrom:${r.id}">Record bill</button>`,
+    }
+  },
+  payment(id) {
+    const p = PAYS.find(x => x.id === id)
+    const pill = !p.posted ? '<span class="pill warn">Not posted</span>' : p.giro ? (p.giro.st === 'cleared' ? '<span class="pill ok">Giro cleared</span>' : p.giro.st === 'bounced' ? '<span class="pill bad">Giro bounced</span>' : p.giro.due < TODAY ? '<span class="pill warn">Giro not cleared</span>' : '<span class="pill">Giro waiting</span>') : '<span class="pill ok">Posted</span>'
+    const g = p.giro
+    const facts = [['Paid on', fmt(p.date)], ['From', p.method === 'Cash' ? 'Kas besar HO' : 'BCA · 0123 456 789'], ['Paid by', p.giro ? 'Giro' : p.method], ['Supplier bank', supOf(p.sup)[2]]]
+    if (g) facts.push(['Giro no', g.no], ['Giro due', fmt(g.due)], ['Cleared', g.st === 'cleared' ? fmt(g.on) : '—'], ['Bounced', g.st === 'bounced' ? fmt(g.on) + ' · paid again by ' + g.by : '—'])
+    return {
+      title: p.no, sub: supLink(p.sup), pill,
+      body: `${p.posted && payCounts(p) ? `<div class="stamp">${g && g.st !== 'cleared' ? 'Giro' : 'Paid'} · ${pad(D(p.date).getDate())} ${MON[D(p.date).getMonth()]}</div>` : ''}${figsHTML([['Amount', rp(p.amount)], ['Bills', String((p.bills || [p.forNo]).length)]])}${factsHTML(facts)}<div class="sec-t">Bills paid</div><div class="tbl"><table class="mini"><thead><tr><th>Invoice</th><th>What for</th><th class="r">Amount</th></tr></thead><tbody>${(p.lines || [[p.forNo, p.what, p.amount]]).map(l => `<tr><td>${esc(l[0])}</td><td>${esc(l[1])}</td><td class="r">${rp(l[2])}</td></tr>`).join('')}</tbody></table></div><div class="trail">Made by Rina · ${fmt(p.date)}${p.posted ? ' · posted' : ''}</div>`,
+      foot: `<button class="tint" data-act="print">Print BKK</button><span class="sp"></span>${!p.posted ? `<button class="btn" data-act="postbkk:${p.id}">Post BKK</button>` : ''}`,
+    }
+  },
+  statement(sup) {
+    if (sup === 'Bank BCA') return SHEETS.loan('l0')
+    const [code, terms, bank] = supOf(sup)
+    const bills = BILLS.filter(b => b.sup === sup && b.st === 'P')
+    const pays = PAYS.filter(p => p.sup === sup && p.posted && payCounts(p))
+    const rows = []
+    for (const b of bills) {
+      rows.push({ d: b.date, doc: b.no, what: b.what, bill: b.total, paid: 0, id: b.id })
+      if (b.paid && !paysFor(b.no).length) rows.push({ d: add(b.due, -3), doc: synthKK(b), what: 'Bayar ' + b.no, bill: 0, paid: b.paid })
+    }
+    for (const p of pays) {
+      if (!bills.some(b => b.no === p.forNo) && !rows.some(r => r.doc === p.forNo)) rows.push({ d: add(p.date, -20), doc: p.forNo, what: p.what, bill: sum(pays.filter(x => x.forNo === p.forNo), x => x.amount), paid: 0 })
+      rows.push({ d: p.date, doc: p.no, what: 'Bayar ' + p.forNo, bill: 0, paid: p.amount, id: p.id })
+    }
+    rows.sort((a, b) => a.d < b.d ? -1 : a.d > b.d ? 1 : (a.bill ? -1 : 1))
+    let bal = 0
+    const body = rows.map(r => { bal += r.bill - r.paid; return `<tr${r.id ? ` class="go" data-open="${r.id}"` : ''}><td>${fmt(r.d)}</td><td class="grey">${esc(r.doc)}</td><td>${esc(r.what)}</td><td class="r">${r.bill ? num(r.bill) : ''}</td><td class="r">${r.paid ? num(r.paid) : ''}</td><td class="r">${num(bal)}</td></tr>` }).join('')
+    const open = bills.filter(b => owed(b) !== 0)
+    const lateSum = sum(open.filter(late), b => owed(b))
+    const nb = sum(BILLS.filter(b => b.sup === sup && isDraft(b)), b => b.total)
+    const payable = open.filter(b => !b.hold && !b.bkk)
+    return {
+      title: esc(sup), sub: `${code} · ${terms} · ${bank}`, wide: true,
+      body: `${figsHTML([['Owed', rp(sum(open, owed))], ['Late', rp(lateSum), lateSum ? 'lateTxt' : ''], ['To post', rp(nb)], ['Paid this year', rp(sum(pays, p => p.amount))]])}<div class="sec-t">Statement <span class="c">01 Jan 2026 – ${fmt(TODAY)}</span></div><div class="tbl"><table class="mini"><colgroup><col style="width:120px"><col style="width:200px"><col><col style="width:130px"><col style="width:130px"><col style="width:140px"></colgroup><thead><tr><th>Date</th><th>Document</th><th>What for</th><th class="r">Bill</th><th class="r">Paid</th><th class="r">Balance</th></tr></thead><tbody><tr><td>01 Jan 2026</td><td class="grey">Opening balance</td><td></td><td></td><td></td><td class="r">0</td></tr>${body}<tr class="tot"><td colspan="5">Owed today</td><td class="r">${num(bal)}</td></tr></tbody></table></div>`,
+      foot: `<button class="tint" data-act="print">Print</button><button class="tint" data-act="send">Send to supplier</button><span class="sp"></span><button class="tint" data-act="advance:${esc(sup)}">Pay in advance</button>${payable.length ? `<button class="btn" data-act="paysup:${esc(sup)}">Pay what's due · ${rp(sum(payable, owed))}</button>` : ''}`,
+    }
+  },
+  loan() {
+    const xs = instalments(), nx = nextInst()
+    return {
+      title: 'Loan ' + LOAN.no, sub: supLink('Bank BCA') + ' · ' + LOAN.what, wide: true,
+      body: `${figsHTML([['Borrowed', rp(LOAN.borrowed)], ['Still owed', rp(loanLeft())], ['Interest paid', rp(sum(xs.filter(x => x.paid), x => x.interest))], ['Ends', fmt(LOAN.ends)]])}<div class="tbl"><table class="mini"><thead><tr><th>#</th><th>Due</th><th class="r">Principal</th><th class="r">Interest</th><th class="r">Total</th><th>Status</th></tr></thead><tbody>${xs.map(x => `<tr${nx && x.n === nx.n ? ' class="sel"' : ''}><td>${x.n}</td><td>${fmt(x.due)}</td><td class="r">${num(x.principal)}</td><td class="r">${num(x.interest)}</td><td class="r">${num(x.principal + x.interest)}</td><td class="grey">${x.paid ? 'Paid' : nx && x.n === nx.n ? 'Next' : ''}</td></tr>`).join('')}</tbody></table></div>`,
+      foot: `<button class="tint" data-act="print">Print</button><span class="sp"></span>${nx ? `<button class="btn" data-act="payinst">Pay instalment ${nx.n} · ${rp(nx.principal + nx.interest)}</button>` : ''}`,
+    }
+  },
+  pay() {
+    const P = S.pay
+    if (!P) return { title: 'Pay', body: '' }
+    const supsWithOpen = [...new Set(payRows().filter(b => !b.hold && !b.bkk).map(b => b.sup))].sort()
+    const items = P.ids.map(rowById).filter(Boolean)
+    const groups = {}
+    for (const r of items) (groups[r.sup] = groups[r.sup] || []).push(r)
+    const amt = r => P.on[r.id] === false ? 0 : (P.amt[r.id] ?? owed(r))
+    const total = sum(items, amt)
+    const gs = Object.entries(groups)
+    const blocks = gs.map(([sup, rs]) => `<div class="payblk"><div class="bh"><span class="t">${esc(sup)}</span><span class="grey">${esc(supOf(sup)[2])}</span><span class="tot" data-gtot="${esc(sup)}">${rp(sum(rs, amt))}</span></div><table><colgroup><col style="width:44px"><col style="width:230px"><col><col style="width:120px"><col style="width:140px"><col style="width:180px"></colgroup><tbody>${rs.map(r => `<tr><td class="ck"><input type="checkbox" data-payon="${r.id}" ${P.on[r.id] === false ? '' : 'checked'}></td><td>${esc(r.no)}</td><td class="grey">${esc(r.what)}</td><td>${dueCell(r)}</td><td class="r">${rp(owed(r))}</td><td class="r">${owed(r) < 0 ? rp(owed(r)) : `<input class="amt" data-payamt="${r.id}" value="${num(amt(r))}" ${P.on[r.id] === false ? 'disabled' : ''}>`}</td></tr>`).join('')}</tbody></table></div>`).join('')
+    const pick = P.pick ? `<div class="form"><div class="w2"><label>Supplier</label><select class="field" data-paysup><option value="">Choose a supplier</option>${supsWithOpen.map(s => `<option${P.sup === s ? ' selected' : ''}>${esc(s)}</option>`).join('')}</select></div></div>` : ''
+    const m = P.method
+    return {
+      title: P.pick && !items.length ? 'New payment' : 'Pay ' + plural(items.length, items.length && items[0].t === 'i' ? 'instalment' : 'bill'), sub: items.length ? plural(gs.length, 'supplier') + ' · ' + gs.length + ' BKK' : '', wide: true,
+      body: `${pick}<div class="form"><div class="w4"><label>Pay from</label><div class="tiles">${[['BCA · 0123 456 789', 'Bank BCA', 'bank', 'Rp 1.284.550.000'], ['Mandiri · 1230 0099 8877', 'Bank Mandiri', 'bank', 'Rp 412.300.000'], ['Kas besar HO', 'Kas besar HO', 'cash', 'Rp 18.750.000']].map(([v, l, i, bal]) => `<button class="tile${P.from === v ? ' on' : ''}" data-chip="payfrom" data-val="${v}">${svg(i)}<span>${l}<span class="s">${v.includes('·') ? v.split(' · ')[1] + ' · ' : ''}${bal}</span></span></button>`).join('')}</div></div><div><label>Method</label><div class="segctl">${['Transfer', 'Giro', 'Cash'].map(x => `<button data-paymethod="${x}" class="${m === x ? 'on' : ''}">${x}</button>`).join('')}</div></div><div><label>Date</label><input class="field" value="${fmt(P.date)}" readonly></div>${m === 'Giro' ? `<div class="w2"><label>Giro due</label>${chipsHTML('girodue', [7, 14, 30].map(n => ({ v: add(TODAY, n), l: fmt(add(TODAY, n)), i: 'cal' })), P.giroDue)}</div>` : '<div class="w2"></div>'}</div>${blocks || '<div class="empty">Choose a supplier to see what we owe them</div>'}${items.length ? `<div class="totbox"><span class="words" data-words>${terbilang(total)}</span><span class="v" data-paytot>${rp(total)}</span></div>` : ''}`,
+      foot: items.length ? `<span class="sp"></span><button class="tint" data-act="paydraft">Save as draft</button><button class="btn" data-act="paypost" data-paybtn ${total > 0 ? '' : 'disabled'}>Post ${gs.length} BKK · ${rp(total)}</button>` : '',
+    }
+  },
+  record() {
+    const F = S.form
+    const sups = Object.keys(SUPS).filter(s => s !== 'Bank BCA').sort()
+    const rcpts = RECEIPTS.filter(r => r.sup === F.sup && !r.billed)
+    const valid = formOK(F)
+    return {
+      title: F.fromReceipt ? 'Record bill for ' + F.fromReceipt : 'Record bill', wide: true,
+      body: `<div class="form"><div class="w2"><label>Supplier</label><select class="field" data-f="sup" autofocus><option value="">Choose a supplier</option>${sups.map(s => `<option${F.sup === s ? ' selected' : ''}>${esc(s)}</option>`).join('')}</select></div><div><label>Their invoice no</label><input class="field" data-f="no" value="${esc(F.no)}"></div><div><label>Invoice date</label><input class="field" value="${fmt(F.date)}" readonly></div><div class="w2"><label>What for</label><input class="field" data-f="what" value="${esc(F.what)}"></div><div><label>Amount</label><input class="field r" data-f="amount" inputmode="numeric" value="${F.amount ? num(F.amount) : ''}"></div><div><label>Due</label><input class="field" value="${F.sup ? fmt(add(F.date, supOf(F.sup)[1] === 'Cash on delivery' ? 0 : 30)) : '—'}" readonly></div><div class="w2"><label>Place</label><select class="field" data-f="site"><option value="dc">DC & head office</option>${Array.from({ length: 13 }, (_, i) => `<option value="store-${pad(i + 1)}"${F.site === 'store-' + pad(i + 1) ? ' selected' : ''}>Store ${pad(i + 1)}</option>`).join('')}</select></div><label class="check w2"><input type="checkbox" data-f="repeat" ${F.repeat ? 'checked' : ''}> Repeat every month</label></div>`,
+      foot: `<span class="sp"></span><button class="tint" data-act="savedraft" ${valid ? '' : 'disabled'}>Save as draft</button><button class="btn" data-act="savepost" ${valid ? '' : 'disabled'}>Post</button>`,
+    }
+  },
+  newcredit() {
+    const F = S.form
+    const sups = [...new Set(BILLS.filter(b => b.st === 'P' && b.kind !== 'C').map(b => b.sup))].sort()
+    const bills = BILLS.filter(b => b.sup === F.sup && b.st === 'P' && b.kind !== 'C')
+    const valid = F.sup && F.forNo && F.amount > 0 && F.what.trim()
+    return {
+      title: 'New credit note',
+      body: `<div class="form"><div class="w2"><label>Supplier</label><select class="field" data-f="sup"><option value="">Choose a supplier</option>${sups.map(s => `<option${F.sup === s ? ' selected' : ''}>${esc(s)}</option>`).join('')}</select></div><div class="w2"><label>For bill</label><select class="field" data-f="forNo"><option value="">Choose a bill</option>${bills.map(b => `<option${F.forNo === b.no ? ' selected' : ''}>${esc(b.no)}</option>`).join('')}</select></div><div class="w2"><label>Reason</label><input class="field" data-f="what" value="${esc(F.what)}" placeholder="Retur 2 pasang salah ukuran"></div><div class="w2"><label>Amount</label><input class="field r" data-f="amount" value="${F.amount ? num(F.amount) : ''}"></div></div>`,
+      foot: `<span class="sp"></span><button class="btn" data-act="savecredit" ${valid ? '' : 'disabled'}>Save draft</button>`,
+    }
+  },
+  repeats() {
+    return {
+      title: 'Repeating bills', wide: true,
+      body: `<div class="tbl"><table class="mini"><colgroup><col><col style="width:230px"><col style="width:140px"><col style="width:130px"><col style="width:140px"><col style="width:100px"></colgroup><thead><tr><th>What for</th><th>Supplier</th><th>Every</th><th>Next bill</th><th class="r">Amount</th><th></th></tr></thead><tbody>${REPEATS.map(x => `<tr><td>${esc(x.what)} <span class="grey">· ${esc(x.where)}</span></td><td>${esc(x.sup)}</td><td>${x.every.replace('Every ', '')}</td><td>${x.on ? fmt(x.next) : '<span class="grey">Paused</span>'}</td><td class="r">${rp(x.amount)}</td><td class="r"><button class="tint" style="height:30px" data-act="toggleRep:${x.id}">${x.on ? 'Pause' : 'Resume'}</button></td></tr>`).join('')}</tbody></table></div>`,
+      foot: `<span class="sp"></span><button class="btn" data-act="newrepeat">New repeating bill</button>`,
+    }
+  },
+  credit(id) {
+    const c = CREDITS.find(x => x.id === id)
+    return { title: c.no, sub: supLink(c.sup), pill: '<span class="pill ok">' + esc(c.st.split(' ')[0]) + '</span>', body: `${figsHTML([['Amount', rp(c.total)], ['Date', fmt(c.date)]])}${factsHTML([['For bill', esc(c.forNo)], ['Reason', esc(c.what), 1], ['Status', esc(c.st)]])}`, foot: '<button class="tint" data-act="print">Print</button>' }
+  },
+  tabs() {
+    const tabs = tabsOf()
+    const items = tabs.flatMap(t => t.views ? t.views.map(([k, l]) => ({ t: t.id, v: k, l: k === 'pay' ? t.l : t.l + ' · ' + l, n: k === 'pay' && t.n ? t.n() : '' })) : [{ t: t.id, l: t.l, n: t.n ? t.n() : '' }])
+    const b = (build() || {}).bar || {}
+    let f = ''
+    if (b.place) f += `<div class="fgroup"><div class="l">Place</div>${chipsHTML('place', PLACES.map(([v, l, i]) => ({ v, l, i, n: countFor(v) })), S.place)}</div>`
+    if (b.status) f += `<div class="fgroup"><div class="l">Status</div>${chipsHTML('dstatus', DSTAT.map(([v, l, i]) => ({ v, l, i, n: dCount(v) })), S.dStatus)}</div>`
+    if ((b.right || []).some(x => x[2] === 'asof')) f += `<div class="fgroup"><div class="l">As at</div>${chipsHTML('asof', ASOF.map(([v, l]) => ({ v, l, i: 'cal' })), S.asOf)}</div>`
+    return { title: 'Show', fit: true, body: `<div class="tabsheet">${items.map(i => `<a class="${S.t === i.t && (!i.v || S.view === i.v) ? 'on' : ''}" data-act="pick:${i.t}:${i.v || ''}">${i.l}<span class="grey">${i.n}</span></a>`).join('')}</div>${f}` }
+  },
+}
+const inlineHTML = mode => `<div class="inline"><label class="grey">${mode === 'hold' ? 'Why hold it?' : 'Why reject it?'}</label><textarea data-inltext placeholder="${mode === 'hold' ? 'Tunggu adendum kontrak' : 'Barang tidak pernah datang'}">${esc(S.inline.text || '')}</textarea><div class="row"><button class="tint" data-act="inlinecancel">Cancel</button><button class="${mode === 'hold' ? 'btn' : 'btn red'}" data-act="inlinedo" ${S.inline.text && S.inline.text.trim() ? '' : 'disabled'} data-inlbtn>${mode === 'hold' ? 'Hold bill' : 'Reject bill'}</button></div></div>`
+
+/* ---------- actions ---------- */
+let undoSnap = null, toastT = 0
+const snap = () => JSON.stringify({ BILLS, RECEIPTS, PAYS, paid: LOAN.paidCount })
+function restore(s) { const o = JSON.parse(s); BILLS = o.BILLS; RECEIPTS = o.RECEIPTS; PAYS = o.PAYS; LOAN.paidCount = o.paid }
+function toast(msg, canUndo) {
+  const t = document.getElementById('toast')
+  t.innerHTML = `<span>${msg}</span>${canUndo ? '<button class="tint" data-act="undo">Undo</button>' : ''}`
+  t.classList.toggle('up', S.sel.size > 0)
+  t.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), 5000)
+}
+let kkSeq = 1, giroSeq = 106
+const nextKK = () => 'KK-26-10-' + String(kkSeq++).padStart(5, '0')
+function postBills(ids) {
+  undoSnap = snap()
+  const bs = ids.map(rowById).filter(b => b && b.t === 'b' && isDraft(b))
+  bs.forEach(b => { b.st = 'P'; b.by = b.by || 'Rina' })
+  S.sel.clear()
+  toast(`${plural(bs.length, 'bill')} posted · now in To pay`, true)
+  render()
+}
+function openPay(ids, opts = {}) {
+  S.pay = { ids: ids.slice(), amt: {}, on: {}, method: 'Transfer', from: 'BCA · 0123 456 789', date: TODAY, giroDue: add(TODAY, 7), pick: !!opts.pick, sup: opts.sup || '' }
+  openSheet('pay', 'x')
+}
+function doPay(draft) {
+  const P = S.pay
+  undoSnap = snap()
+  const items = P.ids.map(rowById).filter(Boolean).filter(r => P.on[r.id] !== false)
+  const groups = {}
+  for (const r of items) (groups[r.sup] = groups[r.sup] || []).push(r)
+  const made = []
+  for (const [sup, rs] of Object.entries(groups)) {
+    const no = nextKK()
+    const lines = rs.map(r => [r.no, r.what, P.amt[r.id] ?? owed(r)])
+    const amount = sum(lines, l => l[2])
+    if (amount <= 0) continue
+    made.push(no)
+    for (const r of rs) {
+      if (r.t === 'i') { if (!draft) LOAN.paidCount++; continue }
+      if (draft) r.bkk = no
+      else r.paid += P.amt[r.id] ?? owed(r)
+    }
+    PAYS.push({ id: 'p' + PAYS.length + '_' + no, t: 'p', no, date: TODAY, sup, forNo: rs.length > 1 ? plural(rs.length, 'bill') : rs[0].no, what: rs.length > 1 ? rs.map(r => r.no).join(', ') : rs[0].what, amount, method: P.method === 'Giro' ? 'Giro' : P.method, giro: P.method === 'Giro' ? { no: 'BCA-GR-' + String(giroSeq++).padStart(6, '0'), st: 'written', due: P.giroDue } : null, posted: !draft, lines, ids: rs.map(r => r.id) })
+  }
+  S.sel.clear(); S.pay = null
+  while (S.stack.length) closeTop()
+  toast(draft ? `${made.length} BKK saved as draft · ${made.join(', ')}` : `${made.length} BKK posted · ${made.join(', ')}`, true)
+  render()
+}
+function act(a, el) {
+  const [k, x, y] = a.split(':')
+  const arg = a.slice(k.length + 1)
+  switch (k) {
+    case 'close': closeTop(); break
+    case 'record': S.form = { sup: '', no: '', what: '', amount: 0, date: TODAY, site: 'dc', rcpt: '', repeat: false }; openSheet('record', 'new'); break
+    case 'newrepeat': S.form = { sup: '', no: '', what: '', amount: 0, date: TODAY, site: 'dc', rcpt: '', repeat: true }; openSheet('record', 'new'); break
+    case 'repeats': openSheet('repeats', 'x'); break
+    case 'toggleRep': { const r = REPEATS.find(z => z.id === arg); r.on = !r.on; rerenderSheets(); toast(r.on ? r.what + ' resumed' : r.what + ' paused'); break }
+    case 'clearsel': S.sel.clear(); updateSel(); break
+    case 'post': postBills([...S.sel]); break
+    case 'postone': postBills([arg]); while (S.stack.length) closeTop(); break
+    case 'paysel': openPay(selInfo().pays.map(r => r.id)); break
+    case 'payone': openPay([arg]); break
+    case 'paysup': openPay(payRows().filter(b => b.sup === arg && !b.hold && !b.bkk).map(b => b.id)); break
+    case 'payinst': openPay(['i0']); break
+    case 'newpay': openPay([], { pick: true }); break
+    case 'advance': toast('Pay in advance opens BKK · Uang muka for ' + arg); break
+    case 'paypost': doPay(false); break
+    case 'paydraft': doPay(true); break
+    case 'inline': S.inline = { mode: x, id: y, text: '' }; rerenderSheets(); setTimeout(() => document.querySelector('[data-inltext]')?.focus(), 30); break
+    case 'inlinecancel': S.inline = null; rerenderSheets(); break
+    case 'inlinedo': {
+      const b = rowById(S.inline.id); undoSnap = snap()
+      if (S.inline.mode === 'hold') { b.hold = S.inline.text.trim(); toast(b.no + ' on hold', true) }
+      else { b.st = 'X'; b.rejected = S.inline.text.trim(); toast(b.no + (b.from === 'GA' ? ' returned to GA' : ' rejected'), true); S.inline = null; while (S.stack.length) closeTop(); render(); break }
+      S.inline = null; render(); break
+    }
+    case 'release': { const b = rowById(arg); undoSnap = snap(); b.hold = null; toast(b.no + ' released · it can be paid', true); render(); break }
+    case 'openbkk': { const b = rowById(arg); const p = PAYS.find(q => (q.ids || []).includes(b.id) && !q.posted) || ensureKarya(b); openSheet('payment', p.id); break }
+    case 'postbkk': {
+      const p = PAYS.find(q => q.id === arg); undoSnap = snap(); p.posted = true
+      for (const id of p.ids || []) { const b = rowById(id); if (b && b.t === 'b') { b.paid += (p.lines.find(l => l[0] === b.no) || [0, 0, owed(b)])[2]; b.bkk = null } }
+      p.date = TODAY; toast(p.no + ' posted · moved to Paid', true); while (S.stack.length) closeTop(); render(); break
+    }
+    case 'billfrom': {
+      const r = RECEIPTS.find(z => z.id === arg)
+      S.form = { sup: r.sup, no: r.theirNo || '', what: r.no + ' · ' + sum(r.lines, l => l[1]) + ' pcs', amount: r.total, date: TODAY, site: 'dc', rcpt: r.id, repeat: false, fromReceipt: r.no }
+      openSheet('record', 'r' + r.id); break
+    }
+    case 'savedraft': case 'savepost': {
+      const F = S.form; undoSnap = snap()
+      const r = F.rcpt ? RECEIPTS.find(z => z.id === F.rcpt) : null
+      bill(F.no.trim(), F.sup, r ? 'M' : 'E', F.site, F.date, add(F.date, supOf(F.sup)[1] === 'Cash on delivery' ? 0 : 30), F.amount / 1000, 0, k === 'savepost' ? 'P' : (r ? 'M' : 'D'), r ? 'RCV' : (F.repeat ? 'REP' : ''), F.what.trim() || 'Bill ' + F.no, r ? { grn: r.no, po: r.po } : {})
+      if (r) r.billed = true
+      if (F.repeat) REPEATS.push({ id: 'rp' + REPEATS.length, what: F.what || F.no, sup: F.sup, every: 'Every month', where: place(F.site), next: add(F.date, 30), amount: F.amount, on: true })
+      S.form = null; while (S.stack.length) closeTop()
+      toast(k === 'savepost' ? F.no + ' posted · now in To pay' : F.no + ' saved · now in ' + W(), true); render(); break
+    }
+    case 'newcredit': S.form = { sup: '', forNo: '', what: '', amount: 0 }; openSheet('newcredit', 'x'); break
+    case 'credit': { const b = rowById(arg); S.form = { sup: b.sup, forNo: b.no, what: '', amount: 0 }; openSheet('newcredit', 'c' + arg); break }
+    case 'savecredit': {
+      const F = S.form; undoSnap = snap()
+      bill('CN-26-10-00' + (3 + BILLS.filter(b => b.kind === 'C').length), F.sup, 'C', 'dc', TODAY, TODAY, -F.amount / 1000, 0, 'D', 'RTN', F.what.trim() + ' · ' + F.forNo, { forNo: F.forNo })
+      S.form = null; while (S.stack.length) closeTop(); toast('Credit note saved · now in ' + W(), true); render(); break
+    }
+    case 'undo': if (undoSnap) { restore(undoSnap); undoSnap = null; S.sel.clear(); document.getElementById('toast').classList.remove('on'); while (S.stack.length) closeTop(); render() } break
+    case 'print': toast('Sent to the printer'); break
+    case 'send': toast('Statement sent to the supplier'); break
+    case 'export': toast('Aging as at ' + fmt(S.asOf) + ' exported'); break
+    case 'tabsheet': openSheet('tabs', 'x'); break
+    case 'openpay': openSheet('payment', arg); break
+    case 'pick': S.t = x; if (y) S.view = y; S.flt = null; S.sel.clear(); closeTop(); syncUrl(); render(); break
+  }
+}
+function chip(name, v) {
+  if (name === 'place') { S.place = v; S.sel.clear(); render() }
+  else if (name === 'asof') { S.asOf = v; render() }
+  else if (name === 'dstatus') { S.dStatus = v; S.sel.clear(); render() }
+  else if (name === 'view') { S.view = v; S.flt = null; S.sel.clear(); syncUrl(); render() }
+  else if (name === 'nowview') { S.nowView = +v; render() }
+  else if (name === 'payfrom') { S.pay.from = v; rerenderSheets() }
+  else if (name === 'girodue') { S.pay.giroDue = v; rerenderSheets() }
+  else if (name === 'rcpt') { S.form.rcpt = v; const r = RECEIPTS.find(z => z.id === v); if (r) { S.form.amount = r.total; S.form.what = r.no + ' · ' + sum(r.lines, l => l[1]) + ' pcs'; if (!S.form.no) S.form.no = r.theirNo } rerenderSheets() }
+}
+function ensureKarya(b) {
+  let p = PAYS.find(q => q.no === b.bkk.replace(' (draft)', '') && !q.posted)
+  if (!p) { p = { id: 'pk_' + b.id, t: 'p', no: b.bkk.replace(' (draft)', ''), date: '2026-09-24', sup: b.sup, forNo: b.no, what: b.what, amount: owed(b), method: 'Transfer', giro: null, posted: false, lines: [[b.no, b.what, owed(b)]], ids: [b.id] }; PAYS.push(p) }
+  return p
+}
+
+/* ---------- render ---------- */
+function segs() {
+  document.getElementById('optSeg').innerHTML = OPTS.map(o => `<button data-opt="${o.id}" class="${S.v === o.id ? 'on' : ''}">${o.name}${o.star ? ' ★' : ''}</button>`).join('')
+  document.querySelectorAll('#devSeg button').forEach(b => b.classList.toggle('on', b.dataset.dev === S.dev))
+  const showW = ['a', 'b', 'c', 'cmp'].includes(S.v)
+  document.getElementById('wordSeg').style.display = document.getElementById('wordLbl').style.display = showW ? '' : 'none'
+  document.getElementById('wordSeg').innerHTML = Object.entries(WORDS).map(([k, w]) => `<button data-word="${k}" class="${S.word === k ? 'on' : ''}">${w[2]}</button>`).join('')
+}
+function syncUrl() { const p = new URLSearchParams({ v: S.v }); if (S.t && S.v !== 'now' && S.v !== 'cmp') p.set('t', S.t); if (S.v === 'a' && S.t === 'pay') p.set('view', S.view); if (S.dev !== 'desk') p.set('dev', S.dev); if (S.word !== 'post') p.set('w', S.word); history.replaceState(null, '', '?' + p) }
+function render() {
+  const st = document.getElementById('stage')
+  const a = document.activeElement
+  const focusQ = a && a.dataset && a.dataset.q !== undefined ? a.selectionStart : null
+  const y = window.scrollY
+  const pl = st.querySelector('.ph-list'); const py = pl ? pl.scrollTop : 0
+  segs()
+  if (S.v === 'cmp') st.innerHTML = compareHTML()
+  else if (S.v === 'now') st.innerHTML = nowHTML()
+  else { const V = build(); st.innerHTML = (S.dev === 'desk' ? deskHTML(V) + selbarHTML() : phoneHTML(V)) }
+  window.scrollTo(0, y)
+  const pl2 = st.querySelector('.ph-list'); if (pl2) pl2.scrollTop = py
+  if (focusQ != null) { const q = st.querySelector('[data-q]'); if (q) { q.focus(); q.setSelectionRange(focusQ, focusQ) } }
+  rerenderSheets()
+}
+
+/* ---------- events ---------- */
+document.addEventListener('click', e => {
+  const t = e.target
+  const opt = t.closest('[data-opt]'); if (opt) { S.v = opt.dataset.opt; S.t = (tabsOf()[0] || {}).id; S.q = ''; S.flt = null; S.sel.clear(); while (S.stack.length) closeTop(); syncUrl(); render(); window.scrollTo(0, 0); return }
+  const wd = t.closest('[data-word]'); if (wd) { S.word = wd.dataset.word; syncUrl(); render(); return }
+  const dev = t.closest('[data-dev]'); if (dev) { while (S.stack.length) closeTop(); S.dev = dev.dataset.dev; syncUrl(); render(); return }
+  const nt = t.closest('[data-nowtab]'); if (nt) { S.nowTab = +nt.dataset.nowtab; S.nowView = 0; render(); return }
+  if (t.matches('[data-sel]')) { e.stopPropagation(); const id = t.dataset.sel; t.checked ? S.sel.add(id) : S.sel.delete(id); updateSel(); return }
+  if (t.matches('[data-secsel],[data-allsel]')) { e.stopPropagation(); const ids = (t.dataset.secsel ?? t.dataset.allsel).split(',').filter(Boolean); ids.forEach(i => t.checked ? S.sel.add(i) : S.sel.delete(i)); updateSel(); return }
+  if (t.matches('[data-payon]')) { S.pay.on[t.dataset.payon] = t.checked; rerenderSheets(); return }
+  const pm = t.closest('[data-paymethod]'); if (pm) { S.pay.method = pm.dataset.paymethod; rerenderSheets(); return }
+  const sup = t.closest('[data-sup]'); if (sup) { e.preventDefault(); e.stopPropagation(); openSheet('statement', sup.dataset.sup); return }
+  const tab = t.closest('[data-tab]'); if (tab) { S.t = tab.dataset.tab; S.flt = null; S.sel.clear(); if (S.v === 'a' && S.t !== 'pay') S.view = 'pay'; syncUrl(); render(); return }
+  const k = t.closest('[data-kpi]'); if (k) {
+    const [kind, v] = k.dataset.kpi.split(/:(.*)/)
+    if (kind === 'flt') { S.flt = S.flt === v ? null : v; render() }
+    else { const el = document.getElementById('sec-' + v); if (el) { if (S.dev === 'phone') el.scrollIntoView({ behavior: 'smooth', block: 'start' }); else window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - 70, behavior: 'smooth' }) } }
+    return
+  }
+  const ch = t.closest('[data-chip]'); if (ch) { chip(ch.dataset.chip, ch.dataset.val); return }
+  const a = t.closest('[data-act]'); if (a) { if (a.disabled) return; act(a.dataset.act, a); return }
+  const o = t.closest('[data-open]'); if (o) {
+    const id = o.dataset.open
+    if (id.startsWith('s:')) return openSheet('statement', id.slice(2))
+    const r = rowById(id)
+    if (!r) return
+    if (r.t === 'b' || r.t === 'pb') openSheet('bill', id)
+    else if (r.t === 'r') openSheet('receipt', id)
+    else if (r.t === 'p') openSheet('payment', id)
+    else if (r.t === 'i' || r.t === 'l') openSheet('loan', 'l0')
+    else if (r.t === 'c') openSheet('credit', id)
+  }
+})
+document.addEventListener('input', e => {
+  const t = e.target
+  if (t.matches('[data-q]')) { S.q = t.value; render(); return }
+  if (t.matches('[data-inltext]')) { S.inline.text = t.value; const b = document.querySelector('[data-inlbtn]'); if (b) b.disabled = !t.value.trim(); return }
+  if (t.matches('[data-payamt]')) {
+    const id = t.dataset.payamt; const r = rowById(id); let v = parseInt(t.value.replace(/\D/g, '') || '0'); if (v > owed(r)) v = owed(r)
+    S.pay.amt[id] = v
+    const items = S.pay.ids.map(rowById).filter(Boolean); const amt = x => S.pay.on[x.id] === false ? 0 : (S.pay.amt[x.id] ?? owed(x)); const total = sum(items, amt)
+    document.querySelectorAll('[data-gtot]').forEach(g => { g.textContent = rp(sum(items.filter(x => x.sup === g.dataset.gtot), amt)) })
+    const pt = document.querySelector('[data-paytot]'); if (pt) pt.textContent = rp(total)
+    const w = document.querySelector('[data-words]'); if (w) w.textContent = terbilang(total)
+    const btn = document.querySelector('[data-paybtn]'); if (btn) { btn.disabled = total <= 0; btn.textContent = btn.textContent.replace(/Rp [\d.]+/, rp(total)) }
+    return
+  }
+  if (t.matches('[data-f]')) {
+    const f = t.dataset.f
+    if (f === 'amount') { S.form.amount = parseInt(t.value.replace(/\D/g, '') || '0'); t.value = S.form.amount ? num(S.form.amount) : '' }
+    else if (f === 'repeat') S.form.repeat = t.checked
+    else { S.form[f] = t.value; if (f === 'sup') S.form.rcpt = '' }
+    const valid = S.stack[S.stack.length - 1].kind === 'newcredit' ? (S.form.sup && S.form.forNo && S.form.amount > 0 && S.form.what.trim()) : formOK(S.form)
+    document.querySelectorAll('.sheet [data-act="savedraft"],.sheet [data-act="savepost"],.sheet [data-act="savecredit"]').forEach(b => b.disabled = !valid)
+  }
+})
+document.addEventListener('change', e => {
+  const t = e.target
+  if (t.matches('[data-place]')) { S.place = t.value; render() }
+  if (t.matches('[data-asof]')) { S.asOf = t.value; render() }
+  if (t.matches('[data-dstatus]')) { S.dStatus = t.value; S.sel.clear(); render() }
+  if (t.matches('[data-view]')) { S.view = t.value; S.flt = null; S.sel.clear(); syncUrl(); render() }
+  if (t.matches('[data-nowview]')) { S.nowView = +t.value; render() }
+  if (t.matches('[data-payfrom]')) S.pay.from = t.value
+  if (t.matches('[data-girodue]')) S.pay.giroDue = t.value
+  if (t.matches('[data-paysup]')) { S.pay.sup = t.value; S.pay.ids = payRows().filter(b => b.sup === t.value && !b.hold && !b.bkk).map(b => b.id); rerenderSheets() }
+  if (t.matches('[data-f="sup"],[data-f="rcpt"],[data-f="site"],[data-f="forNo"]')) {
+    if (t.dataset.f === 'rcpt') { const r = RECEIPTS.find(z => z.id === t.value); if (r) { S.form.amount = r.total; S.form.what = r.no + ' · ' + sum(r.lines, l => l[1]) + ' pcs'; if (!S.form.no) S.form.no = r.theirNo } }
+    rerenderSheets()
+  }
+})
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && S.stack.length) { closeTop(); return }
+  if (e.target.matches('input,select,textarea')) return
+  const i = '012345'.indexOf(e.key); if (i >= 0 && OPTS[i]) { document.querySelector(`[data-opt="${OPTS[i].id}"]`).click() }
+  if (e.key === 'c') document.querySelector('[data-opt="cmp"]').click()
+  if (e.key === 'd' || e.key === 'p') document.querySelector(`[data-dev="${e.key === 'd' ? 'desk' : 'phone'}"]`).click()
+})
+render()
+</script>
+</body>
+</html>

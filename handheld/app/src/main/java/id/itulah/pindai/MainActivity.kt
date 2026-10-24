@@ -50,7 +50,6 @@ import id.itulah.pindai.core.Reader
 import id.itulah.pindai.core.Trigger
 import id.itulah.pindai.data.CatalogStore
 import id.itulah.pindai.data.ConfigStore
-import id.itulah.pindai.data.RadioProfile
 import id.itulah.pindai.screens.*
 import id.itulah.pindai.ui.kit.Chip
 import id.itulah.pindai.ui.theme.*
@@ -101,18 +100,8 @@ class MainActivity : ComponentActivity() {
         // office because somebody launched an app is worse than a slow one.
         readerLifecycle.execute {
             runCatching {
-                val saved = store.load()
-                // The floor's radio profile goes to the reader BEFORE the module
-                // opens, so this open applies it. This is usually the first open
-                // of the day, and it used to be the one that skipped the profile.
-                reader.useProfile(
-                    rfLink = saved.rfLink,
-                    target = RadioProfile.TARGET,
-                    tagFocus = saved.tagFocus,
-                    fastId = RadioProfile.FAST_ID,
-                    session = saved.gen2Session,
-                )
-                saved.readerPower.takeIf { it > 0 }?.let { reader.setPower(it) }
+                // The same recipe is applied before the first open on every device.
+                reader.useProductionRecipe()
                 reader.init(applicationContext)
             }
             runOnUiThread { readerReady = true }
@@ -264,9 +253,9 @@ private fun Shell(
     // A sweep is latched — one pull starts it, the next stops it — so nothing
     // touches the screen in between, and the screen timeout was what ended it:
     // a dark screen stops this activity, and a stopped activity stops the sweep
-    // (above). The vendor SDK lets go of the module itself when the screen goes
-    // off, too. Cleared the moment the sweep is over, so a handheld left on a
-    // shelf still sleeps.
+    // (above). (The vendor SDK does not let go of the module at screen-off in
+    // this build: its screen receiver never registers. See Reader.) Cleared the
+    // moment the sweep is over, so a handheld left on a shelf still sleeps.
     //
     // The only part of the state the shell reads, and it changes twice a sweep.
     val live = state.slice { it.sweeping || it.starting }.value

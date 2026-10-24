@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- The Central icon, Matte · Deep — the same picture frontend-hub draws
+       in brand-mark.tsx and rasterises in scripts/pwa-icons.mjs. -->
+  <defs>
+    <linearGradient id="t" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4277e6"/><stop offset="1" stop-color="#1f4fc0"/></linearGradient>
+    <linearGradient id="c" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#d3e0fa"/></linearGradient>
+    <linearGradient id="d" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffd766"/><stop offset="1" stop-color="#eaa20f"/></linearGradient>
+    <filter id="s" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="1.8"/></filter>
+  </defs>
+  <rect width="100" height="100" rx="23.4" fill="url(#t)"/>
+  <ellipse cx="48" cy="84" rx="25" ry="3.4" fill="#0b2466" opacity=".4" filter="url(#s)"/>
+  <path d="M64.32 28.88A28.25 28.25 0 1 0 64.32 68.12A7.25 7.25 0 0 0 53.89 58.05A13.75 13.75 0 1 1 53.89 38.95A7.25 7.25 0 0 0 64.32 28.88Z" fill="url(#c)"/>
+  <circle cx="75.5" cy="48.5" r="8" fill="url(#d)"/>
+</svg>

@@ -98,16 +98,16 @@ const KIND_LABEL: Record<DeviceKind, string> = {
   ATTENDANCE_TERMINAL: "Attendance terminal",
 }
 
-const STATUS_TONE: Record<DeviceStatus, "ok" | "warn" | "bad"> = {
+const STATUS_TONE: Record<DeviceStatus, "ok" | "bad" | "neutral"> = {
   ACTIVE: "ok",
-  SUSPENDED: "warn",
-  REVOKED: "bad",
+  SUSPENDED: "bad",
+  REVOKED: "neutral",
 }
 
 const STATUS_WORD: Record<DeviceStatus, string> = {
   ACTIVE: "Active",
-  SUSPENDED: "Suspended",
-  REVOKED: "Revoked",
+  SUSPENDED: "Stopped",
+  REVOKED: "Removed",
 }
 
 /// The node a row is listed under, in words.
@@ -1258,7 +1258,7 @@ function switchedWhere(device: RegistryDevice): string {
     case "PRINTER":
       return "This node runs a version that cannot take a device decision from head office yet. Switch it at the shop, or update the node."
     case "ATTENDANCE_TERMINAL":
-      return "Suspended and revoked in People → Settings → Punch stations, where its authority is kept."
+      return "Stopped and removed in People → Settings → Punch stations, where its authority is kept."
     case "EDC":
       return "Switched on and off in Finance → Sales & banks, where its bank is kept."
     default:
@@ -1353,9 +1353,8 @@ function DeviceSheet({
           {device.switchable ? (
             <Section title="Switch it">
               <p className="mb-2.5 text-[0.9375rem] text-body">
-                A suspended till cannot sign anybody in or authorise anything
-                until it is reactivated. A revoked one never can again — a
-                replacement joins as a new till and takes its name.
+                A stopped till signs nobody in until you resume it. A removed
+                one never does again; a replacement takes its name.
               </p>
               <Field label="Why">
                 <Textarea
@@ -1372,25 +1371,28 @@ function DeviceSheet({
               <div className="mt-2.5 flex flex-wrap gap-2">
                 {device.status === "ACTIVE" && (
                   <Button
+                    variant="destructive"
                     disabled={change.isPending || needsReason}
                     onClick={() => change.mutate("SUSPENDED")}
                   >
-                    Suspend
+                    Stop
                   </Button>
                 )}
                 {device.status === "SUSPENDED" && (
                   <Button
+                    variant="primary"
                     disabled={change.isPending}
                     onClick={() => change.mutate("ACTIVE")}
                   >
-                    Reactivate
+                    Resume
                   </Button>
                 )}
                 <Button
+                  variant="destructive"
                   disabled={change.isPending || needsReason}
                   onClick={() => change.mutate("REVOKED")}
                 >
-                  Revoke for good
+                  Remove
                 </Button>
               </div>
             </Section>

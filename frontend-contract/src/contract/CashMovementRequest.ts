@@ -7,6 +7,10 @@ export type CashMovementRequest = { kind: string,
  * Signed. Money into the drawer is positive, out is negative — a
  * magnitude plus a direction column is the same number written twice, and
  * the two disagree the first time somebody writes a negative payout.
+ *
+ * Two exceptions (client, 24 Oct 2026): a `FLOAT_RETURN` is the float
+ * handed over, read as money out whatever its sign; and a `DROP` may be
+ * nought, its amount left for the Kepala toko to write on the slip.
  */
 amount_minor: number, reason: string, actor_id: string, 
 /**
@@ -20,7 +24,8 @@ supervisor: Supervisor | null,
 received_by: string | null, 
 /**
  * The handful the movement was counted from, one row per note or coin.
- * Optional, and only for a `DROP` or a `PICKUP`; when it is sent it must
- * add up to the amount exactly, the way the close's sheet does.
+ * Optional, and only for a `DROP`, a `PICKUP` or a `FLOAT_RETURN`; when it
+ * is sent it must add up to the amount exactly, the way the close's sheet
+ * does.
  */
 counted: Array<CashCount>, idempotency_key: string, };

@@ -13,6 +13,7 @@ A count badge is a red pill with a white number for what waits on somebody: at t
 ## Rules
 
 - Red and white, always. `NavItem.badge` may ask for `warn` or `bad`; white.css paints every count `bad-fg`.
+- The one exception is `badge: "quiet"` (Sales › Unmatched sales, owner 23 Oct 2026): a plain grey number in `mute` at 500, no pill, no ring, on the active row too. It says how many there are, not that somebody is waited on, so it never adds to a department's rail dot.
 - A zero draws nothing, and so does a count that is not known yet (`null`).
 - 99+ at most. Below that the number is grouped with `count()`.
 - A notification never takes the selection colour. On the active row (`accent-bg`, an `accent` word at 600) the count stays red with its white ring.
@@ -33,7 +34,7 @@ There is no exported component. `Count` in `nav-column.tsx` draws the row and th
 | Where | Prop | Type | Notes |
 | --- | --- | --- | --- |
 | `NavItem`, `AppModule`, `AppDomain` | `useCount` | `() => number \| null \| undefined` | A hook. `null` means not asked yet; `0` means nothing waits. Both draw nothing |
-| `NavItem`, `AppModule`, `AppDomain` | `badge` | `"bad" \| "warn"` | Read, then repainted red in the white look |
+| `NavItem`, `AppModule`, `AppDomain` | `badge` | `"bad" \| "warn"` (`NavItem` also `"quiet"`) | Read, then repainted red in the white look. `"quiet"` stays a grey number |
 | `SubTab` | `alert` | `number` | Draws the Alert after the tab's label |
 
 Source: `frontend-hub/src/components/shell/nav-column.tsx` (`Count`), `sub-sidebar.tsx`, `src/components/ui/sub-tabs.tsx`; white look in `styles/white.css` (`.nav-badge`, `.nav-count`, `.nav-dot`).

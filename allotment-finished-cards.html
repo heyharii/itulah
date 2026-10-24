@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Finished allotments</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* Tokens: frontend-hub/design-system/tokens.css (All white, 17 Oct 2026) */
+:root {
+  --ink: #1d1d1f; --body: #6e6e73; --mute: #6e6e73; --faint: #c7c7cc;
+  --canvas: #fff; --soft: #fafafb; --soft-2: #f2f2f5; --segment-track: #f2f2f4;
+  --row-line: #eeeef1; --hairline: #e8e8ec; --hairline-2: #dcdce1; --hairline-strong: #c7c7cc; --stone: #e8ebf0;
+  --accent: #2862dc; --ok: #36b827; --ok-fg: #248a3d; --warn: #c9892e; --warn-fg: #a66c1f; --bad-fg: #d70015;
+  --shadow-soft: 0 1px 2px rgba(0,0,0,.04); --shadow-segment: 0 1px 3px rgba(0,0,0,.12);
+  --r-inner: 8px; --r-card: 10px;
+  --ease-out: cubic-bezier(.23, 1, .32, 1);
+  --font: "Inter Variable", Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { font-family: var(--font); font-size: 15px; line-height: 1.45; color: var(--ink); background: var(--stone); -webkit-font-smoothing: antialiased; }
+button { font: inherit; color: inherit; }
+.num { font-variant-numeric: tabular-nums; }
+.mono { font-family: var(--mono); font-size: 15px; }
+
+/* ── Prototype chrome ──────────────────────────────────────────────────── */
+.chrome { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 10px 16px; background: var(--canvas); border-bottom: 1px solid var(--hairline); }
+.seg { display: inline-flex; gap: 2px; padding: 3px; border-radius: 9px; background: var(--segment-track); max-width: 100%; overflow-x: auto; }
+.seg button { height: 30px; padding: 0 11px; border: 0; border-radius: 6px; background: none; color: var(--body); font-weight: 500; white-space: nowrap; cursor: pointer; }
+.seg button[aria-pressed="true"] { border-radius: 7px; background: var(--canvas); color: var(--ink); box-shadow: var(--shadow-segment); }
+.why { flex-basis: 100%; color: var(--body); }
+.why b { color: var(--ink); font-weight: 600; }
+
+/* ── Page (hub list page: head · tabs · list) ──────────────────────────── */
+.frame { display: flex; justify-content: center; padding: 16px; }
+.page { width: 1120px; max-width: 100%; min-height: 80vh; padding: 28px 32px 48px; border-radius: 14px; background: var(--canvas); }
+.phone .page { width: 414px; padding: 20px 16px 40px; }
+h1 { margin: 0 0 16px; font-size: 22px; line-height: 28px; font-weight: 600; letter-spacing: -.3px; }
+.tabs { display: flex; gap: 24px; margin-bottom: 16px; border-bottom: 1px solid var(--hairline); overflow-x: auto; }
+.tabs button { flex: none; height: 40px; padding: 0; border: 0; background: none; color: var(--mute); cursor: pointer; }
+.tabs button[aria-pressed="true"] { color: var(--ink); font-weight: 600; box-shadow: inset 0 -2px 0 var(--ink); }
+.tabs .n { margin-left: 6px; color: var(--mute); font-weight: 400; }
+.list { display: flex; flex-direction: column; gap: 12px; }
+
+/* ── Card ─────────────────────────────────────────────────────────────── */
+.card { position: relative; display: flex; flex-direction: column; gap: 14px; padding: 16px 20px; border: 1px solid var(--hairline); border-radius: var(--r-card); background: var(--canvas); box-shadow: var(--shadow-soft); cursor: pointer; transition: border-color 150ms var(--ease-out), transform 150ms var(--ease-out); }
+.card:active { transform: scale(.995); }
+@media (hover: hover) and (pointer: fine) { .card:hover { border-color: var(--hairline-strong); } }
+.phone .card { padding: 14px; }
+.head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.sup { font-size: 17px; line-height: 24px; font-weight: 600; overflow-wrap: anywhere; }
+.sub { color: var(--body); }
+.why-line { color: var(--ink); }
+.why-line::before { content: ""; display: inline-block; width: 6px; height: 6px; margin: 0 8px 2px 0; border-radius: 50%; background: var(--bad-fg); }
+.fig { display: flex; flex-direction: column; align-items: flex-end; flex: none; text-align: right; }
+.pcs { font-size: 20px; line-height: 26px; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.pcs small { font-size: 15px; font-weight: 500; color: var(--body); }
+.pcs s { color: var(--mute); text-decoration-color: var(--faint); }
+.fig .of { color: var(--warn-fg); white-space: nowrap; }
+
+/* Stamp: STAMP of procurement/shared.ts */
+.stamp { pointer-events: none; display: inline-block; transform: rotate(-6deg); border: 3px double currentColor; border-radius: 6px; padding: 2px 10px; text-align: center; font-size: 15px; line-height: 20px; font-weight: 700; letter-spacing: .06em; white-space: nowrap; text-transform: uppercase; opacity: .85; mix-blend-mode: multiply; }
+.stamp span { display: block; font-variant-numeric: tabular-nums; }
+.stamp--ok { color: var(--ok-fg); }
+.stamp--warn { color: var(--warn-fg); }
+.stamp--bad { color: var(--bad-fg); }
+.stamp--mute { color: var(--mute); }
+.corner { position: absolute; right: 20px; bottom: 14px; }
+.phone .corner { right: 14px; }
+
+/* Store tiles (In progress tiles, pcs instead of stage) */
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(12.5rem, 1fr)); gap: 8px; }
+.phone .tiles { grid-template-columns: 1fr 1fr; }
+.tile { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; padding: 8px 12px; border-radius: var(--r-inner); background: var(--soft-2); }
+.tile b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.tile span { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--body); }
+.tile .short { color: var(--warn-fg); }
+.tile.off b, .tile.off span { color: var(--mute); }
+.tile.off span s { text-decoration-color: var(--faint); }
+
+/* Article chips */
+.arts { display: flex; flex-wrap: wrap; gap: 8px; }
+.art { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 6px 12px 6px 6px; border: 1px solid var(--hairline); border-radius: var(--r-inner); }
+.art .t { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 6px; background: var(--soft-2); }
+.art .t svg { width: 24px; height: 24px; }
+.art .nm { font-weight: 500; white-space: nowrap; }
+.art .pc { color: var(--body); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.art.more { padding: 6px 12px; color: var(--body); }
+.phone .art { flex: 1 1 100%; }
+.lbl { margin-bottom: 6px; color: var(--mute); }
+
+/* Option C: two lists side by side */
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px; padding-top: 12px; border-top: 1px solid var(--row-line); }
+.phone .two { grid-template-columns: 1fr; gap: 14px; }
+.rows { display: flex; flex-direction: column; }
+.r { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px; border-bottom: 1px solid var(--row-line); }
+.r:last-child { border-bottom: 0; }
+.r .who { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.r .who b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.r .t { flex: none; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 6px; background: var(--soft-2); }
+.r .t svg { width: 22px; height: 22px; }
+.r .q { flex: none; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.r .q .short { color: var(--warn-fg); }
+.r.more { color: var(--body); }
+
+/* Option D: one slim line per allotment, columns line up across cards */
+.slim { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1.2fr) minmax(0, 1fr) 130px 170px; align-items: center; gap: 20px; padding: 14px 20px; }
+.slim .cell-lbl { display: none; }
+.stack { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.faces { display: flex; flex: none; }
+.faces i { display: grid; place-items: center; width: 32px; height: 32px; margin-left: -8px; border: 2px solid var(--canvas); border-radius: 7px; background: var(--soft-2); }
+.faces i:first-child { margin-left: 0; }
+.faces svg { width: 20px; height: 20px; }
+.ell { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.slim .pcs { text-align: right; }
+.slim .st { justify-self: end; }
+.colhead { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1.2fr) minmax(0, 1fr) 130px 170px; gap: 20px; padding: 0 21px 8px; color: var(--mute); }
+.colhead span:nth-child(4) { text-align: right; }
+.colhead span:nth-child(5) { text-align: right; }
+.phone .colhead { display: none; }
+.phone .slim { grid-template-columns: 1fr auto; gap: 10px 12px; padding: 14px; }
+.phone .slim > :nth-child(1) { grid-area: 1 / 1; }
+.phone .slim > :nth-child(4) { grid-area: 1 / 2; }
+.phone .slim > :nth-child(2) { grid-area: 2 / 1 / 3 / 3; }
+.phone .slim > :nth-child(3) { grid-area: 3 / 1; }
+.phone .slim > :nth-child(5) { grid-area: 3 / 2; align-self: end; }
+
+/* Now: today's table */
+.box { border: 1px solid var(--hairline); border-radius: var(--r-card); overflow: clip; }
+.tbl { width: 100%; border-collapse: separate; border-spacing: 0; }
+.tbl th { height: 48px; padding: 0 16px; background: var(--soft); box-shadow: inset 0 -1px 0 var(--hairline); color: var(--mute); font-weight: 500; text-align: left; white-space: nowrap; }
+.tbl td { padding: 12px 16px; border-bottom: 1px solid var(--row-line); vertical-align: middle; }
+.tbl td.r2 { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tbl .mut { display: block; color: var(--mute); }
+</style>
+</head>
+<body>
+<div class="chrome">
+  <div class="seg" id="look"></div>
+  <div class="seg" id="device"></div>
+  <p class="why" id="why"></p>
+</div>
+<div class="frame" id="frame">
+  <div class="page">
+    <h1>Allotments</h1>
+    <div class="tabs" id="tabs"></div>
+    <div id="out"></div>
+  </div>
+</div>
+
+<script>
+const SHAPE = {
+  tee: c => `<svg viewBox="0 0 32 32"><path fill="${c}" d="M11 4l-7 4 3 6 3-1.5V28h12V12.5l3 1.5 3-6-7-4c-1 2-3 3-5 3s-4-1-5-3z"/></svg>`,
+  long: c => `<svg viewBox="0 0 32 32"><path fill="${c}" d="M11 4L5 7 3 26h4l2-13v15h14V13l2 13h4L27 7l-6-3c-1 2-3 3-5 3s-4-1-5-3z"/></svg>`,
+  pants: c => `<svg viewBox="0 0 32 32"><path fill="${c}" d="M9 3h14l1 25h-5l-3-17-3 17H8z"/></svg>`,
+};
+const A = {
+  gamis: { nm: "Gamis Aira", code: "GMS-0412", s: "long", c: "#8a6d5a" },
+  kemeja: { nm: "Kemeja Linen", code: "KMJ-0108", s: "tee", c: "#7f9bb8" },
+  kulot: { nm: "Kulot Raya", code: "KLT-0220", s: "pants", c: "#4b4f58" },
+  tunik: { nm: "Tunik Sekar", code: "TNK-0331", s: "long", c: "#c48a8a" },
+  kaos: { nm: "Kaos Basic", code: "KAS-0019", s: "tee", c: "#d9d2c5" },
+  celana: { nm: "Celana Chino", code: "CLN-0507", s: "pants", c: "#a68b5b" },
+  blouse: { nm: "Blouse Nara", code: "BLS-0144", s: "tee", c: "#9fb59a" },
+};
+// stores: [code, name, sent, got]  — got < sent = received short; got === null = cancelled before dispatch
+const DATA = {
+  completed: [
+    { id: "ALT-00000041", sup: "PT Sinar Busana", date: "16 Oct", end: "Completed", endDate: "17 Oct",
+      arts: [["gamis", 120], ["kemeja", 96], ["kulot", 64]],
+      stores: [["C001", "Cikupa", 80, 80], ["C002", "Serpong", 72, 72], ["C003", "Bintaro", 64, 64], ["C004", "Depok", 64, 64]] },
+    { id: "ALT-00000039", sup: "CV Rumah Jahit", date: "15 Oct", end: "Received short", endDate: "16 Oct",
+      arts: [["tunik", 140], ["blouse", 80]],
+      stores: [["C001", "Cikupa", 110, 104], ["C005", "Bekasi", 110, 110]] },
+    { id: "ALT-00000036", sup: "PT Sinar Busana", date: "13 Oct", end: "Completed", endDate: "15 Oct",
+      arts: [["kaos", 240], ["celana", 120], ["kemeja", 60], ["gamis", 48], ["kulot", 36]],
+      stores: [["C001", "Cikupa", 84, 84], ["C002", "Serpong", 84, 84], ["C003", "Bintaro", 84, 84], ["C004", "Depok", 84, 84], ["C005", "Bekasi", 84, 84], ["C006", "Karawaci", 60, 60], ["C007", "Cibubur", 64, 64]] },
+    { id: "ALT-00000033", sup: "UD Batik Laras", date: "12 Oct", end: "Closed short", endDate: "14 Oct",
+      arts: [["blouse", 60]],
+      stores: [["C002", "Serpong", 30, 30], ["C004", "Depok", 30, 30]], was: 80 },
+  ],
+  cancelled: [
+    { id: "ALT-00000042", sup: "CV Rumah Jahit", date: "16 Oct", end: "Cancelled", endDate: "16 Oct", by: "Rina Putri", why: "Wrong store · Bintaro already has this colour",
+      arts: [["tunik", 90], ["gamis", 30]],
+      stores: [["C001", "Cikupa", 60, null], ["C003", "Bintaro", 60, null]] },
+    { id: "ALT-00000038", sup: "PT Sinar Busana", date: "14 Oct", end: "Cancelled", endDate: "15 Oct", by: "Rina Putri", why: "Stock problem",
+      arts: [["kaos", 120], ["kemeja", 48], ["celana", 32]],
+      stores: [["C002", "Serpong", 50, null], ["C004", "Depok", 50, null], ["C005", "Bekasi", 50, 50], ["C006", "Karawaci", 50, null]] },
+    { id: "ALT-00000034", sup: "UD Batik Laras", date: "12 Oct", end: "Cancelled", endDate: "12 Oct", by: "Dimas Saputra", why: "Supplier · recalled for a stitching fault",
+      arts: [["blouse", 40]],
+      stores: [["C007", "Cibubur", 40, null]] },
+  ],
+};
+
+const S = { look: "A", device: "desk", tab: "completed" };
+try { Object.assign(S, JSON.parse(localStorage.getItem("finished-cards") || "{}")); } catch {}
+const p = new URLSearchParams(location.search);
+for (const k of ["look", "device", "tab"]) if (p.get(k)) S[k] = p.get(k);
+
+const LOOKS = {
+  Now: "<b>Now</b> — today's table: Allotment · Supplier · Stores · pcs/articles · stamp.",
+  A: "<b>A · Store tiles</b> — the In progress card, finished: supplier + pcs on top, article names under, one tile per store with its pcs. Stamp in the corner.",
+  B: "<b>B · Articles + stores</b> — A plus each article as a chip with its photo and pcs, stores as tiles below.",
+  C: "<b>C · Two lists</b> — inside the card, Articles left and Stores right, each a quiet list with its pcs.",
+  D: "<b>D · One line</b> — one slim card per allotment, columns line up across cards: Supplier · Articles · Stores · pcs · stamp.",
+};
+const n = x => x.toLocaleString("en-US");
+const thumb = k => SHAPE[A[k].s](A[k].c);
+const total = r => r.arts.reduce((s, a) => s + a[1], 0);
+const stampCls = w => ({ Completed: "ok", "Closed short": "warn", "Received short": "bad", Cancelled: "mute" })[w];
+const stamp = r => `<span class="stamp stamp--${stampCls(r.end)}">${r.end}<span>${r.endDate}</span></span>`;
+const artWord = k => k === 1 ? "1 article" : `${k} articles`;
+const storeWord = k => k === 1 ? "1 store" : `${k} stores`;
+const off = r => S.tab === "cancelled";
+const gotPcs = r => r.stores.reduce((s, x) => s + (x[3] ?? 0), 0);
+
+function sub(r) {
+  const why = off(r) && r.why ? `<div class="sub why-line">${r.why}</div>` : "";
+  return `<div class="sub"><span class="mono">${r.id}</span> · ${r.date}</div>${why}`;
+}
+function fig(r) {
+  const t = total(r);
+  if (off(r)) {
+    const got = gotPcs(r);
+    return `<div class="fig"><span class="pcs">${n(t)} <small>pcs</small></span>${got ? `<span class="of">${n(got)} already dispatched</span>` : ""}</div>`;
+  }
+  const got = gotPcs(r);
+  return `<div class="fig"><span class="pcs">${n(got)} <small>pcs</small></span>${got < t ? `<span class="of">of ${n(t)} sent</span>` : r.was ? `<span class="of">of ${n(r.was)} allotted</span>` : ""}</div>`;
+}
+function storeQty(x) {
+  const [, , sent, got] = x;
+  if (off()) return got === null ? n(sent) : `${n(got)} sent`;
+  return got < sent ? `<span class="short">${n(got)} of ${n(sent)}</span>` : n(got);
+}
+function tiles(r) {
+  return `<div class="tiles">${r.stores.map(x => `<div class="tile ${off() && x[3] === null ? "off" : ""}"><b title="${x[0]} · ${x[1]}">${S.device === "phone" ? x[0] : `${x[0]} · ${x[1]}`}</b><span>${storeQty(x)}</span></div>`).join("")}</div>`;
+}
+function artNames(r) {
+  const names = r.arts.map(a => A[a[0]].nm);
+  const s = names.length > 3 ? `${names.slice(0, 3).join(", ")} +${names.length - 3}` : names.join(", ");
+  return `<div class="sub">${artWord(r.arts.length)} · ${s}</div>`;
+}
+
+function headWithStamp(r) {
+  return `<div class="head"><div><div class="sup">${r.sup}</div>${sub(r)}</div>
+    <div style="display:flex;align-items:center;gap:24px">${S.device === "phone" ? "" : stamp(r)}${fig(r)}</div></div>`;
+}
+const phoneStamp = r => S.device === "phone" ? `<div style="display:flex;justify-content:flex-end">${stamp(r)}</div>` : "";
+function cardA(r) {
+  return `<article class="card" tabindex="0">
+    ${headWithStamp(r)}
+    ${artNames(r)}
+    ${tiles(r)}
+    ${phoneStamp(r)}
+  </article>`;
+}
+function cardB(r) {
+  const max = S.device === "phone" ? 3 : 4;
+  const shown = r.arts.slice(0, max), rest = r.arts.length - shown.length;
+  const chips = shown.map(([k, q]) => `<div class="art"><span class="t">${thumb(k)}</span><span class="nm">${A[k].nm}</span><span class="pc">${n(q)}</span></div>`).join("")
+    + (rest > 0 ? `<div class="art more">+${rest} more</div>` : "");
+  return `<article class="card" tabindex="0">
+    ${headWithStamp(r)}
+    <div><div class="lbl">${artWord(r.arts.length)}</div><div class="arts">${chips}</div></div>
+    <div><div class="lbl">${storeWord(r.stores.length)}</div>${tiles(r)}</div>
+    ${phoneStamp(r)}
+  </article>`;
+}
+function cardC(r) {
+  const cap = 4;
+  const aRows = r.arts.slice(0, cap).map(([k, q]) => `<div class="r"><span class="who"><span class="t">${thumb(k)}</span><b>${A[k].nm}</b></span><span class="q">${n(q)}</span></div>`).join("")
+    + (r.arts.length > cap ? `<div class="r more">+${r.arts.length - cap} more articles</div>` : "");
+  const sRows = r.stores.slice(0, cap).map(x => `<div class="r"><span class="who"><b>${x[0]} · ${x[1]}</b></span><span class="q">${storeQty(x)}</span></div>`).join("")
+    + (r.stores.length > cap ? `<div class="r more">+${r.stores.length - cap} more stores</div>` : "");
+  return `<article class="card" tabindex="0">
+    ${headWithStamp(r)}
+    <div class="two">
+      <div><div class="lbl">${artWord(r.arts.length)}</div><div class="rows">${aRows}</div></div>
+      <div><div class="lbl">${storeWord(r.stores.length)}</div><div class="rows">${sRows}</div></div>
+    </div>
+    ${phoneStamp(r)}
+  </article>`;
+}
+function cardD(r) {
+  const faces = r.arts.slice(0, 3).map(([k]) => `<i>${thumb(k)}</i>`).join("");
+  const names = r.arts.map(a => A[a[0]].nm).join(", ");
+  const codes = r.stores.map(x => x[0]);
+  const st = codes.length > 4 ? `${codes.slice(0, 4).join(", ")} +${codes.length - 4}` : codes.join(", ");
+  return `<article class="card slim" tabindex="0">
+    <div style="min-width:0"><div class="sup ell">${r.sup}</div>${sub(r)}</div>
+    <div class="stack"><span class="faces">${faces}</span><span style="min-width:0"><b style="font-weight:500;display:block">${artWord(r.arts.length)}</b><span class="sub ell" style="display:block">${names}</span></span></div>
+    <div style="min-width:0"><b style="font-weight:500;display:block">${storeWord(r.stores.length)}</b><span class="sub ell" style="display:block" title="${codes.join(", ")}">${st}</span></div>
+    ${fig(r)}
+    <div class="st">${stamp(r)}</div>
+  </article>`;
+}
+function nowTable(rows) {
+  return `<div class="box"><table class="tbl"><thead><tr><th>Allotment</th><th>Supplier</th><th>Stores</th><th style="text-align:right">Quantity</th><th style="text-align:right">Status</th></tr></thead><tbody>
+    ${rows.map(r => `<tr><td class="mono">${r.id}</td><td>${r.sup}</td><td>${r.stores.map(x => x[1]).join(", ")}</td><td class="r2">${n(total(r))} pcs<span class="mut">${artWord(r.arts.length)}</span></td><td class="r2">${stamp(r)}</td></tr>`).join("")}
+  </tbody></table></div>`;
+}
+
+function render() {
+  try { localStorage.setItem("finished-cards", JSON.stringify(S)); } catch {}
+  seg("look", ["Now", "A", "B", "C", "D"].map(k => [k, k === "Now" ? "Now" : `${k} · ${{ A: "Store tiles", B: "Articles + stores", C: "Two lists", D: "One line" }[k]}`]), "look");
+  seg("device", [["desk", "Desk"], ["phone", "Phone 414"]], "device");
+  document.getElementById("why").innerHTML = LOOKS[S.look];
+  document.body.classList.toggle("phone", S.device === "phone");
+  const tabs = [["unallotted", "To allot", 3], ["allotted", "In progress", 5], ["completed", "Completed", DATA.completed.length], ["cancelled", "Cancelled", DATA.cancelled.length]];
+  document.getElementById("tabs").innerHTML = tabs.map(([k, l, c]) => `<button type="button" aria-pressed="${S.tab === k}" data-tab="${k}">${l}<span class="n">${c}</span></button>`).join("");
+  document.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { if (DATA[b.dataset.tab]) { S.tab = b.dataset.tab; render(); } });
+  const rows = DATA[S.tab];
+  const out = document.getElementById("out");
+  if (S.look === "Now") out.innerHTML = S.device === "phone" ? `<div class="list">${rows.map(cardD).join("")}</div>` : nowTable(rows);
+  else {
+    const f = { A: cardA, B: cardB, C: cardC, D: cardD }[S.look];
+    const head = S.look === "D" ? `<div class="colhead"><span>Supplier</span><span>Articles</span><span>Stores</span><span>Pieces</span><span>Status</span></div>` : "";
+    out.innerHTML = head + `<div class="list">${rows.map(f).join("")}</div>`;
+  }
+}
+function seg(id, items, key) {
+  const el = document.getElementById(id);
+  el.innerHTML = items.map(([v, l]) => `<button type="button" aria-pressed="${S[key] === v}" data-v="${v}">${l}</button>`).join("");
+  el.querySelectorAll("button").forEach(b => b.onclick = () => { S[key] = b.dataset.v; render(); });
+}
+render();
+</script>
+</body>
+</html>

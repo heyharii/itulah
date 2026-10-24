@@ -9,6 +9,7 @@ import { Field, Textarea } from "@/components/ui/field"
 import { pendingLabel } from "@/components/ui/pending-label"
 import { PhoneDrawer } from "@/components/ui/phone-drawer"
 import { Problem } from "@/components/ui/states"
+import { TintButton } from "@/components/ui/tint-button"
 import { useLayout } from "@/lib/layout"
 import { toast } from "@/lib/toast"
 import { cn } from "@/lib/utils"
@@ -53,6 +54,7 @@ export function Dialog({
   children,
   confirm,
   cancel = "Cancel",
+  cancelTint = false,
   tone = "primary",
   pending = false,
   reason,
@@ -74,6 +76,12 @@ export function Dialog({
   children?: React.ReactNode
   confirm: React.ReactNode
   cancel?: React.ReactNode
+  /// The way out as a `TintButton` instead of the quiet one (which the White
+  /// look repaints red when it says "Cancel"): for a question that is not a
+  /// warning, where leaving is as fair an answer as the act (Match this sale?,
+  /// owner 23 Oct 2026). Ignored beside a `danger` act, whose way out is the
+  /// blue primary.
+  cancelTint?: boolean
   /// `danger` for anything that destroys or cannot be walked back.
   tone?: "primary" | "danger"
   pending?: boolean
@@ -144,9 +152,13 @@ export function Dialog({
             the two never wear the same red (owner, 2026-10-16). */}
         <Parts.Close
           render={
-            <Button variant={tone === "danger" ? "primary" : "quiet"}>
-              {cancel}
-            </Button>
+            cancelTint && tone !== "danger" ? (
+              <TintButton>{cancel}</TintButton>
+            ) : (
+              <Button variant={tone === "danger" ? "primary" : "quiet"}>
+                {cancel}
+              </Button>
+            )
           }
         />
         <Button

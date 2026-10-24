@@ -14,12 +14,14 @@ import { cn } from "@/lib/utils"
 const STORE_STATUS_LABEL: Record<StoreStatus, string> = {
   GETTING_READY: "Getting ready",
   OPEN: "Open",
-  CLOSED: "Closed",
+  STOPPED: "Stopped",
+  CLOSED: "Removed",
 }
 
 const STORE_STATUS_TONE: Record<StoreStatus, Tone> = {
   GETTING_READY: "warn",
   OPEN: "ok",
+  STOPPED: "bad",
   CLOSED: "neutral",
 }
 

@@ -173,6 +173,15 @@ impl EdgePrincipal {
     }
 }
 
+/// One person a Kepala toko may open a till for — `EdgeAuth::till_people`.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TillPerson {
+    pub username: String,
+    pub display_name: String,
+    /// `CASHIER` or `SUPERVISOR`, as `edge_user` spells it.
+    pub role: String,
+}
+
 #[derive(Clone, Debug)]
 pub struct IssuedEdgeSession {
     pub token: String,
@@ -531,6 +540,16 @@ impl EdgeAuth {
         {
             return Err(denied());
         }
+        // Head office stopped this person on the POS (0990): no finger at a
+        // till lets them in — unless they still hold a drawer, which they
+        // may come in to count and close.
+        if crate::edge::pos_stop::person_stop(&connection, &username).is_some()
+            && !crate::edge::pos_stop::holds_open_drawer(&connection, &username)
+        {
+            return Err(EdgeError::Forbidden(
+                "Akses POS Anda dihentikan kantor pusat.".into(),
+            ));
+        }
         // Not a sign-in in the one-device sense, by the owner's ruling: a
         // finger at a till asserts who is standing there, and pushing the
         // same person out of a handheld because they pressed a scanner is not
@@ -546,6 +565,88 @@ impl EdgeAuth {
             source,
             false,
         )
+    }
+
+    /// Who a Kepala toko may open a till for ("buka atas nama", owner, 23 Oct
+    /// 2026): every active cashier and supervisor here whose lease still runs,
+    /// who is not locked out and whom head office has not stopped on the POS
+    /// — the same people a finger would let in.
+    pub fn till_people(&self) -> Result<Vec<TillPerson>, EdgeError> {
+        let connection = self.lock()?;
+        let now = Utc::now();
+        let mut statement = connection
+            .prepare_cached(
+                "SELECT username,display_name,role,valid_until,login_blocked_until
+                 FROM edge_user
+                 WHERE active=1 AND role IN ('CASHIER','SUPERVISOR')
+                 ORDER BY display_name COLLATE NOCASE",
+            )
+            .map_err(db)?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                ))
+            })
+            .map_err(db)?;
+        let mut people = Vec::new();
+        for row in rows {
+            let (username, display_name, role, valid_until, blocked_until) = row.map_err(db)?;
+            let expired = valid_until
+                .as_deref()
+                .map(parse_time)
+                .transpose()?
+                .is_some_and(|expiry| expiry <= now);
+            let blocked = blocked_until
+                .as_deref()
+                .map(parse_time)
+                .transpose()?
+                .is_some_and(|until| until > now);
+            // Stopped on the POS by head office (0990), with no drawer left
+            // to close: nobody may open a till for them.
+            let stopped = crate::edge::pos_stop::person_stop(&connection, &username).is_some()
+                && !crate::edge::pos_stop::holds_open_drawer(&connection, &username);
+            if !expired && !blocked && !stopped {
+                people.push(TillPerson {
+                    username,
+                    display_name,
+                    role,
+                });
+            }
+        }
+        Ok(people)
+    }
+
+    /// A Kepala toko opens the till for one of `till_people`: the till is
+    /// handed that person's session, as their own finger would have, and the
+    /// head's session ends there — the counter is the cashier's from now on.
+    pub fn open_on_behalf(
+        &self,
+        head: &EdgePrincipal,
+        username: &str,
+    ) -> Result<IssuedEdgeSession, EdgeError> {
+        if head.role < Role::Supervisor {
+            return Err(EdgeError::Forbidden(
+                "only a store head may open a till for somebody else".into(),
+            ));
+        }
+        let wanted = username.trim().to_ascii_lowercase();
+        if !self
+            .till_people()?
+            .iter()
+            .any(|one| one.username.eq_ignore_ascii_case(&wanted))
+        {
+            return Err(EdgeError::Validation(format!(
+                "{wanted} cannot be opened at a till in this store"
+            )));
+        }
+        let issued = self.issue_for_fingerprint(&wanted)?;
+        self.logout(head.session_id)?;
+        Ok(issued)
     }
 
     /// Exchange a Cloud-signed, single-use ticket for a normal local session.
@@ -1124,7 +1225,7 @@ mod tests {
                  VALUES(?1,'dc.operator','DC Operator',?4,'SUPERVISOR',1,3,'CLOUD',
                         4,?2,?3,?3)",
             )
-            .map_err(db)?
+            .unwrap_or_else(|error| panic!("prepare: {error}"))
             .execute(params![
                 user_id.to_string(),
                 time_text(now + Duration::hours(12)),
@@ -1135,7 +1236,7 @@ mod tests {
         connection.prepare_cached("INSERT INTO edge_sso_trust
                      (singleton,origin_id,node_role,policy_version,public_key_hex,valid_until,updated_at)
                  VALUES(1,'dc-01-edge','DC',4,?1,?2,?3)"
-    ).map_err(db)?.execute(
+    ).unwrap_or_else(|error| panic!("prepare: {error}")).execute(
                 params![public_key, time_text(now + Duration::hours(24)), time_text(now)],
             )
             .unwrap_or_else(|error| panic!("SSO trust: {error}"));

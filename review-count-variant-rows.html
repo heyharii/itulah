@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Variant rows</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#1d1d1f;--body:#6e6e73;--faint:#c7c7cc;--hairline:#e8e8ec;--row:#eeeef1;--band:#fafafb;
+  --strong:#c7c7cc;--canvas:#fff;--soft:#f5f5f7;--accent:#2862dc;--accent-bg:#eef3fc;
+  --ok:#248a3d;--bad:#d70015;--bad-bg:#fdecee;--r-card:12px;--r-inner:8px;
+}
+*{box-sizing:border-box;margin:0}
+body{font:15px/1.45 Inter,system-ui,sans-serif;color:var(--ink);background:var(--soft);-webkit-font-smoothing:antialiased}
+button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
+.bar{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:12px 16px;background:var(--canvas);border-bottom:1px solid var(--hairline)}
+.bar h1{font-size:15px;font-weight:600}
+.seg{display:flex;gap:2px;background:var(--soft);border-radius:var(--r-inner);padding:3px;flex-wrap:wrap}
+.seg button{height:32px;padding:0 12px;border-radius:6px;font-size:15px;color:var(--body);transition:transform 160ms cubic-bezier(.23,1,.32,1)}
+.seg button:active{transform:scale(.97)}
+.seg button[aria-pressed=true]{background:var(--canvas);color:var(--ink);font-weight:500;box-shadow:0 1px 2px rgb(0 0 0/8%)}
+.note{color:var(--body);font-size:15px}
+.sheet{max-width:1000px;margin:24px auto;background:var(--canvas);border-radius:16px;box-shadow:0 0 0 1px rgb(0 0 0/5%),0 8px 24px rgb(0 0 0/6%);overflow:hidden}
+.head{padding:24px 28px 18px;border-bottom:1px solid var(--hairline)}
+.crumb{color:var(--body)} .crumb a{color:var(--accent);text-decoration:none}
+.title{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:4px}
+.title b{color:var(--accent);font-size:17px;font-weight:600}
+.body{padding:20px 28px 28px}
+.kpis{display:flex;gap:0;margin-bottom:20px}
+.kpis div{padding-right:22px;margin-right:22px;border-right:1px solid var(--hairline)} .kpis div:last-child{border:0}
+.kpis span{display:block;color:var(--body)} .kpis b{font-size:17px;font-weight:600}
+.card{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden}
+.scroll{overflow-x:auto}
+table{width:100%;min-width:720px;border-collapse:collapse;table-layout:fixed}
+th{background:var(--band);color:var(--body);font-weight:500;text-align:left;padding:12px 16px;white-space:nowrap}
+td{padding:12px 16px;vertical-align:middle;border-top:1px solid var(--row)}
+.r{text-align:right}
+.mute{color:var(--body)} .faint{color:var(--faint)}
+.link{color:var(--accent);font-weight:500}
+.ok{color:var(--ok)} .bad{color:var(--bad)}
+.diff{display:inline-block;background:var(--bad-bg);color:var(--bad);border-radius:var(--r-inner);padding:2px 9px;margin-top:4px;font-weight:500}
+.match{display:inline-flex;align-items:center;gap:5px;color:var(--ok);font-weight:500;margin-top:2px}
+.item{display:flex;align-items:center;gap:12px;min-width:0}
+.ph{width:40px;height:40px;border-radius:var(--r-inner);flex:none;background:linear-gradient(135deg,var(--c1),var(--c2))}
+.nm{min-width:0} .nm div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* B: one name per article, a guide line down the photos, a stronger line between articles */
+tr.first td{border-top:1px solid var(--strong)}
+tbody tr:first-child td{border-top:0}
+tr.cont td{border-top:1px dashed var(--row)}
+.guide{position:relative;width:40px;flex:none;align-self:stretch}
+.guide::before{content:"";position:absolute;left:19px;top:-13px;bottom:-13px;border-left:1.5px solid var(--hairline)}
+.guide.last::before{bottom:50%}
+.guide::after{content:"";position:absolute;left:19px;top:50%;width:14px;border-top:1.5px solid var(--hairline)}
+.sub{padding-left:0}
+/* C: article cell spans its variants */
+td.span{vertical-align:top;border-right:1px solid var(--row)}
+.foot{display:flex;justify-content:flex-end;padding-top:18px}
+.ladder{width:min(360px,100%)}
+.ladder div{display:flex;justify-content:space-between;padding:8px 0}
+.ladder div+div{border-top:1px solid var(--hairline);font-weight:600}
+.actions{display:flex;justify-content:flex-end;gap:10px;padding:14px 28px;border-top:1px solid var(--hairline)}
+.btn{height:40px;padding:0 16px;border-radius:var(--r-inner);font-weight:500;transition:transform 160ms cubic-bezier(.23,1,.32,1)}
+.btn:active{transform:scale(.97)}
+.btn-ghost{border:1px solid #d9d9de}
+.btn-primary{background:var(--accent);color:#fff}
+.phone{width:414px;max-width:calc(100% - 32px);margin:0 auto 32px;background:var(--canvas);border-radius:24px;box-shadow:0 0 0 1px rgb(0 0 0/5%),0 8px 24px rgb(0 0 0/6%);padding:16px;display:none}
+.phone.on{display:block}
+.phone h2{font-size:15px;font-weight:600;margin-bottom:12px;color:var(--body)}
+.pc{border:1px solid var(--hairline);border-radius:var(--r-card);padding:16px;display:flex;flex-direction:column;gap:12px;margin-bottom:12px}
+.pc dl{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.pc dl.three{grid-template-columns:1fr 1fr 1fr}
+.pc dt{color:var(--body)} .pc dd{margin:0}
+.vars{margin-left:20px;border-left:1.5px solid var(--hairline);padding-left:12px;display:flex;flex-direction:column;gap:12px}
+@media (max-width:640px){.head,.body{padding-left:16px;padding-right:16px}.sheet{margin:16px}.actions{padding:12px 16px}}
+</style>
+</head>
+<body>
+<div class="bar">
+  <h1>Review Count · variant rows</h1>
+  <div class="seg" id="seg"></div>
+  <span class="note" id="note"></span>
+</div>
+
+<div class="sheet">
+  <div class="head">
+    <div class="crumb">Purchase Orders / <a href="#">PO-181026-005</a></div>
+    <div class="title"><b>JOSS MER, UD</b><span class="mute">Review Count · Recounted by Candra, 18 Oct, 11:05</span></div>
+  </div>
+  <div class="body">
+    <div class="kpis">
+      <div><span>Ordered</span><b>114 pcs</b></div>
+      <div><span>Received</span><b>112 pcs</b></div>
+      <div><span>Accepted</span><b>112 pcs</b></div>
+    </div>
+    <div class="card"><div class="scroll"><table id="t"></table></div></div>
+    <div class="foot"><div class="ladder">
+      <div><span class="mute">Total PO · 114 pcs</span><span>Rp 11.640.000</span></div>
+      <div><span>Accepted · 112 pcs</span><span>Rp 11.420.000</span></div>
+    </div></div>
+  </div>
+  <div class="actions"><button class="btn btn-ghost">Recount</button><button class="btn btn-primary">✓ Submit</button></div>
+</div>
+
+<div class="phone" id="phone"><h2>On a phone</h2><div id="cards"></div></div>
+<script>
+const LINES = [
+  {name:"Blouse", kind:"Ladies · Blouse · Tangan panjang", price:110000, variants:[
+    {v:"Black M", o:20, c:20, c1:"#3a3a40", c2:"#1d1d22"},
+    {v:"Black L", o:20, c:20, c1:"#3a3a40", c2:"#1d1d22"},
+    {v:"White M", o:10, c:10, c1:"#f1f1f3", c2:"#d8d8de"},
+    {v:"White L", o:10, c:8,  c1:"#f1f1f3", c2:"#d8d8de"},
+  ]},
+  {name:"Celana Kulot", kind:"Ladies · Bottom · Kulot", price:85000, variants:[
+    {v:"ALL SIZE", o:30, c:30, c1:"#b9a58a", c2:"#8d7a62"},
+  ]},
+  {name:"Kemeja Pria Oxford", kind:"Men · Shirt · Lengan panjang", price:120000, variants:[], o:24, c:24, c1:"#a9c1e0", c2:"#6f8fbd"},
+];
+const rp = n => "Rp " + n.toLocaleString("id-ID");
+const pcs = n => n + " pcs";
+const check = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+const counted = (o,c) => `<span class="${o===c?'ok':'bad'}">${pcs(c)}</span>`+(o===c?`<div class="match">${check}Matches</div>`:`<div><span class="diff">${c<o?'−'+pcs(o-c):'+'+pcs(c-o)}</span></div>`);
+const ph = x => `<span class="ph" style="--c1:${x.c1};--c2:${x.c2}"></span>`;
+const head = (cols, first="Item") => `<colgroup>${cols}</colgroup><thead><tr><th>${first}</th>${first==="Article"?"<th>Variant</th>":""}<th class="r">Ordered</th><th class="r">Received</th><th class="r">Unit Price</th><th class="r">Amount</th></tr></thead>`;
+const COLS = '<col><col style="width:8.5rem"><col style="width:9.5rem"><col style="width:9.5rem"><col style="width:9.5rem">';
+const rowsOf = l => l.variants.length ? l.variants : [{v:null, o:l.o, c:l.c, c1:l.c1, c2:l.c2}];
+
+const OPTIONS = {
+  now: {label:"Now", note:"Article row, then its variants under it", render(){
+    let h = head(COLS) + "<tbody>";
+    for (const l of LINES) {
+      const o = rowsOf(l).reduce((s,x)=>s+x.o,0), c = rowsOf(l).reduce((s,x)=>s+x.c,0);
+      h += `<tr><td>${l.variants.length?"":`<div class="item">${ph(l)}`}<div class="nm"><div class="link">${l.name}</div><div class="mute">${l.kind}</div></div>${l.variants.length?"":"</div>"}</td>
+        <td class="r mute">${pcs(o)}</td><td class="r"><span class="${o===c?'ok':'bad'}">${pcs(c)}</span>${o!==c?`<div class="bad">${o-c} pcs short</div>`:""}</td>
+        <td class="r">${rp(l.price)} / pc</td><td class="r" style="font-weight:500">${rp(l.price*c)}</td></tr>`;
+      for (const x of l.variants) h += `<tr><td><div class="item">${ph(x)}<span class="mute">${l.name} ${x.v}</span></div></td><td class="r mute">${pcs(x.o)}</td><td class="r">${counted(x.o,x.c)}</td><td></td><td></td></tr>`;
+    }
+    return h + "</tbody>";
+  }},
+  a: {label:"A · Name in every row", note:"No article row; each variant row says the article and the variant", render(){
+    let h = head(COLS) + "<tbody>";
+    for (const l of LINES) for (const x of rowsOf(l))
+      h += `<tr><td><div class="item">${ph(x)}<div class="nm"><div class="link">${l.name}${x.v?` <span style="color:var(--ink);font-weight:400">${x.v}</span>`:""}</div><div class="mute">${l.kind}</div></div></div></td>
+        <td class="r mute">${pcs(x.o)}</td><td class="r">${counted(x.o,x.c)}</td>
+        <td class="r">${rp(l.price)} / pc</td><td class="r" style="font-weight:500">${rp(l.price*x.c)}</td></tr>`;
+    return h + "</tbody>";
+  }},
+  b: {label:"B · Name once (built)", note:"Article name on its first variant; a line down the photos ties the rest; a darker line between articles", render(){
+    let h = head(COLS) + "<tbody>";
+    for (const l of LINES) rowsOf(l).forEach((x,i,all) => {
+      const first = i===0, last = i===all.length-1;
+      const cell = first
+        ? `<div class="item">${ph(x)}<div class="nm"><div class="link">${l.name}${x.v?` <span style="color:var(--ink);font-weight:400">${x.v}</span>`:""}</div><div class="mute">${l.kind}</div></div></div>`
+        : `<div class="item"><span class="guide${last?' last':''}"></span>${ph(x)}<span>${x.v}</span></div>`;
+      h += `<tr class="${first?'first':'cont'}"><td>${cell}</td><td class="r mute">${pcs(x.o)}</td><td class="r">${counted(x.o,x.c)}</td>
+        <td class="r">${first?rp(l.price)+" / pc":'<span class="faint">〃</span>'}</td><td class="r" style="font-weight:500">${rp(l.price*Math.min(x.o,x.c))}</td></tr>`;
+    });
+    return h + "</tbody>";
+  }},
+  c: {label:"C · Article column", note:"Article cell spans its variants; Variant gets its own column", render(){
+    const cols = '<col style="width:14rem"><col><col style="width:7.5rem"><col style="width:8.5rem"><col style="width:9rem"><col style="width:9rem">';
+    let h = head(cols, "Article") + "<tbody>";
+    for (const l of LINES) rowsOf(l).forEach((x,i,all) => {
+      const span = i===0 ? `<td class="span" rowspan="${all.length}"><div class="nm"><div class="link">${l.name}</div><div class="mute" style="white-space:normal">${l.kind}</div><div style="margin-top:6px">${rp(l.price)} / pc</div></div></td>` : "";
+      h += `<tr class="${i===0?'first':''}">${span}<td><div class="item">${ph(x)}<span>${x.v ?? '<span class="faint">—</span>'}</span></div></td><td class="r mute">${pcs(x.o)}</td><td class="r">${counted(x.o,x.c)}</td>
+        <td class="r mute">${rp(l.price)}</td><td class="r" style="font-weight:500">${rp(l.price*x.c)}</td></tr>`;
+    });
+    return h + "</tbody>";
+  }},
+};
+
+function cards(){
+  let h="";
+  for (const l of LINES){
+    const one = l.variants.length===1 ? l.variants[0] : null;
+    const vs = one ? [] : l.variants;
+    const o = one ? one.o : l.o, cc = one ? one.c : l.c;
+    h+=`<div class="pc"><div><div class="link">${l.name}${one?` <span style="color:var(--ink);font-weight:400">${one.v}</span>`:""}</div><div class="mute">${l.kind}</div></div><dl>`;
+    if(!vs.length) h+=`<div><dt>Ordered</dt><dd class="mute">${pcs(o)}</dd></div><div><dt>Received</dt><dd>${counted(o,cc)}</dd></div>`;
+    const c = vs.length? vs.reduce((s,x)=>s+Math.min(x.o,x.c),0) : Math.min(o,cc);
+    h+=`<div><dt>Unit Price</dt><dd>${rp(l.price)} / pc</dd></div><div><dt>Amount</dt><dd style="font-weight:500">${rp(l.price*c)}</dd></div></dl>`;
+    if(vs.length){ h+='<div class="vars">'; vs.forEach((x,i)=>{
+      h+=`<div><div class="item">${ph(x)}<span>${x.v}</span></div><dl class="three" style="margin-top:8px">
+      <div><dt${i?' style="display:none"':''}>Ordered</dt><dd class="mute">${pcs(x.o)}</dd></div>
+      <div><dt${i?' style="display:none"':''}>Received</dt><dd class="${x.o===x.c?'ok':'bad'}">${pcs(x.c)}</dd></div>
+      <div><dt${i?' style="display:none"':''}>Difference</dt><dd>${x.o===x.c?`<span class="match">${check}Matches</span>`:`<span class="diff">${x.c<x.o?'−'+pcs(x.o-x.c):'+'+pcs(x.c-x.o)}</span>`}</dd></div></dl></div>`;});
+      h+='</div>'; }
+    h+='</div>';
+  }
+  document.getElementById("cards").innerHTML=h;
+}
+cards();
+const seg = document.getElementById("seg");
+function show(k){
+  try { localStorage.setItem("vr-opt", k) } catch {}
+  document.getElementById("t").innerHTML = OPTIONS[k].render();
+  document.getElementById("note").textContent = OPTIONS[k].note;
+  document.getElementById("phone").classList.toggle("on", k==="b");
+  [...seg.children].forEach(b => b.setAttribute("aria-pressed", b.dataset.k===k));
+}
+for (const [k,o] of Object.entries(OPTIONS)) { const b=document.createElement("button"); b.dataset.k=k; b.textContent=o.label; b.onclick=()=>show(k); seg.append(b) }
+let start = "b"; try { start = localStorage.getItem("vr-opt") || "b" } catch {}
+show(OPTIONS[start] ? start : "b");
+</script>
+</body>
+</html>

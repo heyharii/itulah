@@ -77,6 +77,12 @@ impl From<crate::edge::domain::Role> for Role {
 pub struct LoginRequest {
     pub username: String,
     pub password: String,
+    /// The till seat signing in (`KASIR-1`…), sent by a till only. A store
+    /// node refuses a cashier who already closed that seat today (client,
+    /// 23 Oct 2026). Ignored everywhere else.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub terminal_id: Option<String>,
 }
 
 /// The signed-in identity carried back by a successful login.

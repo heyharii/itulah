@@ -213,10 +213,12 @@ pub(crate) fn settings_file(app: &tauri::AppHandle, name: &str) -> Option<PathBu
 /// error: it is a terminal that has not been set up yet, which is exactly the
 /// state the setup screen exists for.
 pub fn load(app: &tauri::AppHandle) -> NodeConfig {
-    config_path(app)
+    let mut config: NodeConfig = config_path(app)
         .and_then(|path| std::fs::read_to_string(path).ok())
         .and_then(|text| serde_json::from_str(&text).ok())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    crate::peripherals::apply_reader_recipe(&mut config.peripherals);
+    config
 }
 
 pub(crate) fn save(app: &tauri::AppHandle, config: &NodeConfig) {
@@ -447,6 +449,7 @@ pub fn set_node_config(
 ) -> NodeConfig {
     let mut held = lock(node.inner());
     let mut next = next;
+    crate::peripherals::apply_reader_recipe(&mut next.peripherals);
     // A copy read before the shell followed its node to a new address still
     // names the old one. That is the stale copy, not a person pointing this
     // till back at an address nothing answers at any more.

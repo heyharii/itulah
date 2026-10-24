@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react"
+import { createPortal } from "react-dom"
 
 import {
   cashMovement,
@@ -9,14 +17,20 @@ import {
   tillSeats,
 } from "@/api"
 import { Icon } from "@/icons"
+import { siteTitle } from "@/joining"
 import { useOutbox } from "@/outbox"
 import { refreshPaymentMethods } from "@/payment-methods"
 import type { Seat } from "@/seat"
-import { useSession } from "@/session"
+import { useNodeConfig, useSession } from "@/session"
+import { useApproval } from "@/approval"
+import { useShortcuts, viaPointer } from "@/shortcuts"
 import { titled } from "@/simulation"
-import { Topbar } from "@/till"
+import { SetorModalDialog, TambahModalDialog } from "@/screens/laci"
+import { initials, kasirLabel, Topbar } from "@/till"
 import type { ShiftReport, TillSeat } from "@itulah/contract"
 import { money } from "@itulah/contract/money"
+import "@/shift-d.css"
+import "@/exchange-d.css"
 
 /// The cash session — one person's drawer at one seat, from the float they
 /// count in when they sit down to the count they make when they leave.
@@ -65,50 +79,69 @@ const CURRENCY = "IDR"
 
 const PAD = ["7", "8", "9", "4", "5", "6", "1", "2", "3", "⌫", "0", "000"]
 
-/// The two movements this terminal can complete on its own.
-///
-/// `till.rs` takes five kinds. `OPENING_FLOAT` is written by the open itself,
-/// and `PAYOUT` and `CORRECTION` are refused without a supervisor in the body —
-/// a field `cashMovement()` has no room for. A button that can only ever fail
-/// is worse than no button, so those two are named as absent instead.
-///
-/// The sign is the screen's, never the cashier's: the amount is signed on the
-/// wire, in positive and out negative, and a direction typed as a minus is a
-/// direction that gets typed wrong.
-const MOVES = [
-  {
-    kind: "DROP",
-    sign: -1,
-    label: "Drop to the safe",
-  },
-  {
-    kind: "PICKUP",
-    sign: 1,
-    label: "Add cash to the drawer",
-  },
-] as const
-
-type MoveKind = (typeof MOVES)[number]["kind"]
-
 /// The node names movements in English on the wire; the counter reads
 /// Indonesian. Anything unknown prints as it arrived rather than as a blank.
 const MOVEMENT: Record<string, string> = {
-  OPENING_FLOAT: "Opening float",
-  DROP: "Drop to the safe",
-  PAYOUT: "Payout",
-  PICKUP: "Cash into the drawer",
-  CORRECTION: "Correction",
+  OPENING_FLOAT: "Saldo awal",
+  DROP: "Setoran sementara",
+  PAYOUT: "Uang keluar",
+  PICKUP: "Tambah modal kasir",
+  FLOAT_RETURN: "Modal disetor",
+}
+
+/// The float this drawer stands on now: what it was opened with, and every
+/// "Tambah modal kasir" (PICKUP) since. The till no longer offers
+/// CORRECTION, but one already on an old shift still counts, so the closing
+/// paper stays right. Exported for the F3 Laci dialogs (laci.tsx).
+export function floatOf(report: ShiftReport): number {
+  return (
+    report.opening_float_minor +
+    report.movements
+      .filter((one) => one.kind === "PICKUP" || one.kind === "CORRECTION")
+      .reduce((sum, one) => sum + one.amount_minor, 0)
+  )
+}
+
+/// What went back to the Kepala toko by "Setor modal" (`FLOAT_RETURN`), and to
+/// whom (their name; null when the node does not say). The shift report carries
+/// both as `float_returned_minor` / `float_returned_to`; a node that does not
+/// yet say it is read from the movements, and a node that knows nothing of it
+/// gives zero.
+export function floatReturnedOf(report: ShiftReport): {
+  readonly minor: number
+  readonly to: string | null
+} {
+  const said = report as ShiftReport & {
+    float_returned_minor?: number | null
+    float_returned_to?: string | null
+  }
+  const minor =
+    typeof said.float_returned_minor === "number"
+      ? said.float_returned_minor
+      : report.movements
+          .filter((one) => one.kind === "FLOAT_RETURN")
+          .reduce((sum, one) => sum + Math.abs(one.amount_minor), 0)
+  const to = typeof said.float_returned_to === "string" && said.float_returned_to.trim() !== ""
+    ? said.float_returned_to
+    : null
+  return { minor, to }
+}
+
+/// The float still in the drawer: what it stands on, less what was handed to
+/// the Kepala toko. Setor modal takes all of it; Tambah modal grows it again.
+function floatLeftOf(report: ShiftReport): number {
+  return Math.max(0, floatOf(report) - floatReturnedOf(report).minor)
 }
 
 /// `EdgeReply.problem` is typed nullable but the shell fills it on every
 /// refusal. If it ever is not, say that plainly rather than render nothing and
 /// leave a cashier looking at a button that did something invisible.
-const SILENT = "The store node refused without giving a reason."
+const SILENT = "Server toko menolak tanpa alasan."
 
 /// `actor_id` is required by the node, and when the node runs with auth switched
 /// off it is NOT overwritten from a session — whatever this screen sends is what
 /// the ledger keeps forever. Checked here so the refusal names the real problem.
-const NAMELESS = "Sign in first."
+const NAMELESS = "Masuk dulu."
 
 function minorOf(text: string): number {
   return Number(text.replace(/\D/g, "")) || 0
@@ -120,8 +153,10 @@ function when(stamp: string): string {
   const at = new Date(stamp)
   return Number.isNaN(at.getTime())
     ? stamp
-    : at.toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })
+    : `${at.getDate()} ${MON[at.getMonth()]} ${at.getFullYear()}, ${clock(stamp)}`
 }
+
+const MON = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"]
 
 /// The Z report, out of a reply the wrapper types loosely.
 ///
@@ -197,10 +232,90 @@ type Reading =
   | { readonly kind: "unknown"; readonly problem: string }
 
 /// Notes and coins a drawer is counted in, largest first. The same set the
-/// payment page counts change out in.
+/// payment page counts change out in, and the order the closing paper prints.
+/// Rp 1.000 is one line, note and coin together, as 7Soft's Closing Cashier.
 const DENOMINATIONS = [
   100_000, 50_000, 20_000, 10_000, 5_000, 2_000, 1_000, 500, 200, 100,
 ] as const
+
+/// The order a drawer is counted in: from the smallest coin up, as 7Soft's
+/// Closing Cashier lays them out and as the cashier on the client's video counts.
+const COUNT_ORDER = [...DENOMINATIONS].reverse()
+
+const two = (n: number) => String(n).padStart(2, "0")
+const hhmm = (at: Date) => `${two(at.getHours())}:${two(at.getMinutes())}`
+const BULAN = [
+  "Januari", "Februari", "Maret", "April", "Mei", "Juni",
+  "Juli", "Agustus", "September", "Oktober", "November", "Desember",
+]
+
+/// `08:58`, kept current while a screen is up.
+function useHm(): string {
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    const tick = window.setInterval(() => setNow(new Date()), 10_000)
+    return () => window.clearInterval(tick)
+  }, [])
+  return hhmm(now)
+}
+
+/// A kasir and the shop it stands in, the way every header of the prototype
+/// says it: "Kasir 1 · C011 Spin".
+function usePlace(kasir: string): string {
+  const { config } = useNodeConfig()
+  const site =
+    config?.joined != null ? siteTitle(config.joined).replace(" · ", " ") : ""
+  return site === "" ? kasir : `${kasir} · ${site}`
+}
+
+/// Each note and coin as the counter sees it: a note is a coloured card, a coin
+/// a disc, and Rp 1.000 is both on one row.
+const CHIP: Readonly<
+  Record<number, { kind: "note" | "coin" | "both"; c: string; c2?: string }>
+> = {
+  100_000: { kind: "note", c: "#d0484d" },
+  50_000: { kind: "note", c: "#2f6fb8" },
+  20_000: { kind: "note", c: "#2f9461" },
+  10_000: { kind: "note", c: "#7f55ad" },
+  5_000: { kind: "note", c: "#a8743a" },
+  2_000: { kind: "note", c: "#7b7f88" },
+  1_000: { kind: "both", c: "#5d9a88", c2: "#c9cbd0" },
+  500: { kind: "coin", c: "#cdb36a" },
+  200: { kind: "coin", c: "#c3c6cc" },
+  100: { kind: "coin", c: "#c9cbd0" },
+}
+
+function MoneyChip({ value }: { value: number }) {
+  const chip = CHIP[value]
+  if (chip === undefined) return null
+  const paint = (c: string) => ({ "--c": c }) as CSSProperties
+  if (chip.kind === "coin") return <span className="coin-chip" style={paint(chip.c)} />
+  if (chip.kind === "both") {
+    return (
+      <span className="duo">
+        <span className="note-chip" style={paint(chip.c)} />
+        <span className="coin-chip" style={paint(chip.c2 ?? chip.c)} />
+      </span>
+    )
+  }
+  return <span className="note-chip" style={paint(chip.c)} />
+}
+
+const PrinterIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+    <path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6" />
+    <rect x="6" y="14" width="12" height="8" rx="1" />
+  </svg>
+)
+
+const DelIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M10 5a2 2 0 0 0-1.344.519l-6.328 5.74a1 1 0 0 0 0 1.481l6.328 5.741A2 2 0 0 0 10 19h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2z" />
+    <path d="m12 9 6 6" />
+    <path d="m18 9-6 6" />
+  </svg>
+)
 
 export function ShiftScreen({
   actorId,
@@ -268,7 +383,7 @@ export function ShiftScreen({
   if (reading.kind === "reading") {
     panel = (
       <div className="empty">
-        <h3>Loading shift…</h3>
+        <h3 />
       </div>
     )
   } else if (reading.kind === "unknown") {
@@ -277,7 +392,7 @@ export function ShiftScreen({
         <p className="error">{reading.problem}</p>
         <div className="rows">
           <button className="btn primary" onClick={() => void read()}>
-            Try again
+            Coba lagi
           </button>
         </div>
       </>
@@ -287,10 +402,10 @@ export function ShiftScreen({
     // ended or taken over, and the opening float is where that is put right.
     panel = (
       <>
-        <p className="notice warn">You have no open shift.</p>
+        <p className="notice warn">Belum ada shift yang dibuka.</p>
         <div className="rows">
           <button className="btn primary" onClick={onOpenShift}>
-            Open shift
+            Buka kasir
           </button>
         </div>
       </>
@@ -302,10 +417,20 @@ export function ShiftScreen({
         report={reading.report}
         startClosing={finishing}
         onDone={onDone}
+        onBack={onBack}
       />
     )
   } else {
     panel = <Closed report={reading.report} onLeave={onLeave} />
+  }
+
+  // F4 goes straight to the count: no "Shift & kas" page flashing first.
+  if (finishing && (reading.kind === "reading" || reading.kind === "open")) {
+    return (
+      <div style={{ position: "fixed", inset: 0, background: "#e8ebf0" }}>
+        {reading.kind === "open" ? panel : null}
+      </div>
+    )
   }
 
   const label =
@@ -320,7 +445,7 @@ export function ShiftScreen({
         <div className="page-inner">
           <div className="page-head">
             <div>
-              <h1>Shift &amp; cash</h1>
+              <h1>Shift &amp; kas</h1>
               {label !== "" && <p className="num">{label}</p>}
             </div>
             {/* A finished shift has no counter to go back to: the way on is
@@ -328,7 +453,7 @@ export function ShiftScreen({
             {reading.kind !== "closed" && (
               <button className="btn ghost" onClick={onBack}>
                 <Icon name="back" />
-                Back to counter
+                Kembali ke kasir
               </button>
             )}
           </div>
@@ -365,6 +490,8 @@ function Rupiah({
           placeholder="0"
           aria-label={caption}
           autoFocus={autoFocus}
+          // A prefilled amount is selected, so the first key typed replaces it.
+          onFocus={(event) => event.target.select()}
         />
       </div>
       <div className="numpad" style={{ marginTop: 8 }}>
@@ -373,7 +500,7 @@ function Rupiah({
             key={key}
             type="button"
             className={key === "⌫" ? "del" : undefined}
-            aria-label={key === "⌫" ? "Delete one digit" : undefined}
+            aria-label={key === "⌫" ? "Hapus satu digit" : undefined}
             onClick={() =>
               onText(
                 key === "⌫"
@@ -390,35 +517,100 @@ function Rupiah({
   )
 }
 
+/// The till's usual float (the client's "Modal"), Rp 500.000 on the opening
+/// video of 22 Oct 2026. The field opens on it; typing replaces it.
+const DEFAULT_FLOAT = "500000"
+
+/// What a cashier can start a float from with one touch.
+const PRESETS = [300_000, 500_000, 1_000_000] as const
+
+/// The pad of the opening float, in the prototype's order.
+const FLOAT_KEYS = ["7", "8", "9", "4", "5", "6", "1", "2", "3", "000", "0", "del"] as const
+
+/// The door's card, on the stone, with whatever the page has to say under it.
+/// One card for every state of the gate, so a swap is the inside moving and the
+/// card staying where it is.
+function Door({
+  children,
+  below,
+  popup = false,
+  small = false,
+}: {
+  children: ReactNode
+  below?: ReactNode
+  popup?: boolean
+  small?: boolean
+}) {
+  return (
+    <div className={`shd shd-door${popup ? " shd-inline" : ""}`}>
+      <div className={`d-card m-lift${small ? " sm" : ""}`}>{children}</div>
+      {below}
+    </div>
+  )
+}
+
+/// "● Central online · Kasir 1 · C011 Spin · 08:58", under the card.
+function Status({ place }: { place: string }) {
+  const hm = useHm()
+  return (
+    <p className="d-status m-lift">
+      <span className="live" />
+      <span>Central online</span>
+      <span className="dot">·</span>
+      <span>{place}</span>
+      <span className="dot">·</span>
+      <span>{hm}</span>
+    </p>
+  )
+}
+
 /// Sitting down at a seat: the float counted into the drawer. Free seat or one
 /// taken over, the person arriving always enters their own — the previous
 /// holder's money left with them and is theirs to count.
+///
+/// The amount opens on the till's usual float and selected, so the first key
+/// typed replaces it. The keys are the window's, not a field's: the pad and the
+/// keyboard both work without anything having to hold the caret.
 function Opening({
   actorId,
   seat,
+  name,
+  sub,
+  leaveLabel,
   onDone,
   onCancel,
+  onProblem,
 }: {
   actorId: string
   seat: TillSeat
+  name: string
+  /// Under the name: who opened the till for them, or where the kasir is.
+  sub: string
+  leaveLabel: string
   onDone: (report: ShiftReport | null) => void
   onCancel: () => void
+  /// Said under the card, where the status line is.
+  onProblem: (problem: string | null) => void
 }) {
-  const [text, setText] = useState("")
+  const [text, setText] = useState(DEFAULT_FLOAT)
+  // True while the amount is the one it opened on, or a preset: the next key
+  // starts over instead of adding to it.
+  const [fresh, setFresh] = useState(true)
   const [busy, setBusy] = useState(false)
-  const [problem, setProblem] = useState<string | null>(null)
   const attempt = useIdempotency()
+  const amount = minorOf(text)
 
   async function open() {
+    if (busy || amount <= 0) return
     if (actorId.trim() === "") {
-      setProblem(NAMELESS)
+      onProblem(NAMELESS)
       return
     }
     setBusy(true)
-    setProblem(null)
+    onProblem(null)
     const draft = {
       terminal_id: seat.terminal_id,
-      opening_float_minor: minorOf(text),
+      opening_float_minor: amount,
       actor_id: actorId,
     }
     // One call for a free seat and a held one alike: the node ends the old
@@ -435,34 +627,122 @@ function Opening({
       onDone(asReport(reply.body?.shift))
       return
     }
-    setProblem(reply.problem ?? SILENT)
+    onProblem(reply.problem ?? SILENT)
   }
 
-  return (
-    <form
-      className="rows"
-      onSubmit={(event) => {
+  function press(key: string) {
+    if (busy) return
+    if (key === "del") {
+      const next = Math.floor(amount / 10)
+      setText(next > 0 ? String(next) : "")
+    } else {
+      const next = String(Number((fresh ? "" : text) + key) || "")
+      if (next.length > 11) return
+      setText(next)
+    }
+    setFresh(false)
+  }
+
+  // The window's keys, read through a ref so the listener binds once.
+  const live = useRef({ press, open, onCancel, busy })
+  useEffect(() => {
+    live.current = { press, open, onCancel, busy }
+  })
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.ctrlKey || event.metaKey || event.altKey) return
+      if (/^\d$/.test(event.key)) {
         event.preventDefault()
-        if (!busy && minorOf(text) > 0) void open()
-      }}
-    >
-      <Rupiah caption="Opening float" text={text} onText={setText} autoFocus />
+        live.current.press(event.key)
+        return
+      }
+      if (event.key === "Backspace") {
+        event.preventDefault()
+        live.current.press("del")
+        return
+      }
+      if (event.repeat) return
+      // A focused button answers Enter itself; Enter anywhere else opens.
+      if (event.target instanceof HTMLButtonElement) return
+      if (event.key === "Enter") {
+        event.preventDefault()
+        void live.current.open()
+      } else if (event.key === "Escape" && !live.current.busy) {
+        event.preventDefault()
+        live.current.onCancel()
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [])
 
-      {problem !== null && <p className="error">{problem}</p>}
+  // A touched key must not keep the focus, or the next Enter would press it.
+  const keepFocus = (event: { preventDefault: () => void }) => event.preventDefault()
 
+  return (
+    <div className="d-in d-float m-swap" key="float">
+      <div className="f-who">
+        <span className="av md">{initials(name)}</span>
+        <div className="f-who-t">
+          <b>{name}</b>
+          <span>{sub}</span>
+        </div>
+        <button className="d-chip" type="button" disabled={busy} onClick={onCancel}>
+          {leaveLabel}
+        </button>
+      </div>
+      <p className="f-title">Saldo awal</p>
+      <div className="f-amt" role="status" aria-label="Saldo awal">
+        <span className="cur">Rp</span>
+        <span
+          className={`v${amount > 0 ? "" : " zero"}${amount > 0 && fresh ? " sel" : ""}`}
+        >
+          {amount > 0 ? amount.toLocaleString("id-ID") : "0"}
+        </span>
+        <span className="caret" />
+      </div>
+      <div className="f-pre">
+        {PRESETS.map((preset) => (
+          <button
+            key={preset}
+            type="button"
+            className={amount === preset ? "on" : undefined}
+            onMouseDown={keepFocus}
+            onClick={() => {
+              if (busy) return
+              setText(String(preset))
+              setFresh(true)
+            }}
+          >
+            {preset.toLocaleString("id-ID")}
+          </button>
+        ))}
+      </div>
+      <div className="f-pad">
+        {FLOAT_KEYS.map((key) => (
+          <button
+            key={key}
+            type="button"
+            aria-label={key === "del" ? "Hapus" : undefined}
+            onMouseDown={keepFocus}
+            onClick={() => press(key)}
+          >
+            {key === "del" ? <DelIcon /> : key}
+          </button>
+        ))}
+      </div>
       {/* A shift opens on counted cash: an empty drawer is counted as
           nothing, and nothing is not a float. */}
       <button
-        className="btn primary lg"
-        type="submit"
-        disabled={busy || minorOf(text) <= 0}
+        className="ds-btn ds-btn--primary f-open"
+        type="button"
+        disabled={busy || amount <= 0}
+        onClick={() => void open()}
       >
-        {busy ? "Opening…" : `Open shift · ${money(minorOf(text), CURRENCY)}`}
+        <span>{busy ? "Membuka…" : "Buka kasir"}</span>
+        <span className="kbd">Enter</span>
       </button>
-      <button className="btn ghost" type="button" disabled={busy} onClick={onCancel}>
-        Cancel
-      </button>
-    </form>
+    </div>
   )
 }
 
@@ -482,24 +762,16 @@ function Uncounted({
   onCounted: () => void
 }) {
   return (
-    <>
-      <div className="page-head">
-        <div>
-          <h1>Count the {report.terminal_label} drawer</h1>
-          <p>
-            Your shift was taken over by {report.taken_over_by ?? "someone else"}
-            {report.closed_at !== null && ` at ${clock(report.closed_at)}`}.
-            Count the cash you took out of the drawer.
-          </p>
-        </div>
-      </div>
-      <Closing
-        actorId={actorId}
-        report={report}
-        counting
-        onDone={() => onCounted()}
-      />
-    </>
+    <Closing
+      actorId={actorId}
+      report={report}
+      counting
+      title={`Hitung laci ${report.terminal_label}`}
+      caption={`Shift Anda diambil alih oleh ${titled(report.taken_over_by ?? "orang lain")}${
+        report.closed_at !== null ? ` pukul ${clock(report.closed_at)}` : ""
+      }. Hitung uang yang Anda ambil dari laci.`}
+      onDone={() => onCounted()}
+    />
   )
 }
 
@@ -528,27 +800,37 @@ function isThisTill(terminalId: string, id: string, label: string): boolean {
 /// simply carries on. Otherwise the opening float is asked for straight away.
 ///
 /// There is no choosing: this till is installed as one kasir (`KASIR-n`), and
-/// the float is for that one. Whoever held it before and left the shift open
-/// has it ended by this opening, and counts their own drawer next time.
+/// the float is for that one. A kasir somebody else still has open cannot be
+/// opened over: they close their shift first.
 export function ShiftGate({
   actorId,
   notice,
   onReady,
   onSignOut,
+  popup = false,
 }: {
   actorId: string
   /// Why the person is here again, when it is not a fresh sign-in.
   notice?: string | null
   onReady: (seat: Seat) => void
   onSignOut: () => void
+  /// Drawn inside the Kasir pop-up over the menu rather than as its own page;
+  /// then "leave" closes the pop-up instead of signing the person out.
+  popup?: boolean
 }) {
   const { terminalId, me } = useSession()
   const name = me?.display_name ?? me?.username ?? actorId
   const [state, setState] = useState<Gate>({ kind: "asking" })
+  // What the node said to the float, under the card.
+  const [flash, setFlash] = useState<string | null>(null)
   const alive = useRef(true)
+  const place = usePlace(
+    state.kind === "opening" ? state.seat.label : kasirLabel(terminalId),
+  )
 
   const look = useCallback(async () => {
     setState({ kind: "asking" })
+    setFlash(null)
     const mine = await myShifts()
     if (!alive.current) return
     if (!mine.ok) {
@@ -582,7 +864,7 @@ export function ShiftGate({
       seat === undefined
         ? {
             kind: "problem",
-            problem: `This till is not set up as a kasir yet (${terminalId}). Ask head office to set the kasir for this store.`,
+            problem: `Perangkat ini belum diatur sebagai kasir (${terminalId}). Minta kantor pusat mengatur kasir untuk toko ini.`,
           }
         : { kind: "opening", seat },
     )
@@ -596,106 +878,142 @@ export function ShiftGate({
     }
   }, [look])
 
-  return (
-    <div id="app" data-screen="sale">
-      <Topbar actorId={actorId} />
-      <main className="page">
-        <div className="page-inner" style={{ maxWidth: 440 }}>
-          {notice !== undefined && notice !== null && (
-            <div className="notice warn" role="status">
-              {notice}
-            </div>
-          )}
-          {state.kind === "asking" ? (
-            <div className="empty">
-              <h3>Loading shift…</h3>
-            </div>
-          ) : state.kind === "problem" ? (
-            <>
-              <p className="error">{state.problem}</p>
-              <div className="rows">
-                <button className="btn primary" onClick={() => void look()}>
-                  Try again
-                </button>
-                <button className="btn ghost" onClick={onSignOut}>
-                  Cancel
-                </button>
-              </div>
-            </>
-          ) : state.kind === "count" ? (
-            <Uncounted
-              actorId={actorId}
-              report={state.report}
-              onCounted={() => void look()}
-            />
-          ) : state.kind === "elsewhere" ? (
-            <>
-              <div className="page-head">
-                <div>
-                  <h1>Your shift is open at {seatOf(state.report).label}</h1>
-                  <p>
-                    {name} · since {clock(state.report.opened_at)}
-                  </p>
-                </div>
-              </div>
-              <div className="rows">
-                <button
-                  className="btn primary lg"
-                  onClick={() => setState({ kind: "closing", report: state.report })}
-                >
-                  Count and close it
-                </button>
-                <button className="btn ghost" onClick={onSignOut}>
-                  Sign out
-                </button>
-              </div>
-            </>
-          ) : state.kind === "closing" ? (
-            <>
-              <div className="page-head">
-                <div>
-                  <h1>Close {seatOf(state.report).label}</h1>
-                  <p>{name}</p>
-                </div>
-              </div>
-              <Closing
-                actorId={actorId}
-                report={state.report}
-                onDone={() => void look()}
-                onCancel={() => setState({ kind: "elsewhere", report: state.report })}
-              />
-            </>
-          ) : (
-            <>
-              <div className="page-head">
-                <div>
-                  <h1>Opening float</h1>
-                  <p>
-                    {name} · {state.seat.label}
-                  </p>
-                </div>
-              </div>
-              {state.seat.held_by !== null && (
-                <div className="notice warn" role="status">
-                  {titled(state.seat.held_by)}&apos;s shift is still open on{" "}
-                  {state.seat.label}. Opening yours ends it, and they count
-                  their own drawer later.
-                </div>
-              )}
-              <Opening
-                actorId={actorId}
-                seat={state.seat}
-                onDone={(report) => {
-                  if (report !== null) onReady(seatOf(report))
-                  else void look()
-                }}
-                onCancel={onSignOut}
-              />
-            </>
-          )}
+  const leave = popup ? "Batal" : "Keluar"
+
+  // The two that fill the window: counting a drawer is not a card on the stone.
+  if (state.kind === "count") {
+    return (
+      <Uncounted
+        actorId={actorId}
+        report={state.report}
+        onCounted={() => void look()}
+      />
+    )
+  }
+  if (state.kind === "closing") {
+    return (
+      <Closing
+        actorId={actorId}
+        report={state.report}
+        backLabel="Kembali"
+        onDone={() => void look()}
+        onCancel={() => setState({ kind: "elsewhere", report: state.report })}
+      />
+    )
+  }
+
+  let card: ReactNode
+  let small = true
+  let below: ReactNode = <Status place={place} />
+  if (state.kind === "asking") {
+    below = null
+    card = (
+      <div className="d-in sm m-swap" key="asking">
+        <p className="d-say">Memuat shift…</p>
+      </div>
+    )
+  } else if (state.kind === "problem") {
+    below = null
+    card = (
+      <div className="d-in sm m-swap" key="problem">
+        <p className="d-say bad">{state.problem}</p>
+        <div className="d-acts">
+          <button
+            className="ds-btn ds-btn--primary"
+            type="button"
+            onClick={() => void look()}
+          >
+            Coba lagi
+          </button>
+          <button className="ds-btn ds-btn--ghost" type="button" onClick={onSignOut}>
+            Batal
+          </button>
         </div>
-      </main>
-    </div>
+      </div>
+    )
+  } else if (state.kind === "elsewhere") {
+    card = (
+      <div className="d-in sm m-swap" key="elsewhere">
+        <span className="av lg">{initials(name)}</span>
+        <p className="d-say">Shift Anda dibuka di {seatOf(state.report).label}</p>
+        <p className="d-hint">
+          {name} · sejak {clock(state.report.opened_at)}
+        </p>
+        <div className="d-acts">
+          <button
+            className="ds-btn ds-btn--primary"
+            type="button"
+            onClick={() => setState({ kind: "closing", report: state.report })}
+          >
+            Hitung dan tutup
+          </button>
+          <button className="ds-btn ds-btn--ghost" type="button" onClick={onSignOut}>
+            {leave}
+          </button>
+        </div>
+      </div>
+    )
+  } else if (state.seat.held_by !== null) {
+    // Somebody else's shift is still open on this kasir: nobody opens over it
+    // (owner, 23 Oct 2026). They close it — count the drawer — first.
+    const holder = titled(state.seat.held_by)
+    card = (
+      <div className="d-in sm m-swap" key="held">
+        <span className="av lg">{initials(holder)}</span>
+        <p className="d-say">
+          {state.seat.label} masih dibuka {holder}
+        </p>
+        <p className="d-hint">Tutup kasir {holder} dulu</p>
+        <div className="d-acts">
+          <button
+            className="ds-btn ds-btn--primary"
+            type="button"
+            onClick={() => void look()}
+          >
+            Coba lagi
+          </button>
+          <button className="ds-btn ds-btn--ghost" type="button" onClick={onSignOut}>
+            {leave}
+          </button>
+        </div>
+      </div>
+    )
+  } else {
+    small = false
+    if (flash !== null) {
+      below = (
+        <p className="d-status bad" role="alert">
+          {flash}
+        </p>
+      )
+    }
+    card = (
+      <Opening
+        actorId={actorId}
+        seat={state.seat}
+        name={name}
+        sub={notice !== undefined && notice !== null && notice !== "" ? notice : place}
+        leaveLabel={popup ? "Batal" : "Bukan Anda?"}
+        onDone={(report) => {
+          if (report !== null) onReady(seatOf(report))
+          else void look()
+        }}
+        onCancel={onSignOut}
+        onProblem={setFlash}
+      />
+    )
+  }
+
+  // Looking the shift up is a moment: the stone background alone, no card
+  // and no "Memuat shift…" flashing between the door and the float.
+  if (state.kind === "asking") {
+    return <div style={{ position: "fixed", inset: 0, background: "#e8ebf0" }} />
+  }
+
+  return (
+    <Door popup={popup} small={small} below={below}>
+      {card}
+    </Door>
   )
 }
 
@@ -704,11 +1022,13 @@ function Running({
   report,
   startClosing,
   onDone,
+  onBack,
 }: {
   actorId: string
   report: ShiftReport
   startClosing: boolean
   onDone: (report: ShiftReport | null) => void
+  onBack: () => void
 }) {
   const [closing, setClosing] = useState(startClosing)
   const outbox = useOutbox()
@@ -728,7 +1048,10 @@ function Running({
         actorId={actorId}
         report={report}
         onDone={onDone}
-        onCancel={() => setClosing(false)}
+        // Finish shift opened straight at the count: stepping back is back to
+        // selling, not to a page nobody asked for.
+        onCancel={startClosing ? onBack : () => setClosing(false)}
+        backLabel={startClosing ? "Kembali ke penjualan" : "Kembali"}
       />
     )
   }
@@ -737,17 +1060,17 @@ function Running({
     <>
       <div className="stats">
         <div className="stat">
-          <small>Opening float</small>
+          <small>Saldo awal</small>
           <strong className="num">
-            {money(report.opening_float_minor, CURRENCY)}
+            {money(floatOf(report), CURRENCY)}
           </strong>
         </div>
         <div className="stat">
-          <small>Sales</small>
+          <small>Penjualan</small>
           <strong className="num">{report.sale_count}</strong>
         </div>
         <div className="stat">
-          <small>Opened</small>
+          <small>Dibuka</small>
           <strong style={{ fontSize: 15 }}>
             {when(report.opened_at)}
           </strong>
@@ -759,17 +1082,15 @@ function Running({
         <div className="kv">
           <span className="muted">Void</span>
           <span className="badge warn">
-            {report.voided_count} sales ·{" "}
+            {report.voided_count} penjualan ·{" "}
             {money(report.voided_total_minor, CURRENCY)}
           </span>
         </div>
       )}
 
-      <Movement actorId={actorId} shiftId={report.shift_id} onDone={onDone} />
-
       {report.movements.length > 0 && (
         <div>
-          <span className="label">Cash movements</span>
+          <span className="label">Riwayat kas</span>
           <div className="rows" style={{ marginTop: 8 }}>
             {report.movements.map((one) => (
               <div className="row-item" key={one.id}>
@@ -777,7 +1098,7 @@ function Running({
                   <h3>{MOVEMENT[one.kind] ?? one.kind}</h3>
                   <p>
                     {one.reason} · {when(one.occurred_at)} · {one.actor_id}
-                    {one.approved_by !== null && ` · approved by ${one.approved_by}`}
+                    {one.approved_by !== null && ` · disetujui ${one.approved_by}`}
                   </p>
                 </div>
                 <strong className="num">
@@ -794,8 +1115,8 @@ function Running({
         {owed > 0 && (
           <p className="error">
             {outbox.unsent > 0
-              ? `${outbox.unsent} sales not yet sent to the node — wait until they are sent before finishing the shift.`
-              : `${outbox.refused} sales refused by the node — a store manager resolves them on the counter screen before the shift can be finished.`}
+              ? `${outbox.unsent} penjualan belum terkirim ke server toko — tunggu sampai terkirim sebelum tutup kasir.`
+              : `${outbox.refused} penjualan ditolak server toko — kepala toko menyelesaikannya di layar kasir sebelum kasir bisa ditutup.`}
           </p>
         )}
         <button
@@ -804,107 +1125,10 @@ function Running({
           disabled={owed > 0}
         >
           <Icon name="lock" />
-          Finish shift
+          Tutup kasir
         </button>
       </div>
     </>
-  )
-}
-
-function Movement({
-  actorId,
-  shiftId,
-  onDone,
-}: {
-  actorId: string
-  shiftId: string
-  onDone: (report: ShiftReport | null) => void
-}) {
-  const [kind, setKind] = useState<MoveKind>("DROP")
-  const [text, setText] = useState("")
-  const [reason, setReason] = useState("")
-  const [busy, setBusy] = useState(false)
-  const [problem, setProblem] = useState<string | null>(null)
-  const attempt = useIdempotency()
-
-  const chosen = MOVES.find((one) => one.kind === kind) ?? MOVES[0]
-  const amount = minorOf(text)
-
-  async function send() {
-    if (actorId.trim() === "") {
-      setProblem(NAMELESS)
-      return
-    }
-    if (amount <= 0) {
-      setProblem("Enter the amount.")
-      return
-    }
-    if (reason.trim() === "") {
-      setProblem("A reason is required.")
-      return
-    }
-    setBusy(true)
-    setProblem(null)
-    const draft = {
-      kind: chosen.kind,
-      amount_minor: chosen.sign * amount,
-      reason: reason.trim(),
-      actor_id: actorId,
-    }
-    const reply = await cashMovement(shiftId, {
-      ...draft,
-      idempotency_key: attempt.keyFor(draft),
-    })
-    setBusy(false)
-    if (reply.ok) {
-      attempt.spent()
-      setText("")
-      setReason("")
-      onDone(asReport(reply.body))
-      return
-    }
-    setProblem(reply.problem ?? SILENT)
-  }
-
-  return (
-    <div className="rows">
-      <span className="label">Cash in / out of the drawer</span>
-      <div className="segmented" role="radiogroup" aria-label="Movement type">
-        {MOVES.map((one) => (
-          <button
-            key={one.kind}
-            type="button"
-            role="radio"
-            aria-checked={one.kind === kind}
-            aria-pressed={one.kind === kind}
-            onClick={() => {
-              setKind(one.kind)
-              setProblem(null)
-            }}
-          >
-            {one.label}
-          </button>
-        ))}
-      </div>
-
-      <Rupiah caption="Amount" text={text} onText={setText} />
-
-      <label className="field">
-        Reason
-        <input
-          value={reason}
-          onChange={(event) => setReason(event.target.value)}
-          placeholder="For example: afternoon drop, envelope 3"
-          autoComplete="off"
-        />
-      </label>
-
-      {problem !== null && <p className="error">{problem}</p>}
-
-      <button className="btn" disabled={busy} onClick={() => void send()}>
-        {busy ? "Recording…" : `Record · ${money(amount, CURRENCY)}`}
-      </button>
-    </div>
   )
 }
 
@@ -912,34 +1136,57 @@ function Movement({
 /// (`counting`): the same sheet, the same blindness, sent to `countShift` —
 /// the shift is already closed, so there is nothing to cancel back out of.
 ///
-/// The cashier counts every note and coin into the rows below and never sees
-/// the figure the node expects — not while counting, not before sending. The
-/// expected cash is not even fetched: a number this screen never holds is a
-/// number it cannot leak. Only once the count is locked and the shift closed
-/// does the node's answer come back, and `Closed` shows the difference.
+/// The cashier counts every note and coin into the rows — from Rp 100 up, as
+/// 7Soft's Closing Cashier lays them out — and never sees the figure the node
+/// expects: not while counting, not before sending. The expected cash is not
+/// even fetched: a number this screen never holds is a number it cannot leak.
+/// Only once the count is locked and the shift closed does the node's answer
+/// come back, and `Closed` shows the paper.
 ///
 /// The sheet travels as `counted`, one line per denomination, and the node
 /// refuses it unless it adds up to the declared figure — the count sheet is
 /// what an audit asks for the next morning.
+///
+/// The keys are the prototype's: Enter walks the rows, F4 closes, Esc steps back.
 function Closing({
   actorId,
   report,
   onDone,
   onCancel,
+  backLabel = "Kembali ke penjualan",
   counting = false,
+  title,
+  caption,
 }: {
   actorId: string
   report: ShiftReport
   onDone: (report: ShiftReport | null) => void
   onCancel?: () => void
+  /// What the way back is called: where it goes decides.
+  backLabel?: string
   counting?: boolean
+  /// Over the rows; "Tutup kasir" when not said.
+  title?: string
+  /// Under it; the kasir and the shop when not said.
+  caption?: string
 }) {
+  const { me } = useSession()
+  const who = me?.display_name ?? me?.username ?? titled(report.opened_by)
+  const place = usePlace(report.terminal_label)
   const [counts, setCounts] = useState<Record<number, string>>({})
-  const [note, setNote] = useState("")
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
+  // Setor modal (F2) and Tambah modal (F3): the float changes hands with the
+  // drawer still open, neither one closes the till.
+  const [dialog, setDialog] = useState<null | "setor" | "tambah">(null)
   const attempt = useIdempotency()
+  const rows = useRef<HTMLDivElement>(null)
+  // Where the caret was, so a confirmation that is turned down hands it back.
+  const lastRow = useRef(0)
+  // What is left of the float, and what went back to the Kepala toko.
+  const floatLeft = floatLeftOf(report)
+  const returned = floatReturnedOf(report)
 
   const pieces = (value: number) => Number(counts[value] ?? "") || 0
   const declared = DENOMINATIONS.reduce(
@@ -953,9 +1200,32 @@ function Closing({
       [value]: next <= 0 ? "" : String(Math.min(next, 9999)),
     }))
 
+  const focusRow = (index: number) =>
+    rows.current?.querySelectorAll<HTMLInputElement>("input")[index]?.focus()
+
+  useEffect(() => {
+    if (!confirming && dialog === null) focusRow(lastRow.current)
+  }, [confirming, dialog])
+
+  /// The node answered a movement with the shift report: hand it up, so this
+  /// screen and the page behind it draw the float as it now stands. A reply
+  /// that is not a report is read again from the node.
+  async function drawerChanged(body: unknown) {
+    const next = asReport(body)
+    if (next !== null && next.status === "OPEN") {
+      onDone(next)
+      return
+    }
+    const reply = await myShifts()
+    if (reply.ok && reply.body.open !== null && reply.body.open.status === "OPEN") {
+      onDone(reply.body.open)
+    }
+  }
+
   async function close() {
     if (actorId.trim() === "") {
       setProblem(NAMELESS)
+      setConfirming(false)
       return
     }
     setBusy(true)
@@ -966,7 +1236,7 @@ function Closing({
         value_minor: value,
         pieces: pieces(value),
       })).filter((line) => line.pieces > 0),
-      note: note.trim() === "" ? null : note.trim(),
+      note: null,
       actor_id: actorId,
     }
     const send = counting ? countShift : closeShift
@@ -981,125 +1251,315 @@ function Closing({
       return
     }
     setProblem(reply.problem ?? SILENT)
+    setConfirming(false)
   }
 
-  if (confirming) {
-    return (
-      <div className="rows">
-        <span className="label">Check the count</span>
-        <div>
-          {DENOMINATIONS.filter((value) => pieces(value) > 0).map((value) => (
-            <div className="kv" key={value}>
-              <span>
-                {money(value, CURRENCY)} × {pieces(value)}
-              </span>
-              <span className="num">
-                {money(value * pieces(value), CURRENCY)}
-              </span>
-            </div>
-          ))}
-        </div>
-        <div className="count-total">
-          <span>Total counted</span>
-          <strong className="num">{money(declared, CURRENCY)}</strong>
-        </div>
-        <label className="field">
-          Note (optional)
-          <input
-            value={note}
-            onChange={(event) => setNote(event.target.value)}
-            autoComplete="off"
-          />
-        </label>
-        {problem !== null && <p className="error">{problem}</p>}
-        <button
-          className="btn danger lg"
-          disabled={busy}
-          onClick={() => void close()}
-        >
-          {busy
-            ? counting
-              ? "Sending…"
-              : "Finishing…"
-            : counting
-              ? "Lock the count"
-              : "Lock the count and finish shift"}
-        </button>
-        <button
-          className="btn ghost"
-          disabled={busy}
-          onClick={() => setConfirming(false)}
-        >
-          Count again
-        </button>
-      </div>
-    )
+  // The float, kept apart from closing: nothing to hand over, nothing to ask.
+  const idle = !busy && !confirming && dialog === null && !counting
+  const openSetor = () => {
+    if (idle && floatLeft > 0) setDialog("setor")
   }
+  const openTambah = () => {
+    if (idle) setDialog("tambah")
+  }
+
+  // F4 asks to close; F2 and F3 hand the float over and add to it; Esc steps
+  // back — out of the confirmation first, then out of the count. Read through a
+  // ref so the listener binds once. While a dialog is up the keys are its own.
+  const live = useRef({
+    ask: () => {},
+    back: () => {},
+    setor: () => {},
+    tambah: () => {},
+    blocked: false,
+  })
+  useEffect(() => {
+    live.current = {
+      ask: () => {
+        if (!busy && !confirming) setConfirming(true)
+      },
+      back: () => {
+        if (busy) return
+        if (confirming) setConfirming(false)
+        else onCancel?.()
+      },
+      setor: openSetor,
+      tambah: openTambah,
+      blocked: dialog !== null,
+    }
+  })
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.repeat || event.ctrlKey || event.metaKey || event.altKey) return
+      if (live.current.blocked) return
+      if (event.key === "F4") {
+        event.preventDefault()
+        live.current.ask()
+      } else if (event.key === "F2") {
+        event.preventDefault()
+        live.current.setor()
+      } else if (event.key === "F3") {
+        event.preventDefault()
+        live.current.tambah()
+      } else if (event.key === "Escape") {
+        event.preventDefault()
+        if (event.target instanceof HTMLTextAreaElement) event.target.blur()
+        else live.current.back()
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [])
+
+  const goLabel = counting ? "Kunci hitungan" : "Tutup kasir"
+  // F4 shows the count at once; a tap on Tutup kasir pops it in.
+  const [enter] = useState(viaPointer)
 
   return (
-    <div className="rows">
-      <div className="page-head" style={{ alignItems: "center" }}>
-        <div>
-          <span className="label">
-            {counting ? "Count the cash in the drawer" : "Finish shift · count the cash in the drawer"}
-          </span>
-        </div>
-        {onCancel !== undefined && (
-          <button className="btn ghost" onClick={onCancel}>
-            Cancel
-          </button>
-        )}
-      </div>
-
-      <div className="denom-grid">
-        {DENOMINATIONS.map((value) => (
-          <div className="denom-row" key={value}>
-            <span className="num">{money(value, CURRENCY)}</span>
-            <div className="qty">
+    <div className="shd shd-close">
+      <div className={enter ? "cc m-pop" : "cc"} inert={confirming || dialog !== null}>
+        <div className="cc-l">
+          <div className="cc-head">
+            <div>
+              <p className="ttl">{title ?? "Tutup kasir"}</p>
+              <p className="cap">{caption ?? place}</p>
+            </div>
+            {onCancel !== undefined && (
               <button
+                className="ds-btn ds-btn--ghost"
                 type="button"
-                aria-label={`Fewer ${money(value, CURRENCY)}`}
-                onClick={() => set(value, pieces(value) - 1)}
+                disabled={busy}
+                onClick={onCancel}
               >
-                −
+                {backLabel}
+                <span className="kbd">Esc</span>
               </button>
-              <input
-                value={counts[value] ?? ""}
-                onChange={(event) =>
-                  set(value, Number(event.target.value.replace(/\D/g, "")) || 0)
-                }
-                inputMode="numeric"
-                placeholder="0"
-                aria-label={`Number of notes ${money(value, CURRENCY)}`}
-              />
+            )}
+          </div>
+          <div className={enter ? "cc-list m-swap" : "cc-list"} ref={rows}>
+            <p className="cc-sec">
+              <span />
+              <b>Uang kertas &amp; koin</b>
+              <span className="c">Jumlah</span>
+              <span className="r">Nilai</span>
+            </p>
+            {/* From the smallest coin up, as 7Soft's Closing Cashier and the
+                cashier on the client's video count. */}
+            {COUNT_ORDER.map((value, index) => (
+              <div className="cc-row" key={value} onClick={() => focusRow(index)}>
+                <span className="cc-chip">
+                  <MoneyChip value={value} />
+                </span>
+                <span className="cc-val">{money(value, CURRENCY)}</span>
+                <span className="cc-step">
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    aria-label={`Kurangi satu ${money(value, CURRENCY)}`}
+                    onClick={() => set(value, pieces(value) - 1)}
+                  >
+                    −
+                  </button>
+                  <input
+                    className="cc-pcs"
+                    value={counts[value] ?? ""}
+                    onChange={(event) =>
+                      set(value, Number(event.target.value.replace(/\D/g, "")) || 0)
+                    }
+                    inputMode="numeric"
+                    placeholder="0"
+                    autoComplete="off"
+                    aria-label={`Jumlah lembar ${money(value, CURRENCY)}`}
+                    autoFocus={index === 0}
+                    // A count that is already there is selected, so the first
+                    // key typed replaces it.
+                    onFocus={(event) => {
+                      lastRow.current = index
+                      event.target.select()
+                    }}
+                    // Keyboard only: Enter goes to the next row, and from the
+                    // last one to closing.
+                    onKeyDown={(event) => {
+                      if (event.key === "ArrowUp") {
+                        event.preventDefault()
+                        focusRow(index - 1)
+                      } else if (event.key === "ArrowDown" || event.key === "Enter") {
+                        event.preventDefault()
+                        if (index < COUNT_ORDER.length - 1) focusRow(index + 1)
+                        else if (event.key === "Enter") setConfirming(true)
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    aria-label={`Tambah satu ${money(value, CURRENCY)}`}
+                    onClick={() => set(value, pieces(value) + 1)}
+                  >
+                    +
+                  </button>
+                </span>
+                <span className={`cc-amt${pieces(value) > 0 ? "" : " zero"}`}>
+                  {pieces(value) > 0 ? money(value * pieces(value), CURRENCY) : "—"}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="cc-r">
+          <div className="cc-who">
+            <span className="av md">{initials(who)}</span>
+            <div>
+              <b>{who}</b>
+              <span>{report.terminal_label}</span>
+            </div>
+          </div>
+          <dl className="cc-facts">
+            <div>
+              <dt>Shift dibuka</dt>
+              <dd>{when(report.opened_at)}</dd>
+            </div>
+            <div>
+              <dt>Saldo awal</dt>
+              <dd>{money(floatOf(report), CURRENCY)}</dd>
+            </div>
+            {returned.minor > 0 && (
+              <div>
+                <dt>Modal disetor</dt>
+                <dd>
+                  {money(returned.minor, CURRENCY)}
+                  {returned.to !== null && ` · ${returned.to.trim().split(/\s+/)[0]}`}
+                </dd>
+              </div>
+            )}
+          </dl>
+          <div className="cc-sum">
+            <p className="k">Terhitung</p>
+            <p className="v">{money(declared, CURRENCY)}</p>
+          </div>
+          {problem !== null && (
+            <p className="cc-err" role="alert">
+              {problem}
+            </p>
+          )}
+          {/* The float is its own act, not part of closing: neither button
+              closes the till. Nothing left to hand over, nothing to press. */}
+          {!counting && (
+            <div className="cc-acts">
               <button
+                className="ds-btn ds-btn--tint"
                 type="button"
-                aria-label={`More ${money(value, CURRENCY)}`}
-                onClick={() => set(value, pieces(value) + 1)}
+                disabled={busy || floatLeft <= 0}
+                onClick={openSetor}
               >
-                +
+                Setor modal
+                <span className="kbd">F2</span>
+              </button>
+              <button
+                className="ds-btn ds-btn--tint"
+                type="button"
+                disabled={busy}
+                onClick={openTambah}
+              >
+                Tambah modal
+                <span className="kbd">F3</span>
               </button>
             </div>
-            <strong className="num">
-              {pieces(value) > 0 ? money(value * pieces(value), CURRENCY) : "—"}
-            </strong>
+          )}
+          <button
+            className="ds-btn ds-btn--primary cc-go"
+            type="button"
+            disabled={busy}
+            onClick={() => setConfirming(true)}
+          >
+            <span>{goLabel}</span>
+            <span className="kbd">F4</span>
+          </button>
+        </div>
+      </div>
+
+      {confirming && (
+        <div
+          className="veil m-veil"
+          onClick={() => {
+            if (!busy) setConfirming(false)
+          }}
+        >
+          <div
+            className="cfm m-pop"
+            role="alertdialog"
+            aria-label={goLabel}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <p className="ttl">
+              {goLabel} dengan {money(declared, CURRENCY)}?
+            </p>
+            <p>
+              {counting
+                ? "Hitungan tidak bisa diubah setelah dikunci."
+                : `${floatLeft > 0 ? `Modal ${money(floatLeft, CURRENCY)} belum disetor · ` : ""}${report.terminal_label} tertutup sampai shift berikutnya dibuka.`}
+            </p>
+            <div className="cfm-act">
+              <button
+                className="ds-btn ds-btn--ghost"
+                type="button"
+                disabled={busy}
+                onClick={() => setConfirming(false)}
+              >
+                Hitung lagi
+              </button>
+              {/* Keyboard only: the count is checked, Enter locks it. */}
+              <button
+                className="ds-btn ds-btn--primary"
+                type="button"
+                disabled={busy}
+                autoFocus
+                onClick={() => void close()}
+              >
+                {busy ? (counting ? "Mengirim…" : "Menutup…") : goLabel}
+              </button>
+            </div>
           </div>
-        ))}
-      </div>
+        </div>
+      )}
 
-      <div className="count-total">
-        <span>Total counted</span>
-        <strong className="num">{money(declared, CURRENCY)}</strong>
-      </div>
-
-      <button className="btn primary lg" onClick={() => setConfirming(true)}>
-        Continue
-      </button>
+      {/* The F3 dialogs are drawn at the end of the page, not inside this
+          screen: their own stylesheet (.xchd) and this one (.shd) must not
+          reach into each other. */}
+      {dialog !== null &&
+        createPortal(
+          dialog === "setor" ? (
+            <SetorModalDialog
+              actorId={actorId}
+              shiftId={report.shift_id}
+              amountMinor={floatLeft}
+              onClose={() => setDialog(null)}
+              onDone={(_text, body) => {
+                setDialog(null)
+                void drawerChanged(body)
+              }}
+            />
+          ) : (
+            <TambahModalDialog
+              actorId={actorId}
+              currency={CURRENCY}
+              shiftId={report.shift_id}
+              onClose={() => setDialog(null)}
+              onDone={(_text, body) => {
+                setDialog(null)
+                void drawerChanged(body)
+              }}
+            />
+          ),
+          document.body,
+        )}
     </div>
   )
 }
 
-/// A closed shift, as the cashier who counted it is allowed to see it.
+/// A closed shift, as the cashier who counted it is allowed to see it: the
+/// paper, and the two buttons beside it.
 ///
 /// Blind to the end: no expected cash, no difference, and none of the figures
 /// it could be worked back from — not the cash takings, not the change given,
@@ -1113,64 +1573,225 @@ function Closed({
   report: ShiftReport
   onLeave: () => void
 }) {
+  // How many times this closing paper has been printed: 7Soft's "Print Ke",
+  // kept on this till per shift.
+  const key = `closing-prints:${report.shift_id}`
+  const [prints, setPrints] = useState(() => {
+    try {
+      return Number(window.localStorage.getItem(key)) || 0
+    } catch {
+      return 0
+    }
+  })
+  const print = () => {
+    const next = prints + 1
+    setPrints(next)
+    try {
+      window.localStorage.setItem(key, String(next))
+    } catch {
+      /* a till that cannot remember still prints */
+    }
+    window.setTimeout(() => window.print(), 50)
+  }
+  // Printed once, Enter is Selesai; before that it prints.
+  const done = prints > 0
+  useShortcuts({
+    "ctrl+p": print,
+    Enter: () => (done ? onLeave() : print()),
+  })
+  const place = usePlace(report.terminal_label)
+  const at =
+    report.closed_at !== null ? clock(report.closed_at) : hhmm(new Date())
+
   return (
     <>
-      <div className="pay-done" style={{ flex: "none", padding: "8px 0" }}>
-        <span className="seal">
-          <Icon name="check" />
-        </span>
-        <h3>Shift finished</h3>
-      </div>
-
-      <div className="count-total">
-        <span>Cash you counted</span>
-        <strong className="num">
-          {report.declared_cash_minor === null
-            ? "—"
-            : money(report.declared_cash_minor, CURRENCY)}
-        </strong>
-      </div>
-
-      {(report.counted ?? []).length > 0 && (
-        <div>
-          {(report.counted ?? []).map((line) => (
-            <div className="kv" key={line.value_minor}>
-              <span>
-                {money(line.value_minor, CURRENCY)} × {line.pieces}
-              </span>
-              <span className="num">
-                {money(line.value_minor * line.pieces, CURRENCY)}
-              </span>
-            </div>
-          ))}
+      <div className="shd shd-paper">
+        <div className="paper-side">
+          <p className="ttl">Kasir ditutup</p>
+          <p className="cap">
+            {report.declared_cash_minor === null
+              ? "—"
+              : money(report.declared_cash_minor, CURRENCY)}{" "}
+            terhitung · {at}
+          </p>
+          <button
+            className={`ds-btn ${done ? "ds-btn--ghost" : "ds-btn--primary"}`}
+            type="button"
+            onClick={print}
+          >
+            <span>
+              <PrinterIcon />
+              {done ? "Cetak lagi" : "Cetak"}
+            </span>
+            {!done && <span className="kbd">Enter</span>}
+          </button>
+          <button
+            className={`ds-btn ${done ? "ds-btn--primary" : "ds-btn--ghost"}`}
+            type="button"
+            onClick={onLeave}
+          >
+            <span>Selesai</span>
+            {done && <span className="kbd">Enter</span>}
+          </button>
         </div>
-      )}
-
-      <div>
-        <div className="kv">
-          <span className="muted">Finished</span>
-          <span>
-            {report.closed_at !== null ? when(report.closed_at) : "—"}
-            {report.closed_by !== null && ` · ${report.closed_by}`}
-          </span>
-        </div>
-        <div className="kv">
-          <span className="muted">Sales</span>
-          <span className="num">{report.sale_count}</span>
-        </div>
-        {report.note !== null && (
-          <div className="kv">
-            <span className="muted">Note</span>
-            <span style={{ textAlign: "right" }}>{report.note}</span>
-          </div>
-        )}
+        <PaperSheet report={report} printNo={Math.max(1, prints)} place={place} />
       </div>
-
-      <div className="rows">
-        <button className="btn primary" onClick={onLeave}>
-          Done
-        </button>
-      </div>
+      <ClosingPaper report={report} printNo={Math.max(1, prints)} />
     </>
+  )
+}
+
+/// 7Soft's closing paper, line for line, as it is read on screen beside its
+/// buttons. `ClosingPaper` below is the same paper for the printer.
+function PaperSheet({
+  report,
+  printNo,
+  place,
+}: {
+  report: ShiftReport
+  printNo: number
+  place: string
+}) {
+  const stamp = (d: Date) =>
+    `${two(d.getDate())}-${MON[d.getMonth()]}-${d.getFullYear()} ${two(d.getHours())}:${two(d.getMinutes())}:${two(d.getSeconds())}`
+  const now = new Date()
+  const name = titled(report.opened_by).toUpperCase()
+  const pieces = (value: number) =>
+    (report.counted ?? []).find((line) => line.value_minor === value)?.pieces ?? 0
+  const rupiah = (n: number) => n.toLocaleString("id-ID")
+  // Printed only when the float went back to the Kepala toko (Setor modal).
+  const returned = floatReturnedOf(report)
+  return (
+    <article className="paper m-pop" aria-label="Tutup kasir">
+      <p className="pp-co">CENTRAL</p>
+      <p className="pp-date">
+        {now.getDate()} {BULAN[now.getMonth()]} {now.getFullYear()}
+      </p>
+      <p className="pp-title">TUTUP KASIR</p>
+      <dl className="pp-facts">
+        <dt>Nama Kasir</dt>
+        <dd>{name}</dd>
+        <dt>Kasir</dt>
+        <dd>{place.toUpperCase()}</dd>
+        <dt>Tanggal</dt>
+        <dd>{stamp(new Date(report.opened_at))}</dd>
+        <dt>Saldo Kas Awal</dt>
+        <dd>Rp. {rupiah(floatOf(report))}</dd>
+        {returned.minor > 0 && (
+          <>
+            <dt>Modal Disetor</dt>
+            <dd>
+              Rp. {rupiah(returned.minor)}
+              {returned.to !== null && ` · ${returned.to.toUpperCase()}`}
+            </dd>
+          </>
+        )}
+        <dt>Tanggal Cetak</dt>
+        <dd>{stamp(now)}</dd>
+        <dt>Status</dt>
+        <dd>TUTUP</dd>
+        <dt>Cetak Ke</dt>
+        <dd>{printNo}</dd>
+      </dl>
+      <p className="pp-sec">Rincian Uang</p>
+      <table className="pp-t">
+        <tbody>
+          {DENOMINATIONS.map((value) => (
+            <tr key={value}>
+              <td>Rp {rupiah(value)}</td>
+              <td>{pieces(value) || "-"}</td>
+              <td>{pieces(value) ? rupiah(value * pieces(value)) : "-"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="pp-tot">
+        <span>
+          {report.declared_cash_minor === null ? "-" : rupiah(report.declared_cash_minor)}
+        </span>
+      </p>
+      <div className="pp-sign">
+        <div>
+          <span>Kasir</span>
+          <span className="line" />
+          <span>{titled(report.opened_by)}</span>
+        </div>
+        <div>
+          <span>{returned.minor > 0 ? "Penerima" : "Admin"}</span>
+          <span className="line" />
+          <span>{returned.minor > 0 && returned.to !== null ? returned.to : " "}</span>
+        </div>
+      </div>
+      <p className="pp-by">dicetak oleh : {name}</p>
+    </article>
+  )
+}
+
+/// The paper the client's 7Soft prints at Closing Cashier, line for line, in
+/// Indonesian: the drawer's count by note, the opening float, and two signatures.
+/// Drawn only for the printer.
+function ClosingPaper({ report, printNo }: { report: ShiftReport; printNo: number }) {
+  const stamp = (d: Date) =>
+    `${two(d.getDate())}-${MON[d.getMonth()]}-${d.getFullYear()} ${two(d.getHours())}:${two(d.getMinutes())}:${two(d.getSeconds())}`
+  const now = new Date()
+  const name = titled(report.opened_by).toUpperCase()
+  const pieces = (value: number) =>
+    (report.counted ?? []).find((line) => line.value_minor === value)?.pieces ?? 0
+  const rupiah = (n: number) => n.toLocaleString("id-ID")
+  // Printed only when the float went back to the Kepala toko (Setor modal).
+  const returned = floatReturnedOf(report)
+  return (
+    <div className="closing-paper" aria-hidden="true">
+      <p className="cp-co">CENTRAL</p>
+      <p>
+        {now.getDate()} {BULAN[now.getMonth()]} {now.getFullYear()}
+      </p>
+      <p className="cp-title">TUTUP KASIR</p>
+      <dl>
+        <dt>Nama Kasir</dt>
+        <dd>{name}</dd>
+        <dt>Kasir</dt>
+        <dd>{report.terminal_label.toUpperCase()}</dd>
+        <dt>Tanggal</dt>
+        <dd>{stamp(new Date(report.opened_at))}</dd>
+        <dt>Saldo Kas Awal</dt>
+        <dd>Rp. {rupiah(floatOf(report))}</dd>
+        {returned.minor > 0 && (
+          <>
+            <dt>Modal Disetor</dt>
+            <dd>
+              Rp. {rupiah(returned.minor)}
+              {returned.to !== null && ` · ${returned.to.toUpperCase()}`}
+            </dd>
+          </>
+        )}
+        <dt>Tanggal Cetak</dt>
+        <dd>{stamp(now)}</dd>
+        <dt>Status</dt>
+        <dd>TUTUP</dd>
+        <dt>Cetak Ke</dt>
+        <dd>{printNo}</dd>
+      </dl>
+      <p className="cp-sec">Rincian Uang</p>
+      <table>
+        <tbody>
+          {DENOMINATIONS.map((value) => (
+            <tr key={value}>
+              <td>Rp {rupiah(value)}</td>
+              <td>{pieces(value) || "-"}</td>
+              <td>{pieces(value) ? rupiah(value * pieces(value)) : "-"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="cp-tot">{report.declared_cash_minor === null ? "-" : rupiah(report.declared_cash_minor)}</p>
+      <div className="cp-sign">
+        <span>Kasir</span>
+        <span>{returned.minor > 0 ? "Penerima" : "Admin"}</span>
+        <span className="cp-line">{titled(report.opened_by)}</span>
+        <span className="cp-line">{returned.minor > 0 && returned.to !== null ? returned.to : " "}</span>
+      </div>
+      <p>dicetak oleh : {name}</p>
+    </div>
   )
 }

@@ -37,6 +37,8 @@ import { idempotencyKey } from "@itulah/contract/client"
 import type {
   CatalogRow,
   StoreInboundDelivery,
+  StoreInboundDetail,
+  StoreInboundKoli,
   StoreInboundLine,
 } from "@itulah/contract"
 
@@ -46,14 +48,18 @@ import type {
 /// Two different sheets under one frame, because a delivery is two different
 /// things to a shop depending on where it is:
 ///
-///  - **in transit** it is a job — the facts somebody needs, and a blind count
-///    per SKU, scanned or typed, no reader required (owner, 29 Sep 2026). The
-///    count is the sheet's whole body and **what was packed is NOT here**: the
-///    node does not send it until the count is in, and nothing on this sheet
-///    would draw it if it did.
+///  - **in transit** it is a job — the facts somebody needs, and a count per
+///    SKU, no reader required (owner, 29 Sep 2026). The count is **no longer
+///    blind** (owner, 23 Oct 2026): every SKU is listed with what was packed
+///    and a box already holding that figure, and the shop changes only the
+///    rows that differ — scanned or typed — then submits.
 ///  - **received** it is a result — the totals, then every SKU with what was
 ///    packed against what was counted, the problems first, each one opening
 ///    onto the tags behind its missing units.
+///
+/// Both carry the **Koli** the delivery came in, each with what was packed in
+/// it (owner, 23 Oct 2026): a koli label scanned on the Receive screen opens
+/// the delivery with that koli unfolded.
 ///
 /// The sheet follows the list rather than holding a copy: a delivery open in
 /// transit turns into its result the moment the list's poll sees it received,
@@ -64,9 +70,12 @@ import type {
 /// (its own count, its own request).
 export function DeliverySheet({
   delivery,
+  koliId = null,
   onClose,
 }: {
   delivery: StoreInboundDelivery | undefined
+  /// The koli a scanned label named, to unfold on arrival.
+  koliId?: string | null
   onClose: () => void
 }) {
   const held = useHeld(delivery)
@@ -75,6 +84,7 @@ export function DeliverySheet({
     <DeliverySheetFor
       key={held.delivery_id}
       delivery={held}
+      koliId={koliId}
       open={delivery !== undefined}
       onClose={onClose}
     />
@@ -83,16 +93,45 @@ export function DeliverySheet({
 
 function DeliverySheetFor({
   delivery,
+  koliId,
   open,
   onClose,
 }: {
   delivery: StoreInboundDelivery
+  koliId: string | null
   open: boolean
   onClose: () => void
 }) {
   const verdict = verdictOf(delivery)
   const received = delivery.status === "RECEIVED"
-  const taking = useCountReceive(delivery)
+  const detail = useInboundDelivery(delivery.delivery_id, true)
+  const taking = useCountReceive(delivery, detail.data)
+  /// The koli unfolded: the one a scan named, then whatever is tapped.
+  const [unfolded, setUnfolded] = useState<readonly string[]>(
+    koliId === null ? [] : [koliId],
+  )
+  const [seenKoli, setSeenKoli] = useState(koliId)
+  if (seenKoli !== koliId) {
+    setSeenKoli(koliId)
+    if (koliId !== null) setUnfolded((now) => [...new Set([...now, koliId])])
+  }
+  const toggleKoli = (id: string) =>
+    setUnfolded((now) =>
+      now.includes(id) ? now.filter((one) => one !== id) : [...now, id],
+    )
+  /// A koli label scanned into the count opens that koli instead of becoming
+  /// a SKU.
+  const scanned = (raw: string) => {
+    const label = koliLabel(raw)
+    const hit = (detail.data?.koli ?? []).find(
+      (one) => one.koli_number?.toUpperCase() === label,
+    )
+    if (hit === undefined) return taking.onScan(raw)
+    setUnfolded((now) => [...new Set([...now, hit.koli_id])])
+    document
+      .getElementById(`koli-${hit.koli_id}`)
+      ?.scrollIntoView({ block: "nearest", behavior: "smooth" })
+  }
 
   return (
     <Sheet
@@ -123,7 +162,7 @@ function DeliverySheetFor({
               variant="primary"
               className={FOOT}
               pending={taking.receive.isPending}
-              disabled={taking.unknown.size > 0}
+              disabled={taking.unknown.size > 0 || !taking.ready}
               onClick={async () => {
                 // Nothing came off the lorry is still a count: every piece
                 // of the delivery goes to MD as missing (owner, 17 Oct 2026).
@@ -152,8 +191,14 @@ function DeliverySheetFor({
         ) : received ? (
           <Received delivery={delivery} />
         ) : (
-          <CountReceive taking={taking} />
+          <CountReceive taking={taking} onScan={scanned} />
         )}
+        <KoliSection
+          koli={detail.data?.koli ?? []}
+          book={taking.book}
+          unfolded={unfolded}
+          onToggle={toggleKoli}
+        />
       </div>
     </Sheet>
   )
@@ -161,22 +206,35 @@ function DeliverySheetFor({
 
 // ── In transit ──────────────────────────────────────────────────────────────
 
-/// The state of a blind count: a quantity per SKU, scanned or typed, and the
-/// request that books it. Held by the sheet so its foot can send it.
-function useCountReceive(delivery: StoreInboundDelivery) {
+/// The state of the count: a quantity per SKU, prefilled with what was packed
+/// (owner, 23 Oct 2026 — the count is no longer blind), changed where the shop
+/// finds a difference, and the request that books it. Held by the sheet so its
+/// foot can send it.
+function useCountReceive(
+  delivery: StoreInboundDelivery,
+  detail: StoreInboundDetail | undefined,
+) {
   const client = useQueryClient()
   const { catalogue, bySku } = useRange()
-  const [counts, setCounts] = useState<Readonly<Record<string, number>>>({})
-  /// The SKUs the delivery carries, with no quantity (owner, 18 Oct 2026:
-  /// "List + add" — the sheet lists what came, never how many).
-  const listing = useInboundDelivery(
-    delivery.delivery_id,
-    delivery.status !== "RECEIVED",
-  )
-  const manifest = useMemo(
-    () => listing.data?.manifest_skus ?? [],
-    [listing.data],
-  )
+  /// What the shop changed or added: a SKU with no entry here is counted as
+  /// packed.
+  const [changed, setChanged] = useState<Readonly<Record<string, number>>>({})
+  /// What was packed, per SKU.
+  const packed = useMemo(() => {
+    const out = new Map<string, number>()
+    for (const line of detail?.lines ?? [])
+      if (line.expected > 0) out.set(line.sku_code, line.expected)
+    return out
+  }, [detail])
+  const manifest = useMemo(() => [...packed.keys()], [packed])
+  const ready = detail !== undefined
+  /// The figure in every box: the change, else the packed quantity.
+  const counts = useMemo(() => {
+    const out: Record<string, number> = {}
+    for (const [sku, qty] of packed) out[sku] = qty
+    for (const [sku, qty] of Object.entries(changed)) out[sku] = qty
+    return out
+  }, [packed, changed])
   /// Articles the shop added by search: on no list, found in the koli.
   const [added, setAdded] = useState<readonly string[]>([])
 
@@ -189,10 +247,10 @@ function useCountReceive(delivery: StoreInboundDelivery) {
   /// unpriced garments are named from the node's identity table instead.
   const missing = useMemo(
     () =>
-      [...new Set([...manifest, ...Object.keys(counts)])]
+      [...new Set([...manifest, ...Object.keys(changed)])]
         .filter((sku) => !bySku.has(sku))
         .sort(),
-    [manifest, counts, bySku],
+    [manifest, changed, bySku],
   )
   const identities = useQuery({
     queryKey: identitiesKey(missing),
@@ -231,7 +289,9 @@ function useCountReceive(delivery: StoreInboundDelivery) {
   const unknown = new Set(
     catalogue.data === undefined || identities.isLoading
       ? []
-      : Object.keys(counts).filter((sku) => !book.all.has(sku)),
+      : Object.keys(changed).filter(
+          (sku) => !packed.has(sku) && !book.all.has(sku),
+        ),
   )
 
   const receive = useMutation({
@@ -246,7 +306,7 @@ function useCountReceive(delivery: StoreInboundDelivery) {
         idempotency_key: idempotencyKey(),
       }),
     onSuccess: () => {
-      setCounts({})
+      setChanged({})
       void client.invalidateQueries({ queryKey: inboundListKey("ALL") })
       void client.invalidateQueries({
         queryKey: inboundDeliveryKey(delivery.delivery_id),
@@ -256,12 +316,12 @@ function useCountReceive(delivery: StoreInboundDelivery) {
   })
 
   const setQty = (sku: string, qty: number) => {
-    setCounts((current) =>
+    setChanged((current) =>
       current[sku] === qty ? current : { ...current, [sku]: Math.max(0, qty) },
     )
   }
   const remove = (sku: string) => {
-    setCounts((current) => {
+    setChanged((current) => {
       if (current[sku] === undefined) return current
       const rest = { ...current }
       delete rest[sku]
@@ -271,13 +331,30 @@ function useCountReceive(delivery: StoreInboundDelivery) {
 
   /// A scan is a SKU, optionally with a trailing quantity someone typed —
   /// `"00000012345 x3"` or `"00000012345*3"` — for a shelf counted by the
-  /// carton rather than piece by piece. Anything else adds one.
+  /// carton rather than piece by piece. A SKU on the list is already counted
+  /// as packed, so a scan only takes the shop to its box (or sets it, when a
+  /// quantity came with it); any other SKU is added, one at a time.
   const onScan = (raw: string) => {
     const match = raw.trim().match(/^(.*?)(?:[\s*xX]+(\d+))?$/)
     const sku = (match?.[1] ?? raw).replace(/·/g, "").trim().toUpperCase()
     if (sku === "") return
+    if (packed.has(sku)) {
+      if (match?.[2]) setQty(sku, Number(match[2]))
+      window.setTimeout(() => {
+        const box = document.querySelector<HTMLInputElement>(
+          `[data-count="${sku}"] input`,
+        )
+        box?.scrollIntoView({ block: "center", behavior: "smooth" })
+        box?.focus()
+        box?.select()
+      }, 0)
+      return
+    }
     const qty = match?.[2] ? Number(match[2]) : 1
-    setCounts((current) => ({ ...current, [sku]: (current[sku] ?? 0) + qty }))
+    setChanged((current) => ({
+      ...current,
+      [sku]: (current[sku] ?? 0) + qty,
+    }))
   }
 
   const addArticle = (key: string) =>
@@ -285,7 +362,7 @@ function useCountReceive(delivery: StoreInboundDelivery) {
   /// An added article taken off again, with whatever was counted of it.
   const removeArticle = (key: string) => {
     setAdded((current) => current.filter((one) => one !== key))
-    setCounts((current) =>
+    setChanged((current) =>
       Object.fromEntries(
         Object.entries(current).filter(
           ([sku]) => (book.all.get(sku)?.article_code ?? sku) !== key,
@@ -295,8 +372,12 @@ function useCountReceive(delivery: StoreInboundDelivery) {
   }
 
   const total = counted.reduce((sum, [, qty]) => sum + qty, 0)
+  const totalPacked = [...packed.values()].reduce((sum, qty) => sum + qty, 0)
   return {
     counts,
+    packed,
+    totalPacked,
+    ready,
     counted,
     unknown,
     setQty,
@@ -385,13 +466,14 @@ function ArticleThumb({
   )
 }
 
-/// A blind count, **List + add** (owner, 18 Oct 2026), by SKU (owner, 20 Oct):
-/// one row per SKU the delivery carries — the article's name over its colour ·
-/// size, a box for the amount counted — what is hidden is how many, never
-/// what. An article the shop finds that is on no list is added from the last
-/// row of the table and counted the same way. A scan still adds one to its
-/// SKU. It reads like the hub's PO count sheet (`frontend-hub` › Receiving
-/// `CountSheet`).
+/// The count, by SKU (owner, 20 Oct 2026), **no longer blind** (owner, 23 Oct
+/// 2026): one row per SKU the delivery carries — the article's name over its
+/// colour · size, what was packed, and a box already holding that figure. The
+/// shop changes only the rows that differ, and a row that differs says so in a
+/// word under what was packed. An article the shop finds that is on no list is
+/// added by a scan and counted the same way (Packed reads "—"). A scan of a
+/// SKU on the list takes the shop to its box. It reads like the hub's PO count
+/// sheet (`frontend-hub` › Receiving `CountSheet`).
 ///
 /// A SKU's code is never a title: names come from the shop catalogue, or from
 /// the node's identity table for the unpriced SKUs the catalogue drops.
@@ -401,7 +483,13 @@ function ArticleThumb({
 ///
 /// A quantity on a phone is picked on the number pad (the `Input` opens it), so
 /// the keyboard never covers the row being counted.
-function CountReceive({ taking }: { taking: Taking }) {
+function CountReceive({
+  taking,
+  onScan,
+}: {
+  taking: Taking
+  onScan: (raw: string) => void
+}) {
   const phone = useLayout() === "phone"
   const { all, shapes } = taking.book
   const keyOf = (sku: string) => all.get(sku)?.article_code ?? sku
@@ -421,12 +509,12 @@ function CountReceive({ taking }: { taking: Taking }) {
     )
   }
   const isUnknown = (sku: string) => taking.unknown.has(sku)
-  /// Every row: only what the shop scanned or typed first, and the articles
-  /// it added — never the delivery's own list (owner, 21 Oct 2026: a blind
-  /// count; "input dlu skunya atau barcodenya, dan baru bisa isi count nya").
-  /// Grouped by article, in reading order.
+  /// Every row: all the delivery carries, then what the shop added or scanned
+  /// beyond it (owner, 23 Oct 2026: the list is shown up front, where the 21
+  /// Oct rule had it hidden). Grouped by article, in reading order.
   const listedSkus = new Set(taking.manifest)
   const wanted = new Set<string>([
+    ...taking.manifest,
     ...taking.added.flatMap(skusOf),
     ...Object.keys(taking.counts).filter((sku) => !isUnknown(sku)),
   ])
@@ -441,9 +529,14 @@ function CountReceive({ taking }: { taking: Taking }) {
 
   const amount = (sku: string, label: string, removeKey: string | null) => {
     const qty = taking.counts[sku] ?? 0
+    const sent = taking.packed.get(sku) ?? 0
+    const gap = qty - sent
     return (
       <>
-        <div className="flex items-center gap-2 max-md:order-last max-md:col-span-2">
+        <div
+          data-count={sku}
+          className="flex items-center gap-2 max-md:order-last max-md:col-span-2"
+        >
           <Input
             className="h-11 w-24 text-center font-semibold"
             inputMode="numeric"
@@ -470,13 +563,20 @@ function CountReceive({ taking }: { taking: Taking }) {
             </Button>
           )}
         </div>
-        <span
-          className={cn(
-            "flex min-h-11 items-center justify-end text-right tabular-nums",
-            qty === 0 ? "text-mute" : "font-medium text-ink",
+        <span className="flex min-h-11 flex-col items-end justify-center text-right tabular-nums">
+          <span className={sent === 0 ? "text-mute" : "text-ink"}>
+            {sent === 0 ? "—" : pcs(sent)}
+          </span>
+          {sent > 0 && gap !== 0 && (
+            <span
+              className={cn(
+                "text-[0.9375rem]",
+                gap < 0 ? "text-bad-fg" : "text-ok-fg",
+              )}
+            >
+              {count(Math.abs(gap))} {gap < 0 ? "missing" : "extra"}
+            </span>
           )}
-        >
-          {qty === 0 ? "—" : pcs(qty)}
         </span>
       </>
     )
@@ -487,7 +587,7 @@ function CountReceive({ taking }: { taking: Taking }) {
       <ScanField
         // A phone's keyboard would rise over the sheet the moment it opened.
         autoFocus={!phone}
-        onScan={taking.onScan}
+        onScan={onScan}
         placeholder="Scan a barcode or type a SKU"
       />
 
@@ -503,13 +603,14 @@ function CountReceive({ taking }: { taking: Taking }) {
           >
             <span className={COUNT_HEAD}>Article</span>
             <span className={cn(COUNT_HEAD, "max-md:hidden")}>Counted</span>
-            <span className={cn(COUNT_HEAD, "text-right")}>In pieces</span>
+            <span className={cn(COUNT_HEAD, "text-right")}>Packed</span>
           </div>
 
           <div className="divide-y divide-hairline">
-            {rows.length === 0 && unknownRows.length === 0 && (
+            {!taking.ready && <LoadingState>Reading the delivery…</LoadingState>}
+            {taking.ready && rows.length === 0 && unknownRows.length === 0 && (
               <p className="flex min-h-11 items-center px-4 py-3.5 text-meta text-mute">
-                Nothing counted yet.
+                This delivery lists no items.
               </p>
             )}
             {rows.map((sku) => {
@@ -569,11 +670,17 @@ function CountReceive({ taking }: { taking: Taking }) {
             ))}
           </div>
 
-          {/* The counted amounts added up — in the same column as each row's
-              own figure. */}
+          {/* Both totals, in the same column as each row's packed figure. */}
           <div
             className={cn(COUNT_ROW, "border-t border-hairline bg-soft py-3.5")}
           >
+            <span className="flex min-h-11 items-center text-body">
+              Total Packed
+            </span>
+            <span className="max-md:hidden" />
+            <span className="flex min-h-11 items-center justify-end text-right text-ink tabular-nums">
+              {pcs(taking.totalPacked)}
+            </span>
             <span className="flex min-h-11 items-center font-medium text-ink">
               Total Counted
             </span>
@@ -586,6 +693,101 @@ function CountReceive({ taking }: { taking: Taking }) {
 
         <Problem error={taking.receive.error} />
       </div>
+    </SheetSection>
+  )
+}
+
+// ── Koli ────────────────────────────────────────────────────────────────────
+
+/// The label number a scan carries — `KL-…` or the koli QR `K1:KL-…` — upper
+/// cased, or null for any other code.
+/// A scanned code as a koli label reads: the QR's `K1:` dropped, any case.
+/// Whether it is one is up to the delivery's own koli numbers, whatever
+/// prefix the DC prints.
+function koliLabel(raw: string): string {
+  return raw.trim().toUpperCase().replace(/^K1:/, "")
+}
+
+/// The koli the delivery came in (owner, 23 Oct 2026): each by its label number
+/// with its pieces, and unfolded onto what was packed in it — name, colour ·
+/// size, quantity. A koli the centre sent no label for reads "Koli 2/3".
+function KoliSection({
+  koli,
+  book,
+  unfolded,
+  onToggle,
+}: {
+  koli: readonly StoreInboundKoli[]
+  book: Taking["book"]
+  unfolded: readonly string[]
+  onToggle: (id: string) => void
+}) {
+  if (koli.length === 0) return null
+  return (
+    <SheetSection title="Koli" aside={count(koli.length)}>
+      <ul className="divide-y divide-hairline border-y border-hairline">
+        {koli.map((one, at) => {
+          const open = unfolded.includes(one.koli_id)
+          const pieces = one.lines.reduce((sum, line) => sum + line.quantity, 0)
+          return (
+            <li key={one.koli_id} id={`koli-${one.koli_id}`}>
+              <button
+                type="button"
+                aria-expanded={open}
+                onClick={() => onToggle(one.koli_id)}
+                className="flex min-h-tap w-full cursor-pointer items-center gap-2.5 py-3 text-left"
+              >
+                <ChevronRight
+                  aria-hidden
+                  className={cn(
+                    "size-4 shrink-0 text-line-ico transition-transform duration-200",
+                    open && "rotate-90",
+                  )}
+                />
+                <span className="min-w-0 flex-1 truncate font-mono text-[0.9375rem] text-ink">
+                  {one.koli_number ?? `Koli ${at + 1}/${koli.length}`}
+                </span>
+                <span className="text-[0.9375rem] text-body tabular-nums">
+                  {pcs(pieces)}
+                </span>
+              </button>
+              {open && (
+                <ul className="pb-2 pl-6">
+                  {one.lines.map((line) => {
+                    const row = book.all.get(line.sku_code)
+                    const variant = book.shapes
+                      .get(row?.article_code ?? line.sku_code)
+                      ?.variant.get(line.sku_code)
+                    const detail = [variant?.colour, variant?.size]
+                      .filter(Boolean)
+                      .join(" · ")
+                    return (
+                      <li
+                        key={line.sku_code}
+                        className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 py-2"
+                      >
+                        <span className="min-w-0">
+                          <span className="block text-[0.9375rem] font-medium break-words text-ink">
+                            {line.name ?? row?.name ?? "Not in this shop's book"}
+                          </span>
+                          <span className="block truncate font-mono text-[0.9375rem] text-mute">
+                            {articleId(null, line.sku_code)} ·{" "}
+                            {skuText(line.sku_code)}
+                            {detail !== "" && ` · ${detail}`}
+                          </span>
+                        </span>
+                        <span className="text-right text-[0.9375rem] text-ink tabular-nums">
+                          {pcs(line.quantity)}
+                        </span>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </li>
+          )
+        })}
+      </ul>
     </SheetSection>
   )
 }

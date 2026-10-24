@@ -61,19 +61,103 @@ pub const DRAWER_PRINTER_PULSE: &str = "PRINTER_PULSE";
 /// as "do not pulse".
 pub const DRAWER_MANUAL: &str = "MANUAL";
 
-/// The Chainway R3's power at a counter nobody has measured yet, in dBm: low,
-/// so a reader that was never tuned reaches the pad and not the rack beside
-/// it. The real figure is chosen on the bench (README).
+/// The Chainway R3's power at a counter nobody has measured yet, in dBm, in
+/// the middle of the range. It is not what keeps the racks out: on the bench
+/// R3 the power did not change the reach (5 against 25 dBm moved the signal
+/// by 0.1 dB across 16 tags), so the floor below is the guard (README).
 pub const R3_POWER_DBM: u8 = 15;
-/// The power the R3 takes, in dBm (`UHFSetPower` in the vendor's SDK).
-pub const R3_POWER_RANGE: std::ops::RangeInclusive<u8> = 1..=30;
-/// How long one pad read listens, in milliseconds.
-pub const R3_READ_MS: u32 = 500;
+pub const R3_PROFILE_ID: &str = "r3-conservative-v1";
+/// The power the R3 takes, in dBm. Chainway's own tool offers up to 30, but
+/// at 30 the bench R3 read nothing and fell back to its saved power, so 25 is
+/// the top. `UHFSetPower` in the vendor's SDK sends whatever it is given, so
+/// the range is held here.
+pub const R3_POWER_RANGE: std::ops::RangeInclusive<u8> = 5..=25;
+/// The fixed conservative window. Earlier bench evidence: 1000 ms and longer
+/// read all 14 EPCs in 8/8 tries; 500 ms sometimes missed one. Two seconds is
+/// the new candidate and still needs a bench run of this exact build.
+pub const R3_READ_MS: u32 = 2_000;
 pub const R3_READ_RANGE: std::ops::RangeInclusive<u32> = 200..=2_000;
-/// The weakest signal a pad read keeps, in dBm. Lenient until the bench says
-/// otherwise: the power is what keeps the rack out of reach.
+/// Candidate site calibration for the weakest kept tag. Signal strength does
+/// not guarantee a geometric boundary; test both inside misses and outside extras. On the bench a tag a metre away read −75 to −79 dBm and one at the
+/// pad's edge −73, so this is set between the two on every counter, from
+/// what Test read lists as left out (README).
 pub const R3_MIN_RSSI_DBM: i16 = -70;
 pub const R3_MIN_RSSI_RANGE: std::ops::RangeInclusive<i16> = -100..=-20;
+/// How long a read waits after the last one ended, in milliseconds: back to
+/// back, the bench R3 heard about half the tags every other read, and a
+/// second apart all of them every time. A bench value (README), not a setting.
+pub const R3_READ_GAP_MS: u32 = 1_000;
+
+/// Replace the old operator power/window choices with the production recipe.
+/// The RSSI floor is site calibration and is preserved, never silently clamped.
+pub fn apply_reader_recipe(peripherals: &mut Peripherals) {
+    if peripherals.r3_power_dbm != R3_POWER_DBM || peripherals.r3_read_ms != R3_READ_MS {
+        eprintln!(
+            "Applying reader profile {R3_PROFILE_ID}: fixed power/window, site floor preserved."
+        );
+        peripherals.r3_power_dbm = R3_POWER_DBM;
+        peripherals.r3_read_ms = R3_READ_MS;
+        peripherals.unsent = true;
+    }
+}
+
+#[cfg(test)]
+mod recipe_tests {
+    use super::*;
+
+    #[test]
+    fn upgrades_old_windows_and_power_without_losing_site_calibration() {
+        let mut saved = Peripherals {
+            r3_power_dbm: 30,
+            r3_read_ms: 500,
+            r3_min_rssi_dbm: -66,
+            ..Peripherals::default()
+        };
+        apply_reader_recipe(&mut saved);
+        assert_eq!((saved.r3_power_dbm, saved.r3_read_ms), (15, 2000));
+        assert_eq!(saved.r3_min_rssi_dbm, -66);
+        assert!(saved.unsent);
+        assert!(check_desk_reader(&saved).is_ok());
+    }
+
+    #[test]
+    fn applying_the_same_recipe_does_not_mark_an_acknowledged_report_unsent() {
+        let mut saved = Peripherals::default();
+        apply_reader_recipe(&mut saved);
+        assert!(!saved.unsent);
+    }
+
+    #[test]
+    fn a_check_tag_is_kept_as_reads_name_it_and_refused_when_it_is_no_epc() {
+        let with = |typed: Option<&str>| Peripherals {
+            r3_canary_epc: typed.map(str::to_string),
+            ..Peripherals::default()
+        };
+        assert_eq!(canary_epc(&with(None)), Ok(None));
+        assert_eq!(canary_epc(&with(Some("  "))), Ok(None));
+        assert_eq!(
+            canary_epc(&with(Some("a100 0000 0000·0000 0042"))),
+            Ok(Some("A1000000000000000042".into()))
+        );
+        for typed in ["A1000", "A10G", "A1-0000000", &"0".repeat(128)] {
+            assert!(canary_epc(&with(Some(typed))).is_err(), "{typed}");
+            assert!(check_desk_reader(&with(Some(typed))).is_err(), "{typed}");
+        }
+        let saved = tidy(with(Some("cafe 0001"))).map(|next| next.r3_canary_epc);
+        assert_eq!(saved, Ok(Some("CAFE0001".into())));
+    }
+
+    #[test]
+    fn an_invalid_site_floor_is_refused_instead_of_silently_changed() {
+        let mut saved = Peripherals {
+            r3_min_rssi_dbm: 0,
+            ..Peripherals::default()
+        };
+        apply_reader_recipe(&mut saved);
+        assert_eq!(saved.r3_min_rssi_dbm, 0);
+        assert!(check_desk_reader(&saved).is_err());
+    }
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
@@ -88,13 +172,19 @@ pub struct Peripherals {
     pub desk_reader: Option<String>,
     /// The Chainway R3's transmit power at this counter, in dBm: set every
     /// time the reader is opened, never saved in the reader, and read back.
-    /// Chosen on the bench so that only the pad reads (README).
+    /// It did not change the reach on the bench R3 (README).
     pub r3_power_dbm: u8,
     /// How long one read of the pad listens, in milliseconds.
     pub r3_read_ms: u32,
     /// The weakest signal a read of the pad keeps, in dBm: a tag heard only
-    /// below it is left out.
+    /// below it is left out. The guard that keeps garments off the pad out
+    /// of the basket, set on the bench from Test read (README).
     pub r3_min_rssi_dbm: i16,
+    /// The counter's check tag: the EPC of a tag fixed at the pad, never
+    /// sold. Every read looks for it and leaves it out of the basket; a read
+    /// that does not hear it, or hears it too close to the floor, needs
+    /// attention (`rfid.rs`). `None`: the counter has none.
+    pub r3_canary_epc: Option<String>,
     /// How the cash drawer opens: [`DRAWER_PRINTER_PULSE`] or
     /// [`DRAWER_MANUAL`]. `None`: no drawer at this till.
     pub cash_drawer: Option<String>,
@@ -134,6 +224,7 @@ impl Default for Peripherals {
             r3_power_dbm: R3_POWER_DBM,
             r3_read_ms: R3_READ_MS,
             r3_min_rssi_dbm: R3_MIN_RSSI_DBM,
+            r3_canary_epc: None,
             cash_drawer: Some(DRAWER_PRINTER_PULSE.into()),
             scanner: None,
             receipt_printer: RECEIPT_ADDRESS.into(),
@@ -153,7 +244,7 @@ impl Default for Peripherals {
 pub fn check_desk_reader(peripherals: &Peripherals) -> Result<(), String> {
     if !R3_POWER_RANGE.contains(&peripherals.r3_power_dbm) {
         return Err(format!(
-            "The R3 power is set between {} and {} dBm, not {} dBm.",
+            "The R3's power must be from {} to {} dBm (at 30 the bench R3 read nothing), so {} dBm is not used.",
             R3_POWER_RANGE.start(),
             R3_POWER_RANGE.end(),
             peripherals.r3_power_dbm
@@ -175,7 +266,32 @@ pub fn check_desk_reader(peripherals: &Peripherals) -> Result<(), String> {
             peripherals.r3_min_rssi_dbm
         ));
     }
+    canary_epc(peripherals)?;
     Ok(())
+}
+
+/// The check tag's EPC as reads name tags: upper-case hex, spaces and the
+/// till's `·` taken out. `None` when none is set. Refused unless it is whole
+/// 16-bit words of hex, as every EPC is (its PC word counts words), at most
+/// the 31 words a PC word can count.
+pub fn canary_epc(peripherals: &Peripherals) -> Result<Option<String>, String> {
+    let Some(typed) = peripherals.r3_canary_epc.as_deref() else {
+        return Ok(None);
+    };
+    let epc: String = typed
+        .chars()
+        .filter(|one| !one.is_whitespace() && *one != '·')
+        .collect::<String>()
+        .to_ascii_uppercase();
+    if epc.is_empty() {
+        return Ok(None);
+    }
+    if !epc.chars().all(|one| one.is_ascii_hexdigit()) || epc.len() % 4 != 0 || epc.len() > 124 {
+        return Err(format!(
+            "The check tag's EPC is whole words of hex, as a read shows it, not “{typed}”."
+        ));
+    }
+    Ok(Some(epc))
 }
 
 fn filled(value: &Option<String>) -> Option<String> {
@@ -191,7 +307,9 @@ fn filled(value: &Option<String>) -> Option<String> {
 /// says so rather than pretending.
 fn tidy(mut next: Peripherals) -> Result<Peripherals, String> {
     next.desk_reader = filled(&next.desk_reader);
+    apply_reader_recipe(&mut next);
     check_desk_reader(&next)?;
+    next.r3_canary_epc = canary_epc(&next)?;
     next.scanner = filled(&next.scanner).map(|kind| kind.to_ascii_uppercase());
     next.cash_drawer = filled(&next.cash_drawer).map(|how| how.to_ascii_uppercase());
     if let Some(how) = next.cash_drawer.as_deref() {

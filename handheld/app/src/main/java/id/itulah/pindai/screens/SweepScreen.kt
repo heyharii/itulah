@@ -35,6 +35,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import id.itulah.pindai.core.Reader
+import id.itulah.pindai.core.RadioRecipe
 import id.itulah.pindai.core.ScanCounts
 import id.itulah.pindai.core.skuDisplay
 import id.itulah.pindai.data.InboundDelivery
@@ -170,6 +171,11 @@ private fun ScanningSurface(state: State<SweepState>) {
                 modifier = Modifier.padding(bottom = Space.xl),
             )
         }
+        if (!frame.starting) Text(
+            RadioRecipe.GUIDANCE, style = Type.meta, color = Ink.mute,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(bottom = Space.sm),
+        )
     }
 }
 

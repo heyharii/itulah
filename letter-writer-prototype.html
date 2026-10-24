@@ -1,0 +1,1140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Letter writer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+/* Letters › New letter → template → a few details → the paper itself as the
+   editor, with a formatting bar and an info side → Issue → Print.
+   Shell, type scale and sheet anatomy copied from the running hub :5350 and
+   frontend-hub/design-system (All white). Owner request 17 Oct 2026. */
+:root{
+  --ink:#1d1d1f; --body:#6e6e73; --faint:#c7c7cc; --line-ico:#8e8e93; --nav:#344054; --chip:#667085;
+  --soft:#fafafb; --soft-2:#f2f2f5; --soft-3:#f5f5f7; --stone:#e8ebf0;
+  --hairline:#e8e8ec; --hairline-2:#dcdce1; --row-line:#eeeef1;
+  --accent:#2862dc; --accent-hover:#2055c7; --accent-bg:#eef3fc; --focus:rgba(40,98,220,.12);
+  --ok:#36b827; --ok-fg:#248a3d; --warn:#c9892e; --warn-fg:#a66c1f; --bad:#d70015; --bad-fg:#d70015; --info:#2f86d8;
+  --scrim:rgba(208,208,213,.48);
+  --ease-out:cubic-bezier(.23,1,.32,1); --ease-drawer:cubic-bezier(.32,.72,0,1); --ease-in-out:cubic-bezier(.77,0,.175,1);
+  --font:"Inter",system-ui,-apple-system,sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,monospace;
+  --paper-ink:#111114; --paper-grey:#55555b;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font-family:var(--font);font-size:15px;color:var(--ink);background:#141518;letter-spacing:-.006em;-webkit-font-smoothing:antialiased;overflow:hidden}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+input,select{font:inherit;color:inherit}
+.i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.i16{width:16px;height:16px}
+::view-transition-old(root),::view-transition-new(root){animation-duration:180ms;animation-timing-function:var(--ease-out)}
+
+/* ── prototype chrome ─────────────────────────────────────────────── */
+.proto{height:50px;overflow-x:auto;background:#141518;color:#fff;display:flex;align-items:center;gap:12px;padding:0 14px 0 18px}
+.proto .t{font-weight:600;white-space:nowrap}
+.seg{display:flex;gap:2px;background:#24262b;border-radius:9px;padding:3px;flex:none}
+.seg button{height:32px;padding:0 11px;border-radius:7px;font-size:15px;color:#b9bcc3;white-space:nowrap;transition:background-color .15s ease,color .15s ease,transform .12s ease-out}
+.seg button:active{transform:scale(.97)}
+.seg button b{font-weight:600;color:#fff;margin-right:5px}
+.seg button.on{background:#fff;color:var(--ink)} .seg button.on b{color:var(--ink)}
+.note{min-height:36px;background:#1c1e22;color:#a7abb3;font-size:15px;line-height:24px;padding:6px 18px;border-top:1px solid #26282d}
+.note b{color:#fff;font-weight:500}
+.stagewrap{height:calc(100vh - 50px - var(--nh,36px));overflow:hidden;background:#0e0f11}
+
+/* ── hub shell ────────────────────────────────────────────────────── */
+.app{position:relative;height:100%;background:var(--stone);overflow:hidden}
+.rail{position:absolute;left:0;top:0;bottom:0;width:68px;display:flex;flex-direction:column;align-items:center;padding:14px 0;gap:6px}
+.rail .ri{width:40px;height:36px;border-radius:8px;display:grid;place-items:center;color:#3a3a3c;position:relative}
+.rail .ri.on{background:#fff;color:var(--accent);box-shadow:0 0 0 1px rgba(0,0,0,.05)}
+.rail .sp{flex:1}
+.rail .orb{width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#e8def4,#f8dde8);display:grid;place-items:center;font-weight:600;color:var(--accent);box-shadow:0 0 0 2px #fff,0 0 0 3.5px var(--accent)}
+.panel{position:absolute;left:68px;top:12px;bottom:12px;width:216px;background:#fff;border-radius:16px;box-shadow:0 0 0 1px rgba(0,0,0,.05),0 2px 6px rgba(0,0,0,.04);display:flex;flex-direction:column;transition:opacity .2s var(--ease-in-out),transform .2s var(--ease-in-out)}
+.panel .ph{height:52px;display:flex;align-items:center;padding:0 16px;border-bottom:1px solid var(--hairline);font-size:20px;font-weight:600;letter-spacing:-.01em}
+.nav{padding:10px;display:flex;flex-direction:column;gap:1px}
+.nav .it{height:36px;display:flex;align-items:center;gap:10px;padding:0 10px;border-radius:8px;color:var(--nav);text-align:left}
+.nav .it svg{color:var(--line-ico)}
+.nav .it.on{background:var(--accent-bg);color:var(--accent);font-weight:500}
+.nav .it.on svg{color:var(--accent)}
+.page{position:absolute;left:296px;right:12px;top:12px;bottom:12px;background:#fff;border-radius:16px;box-shadow:0 0 0 1px rgba(0,0,0,.05),0 2px 8px rgba(0,0,0,.04),0 24px 72px rgba(0,0,0,.08);display:flex;flex-direction:column;overflow:hidden}
+.app.focus .panel{opacity:0;transform:translateX(-12px);pointer-events:none}
+.app.focus .page{left:80px}
+
+/* ── buttons ──────────────────────────────────────────────────────── */
+.btn{height:36px;padding:0 14px;border-radius:8px;background:var(--accent);color:#fff;font-weight:600;display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap;transition:transform .12s var(--ease-out),background-color .12s var(--ease-out),opacity .15s ease}
+.btn:active{transform:scale(.97)}
+@media (hover:hover){.btn:hover{background:var(--accent-hover)}}
+.btn.lg{height:40px;padding:0 18px}
+.btn.red{background:var(--bad)}
+.btn[disabled]{opacity:.4;pointer-events:none}
+.word{height:36px;display:inline-flex;align-items:center;gap:6px;padding:0 8px;border-radius:8px;color:var(--accent);font-weight:500;white-space:nowrap;transition:background-color .12s var(--ease-out),transform .12s var(--ease-out)}
+.word:active{transform:scale(.97)}
+@media (hover:hover){.word:hover{background:var(--accent-bg)}}
+.word.red{color:var(--bad-fg)} @media (hover:hover){.word.red:hover{background:#fbeaea}}
+.word.ink{color:var(--ink)} @media (hover:hover){.word.ink:hover{background:var(--soft-2)}}
+.glyph{width:36px;height:36px;border-radius:8px;display:grid;place-items:center;color:var(--body);transition:background-color .12s var(--ease-out),transform .12s var(--ease-out)}
+.glyph:active{transform:scale(.95)}
+@media (hover:hover){.glyph:hover{background:var(--soft-2);color:var(--ink)}}
+
+/* ── register page ────────────────────────────────────────────────── */
+.phead{padding:24px 28px 0;flex:none}
+.phead .top{height:36px;display:flex;align-items:center;gap:10px}
+.phead h1{margin:0;font-size:17px;font-weight:600;flex:1}
+.search{height:36px;width:224px;border:1px solid var(--hairline-2);border-radius:8px;display:flex;align-items:center;gap:8px;padding:0 12px;color:var(--body)}
+.content{flex:1;min-height:0;overflow:auto;padding:24px 28px 40px}
+.bar{display:flex;gap:10px;align-items:center;margin-bottom:12px}
+.segm{display:flex;gap:2px;background:#f2f2f4;border-radius:9px;padding:3px}
+.segm button{height:30px;padding:0 11px;border-radius:7px;color:var(--body);white-space:nowrap;transition:background-color .15s ease,color .15s ease}
+.segm button.on{background:#fff;color:var(--ink);font-weight:500;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.choice{height:36px;display:inline-flex;align-items:center;gap:6px;padding:0 10px;border-radius:8px;color:var(--ink)}
+.bar .sp{flex:1}
+.tally{color:var(--body)} .tally b{color:var(--ink);font-weight:500}
+.tcard{border:1px solid var(--hairline);border-radius:10px;overflow:hidden}
+.trow{display:grid;grid-template-columns:10rem minmax(0,1fr) 15rem 6rem 7rem 8rem;gap:12px;align-items:center;padding:0 16px;border-bottom:1px solid var(--row-line)}
+.trow:last-child{border-bottom:0}
+.trow.h{height:40px;background:var(--soft);color:var(--body);font-weight:500;border-bottom:1px solid var(--hairline)}
+.trow.r{min-height:60px;padding-top:9px;padding-bottom:9px;cursor:pointer;transition:background-color .12s ease}
+@media (hover:hover){.trow.r:hover{background:var(--soft)}}
+.trow.fresh{animation:fresh 2.4s var(--ease-out)}
+@keyframes fresh{0%,35%{background:var(--accent-bg)}100%{background:#fff}}
+.num{font-variant-numeric:tabular-nums}
+.ra{text-align:right}
+.mono{font-family:var(--mono);font-size:15px;letter-spacing:0}
+.m{color:var(--body)} .w5{font-weight:500}
+.ell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.link{color:var(--accent)}
+.st{white-space:nowrap}
+.st::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--d,#aeaeb2);margin:0 8px 2px 0;vertical-align:middle}
+.st.ok{color:var(--ok-fg);--d:var(--ok)} .st.info{color:var(--accent);--d:var(--accent)} .st.bad{color:var(--bad-fg);--d:var(--bad)}
+
+/* ── sheet ────────────────────────────────────────────────────────── */
+.veil{position:absolute;inset:0;background:var(--scrim);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);opacity:0;pointer-events:none;transition:opacity .2s var(--ease-out);z-index:30}
+.veil.open{opacity:1;pointer-events:auto;transition-duration:.28s}
+.sheet{position:absolute;top:12px;right:12px;bottom:12px;width:min(1040px,calc(100% - 24px));background:#fff;border-radius:16px;box-shadow:0 0 0 1px rgba(0,0,0,.06),0 24px 80px rgba(0,0,0,.18);display:flex;flex-direction:column;overflow:hidden;z-index:31;transform:translateX(calc(100% + 24px));opacity:0;pointer-events:none;transition:transform .2s var(--ease-out),opacity .2s var(--ease-out)}
+.sheet.open{transform:none;opacity:1;pointer-events:auto;transition:transform .28s var(--ease-drawer),opacity .28s var(--ease-drawer)}
+.shead{padding:22px 24px 18px 28px;border-bottom:1px solid var(--hairline);display:flex;align-items:flex-start;gap:10px;flex:none}
+.shead .tx{flex:1;min-width:0}
+.crumb{color:var(--body);display:flex;align-items:center;gap:6px;height:22px}
+.crumb .sep{color:#aeaeb2}
+.crumb button{color:var(--body);transition:color .12s ease} @media (hover:hover){.crumb button:hover{color:var(--ink)}}
+.stitle{font-size:17px;font-weight:600;margin-top:4px;display:flex;align-items:center;gap:10px}
+.sbody{flex:1;min-height:0;overflow:auto;padding:24px 28px 32px}
+.sfoot{flex:none;padding:14px 24px 14px 28px;border-top:1px solid var(--hairline);display:flex;align-items:center;justify-content:flex-end;gap:10px}
+.sfoot .why{flex:1;color:var(--warn-fg)}
+.swap{transition:opacity .16s var(--ease-out)}
+.swap.out{opacity:0;transition-duration:.1s}
+
+/* template gallery */
+.sect{display:flex;align-items:baseline;gap:8px;font-weight:600;margin:0 0 12px}
+.sect .c{color:var(--body);font-weight:400}
+.gal{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:22px 16px;margin-bottom:30px}
+.tpl{text-align:left;display:flex;flex-direction:column;gap:10px;border-radius:12px;transition:transform .12s var(--ease-out)}
+.tpl:active{transform:scale(.98)}
+.tpl .th{height:178px;border-radius:10px;background:var(--soft-3);display:flex;align-items:flex-end;justify-content:center;overflow:hidden;box-shadow:inset 0 0 0 1px rgba(0,0,0,.03);transition:box-shadow .2s var(--ease-out)}
+.tpl .mini{width:116px;height:158px;background:#fff;border-radius:3px 3px 0 0;box-shadow:0 0 0 1px rgba(0,0,0,.06),0 4px 14px rgba(0,0,0,.06);padding:12px 11px;display:flex;flex-direction:column;gap:5px;transform:translateY(8px);transition:transform .25s var(--ease-out),box-shadow .25s var(--ease-out)}
+@media (hover:hover){
+  .tpl:hover .mini{transform:translateY(2px);box-shadow:0 0 0 1px rgba(0,0,0,.06),0 10px 24px rgba(0,0,0,.10)}
+  .tpl:hover .th{box-shadow:inset 0 0 0 1px rgba(40,98,220,.35)}
+}
+.tpl .nm{font-weight:500;line-height:20px}
+.tpl .id{color:var(--body);line-height:20px;margin-top:-8px}
+.mini i{display:block;height:3px;border-radius:2px;background:#e3e3e8}
+.mini .lh{display:flex;justify-content:space-between;align-items:center;padding-bottom:4px;border-bottom:1.5px solid #2a2a2e;margin-bottom:2px}
+.mini .lh i{background:#2a2a2e;height:4px}
+.mini .mt{border-top:1px solid #9a9aa0;border-bottom:1px solid #9a9aa0;padding:3px 0;display:flex;flex-direction:column;gap:3px;margin:2px 0}
+.mini .mt i{background:#ececf0}
+.mini .sg{margin-top:auto;display:flex;gap:6px}
+.mini .sg i{flex:1;height:1px;background:#8a8a90}
+.mini .bt{background:#cfd3dc}
+
+/* details form */
+.form{max-width:760px}
+.frow{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px;margin-bottom:20px}
+.frow.one{grid-template-columns:minmax(0,1fr)}
+.fld-l{font-weight:500;margin-bottom:8px;display:block}
+.inp{height:44px;width:100%;border:1px solid var(--hairline-2);border-radius:8px;padding:0 12px;background:#fff;outline:none;transition:border-color .12s ease,box-shadow .12s ease;appearance:none;-webkit-appearance:none}
+select.inp{background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236e6e73' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 12px center;padding-right:36px}
+.inp:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--focus)}
+.mtable{border:1px solid var(--hairline);border-radius:10px;overflow:hidden}
+.mrow{display:grid;grid-template-columns:minmax(0,1fr) 180px 36px;gap:10px;align-items:center;padding:8px 8px 8px 12px;border-bottom:1px solid var(--row-line)}
+.mrow .inp.cell{height:40px}
+.qbox{height:40px;display:flex;align-items:center;border:1px solid var(--hairline-2);border-radius:8px;transition:border-color .12s ease,box-shadow .12s ease}
+.qbox:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--focus)}
+.qbox .qn{width:64px;height:100%;border:0;outline:none;text-align:right;padding:0 8px 0 10px;background:none;font-variant-numeric:tabular-nums}
+.qbox .qu{flex:1;min-width:0;height:100%;border:0;outline:none;background:none;padding:0 10px;border-left:1px solid var(--hairline);color:var(--body)}
+.mrow:last-child{border-bottom:0}
+.mrow.h{min-height:40px;padding-top:0;padding-bottom:0;background:var(--soft);color:var(--body);font-weight:500;border-bottom:1px solid var(--hairline)}
+.qty{height:36px;width:100%;text-align:right;border:1px solid var(--hairline-2);border-radius:8px;padding:0 10px;outline:none;font-variant-numeric:tabular-nums;transition:border-color .12s ease,box-shadow .12s ease}
+.qty:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--focus)}
+.qty.short{border-color:var(--bad);color:var(--bad-fg)}
+.addrow{margin-top:10px;position:relative;display:inline-block}
+
+/* popovers */
+.pop{position:absolute;background:#fff;border-radius:10px;box-shadow:0 0 0 1px var(--hairline),0 12px 32px rgb(0 0 0/.12);padding:6px;opacity:0;transform:scale(.96);pointer-events:none;transition:opacity .16s var(--ease-out),transform .16s var(--ease-out);z-index:60}
+.pop.open{opacity:1;transform:none;pointer-events:auto}
+.pop .pi{width:100%;min-height:40px;display:flex;align-items:center;gap:10px;padding:6px 10px;border-radius:8px;text-align:left;white-space:nowrap}
+@media (hover:hover){.pop .pi:hover{background:var(--soft)}}
+.pop .pi.on{color:var(--accent)}
+.pop .pi .r{margin-left:auto;color:var(--body)}
+.pop .pi svg{color:var(--line-ico)}
+.pop .pi.red{color:var(--bad-fg)} .pop .pi.red svg{color:var(--bad-fg)}
+.pop .psearch{height:40px;display:flex;align-items:center;gap:8px;padding:0 10px;border-bottom:1px solid var(--hairline);margin:-6px -6px 6px;color:var(--body)}
+.pop .psearch input{border:0;outline:none;flex:1;height:100%}
+.pop .sepl{height:1px;background:var(--hairline);margin:6px 4px}
+
+/* ── writer ───────────────────────────────────────────────────────── */
+.writer{display:flex;flex-direction:column;height:100%}
+.wbar{height:60px;flex:none;display:flex;align-items:center;gap:10px;padding:0 16px 0 14px;border-bottom:1px solid var(--hairline)}
+.wbar .vr{width:1px;height:20px;background:var(--hairline-2)}
+.wbar .tt{font-weight:600}
+.wbar .sp{flex:1}
+.wbar .saved{color:var(--body);display:flex;align-items:center;gap:6px;white-space:nowrap}
+.wbody{flex:1;min-height:0;display:flex}
+.desk{flex:1;min-width:0;background:var(--soft-3);overflow:auto;position:relative}
+.tbwrap{position:sticky;top:0;z-index:5;display:flex;justify-content:center;padding:12px 16px 0;pointer-events:none}
+.tb{pointer-events:auto;display:flex;align-items:center;gap:2px;flex-wrap:wrap;justify-content:center;background:#fff;border-radius:12px;padding:5px;box-shadow:0 0 0 1px rgba(0,0,0,.06),0 6px 20px rgba(0,0,0,.07);transition:opacity .1s var(--ease-out),transform .16s var(--ease-out)}
+.tb.gone{opacity:0;transform:translateY(-6px);pointer-events:none}
+.tb .b{width:36px;height:36px;border-radius:8px;display:grid;place-items:center;color:#3a3a3c;transition:background-color .12s var(--ease-out),color .12s var(--ease-out),transform .12s var(--ease-out)}
+.tb .b:active{transform:scale(.94)}
+@media (hover:hover){.tb .b:hover{background:var(--soft-2)}}
+.tb .b.on{background:var(--accent-bg);color:var(--accent)}
+.tb .dd{height:36px;display:flex;align-items:center;gap:6px;padding:0 8px 0 10px;border-radius:8px;white-space:nowrap;transition:background-color .12s var(--ease-out)}
+@media (hover:hover){.tb .dd:hover{background:var(--soft-2)}}
+.tb .dd .lab{min-width:92px;text-align:left}
+.tb .dd svg{color:var(--body)}
+.tb .vr{width:1px;height:20px;background:var(--hairline-2);margin:0 4px}
+.paperwrap{display:flex;justify-content:center;padding:18px 24px 64px}
+
+/* the paper — ink on white, A4 at 96 dpi; smaller type is allowed on paper */
+.paper{width:794px;min-height:1123px;background:#fff;color:var(--paper-ink);font-size:14px;line-height:1.6;padding:52px 56px 48px;box-shadow:0 0 0 1px rgba(0,0,0,.06),0 6px 24px rgba(0,0,0,.07);position:relative;display:flex;flex-direction:column;letter-spacing:0}
+.paper .lh{display:flex;justify-content:space-between;align-items:flex-end;padding-bottom:12px;border-bottom:2px solid var(--paper-ink)}
+.paper .co{font-size:19px;font-weight:600;letter-spacing:.04em}
+.paper .addr{font-size:12.5px;color:var(--paper-grey);margin-top:2px}
+.paper .ttl{text-align:right}
+.paper .tt{font-size:18px;font-weight:600;letter-spacing:.01em}
+.paper .no{font-family:var(--mono);font-size:13px;color:var(--paper-grey);margin-top:2px;display:inline-block;transition:filter .2s ease,opacity .2s ease}
+.paper .no.blur{filter:blur(3px);opacity:0}
+.paper .no.set{color:var(--paper-ink)}
+.paper .facts{display:grid;grid-template-columns:1fr 1fr;gap:4px 28px;margin:16px 0 18px}
+.paper .f{display:flex;gap:8px;line-height:1.55}
+.paper .fl{width:104px;flex:none;color:var(--paper-grey)}
+.paper .fc{color:var(--paper-grey)}
+.paper .fv{font-weight:500;min-width:0;outline:none;border-radius:3px}
+.paper .body{outline:none}
+.paper .body p{margin:0 0 10px}
+.paper .body h3{font-size:15.5px;margin:4px 0 8px;font-weight:600}
+.paper .body .small{font-size:12.5px;color:var(--paper-grey)}
+.paper .body ul,.paper .body ol{margin:0 0 10px;padding-left:22px}
+.paper .body hr{border:0;border-top:1px solid #bbb;margin:12px 0}
+.paper table{width:100%;border-collapse:collapse;margin:6px 0 14px;font-size:13.5px}
+.paper th{text-align:left;font-weight:600;padding:6px 8px;border-bottom:1.5px solid var(--paper-ink);border-top:1.5px solid var(--paper-ink);white-space:nowrap}
+.paper td{padding:6px 8px;border-bottom:1px solid #dadade;vertical-align:top}
+.paper td.c,.paper th.c{text-align:center;width:36px}
+.paper td.q,.paper th.q{text-align:right;width:76px;font-variant-numeric:tabular-nums}
+.paper td.u{width:64px;color:var(--paper-grey)}
+.paper td.nt{width:150px}
+.paper tfoot td{font-weight:600;border-bottom:1.5px solid var(--paper-ink);border-top:1.5px solid var(--paper-ink)}
+.paper .sigs{display:grid;gap:28px;margin-top:22px}
+.paper .sig{text-align:center;font-size:13.5px}
+.paper .sig .cap{color:var(--paper-grey)}
+.paper .sig .ln{height:84px;border-bottom:1px solid var(--paper-ink)}
+.paper .sig .nm{font-weight:500;margin-top:6px;min-height:22px;outline:none;border-radius:3px}
+.paper .sig .rl{color:var(--paper-grey);font-size:12.5px}
+.paper .pfoot{margin-top:auto;padding-top:26px;display:flex;align-items:flex-end;gap:14px;font-size:12px;color:var(--paper-grey)}
+.paper .qr{width:84px;height:84px;display:none}
+.paper.issued .qr{display:block}
+.paper .copy{position:absolute;top:22px;right:56px;font-size:11.5px;color:var(--paper-grey);display:none}
+.paper .stamp{position:absolute;right:96px;top:150px;transform:rotate(-12deg);border:3px solid var(--bad);color:var(--bad);opacity:.55;font-weight:700;letter-spacing:.08em;padding:6px 14px;font-size:20px;display:none}
+.paper.void .stamp{display:block}
+/* editing affordances — none of it exists on paper */
+.paper.editing .fld{background:rgba(40,98,220,.07);border-radius:3px;box-shadow:0 0 0 2px rgba(40,98,220,.07)}
+.paper.editing [contenteditable="true"]:focus{box-shadow:0 0 0 2px var(--focus)}
+.paper.editing .body:focus{box-shadow:none}
+.paper.editing .fv:empty::before,.paper.editing .nm:empty::before{content:attr(data-ph);color:#a1a1a8;font-weight:400}
+.paper.editing .fv[data-need]:empty,.paper.editing .nm[data-need]:empty{display:inline-block;min-width:130px;border-bottom:1px dashed #b8b8c0}
+.paper.editing .bl.empty{color:#a1a1a8;border-bottom:1px dashed #b8b8c0}
+.paper.editing td.q.short{color:var(--bad-fg);background:#fbeaea}
+.paper .flash{animation:flash 1.1s var(--ease-out)}
+@keyframes flash{0%,30%{background:#fff3c4;box-shadow:0 0 0 3px #fff3c4}100%{background:transparent;box-shadow:0 0 0 3px transparent}}
+.paper:not(.editing) .fv:empty::before,.paper:not(.editing) .nm:empty::before{content:"\00a0";display:inline-block;min-width:150px;border-bottom:1px dotted var(--paper-ink)}
+.paper:not(.editing) .bl.empty{color:transparent;border-bottom:1px dotted var(--paper-ink)}
+.paper:not(.editing) .sig .nm:empty::before{min-width:0;border:0}
+
+/* aside — what happens to the letter, not what it says */
+.aside{width:348px;flex:none;border-left:1px solid var(--hairline);display:flex;flex-direction:column;background:#fff}
+.ascroll{flex:1;min-height:0;overflow:auto;padding:20px 24px 24px}
+.ablock{padding-bottom:20px;margin-bottom:20px;border-bottom:1px solid var(--hairline)}
+.ablock:last-child{border-bottom:0;margin-bottom:0}
+.kv{display:flex;justify-content:space-between;gap:16px;line-height:22px;padding:4px 0}
+.kv .k{color:var(--body);flex:none}
+.kv .v{text-align:right;min-width:0}
+.todo{width:100%;display:flex;align-items:center;gap:10px;min-height:40px;padding:0 8px;margin:0 -8px;border-radius:8px;text-align:left;transition:background-color .12s ease}
+@media (hover:hover){.todo:hover{background:var(--soft)}}
+.todo .ring{width:16px;height:16px;border-radius:50%;border:1.5px dashed #a1a1a8;flex:none;display:grid;place-items:center;transition:background-color .2s ease,border-color .2s ease}
+.todo.done .ring{border:0;background:var(--ok)}
+.todo .ring svg{width:11px;height:11px;color:#fff;stroke-width:3;opacity:0;transform:scale(.6);transition:opacity .2s var(--ease-out),transform .2s var(--ease-out)}
+.todo.done .ring svg{opacity:1;transform:none}
+.todo .lab{flex:1}
+.todo .val{color:var(--body);max-width:150px}
+.todo svg.chev{color:var(--faint)}
+.allset{color:var(--ok-fg);display:flex;align-items:center;gap:8px}
+.irow{width:100%;display:flex;gap:12px;align-items:flex-start;padding:8px;margin:0 -8px;border-radius:8px;text-align:left;transition:background-color .12s ease}
+@media (hover:hover){.irow:hover{background:var(--soft)}}
+.irow .a{flex:1;min-width:0}
+.irow .a .s{color:var(--body)}
+.irow .z{text-align:right;white-space:nowrap}
+.irow .z .s{color:var(--body)}
+.irow .z .short{color:var(--bad-fg)}
+.tl{display:flex;flex-direction:column;gap:12px}
+.tl .e{display:flex;gap:10px;line-height:22px}
+.tl .e .d{width:7px;height:7px;border-radius:50%;background:#c7c7cc;margin-top:8px;flex:none}
+.tl .e.ok .d{background:var(--ok)}
+.tl .e .w{color:var(--body)}
+.afoot{flex:none;padding:14px 24px 16px;border-top:1px solid var(--hairline);display:flex;flex-direction:column;gap:8px}
+.afoot .why{color:var(--warn-fg);line-height:22px}
+.afoot .row{display:flex;gap:8px;align-items:center}
+.afoot .row .btn{flex:1}
+
+/* dialog */
+.dveil{position:fixed;inset:0;background:var(--scrim);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);opacity:0;pointer-events:none;transition:opacity .2s var(--ease-out);z-index:80;display:grid;place-items:center;padding:24px}
+.dveil.open{opacity:1;pointer-events:auto}
+.dlg{background:#fff;border-radius:16px;box-shadow:0 0 0 1px rgba(0,0,0,.06),0 24px 80px rgba(0,0,0,.2);width:min(880px,100%);max-height:calc(100vh - 48px);display:flex;flex-direction:column;overflow:hidden;transform:scale(.96);transition:transform .2s var(--ease-out)}
+.dveil.open .dlg{transform:none}
+.dlg.small{width:min(440px,100%)}
+.dhead{padding:20px 20px 0 24px;display:flex;align-items:flex-start;gap:10px}
+.dhead .tx{flex:1}
+.dhead .t{font-size:17px;font-weight:600}
+.dhead .c{color:var(--body);margin-top:2px}
+.dbody{padding:18px 24px 24px;overflow:auto}
+.dfoot{padding:14px 20px 14px 24px;border-top:1px solid var(--hairline);display:flex;align-items:center;gap:10px}
+.dfoot .sp{flex:1}
+.pv{display:grid;grid-template-columns:minmax(0,1fr) 240px;gap:24px}
+.pvdesk{background:var(--soft-3);border-radius:12px;height:440px;display:grid;place-items:center;overflow:hidden;position:relative}
+.pvstack{position:relative}
+.pvpage{background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.06),0 6px 20px rgba(0,0,0,.08);overflow:hidden;position:relative;transition:width .2s var(--ease-out),height .2s var(--ease-out)}
+.pvpage .paper{box-shadow:none;transform-origin:top left;position:absolute;left:0;top:0}
+.pvback{position:absolute;inset:0;background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.06),0 4px 14px rgba(0,0,0,.06);transition:transform .2s var(--ease-out),opacity .2s var(--ease-out)}
+.opt .l{font-weight:500;margin-bottom:8px}
+.opt+.opt{margin-top:20px}
+.copies{margin-top:10px;color:var(--body);line-height:24px}
+
+/* toast — bottom right */
+.toast{position:fixed;right:20px;bottom:20px;background:#fff;border-radius:12px;box-shadow:0 0 0 1px rgba(0,0,0,.06),0 10px 30px rgba(0,0,0,.14);padding:12px 16px;display:flex;align-items:center;gap:10px;z-index:90;transform:translateY(calc(100% + 24px));opacity:0;transition:transform .4s ease,opacity .4s ease}
+.toast.open{transform:none;opacity:1}
+.toast svg{color:var(--ok)}
+
+@media (max-width:1100px){.wbody{flex-direction:column;overflow:auto}.desk{overflow:visible}.aside{width:auto;border-left:0;border-top:1px solid var(--hairline)}.gal{grid-template-columns:repeat(3,minmax(0,1fr))}.frow{grid-template-columns:minmax(0,1fr)}}
+@media (prefers-reduced-motion:reduce){.sheet,.sheet.open,.tpl .mini,.toast,.dlg{transition-property:opacity!important;transform:none!important}}
+
+/* print — only the copies of the paper */
+#printroot{display:none}
+@media print{
+  body{background:#fff;overflow:visible}
+  body>*:not(#printroot){display:none!important}
+  #printroot{display:block}
+  #printroot .paper{box-shadow:none;width:auto;min-height:calc(297mm - 28mm);padding:0;break-after:page}
+  #printroot .paper:last-child{break-after:auto}
+  #printroot .copy{display:block;top:-6mm;right:0}
+  @page{size:A4;margin:14mm}
+}
+</style>
+</head>
+<body>
+<div class="proto">
+  <div class="t">Letters · Write from a template</div>
+  <div class="seg" id="steps"></div>
+</div>
+<div class="note" id="note"></div>
+<div class="stagewrap"><div class="app" id="app">
+  <div class="rail" id="rail"></div>
+  <div class="panel" id="panel"></div>
+  <div class="page" id="page"></div>
+  <div class="veil" id="veil"></div>
+  <div class="sheet" id="sheet"></div>
+</div></div>
+<div class="dveil" id="dveil"><div class="dlg" id="dlg"></div></div>
+<div class="toast" id="toast"></div>
+<div class="pop" id="pop"></div>
+<div id="printroot"></div>
+
+<script>
+const $ = (s, r = document) => r.querySelector(s)
+const $$ = (s, r = document) => [...r.querySelectorAll(s)]
+const ico = (d, cls = "i") => `<svg class="${cls}" viewBox="0 0 24 24">${d}</svg>`
+const I = {
+  search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>', plus:'<path d="M5 12h14"/><path d="M12 5v14"/>',
+  chev:'<path d="m6 9 6 6 6-6"/>', right:'<path d="m9 18 6-6-6-6"/>', back:'<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+  x:'<path d="M18 6 6 18"/><path d="m6 6 12 12"/>', check:'<path d="M20 6 9 17l-5-5"/>', more:'<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
+  filter:'<path d="M3 6h18"/><path d="M7 12h10"/><path d="M10 18h4"/>',
+  undo:'<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>', redo:'<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>',
+  bold:'<path d="M6 12h9a4 4 0 0 1 0 8H7a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h7a4 4 0 0 1 0 8"/>',
+  italic:'<path d="M19 4h-9"/><path d="M14 20H5"/><path d="M15 4 9 20"/>',
+  underline:'<path d="M6 4v6a6 6 0 0 0 12 0V4"/><path d="M4 20h16"/>',
+  strike:'<path d="M16 4H9a3 3 0 0 0-2.83 4"/><path d="M14 12a4 4 0 0 1 0 8H6"/><path d="M4 12h16"/>',
+  al:'<path d="M15 12H3"/><path d="M17 18H3"/><path d="M21 6H3"/>', ac:'<path d="M17 12H7"/><path d="M19 18H5"/><path d="M21 6H3"/>',
+  ar:'<path d="M21 12H9"/><path d="M21 18H7"/><path d="M21 6H3"/>', aj:'<path d="M3 12h18"/><path d="M3 18h18"/><path d="M3 6h18"/>',
+  ul:'<path d="M3 12h.01"/><path d="M3 18h.01"/><path d="M3 6h.01"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M8 6h13"/>',
+  ol:'<path d="M10 12h11"/><path d="M10 18h11"/><path d="M10 6h11"/><path d="M4 10h2"/><path d="M4 6h1v4"/><path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1"/>',
+  clear:'<path d="M4 7V4h16v3"/><path d="M5 20h6"/><path d="M13 4 8 20"/><path d="m15 15 5 5"/><path d="m20 15-5 5"/>',
+  blank:'<path d="M5 4h1a3 3 0 0 1 3 3 3 3 0 0 1 3-3h1"/><path d="M13 20h-1a3 3 0 0 1-3-3 3 3 0 0 1-3 3H5"/><path d="M9 7v10"/>',
+  row:'<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/>',
+  cal:'<rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/>',
+  line:'<path d="M5 12h14"/>', sign:'<path d="M12 20h9"/><path d="M16.4 3.6a2.1 2.1 0 0 1 3 3L7.4 18.6 3 20l1.4-4.4z"/>',
+  printer:'<path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 9V3h12v6"/><rect x="6" y="14" width="12" height="8" rx="1"/>',
+  download:'<path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/>',
+  letter:'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v5h6"/><path d="M8 13h8"/><path d="M8 17h5"/>',
+  home:'<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>', cart:'<circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2 2h3l2.7 12.4a2 2 0 0 0 2 1.6h8.7a2 2 0 0 0 2-1.6L22 6H6"/>',
+  shirt:'<path d="M20.4 3.5 16 2a4 4 0 0 1-8 0L3.6 3.5a2 2 0 0 0-1.3 2.2l.6 3.5a1 1 0 0 0 1 .8H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.2a1 1 0 0 0 1-.8l.6-3.5a2 2 0 0 0-1.3-2.2z"/>',
+  truck:'<path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.6a1 1 0 0 0-.2-.6l-3.5-4.4A1 1 0 0 0 17.5 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/>',
+  store:'<path d="M3 9h18l-1.5-5h-15z"/><path d="M5 9v11h14V9"/><path d="M10 20v-6h4v6"/>', bank:'<path d="M3 21h18"/><path d="M5 21V10"/><path d="M19 21V10"/><path d="M9 21V10"/><path d="M15 21V10"/><path d="m2 10 10-6 10 6"/>',
+  users:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9"/><path d="M16 3.1a4 4 0 0 1 0 7.8"/>',
+  book:'<path d="M2 4h6a4 4 0 0 1 4 4v13a3 3 0 0 0-3-3H2z"/><path d="M22 4h-6a4 4 0 0 0-4 4v13a3 3 0 0 1 3-3h7z"/>',
+  gauge:'<path d="m12 14 4-4"/><path d="M3.3 19a10 10 0 1 1 17.4 0"/>', pin:'<path d="M20 10c0 5-8 12-8 12s-8-7-8-12a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/>',
+  box:'<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5"/><path d="M12 13v8"/>', wrench:'<path d="M14.7 6.3a4 4 0 0 0 5 5L22 14l-8 8-2.3-2.3a4 4 0 0 0-5-5L4 12l8-8z"/>',
+  file:'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v5h6"/>', copy:'<rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16V4h12"/>',
+  keep:'<path d="M19 21 12 16 5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>', trash:'<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4h8v2"/>',
+  ban:'<circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/>',
+}
+const ic = (k, cls) => ico(I[k], cls)
+
+// ── data ─────────────────────────────────────────────────────────────
+const hhmm = (d = new Date()) => d.toTimeString().slice(0, 5)
+const DAY = "17 Oct 2026", PAPER_DAY = "17 Oktober 2026", WEEKDAY = "Jumat"
+const ME = { name: "Rina Kusuma", role: "Staf GA" }
+const esc = (v) => String(v ?? "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;")
+const cap1 = (s) => s ? s.charAt(0).toUpperCase() + s.slice(1) : s
+const low1 = (s) => s ? s.charAt(0).toLowerCase() + s.slice(1) : s
+
+// every field is typed; nothing is picked from a list
+
+// letters a person writes; the ones the system writes (surat jalan, STB from receiving,
+// return note) are made by their own flows and only show in the register
+const CATS = [["goods", "Goods & documents"], ["people", "People"], ["notices", "Notices & requests"]]
+const F = {
+  to: (label = "To") => ({ k: "to", label, type: "text" }),
+  ours: (k, label) => ({ k, label, type: "text" }),
+  date: { k: "date", label: "Date", type: "text" },
+  text: (k, label) => ({ k, label, type: "text" }),
+  emp: { k: "emp", label: "Employee", type: "text" },
+  role: { k: "role", label: "Role", type: "text" },
+  level: { k: "level", label: "Level", type: "text" },
+}
+const TEMPLATES = [
+  { id: "out", cat: "goods", name: "Goods out letter", paper: "Surat Keluar Barang", prefix: "SKB", items: true, sigN: 3,
+    fields: [[F.to(), F.date], [F.ours("from", "From"), F.text("purpose", "Purpose")]],
+    d: { to: "Samsat Bekasi", from: "HO Jakarta", purpose: "Perpanjangan STNK",
+      items: [["BPKB Honda Beat · B 3456 KQ", 1, "buku"], ["STNK Honda Beat · B 3456 KQ", 1, "lembar"], ["Fotokopi KTP pemilik kendaraan", 1, "lembar"]] } },
+  { id: "in", cat: "goods", name: "Goods in letter", paper: "Surat Terima Barang", prefix: "STM", items: true, sigN: 2,
+    fields: [[{ ...F.to("From"), k: "from" }, F.date], [F.ours("to", "Received at"), F.text("purpose", "Purpose")]],
+    d: { from: "PT Astra Credit Companies", to: "HO Jakarta", purpose: "Pengembalian BPKB setelah pelunasan",
+      items: [["BPKB Toyota Avanza · B 1907 KTA", 1, "buku"], ["Surat keterangan lunas", 1, "lembar"]] } },
+  { id: "bast", cat: "goods", name: "Handover record", paper: "Berita Acara Serah Terima", prefix: "BAST", items: true, sigN: 2,
+    fields: [[F.to("Handed to"), F.date], [F.text("purpose", "Subject")]],
+    d: { to: "Siti Rahma — Admin HO", purpose: "Serah terima laptop kerja",
+      items: [["Laptop Lenovo ThinkPad E14 · SN PF3K9Q2", 1, "unit"], ["Charger 65 W", 1, "pcs"], ["Tas laptop", 1, "pcs"]] } },
+  { id: "skp", cat: "goods", name: "Authority to collect", paper: "Surat Kuasa Pengambilan Barang", prefix: "SKP", sigN: 2,
+    fields: [[F.to("Collect at"), F.date], [F.text("subject", "What to collect")]],
+    d: { to: "PT Garmen Nusantara", subject: "sampel kain musim depan" } },
+  { id: "st", cat: "people", name: "Assignment letter", paper: "Surat Tugas", prefix: "ST", sigN: 2,
+    fields: [[F.emp, F.role], [F.text("subject", "Task"), F.to("Place")], [F.date]],
+    d: { emp: "Agus Salim", role: "Staf Gudang DC Bekasi", subject: "stock opname akhir bulan", to: "Toko 02 · Margo City" } },
+  { id: "spr", cat: "people", name: "Warning letter", paper: "Surat Peringatan", prefix: "SPR", sigN: 2,
+    fields: [[F.emp, F.role], [F.text("subject", "Reason"), F.level], [F.date]],
+    d: { emp: "Budi Santoso", role: "Kasir Toko 01", subject: "keterlambatan masuk kerja berulang", level: "SP 1" } },
+  { id: "skk", cat: "people", name: "Employment certificate", paper: "Surat Keterangan Kerja", prefix: "SKK", sigN: 1,
+    fields: [[F.emp, F.role], [F.text("subject", "Purpose"), F.date]],
+    d: { emp: "Dewi Lestari", role: "Kepala Toko 02", subject: "pengajuan KPR" } },
+  { id: "sp", cat: "notices", name: "Notice", paper: "Surat Pemberitahuan", prefix: "SP", sigN: 1,
+    fields: [[F.to(), F.date], [F.text("subject", "Subject")]],
+    d: { to: "Toko 01 · Bekasi Cyber Park", subject: "perubahan jam operasional toko" } },
+  { id: "spm", cat: "notices", name: "Request", paper: "Surat Permohonan", prefix: "SPM", sigN: 1,
+    fields: [[F.to(), F.date], [F.text("subject", "Subject")]],
+    d: { to: "Pengelola Bekasi Cyber Park", subject: "izin bongkar muat di luar jam operasional" } },
+  { id: "srt", cat: "notices", name: "Blank letter", paper: "Surat", prefix: "SRT", sigN: 1,
+    fields: [[F.to(), F.date], [F.text("subject", "Subject")]],
+    d: { to: "Toko 01 · Bekasi Cyber Park", subject: "" } },
+  { id: "ac", cat: "notices", name: "AC service notice", paper: "Surat Pemberitahuan", prefix: "SP", sigN: 1, saved: "Saved by Maya Anggraini",
+    fields: [[F.to(), F.date], [F.text("subject", "Subject")]],
+    d: { to: "Toko 01 · Bekasi Cyber Park", subject: "jadwal servis AC toko" } },
+]
+const tplOf = (id) => TEMPLATES.find((t) => t.id === id)
+
+const REGISTER = [
+  { no: "SRT/2610/0001", kind: "Notice", ref: "Jadwal servis AC toko 01", to: "Maya Anggraini — Kepala Toko 01", qty: null, st: "Issued", day: "14 Oct 2026", cat: "notices" },
+  { no: "SKB/2610/0006", kind: "Goods out letter", ref: "Servis genset gudang", to: "CV Sejuk Teknik Mandiri", qty: "1 item", st: "Issued", day: "15 Oct 2026", cat: "goods" },
+  { no: "SJ/2610/0012", kind: "Delivery note", ref: "AL-1610-004 · Bandung", to: "Toko 03 · Bandung Paskal", qty: "120 pcs", st: "Issued", day: "16 Oct 2026", cat: "system" },
+  { no: "STB/2610/0021", kind: "Goods receipt note", ref: "PO-161026-010", to: "Garmen Nusantara, PT", qty: "240 pcs", st: "Issued", day: "16 Oct 2026", cat: "system" },
+  { no: "SJR/2610/0003", kind: "Return delivery note", ref: "RPO-1510-002", to: "Konveksi Sentral Jaya, PT", qty: "36 pcs", st: "Issued", day: "15 Oct 2026", cat: "system" },
+  { no: null, kind: "Assignment letter", ref: "Stock opname akhir bulan", to: "Agus Salim", qty: null, st: "Draft", day: null, cat: "people" },
+]
+
+// ── state ────────────────────────────────────────────────────────────
+const S = {
+  step: 1, tpl: "out", sheetOpen: false, regCat: "all",
+  form: {}, items: [], issued: false, number: null, voided: false,
+  copies: 3, paperSize: "A4", log: [], fresh: null,
+}
+const seq = { SKB: 7, STM: 1, BAST: 1, SKP: 1, ST: 4, SPR: 1, SKK: 1, SP: 3, SPM: 1, SRT: 2 }
+
+function resetForm(id = S.tpl) {
+  const t = tplOf(id)
+  S.tpl = id
+  const { items, ...rest } = t.d
+  S.form = { date: DAY, ...rest }
+  S.items = (items || []).map(([name, q, u]) => ({ name, q, u }))
+}
+
+// ── prototype chrome ─────────────────────────────────────────────────
+const STEPS = [
+  [1, "Letters", "<b>Letters</b> · every letter, written or made by the system. Surat jalan, STB from receiving and return notes sit under <b>By system</b>; <b>New letter</b> is only for letters a person writes."],
+  [2, "Template", "<b>Template</b> · only letters a person writes, grouped by what they are about: <b>Goods & documents</b> · <b>People</b> · <b>Notices & requests</b>. A kept wording sits in its group with who saved it."],
+  [3, "Details", "<b>Details</b> · every field is free text, two a row at most. Items are typed too (a BPKB, a laptop, a key) with their own unit. Carrier stays a blank on the paper."],
+  [4, "Write", "<b>Write</b> · the paper is the editor. The bar formats any text; tinted words came from the form; dashed blanks are listed under <b>To fill</b>. Saved as you type."],
+  [5, "Issued", "<b>Issued</b> · the number is given, the paper locks, the QR is added, and the print preview opens: 3 copies (Asli · Pembawa · Arsip), Download PDF in red."],
+]
+function chrome() {
+  $("#steps").innerHTML = STEPS.map(([n, l]) => `<button class="${S.step === n ? "on" : ""}" data-step="${n}"><b>${n}</b>${l}</button>`).join("")
+  $("#note").innerHTML = STEPS[S.step - 1][2]
+  document.documentElement.style.setProperty("--nh", $("#note").offsetHeight + "px")
+  fitPaper()
+}
+$("#steps").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-step]"); if (!b) return
+  jump(+b.dataset.step)
+})
+function jump(n) {
+  closePop(); closeDialog(true)
+  if (n === 1) { closeSheet(); showRegister() }
+  if (n === 2) { showRegister(); resetForm("out"); openSheet("pick") }
+  if (n === 3) { showRegister(); resetForm("out"); openSheet("details") }
+  if (n === 4) { closeSheet(true); resetForm("out"); startWriter() }
+  if (n === 5) {
+    closeSheet(true); resetForm("out"); startWriter()
+    fillDemoBlanks(); issue()
+  }
+}
+
+// ── shell ────────────────────────────────────────────────────────────
+$("#rail").innerHTML = ["home", "cart", "shirt", "truck", "store", "bank", "users", "letter", "book"].map((k) =>
+  `<div class="ri ${k === "letter" ? "on" : ""}">${ic(k)}</div>`).join("") + `<div class="sp"></div><div class="orb">R</div>`
+$("#panel").innerHTML = `<div class="ph">GA</div><div class="nav">${[
+  ["letter", "Letters", 1], ["gauge", "Overview"], ["users", "Vendors"], ["pin", "Locations"], ["file", "Contracts"],
+  ["box", "Assets"], ["wrench", "Maintenance"], ["cal", "Service schedule"], ["box", "Supplies"],
+].map(([k, l, on]) => `<div class="it ${on ? "on" : ""}">${ic(k, "i i16")}${l}</div>`).join("")}</div>`
+
+// ── 1 · register ─────────────────────────────────────────────────────
+function showRegister() {
+  S.step = Math.max(1, S.sheetOpen ? S.step : 1)
+  $("#app").classList.remove("focus")
+  const shown = REGISTER.map((r, i) => [r, i]).filter(([r]) => S.regCat === "all" || r.cat === S.regCat)
+  const rows = shown.map(([r, i]) => `
+    <div class="trow r ${S.fresh === i ? "fresh" : ""}" data-row="${i}">
+      <span class="mono ell ${r.no ? "" : "m"}" style="${r.no ? "" : "font-style:italic"}">${r.no || "no number yet"}</span>
+      <span style="min-width:0"><span class="w5 ell" style="display:block">${r.kind}</span><span class="m ell" style="display:block">${r.ref}</span></span>
+      <span class="ell m">${r.to}</span>
+      <span class="ra num m">${r.qty ?? "—"}</span>
+      <span><span class="st ${r.st === "Issued" ? "ok" : r.st === "Void" ? "bad" : "info"}">${r.st}</span></span>
+      <span class="ra m">${r.day || "—"}</span>
+    </div>`).join("")
+  const segs = [["all", "All"], ...CATS, ["system", "By system"]]
+  $("#page").innerHTML = `
+    <div class="phead"><div class="top"><h1>Letters</h1>
+      <div class="search">${ic("search", "i i16")}Search</div>
+      <button class="btn" id="newLetter">${ic("plus", "i i16")}New letter</button></div></div>
+    <div class="content">
+      <div class="bar"><div class="segm" id="regCat">${segs.map(([v, l]) => `<button class="${S.regCat === v ? "on" : ""}" data-v="${v}">${l}</button>`).join("")}</div>
+        <button class="choice">${ic("filter", "i i16")}Any status</button><div class="sp"></div>
+        <span class="tally"><b>${shown.length}</b> letters · <b>${shown.filter(([r]) => r.st === "Draft").length}</b> awaiting issue</span></div>
+      <div class="tcard"><div class="trow h"><span>Number</span><span>Letter</span><span>Recipient</span><span class="ra">Quantity</span><span>Status</span><span class="ra">Issued</span></div>${rows}</div>
+    </div>`
+  $("#newLetter").onclick = () => { resetForm("out"); openSheet("pick") }
+  $$("#regCat button").forEach((b) => b.onclick = () => { S.regCat = b.dataset.v; showRegister() })
+  $$(".trow.r").forEach((r) => r.onclick = () => { if (+r.dataset.row === 0 && S.number) { closeSheet(true); startWriter(true) } })
+  S.fresh = null
+  if (!S.sheetOpen) { S.step = 1; chrome() }
+}
+
+// ── 2/3 · the New letter sheet ───────────────────────────────────────
+function openSheet(mode) {
+  S.sheetOpen = true
+  renderSheet(mode)
+  requestAnimationFrame(() => { $("#veil").classList.add("open"); $("#sheet").classList.add("open") })
+}
+function closeSheet(instant) {
+  S.sheetOpen = false
+  const sh = $("#sheet"), v = $("#veil")
+  if (instant) { sh.style.transition = v.style.transition = "none"; requestAnimationFrame(() => { sh.style.transition = v.style.transition = "" }) }
+  sh.classList.remove("open"); v.classList.remove("open")
+}
+$("#veil").onclick = () => { closeSheet(); S.step = 1; chrome() }
+
+function swapSheet(mode) {
+  const body = $("#sheet .swap")
+  body.classList.add("out")
+  setTimeout(() => { renderSheet(mode) ; const b = $("#sheet .swap"); b.classList.add("out"); requestAnimationFrame(() => requestAnimationFrame(() => b.classList.remove("out"))) }, 100)
+}
+
+function miniPaper(t) {
+  const lines = (n, w = [100, 92, 96, 70]) => Array.from({ length: n }, (_, i) => `<i style="width:${w[i % w.length]}%"></i>`).join("")
+  const head = `<div class="lh"><i style="width:30%"></i><i style="width:36%"></i></div>`
+  const facts = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:3px 6px">${lines(4, [90, 70, 80, 60])}</div>`
+  const sig = (n) => `<div class="sg">${Array.from({ length: n }, () => "<i></i>").join("")}</div>`
+  if (t.items) return head + facts + `<i style="width:84%;margin-top:3px"></i><div class="mt"><i class="bt" style="width:100%"></i>${lines(3, [100])}</div><i style="width:66%"></i>` + sig(t.sigN)
+  if (t.id === "srt") return head + facts + `<i style="width:40%;margin-top:4px"></i>` + sig(1)
+  return head + facts + `<i style="width:34%;margin-top:4px"></i>` + lines(t.saved ? 7 : 6) + sig(t.sigN)
+}
+
+function fieldHTML(fd) {
+  const v = S.form[fd.k] ?? ""
+  const lab = `<span class="fld-l">${fd.label}</span>`
+  return `<label>${lab}<input class="inp" data-f="${fd.k}" value="${esc(v)}" autocomplete="off"></label>`
+}
+
+function renderSheet(mode) {
+  S.step = mode === "pick" ? 2 : 3
+  chrome()
+  const t = tplOf(S.tpl)
+  const sh = $("#sheet")
+  if (mode === "pick") {
+    const groups = CATS.map(([c, label]) => {
+      const list = TEMPLATES.filter((x) => x.cat === c)
+      return `<div class="sect">${label}<span class="c">${list.length}</span></div><div class="gal">${list.map((x) => `
+        <button class="tpl" data-tpl="${x.id}"><div class="th"><div class="mini">${miniPaper(x)}</div></div>
+          <div class="nm">${x.name}</div><div class="id">${x.saved ? x.saved : x.paper}</div></button>`).join("")}</div>`
+    }).join("")
+    sh.innerHTML = `
+      <div class="shead"><div class="tx"><div class="crumb">Letters</div><div class="stitle">New letter</div></div>
+        <button class="glyph" data-close>${ic("x")}</button></div>
+      <div class="sbody swap">${groups}</div>`
+    $$("[data-tpl]", sh).forEach((b) => b.onclick = () => { resetForm(b.dataset.tpl); swapSheet("details") })
+  } else {
+    const rows = t.fields.map((row) => `<div class="frow ${row.length === 1 && ["subject", "purpose"].includes(row[0].k) ? "one" : ""}">${row.map(fieldHTML).join("")}</div>`).join("")
+    const items = t.items ? `
+      <div class="sect" style="margin-top:30px">Items<span class="c" id="icount"></span></div>
+      <div class="mtable" id="mtable"></div>
+      <div class="addrow"><button class="word" id="addItem">${ic("plus", "i i16")}Add item</button></div>` : ""
+    sh.innerHTML = `
+      <div class="shead"><button class="glyph" id="sBack" style="margin:-2px 0 0 -10px">${ic("back")}</button>
+        <div class="tx"><div class="crumb"><button id="sCrumb">New letter</button><span class="sep">/</span>${t.paper}</div><div class="stitle">${t.name}</div></div>
+        <button class="glyph" data-close>${ic("x")}</button></div>
+      <div class="sbody swap"><div class="form">${rows}${items}</div></div>
+      <div class="sfoot"><span class="why" id="why"></span><button class="btn lg" id="write">Write letter</button></div>`
+    $("#sBack").onclick = $("#sCrumb").onclick = () => swapSheet("pick")
+    $$("[data-f]", sh).forEach((el) => el.oninput = el.onchange = () => { S.form[el.dataset.f] = el.value })
+    if (t.items) {
+      drawItemsTable()
+      $("#addItem").onclick = () => { S.items.push({ name: "", q: 1, u: "pcs" }); drawItemsTable(); $$("[data-n]").at(-1).focus() }
+    } else whyWrite()
+    $("#write").onclick = () => {
+      const go = () => { closeSheet(true); startWriter() }
+      document.startViewTransition ? document.startViewTransition(go) : go()
+    }
+  }
+  $$("[data-close]", sh).forEach((b) => b.onclick = () => { closeSheet(); S.step = 1; chrome() })
+}
+
+// items are typed: whatever leaves or arrives, tracked by the system or not
+function drawItemsTable() {
+  $("#mtable").innerHTML = `<div class="mrow h"><span>Item</span><span>Quantity</span><span></span></div>` +
+    S.items.map((it, i) => `<div class="mrow">
+        <input class="inp cell" data-n="${i}" value="${esc(it.name)}" placeholder="BPKB, laptop, kunci…" autocomplete="off">
+        <div class="qbox"><input class="qn" inputmode="numeric" data-q="${i}" value="${it.q}"><input class="qu" data-u="${i}" value="${esc(it.u)}" placeholder="satuan" autocomplete="off"></div>
+        <button class="glyph" data-rm="${i}" aria-label="Remove">${ic("x", "i i16")}</button></div>`).join("")
+  $("#icount").textContent = S.items.length || ""
+  $$("[data-n]").forEach((el) => el.oninput = () => { S.items[+el.dataset.n].name = el.value; whyWrite() })
+  $$("[data-q]").forEach((el) => el.oninput = () => { S.items[+el.dataset.q].q = parseInt(el.value.replace(/\D/g, "")) || 0 })
+  $$("[data-u]").forEach((el) => el.oninput = () => { S.items[+el.dataset.u].u = el.value })
+  $$("[data-rm]").forEach((b) => b.onclick = () => { S.items.splice(+b.dataset.rm, 1); drawItemsTable() })
+  whyWrite()
+}
+function whyWrite() {
+  const t = tplOf(S.tpl)
+  const why = t.items && !S.items.some((it) => it.name.trim()) ? "Add at least one item" : ""
+  $("#why").textContent = why
+  $("#write").disabled = !!why
+}
+
+// ── popovers ─────────────────────────────────────────────────────────
+let popFor = null
+function openPop(anchor, html, { align = "left", width = 260, above = false } = {}) {
+  const pop = $("#pop")
+  if (popFor === anchor && pop.classList.contains("open")) return closePop()
+  popFor = anchor
+  pop.innerHTML = html
+  pop.style.width = width + "px"
+  const r = anchor.getBoundingClientRect()
+  const left = align === "right" ? r.right - width : r.left
+  pop.style.left = Math.max(8, Math.min(left, innerWidth - width - 8)) + "px"
+  pop.style.top = (above ? r.top - 8 : r.bottom + 6) + "px"
+  pop.style.transform = ""
+  pop.style.transformOrigin = `${align === "right" ? "right" : "left"} ${above ? "bottom" : "top"}`
+  if (above) pop.style.translate = "0 -100%"; else pop.style.translate = ""
+  requestAnimationFrame(() => pop.classList.add("open"))
+  return pop
+}
+function closePop() { $("#pop").classList.remove("open"); popFor = null }
+document.addEventListener("mousedown", (e) => {
+  if (!e.target.closest("#pop") && !e.target.closest("[data-pop]") && e.target !== popFor && !popFor?.contains(e.target)) closePop()
+})
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") { if ($("#pop").classList.contains("open")) closePop(); else if ($("#dveil").classList.contains("open")) closeDialog(); else if (S.sheetOpen) { closeSheet(); S.step = 1; chrome() } } })
+
+// ── 4 · the writer ───────────────────────────────────────────────────
+function paperHTML() {
+  const t = tplOf(S.tpl), f = S.form
+  const emp = { name: f.emp || "", role: f.role || "" }
+  const fld = (v) => `<span class="fld">${esc(v)}</span>`
+  const bl = (ph, need) => `<span class="bl empty" data-need="${need}" data-ph="${ph}">${ph}</span>`
+  const fv = (v) => `<span class="fv fld" contenteditable="true" spellcheck="false">${esc(v)}</span>`
+  const blankFv = (ph, need, k) => `<span class="fv" contenteditable="true" spellcheck="false" data-need="${need}" data-ph="${ph}" ${k ? `data-k="${k}"` : ""}></span>`
+  const factRow = (l, v) => `<div class="f"><span class="fl">${l}</span><span class="fc">:</span>${v}</div>`
+  const party = (v) => { const [n, r] = String(v).split(" — "); return { n, r: r || "" } }
+  const table = () => `<table><thead><tr><th class="c">No</th><th>Nama barang</th><th class="q">Jumlah</th><th>Satuan</th><th>Keterangan</th></tr></thead>
+    <tbody>${S.items.filter((it) => it.name.trim()).map((it, i) => `<tr><td class="c" contenteditable="false">${i + 1}</td><td>${esc(it.name)}</td><td class="q">${it.q}</td><td class="u">${it.u}</td><td class="nt"></td></tr>`).join("")}</tbody></table>`
+  const who = (n, r) => `Nama&nbsp;&nbsp;&nbsp;&nbsp;: ${n}<br>Jabatan : ${r}`
+  let facts = "", body = "", sigs = ""
+  const S2 = (...a) => a.join("")
+  switch (t.id) {
+    case "out":
+      facts = S2(factRow("Kepada", fv(f.to)), factRow("Tanggal", fv(PAPER_DAY)), factRow("Dari", fv(f.from)), factRow("Keperluan", fv(f.purpose)),
+        factRow("Dibawa oleh", blankFv("Nama pembawa", "Carried by", "carrier")), factRow("No. HP", blankFv("08xx xxxx xxxx", "Carrier's phone")))
+      body = `<p>Dengan hormat,</p><p>Bersama surat ini kami keluarkan barang berikut dari ${fld(f.from)} kepada ${fld(f.to)} untuk keperluan ${fld(low1(f.purpose))}:</p>${table()}
+        <p>Mohon barang diperiksa saat diterima, lalu surat ini ditandatangani sebagai tanda terima.</p>`
+      sigs = S2(sigHTML("Dikeluarkan oleh", "me"), sigHTML("Dibawa oleh", "mirror", "carrier"), sigHTML("Diterima oleh", "blank"))
+      break
+    case "in":
+      facts = S2(factRow("Dari", fv(f.from)), factRow("Tanggal", fv(PAPER_DAY)), factRow("Diterima di", fv(f.to)), factRow("Keperluan", fv(f.purpose)),
+        factRow("Diserahkan oleh", blankFv("Nama yang menyerahkan", "Handed over by", "giver")))
+      body = `<p>Dengan hormat,</p><p>Telah kami terima dari ${fld(f.from)} di ${fld(f.to)} barang berikut untuk keperluan ${fld(low1(f.purpose))}:</p>${table()}
+        <p>Barang diterima dalam keadaan baik dan lengkap sesuai rincian di atas.</p>`
+      sigs = S2(sigHTML("Diserahkan oleh", "mirror", "giver"), sigHTML("Diterima oleh", "me"))
+      break
+    case "bast": {
+      const p2 = party(f.to)
+      facts = S2(factRow("Perihal", fv(f.purpose)), factRow("Tanggal", fv(PAPER_DAY)))
+      body = `<p>Pada hari ini, ${WEEKDAY} ${PAPER_DAY}, yang bertanda tangan di bawah ini:</p>
+        <p>Pihak pertama : ${ME.name}, ${ME.role}<br>Pihak kedua&nbsp;&nbsp;&nbsp;: ${fld(f.to)}</p>
+        <p>Pihak pertama menyerahkan kepada pihak kedua barang berikut dalam keadaan baik:</p>${table()}
+        <p>Sejak tanggal serah terima, barang tersebut menjadi tanggung jawab pihak kedua.</p>`
+      sigs = S2(sigHTML("Pihak pertama", "me"), sigHTML("Pihak kedua", "name", p2.n, p2.r))
+      break
+    }
+    case "skp":
+      facts = S2(factRow("Kepada", fv(f.to)), factRow("Tanggal", fv(PAPER_DAY)), factRow("Perihal", fv("Surat kuasa")), factRow("Lampiran", fv("—")))
+      body = `<p>Yang bertanda tangan di bawah ini, ${ME.name}, ${ME.role}, memberikan kuasa kepada:</p>
+        <p>${who(bl("nama penerima kuasa", "Collector's name"), bl("jabatan", "Collector's role"))}</p>
+        <p>untuk mengambil ${fld(f.subject)} di ${fld(f.to)} pada tanggal ${fld(PAPER_DAY)}.</p>
+        <p>Demikian surat kuasa ini dibuat untuk dipergunakan sebagaimana mestinya.</p>`
+      sigs = S2(sigHTML("Pemberi kuasa", "me"), sigHTML("Penerima kuasa", "blank"))
+      break
+    case "st":
+      facts = S2(factRow("Tanggal", fv(PAPER_DAY)), factRow("Perihal", fv(cap1(f.subject))))
+      body = `<p>Yang bertanda tangan di bawah ini menugaskan:</p><p>${who(fld(emp.name), fld(emp.role))}</p>
+        <p>untuk melaksanakan ${fld(f.subject)} di ${fld(f.to)} pada tanggal ${fld(PAPER_DAY)} selama ${bl("lama tugas", "Duration")}.</p>
+        <p>Demikian surat tugas ini dibuat untuk dilaksanakan dengan penuh tanggung jawab.</p>`
+      sigs = S2(sigHTML("Hormat kami", "me"), sigHTML("Yang ditugaskan", "name", emp.name, emp.role))
+      break
+    case "spr": {
+      const word = { "SP 1": "pertama", "SP 2": "kedua", "SP 3": "ketiga" }[String(f.level).toUpperCase().replace(/\s*/g, "").replace("SP", "SP ")] || ""
+      facts = S2(factRow("Tanggal", fv(PAPER_DAY)), factRow("Perihal", fv(`Surat peringatan ${word || f.level}`)))
+      body = `<p>Surat ini diberikan kepada:</p><p>${who(fld(emp.name), fld(emp.role))}</p>
+        <p>sebagai peringatan ${word ? `${word} (${fld(f.level)})` : fld(f.level)} atas ${fld(f.subject)}.</p>
+        <p>Kejadian: ${bl("tulis kejadiannya", "What happened")}</p>
+        <p>Peringatan ini berlaku enam bulan sejak tanggal surat. Bila pelanggaran yang sama terulang, perusahaan akan memberikan peringatan berikutnya.</p>`
+      sigs = S2(sigHTML("Hormat kami", "me"), sigHTML("Diterima oleh", "name", emp.name, emp.role))
+      break
+    }
+    case "skk":
+      facts = S2(factRow("Tanggal", fv(PAPER_DAY)), factRow("Perihal", fv("Surat keterangan kerja")))
+      body = `<p>Yang bertanda tangan di bawah ini menerangkan bahwa:</p>
+        <p>${who(fld(emp.name), fld(emp.role))}<br>Mulai bekerja : ${bl("tanggal mulai bekerja", "Start date")}</p>
+        <p>adalah benar karyawan WIRA yang masih aktif bekerja hingga surat ini dibuat.</p>
+        <p>Surat keterangan ini dibuat untuk keperluan ${fld(f.subject)}.</p>`
+      sigs = sigHTML("Hormat kami", "me")
+      break
+    default: {
+      facts = S2(factRow("Kepada", fv(f.to)), factRow("Tanggal", fv(PAPER_DAY)), factRow("Perihal", fv(cap1(f.subject))), factRow("Lampiran", fv("—")))
+      const subj = fld(f.subject || "…")
+      body = {
+        sp: `<p>Dengan hormat,</p><p>Bersama ini kami sampaikan ${subj} sebagai berikut:</p><p>${bl("tulis rinciannya di sini", "Details")}</p><p>Atas perhatiannya kami ucapkan terima kasih.</p>`,
+        spm: `<p>Dengan hormat,</p><p>Dengan ini kami mengajukan permohonan ${subj} pada ${bl("tanggal dan jam", "When")}.</p><p>${bl("alasan dan rinciannya", "Details")}</p><p>Atas perhatian dan kerja samanya kami ucapkan terima kasih.</p>`,
+        srt: `<p>Dengan hormat,</p><p>${bl("tulis isi surat", "Body")}</p><p>Hormat kami,</p>`,
+        ac: `<p>Dengan hormat, bersama ini kami sampaikan bahwa servis berkala AC ${fld(f.to)} oleh CV Sejuk Teknik Mandiri dijadwalkan pada ${bl("tanggal servis", "Service date")} pukul 07.00–09.00, sebelum toko buka.</p>
+          <p>Mohon kepala toko menyiapkan akses ke ruang stok dan area penjualan. Atas perhatiannya kami ucapkan terima kasih.</p>`,
+      }[t.id]
+      sigs = sigHTML("Hormat kami", "me")
+    }
+  }
+  const n = (sigs.match(/class="sig"/g) || []).length
+  return `<div class="paper editing" id="paper">
+    <div class="copy" data-copy></div><div class="stamp">BATAL</div>
+    <div class="lh"><div><div class="co">WIRA</div><div class="addr">Jl K.H. Mas Mansyur No 38 C-D, Jakarta Pusat</div></div>
+      <div class="ttl"><div class="tt">${t.paper.toUpperCase()}</div><div class="no" id="pno">${t.prefix}/2610/····</div></div></div>
+    <div class="facts">${facts}</div>
+    <div class="body" id="pbody" contenteditable="true" spellcheck="false">${body}</div>
+    <div class="sigs" style="grid-template-columns:repeat(${Math.max(n, 2)},1fr)">${sigs}</div>
+    <div class="pfoot"><svg class="qr" id="qr" viewBox="0 0 29 29"></svg><div id="qrcap"></div></div>
+  </div>`
+}
+// who signs: me · a blank that copies a fact (carrier, giver) · a known name · a blank line
+function sigHTML(cap, who, a = "", b = "") {
+  const ed = (v, extra = "") => `<div class="nm" contenteditable="true" spellcheck="false" ${extra}>${esc(v)}</div>`
+  const box = (nm, role) => `<div class="sig"><div class="cap">${cap},</div><div class="ln"></div>${nm}<div class="rl">${role || "&nbsp;"}</div></div>`
+  if (who === "me") return box(ed(ME.name), ME.role)
+  if (who === "mirror") return box(ed("", `data-mirror="${a}" data-ph="nama"`))
+  if (who === "name") return box(ed(a, 'data-ph="nama"'), esc(b))
+  return box(ed("", 'data-ph="nama"'))
+}
+
+function startWriter(reopen) {
+  S.step = reopen ? 5 : 4; chrome()
+  if (!reopen) { S.issued = false; S.number = null; S.voided = false; S.log = [{ what: `Written from ${tplOf(S.tpl).name}`, who: ME.name, at: hhmm() }] }
+  const t = tplOf(S.tpl)
+  $("#app").classList.add("focus")
+  $("#page").innerHTML = `<div class="writer">
+    <div class="wbar"><button class="word ink" id="wBack">${ic("back", "i i16")}Letters</button><span class="vr"></span>
+      <span class="tt">${t.name}</span><span class="st info" id="wStatus">Draft</span><div class="sp"></div>
+      <span class="saved" id="saved">Saved ${hhmm()}</span><button class="glyph" id="wMore" data-pop aria-label="More">${ic("more")}</button></div>
+    <div class="wbody">
+      <div class="desk" id="desk">
+        <div class="tbwrap"><div class="tb" id="tb">${toolbarHTML()}</div></div>
+        <div class="paperwrap" id="pwrap">${reopen ? S.paperSnap : paperHTML()}</div>
+      </div>
+      <aside class="aside"><div class="ascroll swap" id="ascroll"></div><div class="afoot" id="afoot"></div></aside>
+    </div></div>`
+  $("#wBack").onclick = () => {
+    const go = () => { S.sheetOpen = false; showRegister() }
+    document.startViewTransition ? document.startViewTransition(go) : go()
+  }
+  $("#wMore").onclick = (e) => moreMenu(e.currentTarget)
+  wirePaper()
+  fitPaper()
+  drawAside()
+  if (reopen) { setIssuedLook(false) }
+}
+
+function toolbarHTML() {
+  const b = (cmd, k, label, key) => `<button class="b" data-cmd="${cmd}" title="${label}${key ? " · " + key : ""}" aria-label="${label}">${ic(k)}</button>`
+  return b("undo", "undo", "Undo", "⌘Z") + b("redo", "redo", "Redo", "⇧⌘Z") + `<span class="vr"></span>
+    <button class="dd" id="styleDd" data-pop><span class="lab" id="styleLab">Normal text</span>${ic("chev", "i i16")}</button><span class="vr"></span>` +
+    b("bold", "bold", "Bold", "⌘B") + b("italic", "italic", "Italic", "⌘I") + b("underline", "underline", "Underline", "⌘U") + b("strikeThrough", "strike", "Strikethrough") + `<span class="vr"></span>` +
+    b("justifyLeft", "al", "Align left") + b("justifyCenter", "ac", "Centre") + b("justifyRight", "ar", "Align right") + b("justifyFull", "aj", "Justify") + `<span class="vr"></span>` +
+    b("insertUnorderedList", "ul", "Bulleted list") + b("insertOrderedList", "ol", "Numbered list") + `<span class="vr"></span>
+    <button class="dd" id="insDd" data-pop>${ic("plus", "i i16")}<span>Insert</span>${ic("chev", "i i16")}</button>` + b("removeFormat", "clear", "Clear formatting")
+}
+
+let lastRange = null
+function wirePaper() {
+  const paper = $("#paper")
+  // toolbar keeps the caret where it was
+  $("#tb").addEventListener("mousedown", (e) => { if (e.target.closest("button")) e.preventDefault() })
+  $$("[data-cmd]").forEach((b) => b.onclick = () => { restoreRange(); document.execCommand(b.dataset.cmd, false, null); toolbarState(); changed() })
+  $("#styleDd").onclick = (e) => {
+    const cur = $("#styleLab").textContent
+    const pop = openPop(e.currentTarget, [["P", "Normal text", "font-size:15px"], ["H3", "Heading", "font-size:17px;font-weight:600"], ["SMALL", "Small print", "font-size:15px;color:var(--body)"]].map(([v, l, st]) =>
+      `<button class="pi ${cur === l ? "on" : ""}" data-style="${v}"><span style="${st}">${l}</span>${cur === l ? `<span class="r">${ic("check", "i i16")}</span>` : ""}</button>`).join(""), { width: 200 })
+    pop && $$("[data-style]", pop).forEach((x) => { x.onmousedown = (ev) => ev.preventDefault(); x.onclick = () => { setStyle(x.dataset.style); closePop() } })
+  }
+  $("#insDd").onclick = (e) => {
+    const goods = !!tplOf(S.tpl).items
+    const pop = openPop(e.currentTarget, [
+      ["blank", "blank", "Blank to fill"], goods && ["row", "row", "Item row"], ["date", "cal", "Today's date"], ["line", "line", "Line"], ["sig", "sign", "Signature"],
+    ].filter(Boolean).map(([v, k, l]) => `<button class="pi" data-ins="${v}">${ic(k, "i i16")}${l}</button>`).join(""), { width: 220 })
+    pop && $$("[data-ins]", pop).forEach((x) => { x.onmousedown = (ev) => ev.preventDefault(); x.onclick = () => { insert(x.dataset.ins); closePop() } })
+  }
+  document.onselectionchange = () => {
+    const sel = getSelection()
+    if (sel.rangeCount && paper.contains(sel.anchorNode)) { lastRange = sel.getRangeAt(0).cloneRange(); toolbarState() }
+  }
+  paper.addEventListener("input", (e) => {
+    const el = e.target.closest?.("[contenteditable='true']") || e.target
+    // a one-line fact is one line; an emptied one shows its placeholder again
+    $$(".fv,.nm", paper).forEach((x) => { if (x.textContent.trim() === "" && x.innerHTML !== "") x.innerHTML = "" })
+    $$(".bl", paper).forEach((x) => x.classList.toggle("empty", x.textContent.trim() === "" || x.textContent === x.dataset.ph))
+    const k = el?.dataset?.k, mir = k && $(`[data-mirror=${k}]`, paper)
+    if (mir) mir.textContent = el.textContent
+    recalc(); changed()
+  })
+  paper.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.closest(".fv,.nm")) e.preventDefault() })
+  // a blank is replaced, not appended to
+  paper.addEventListener("click", (e) => {
+    const b = e.target.closest(".bl.empty"); if (!b || !paper.classList.contains("editing")) return
+    const r = document.createRange(); r.selectNodeContents(b); const s = getSelection(); s.removeAllRanges(); s.addRange(r)
+  })
+}
+function restoreRange() {
+  const s = getSelection()
+  if (s.rangeCount && $("#paper")?.contains(s.anchorNode)) return
+  if (!lastRange) return
+  s.removeAllRanges(); s.addRange(lastRange)
+}
+function toolbarState() {
+  $$("[data-cmd]").forEach((b) => {
+    const c = b.dataset.cmd
+    if (["undo", "redo", "removeFormat"].includes(c)) return
+    let on = false; try { on = document.queryCommandState(c) } catch {}
+    b.classList.toggle("on", on)
+  })
+  const n = getSelection().anchorNode, el = n && (n.nodeType === 1 ? n : n.parentElement)
+  $("#styleLab").textContent = el?.closest("h3") ? "Heading" : el?.closest(".small") ? "Small print" : "Normal text"
+}
+function setStyle(v) {
+  restoreRange()
+  if (v === "SMALL") {
+    document.execCommand("formatBlock", false, "p")
+    const n = getSelection().anchorNode; const p = (n.nodeType === 1 ? n : n.parentElement).closest("p"); p && p.classList.add("small")
+  } else {
+    document.execCommand("formatBlock", false, v.toLowerCase())
+    const n = getSelection().anchorNode; const p = (n.nodeType === 1 ? n : n.parentElement).closest("p"); p && p.classList.remove("small")
+  }
+  toolbarState(); changed()
+}
+let blankN = 0
+function insert(what) {
+  restoreRange()
+  const inBody = lastRange && $("#pbody").contains(lastRange.startContainer)
+  if (what === "row") {
+    const tb = $("#paper tbody"), tr = document.createElement("tr")
+    tr.innerHTML = `<td class="c" contenteditable="false"></td><td></td><td class="q">1</td><td class="u">pcs</td><td class="nt"></td>`
+    tb.appendChild(tr); recalc(); changed()
+    const td = tr.children[1]; const r = document.createRange(); r.setStart(td, 0); r.collapse(true); const s = getSelection(); s.removeAllRanges(); s.addRange(r); td.focus?.()
+    return
+  }
+  if (!inBody) { const b = $("#pbody"); const r = document.createRange(); r.selectNodeContents(b.lastElementChild); r.collapse(false); const s = getSelection(); s.removeAllRanges(); s.addRange(r) }
+  if (what === "blank") { blankN++; document.execCommand("insertHTML", false, `<span class="bl empty" data-need="Blank ${blankN}" data-ph="isi di sini">isi di sini</span>&nbsp;`) }
+  if (what === "date") document.execCommand("insertText", false, PAPER_DAY)
+  if (what === "line") document.execCommand("insertHorizontalRule")
+  if (what === "sig") {
+    const sigs = $("#paper .sigs"), n = sigs.children.length + 1
+    sigs.insertAdjacentHTML("beforeend", sigHTML("Mengetahui", "blank"))
+    sigs.style.gridTemplateColumns = `repeat(${Math.min(n, 4)},1fr)`
+  }
+  changed()
+}
+function recalc() {
+  const paper = $("#paper"); if (!paper) return
+  $$("tbody tr", paper).forEach((tr, i) => { tr.children[0].textContent = i + 1 })
+  drawAside()
+}
+let saveT
+function changed() {
+  if (S.issued) return
+  $("#saved").textContent = "Saving…"
+  clearTimeout(saveT); saveT = setTimeout(() => { $("#saved").textContent = `Saved ${hhmm()}` }, 700)
+  drawAside()
+}
+function fitPaper() {
+  const wrap = $("#pwrap"), paper = $("#paper"); if (!wrap || !paper) return
+  const avail = $("#desk").clientWidth - 48
+  paper.style.zoom = Math.min(1, avail / 794)
+}
+addEventListener("resize", fitPaper)
+
+// the side: what happens to the letter, not what it says
+function drawAside() {
+  const paper = $("#paper"), box = $("#ascroll"); if (!paper || !box) return
+  const t = tplOf(S.tpl), f = S.form
+  const needs = $$("[data-need]", paper).map((el) => ({ el, label: el.dataset.need, done: el.classList.contains("bl") ? !el.classList.contains("empty") : el.textContent.trim() !== "", val: el.textContent.trim() }))
+  const left = needs.filter((n) => !n.done).length
+  const rows = t.items ? $$("tbody tr", paper).map((tr) => ({ tr, name: tr.children[1].textContent.trim() || "New row", q: tr.querySelector("td.q").textContent.trim(), u: tr.querySelector("td.u").textContent.trim() })) : []
+  const facts = t.fields.flat().filter((fd) => fd.k !== "date").map((fd) => {
+    const v = esc(f[fd.k] || "—")
+    return `<div class="kv"><span class="k">${fd.label}</span><span class="v ell">${v}</span></div>`
+  }).join("")
+  const todo = S.issued ? "" : `<div class="ablock"><div class="sect">To fill<span class="c">${left || ""}</span></div>
+    ${needs.map((n, i) => `<button class="todo ${n.done ? "done" : ""}" data-need-i="${i}"><span class="ring">${ic("check")}</span><span class="lab">${n.label}</span><span class="val ell">${n.done ? esc(n.val) : ""}</span>${n.done ? "" : ic("right", "i i16 chev")}</button>`).join("")}
+    ${!left ? `<div class="allset" style="margin-top:${needs.length ? 8 : 0}px">${ic("check", "i i16")}Nothing left to fill</div>` : ""}</div>`
+  const items = t.items ? `<div class="ablock"><div class="sect">Items<span class="c">${rows.length}</span></div>
+    ${rows.map((r, i) => `<button class="irow" data-row-i="${i}"><span class="a ell">${esc(r.name)}</span><span class="z num">${esc(r.q)} ${esc(r.u)}</span></button>`).join("")}</div>` : ""
+  box.innerHTML = `
+    <div class="ablock">
+      <div class="kv"><span class="k">Number</span><span class="v ${S.number ? "mono" : "m"}" style="${S.number ? "" : "font-style:italic"}">${S.number || "no number yet"}</span></div>
+      <div class="kv"><span class="k">Template</span><span class="v">${t.name}</span></div>
+      ${facts}
+      <div class="kv"><span class="k">Written by</span><span class="v">${ME.name}</span></div>
+    </div>${todo}${items}
+    <div class="ablock"><div class="sect">Activity</div><div class="tl">${S.log.slice().reverse().map((e) => `<div class="e ${e.ok ? "ok" : ""}"><span class="d"></span><span><span>${e.what}</span><br><span class="w">${e.who} · ${DAY}, ${e.at}</span></span></div>`).join("")}</div></div>`
+  $$("[data-need-i]", box).forEach((b) => b.onclick = () => { const n = needs[+b.dataset.needI]; focusOn(n.el, true) })
+  $$("[data-row-i]", box).forEach((b) => b.onclick = () => focusOn(rows[+b.dataset.rowI].tr.children[1], true))
+  drawFoot()
+}
+function focusOn(el, select) {
+  el.scrollIntoView({ behavior: "smooth", block: "center" })
+  el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash")
+  if (S.issued) return
+  setTimeout(() => {
+    const host = el.closest("[contenteditable='true']") || el
+    host.focus?.()
+    const r = document.createRange(); r.selectNodeContents(el); if (!select) r.collapse(false)
+    const s = getSelection(); s.removeAllRanges(); s.addRange(r)
+  }, 250)
+}
+function drawFoot() {
+  const foot = $("#afoot"); if (!foot) return
+  if (!S.issued) {
+    foot.innerHTML = `<button class="btn lg" id="issue">Issue letter</button>`
+    $("#issue").onclick = () => issue()
+  } else if (S.voided) {
+    foot.innerHTML = ""
+  } else {
+    foot.innerHTML = `<div class="row"><button class="word red" id="pdf">${ic("download", "i i16")}Download PDF</button><button class="btn lg" id="print">${ic("printer", "i i16")}Print</button></div>`
+    $("#print").onclick = () => printDialog()
+    $("#pdf").onclick = () => downloaded()
+  }
+}
+
+function moreMenu(anchor) {
+  const items = S.issued
+    ? [["dup", "copy", "Duplicate"], ["keep", "keep", "Keep as template"], !S.voided && ["void", "ban", "Void letter", "red"]]
+    : [["keep", "keep", "Keep as template"], ["discard", "trash", "Discard draft", "red"]]
+  const pop = openPop(anchor, items.filter(Boolean).map(([v, k, l, c]) => `<button class="pi ${c || ""}" data-m="${v}">${ic(k, "i i16")}${l}</button>`).join(""), { align: "right", width: 220 })
+  pop && $$("[data-m]", pop).forEach((b) => b.onclick = () => {
+    closePop()
+    const m = b.dataset.m
+    if (m === "keep") keepDialog()
+    if (m === "discard") { toast("Draft discarded"); const go = () => showRegister(); document.startViewTransition ? document.startViewTransition(go) : go() }
+    if (m === "dup") { toast("Duplicated as a new draft"); S.tpl = S.tpl; startWriter() }
+    if (m === "void") voidDialog()
+  })
+}
+
+// ── 5 · issue ────────────────────────────────────────────────────────
+function fillDemoBlanks() {
+  const p = $("#paper")
+  const set = (sel, v) => { const el = $(sel, p); if (el) el.textContent = v }
+  set("[data-k=carrier]", "Agus Salim"); set("[data-mirror=carrier]", "Agus Salim")
+  const ph = $$("[data-need]", p).find((x) => x.dataset.need === "Carrier's phone"); if (ph) ph.textContent = "0812 8800 4411"
+  drawAside()
+}
+function issue() {
+  const t = tplOf(S.tpl), f = S.form
+  S.issued = true; S.step = 5; chrome()
+  S.number = `${t.prefix}/2610/${String(seq[t.prefix]++).padStart(4, "0")}`
+  S.log.push({ what: `Issued ${S.number}`, who: ME.name, at: hhmm(), ok: true })
+  setIssuedLook(true)
+  // the letter joins the register
+  const n = $$("#paper tbody tr").length
+  REGISTER.unshift({ no: S.number, kind: t.name, ref: cap1(f.purpose || f.subject || t.paper), to: f.emp || f.to, qty: t.items ? `${n} ${n === 1 ? "item" : "items"}` : null, st: "Issued", day: DAY, cat: t.cat })
+  S.fresh = 0
+  setTimeout(() => printDialog(), 420)
+}
+function setIssuedLook(animate) {
+  const paper = $("#paper"), tb = $("#tb")
+  tb.classList.add("gone")
+  getSelection().removeAllRanges()
+  paper.classList.remove("editing"); paper.classList.add("issued")
+  $$("[contenteditable]", paper).forEach((el) => el.setAttribute("contenteditable", "false"))
+  const no = $("#pno")
+  if (animate) { no.classList.add("blur"); setTimeout(() => { no.textContent = S.number; no.classList.add("set"); no.classList.remove("blur") }, 160) }
+  else { no.textContent = S.number; no.classList.add("set") }
+  drawQr(); $("#qrcap").innerHTML = `Pindai untuk melacak surat ini<br><span style="font-family:var(--mono)">${S.number}</span>`
+  $("#wStatus").className = "st " + (S.voided ? "bad" : "ok"); $("#wStatus").textContent = S.voided ? "Void" : "Issued"
+  $("#saved").textContent = `Issued ${DAY}, ${hhmm()}`
+  const a = $("#ascroll"); a.classList.add("out"); setTimeout(() => { drawAside(); a.classList.remove("out") }, 100)
+  S.paperSnap = $("#pwrap").innerHTML
+}
+function drawQr() {
+  // a stand-in pattern; the hub draws a real QR of /letters?letter=<id>
+  let h = 0; for (const c of S.number) h = (h * 31 + c.charCodeAt(0)) >>> 0
+  const rnd = () => ((h = (h * 1103515245 + 12345) >>> 0) >>> 16) & 1
+  let r = ""
+  const finder = (x, y) => `<rect x="${x}" y="${y}" width="7" height="7" fill="#111"/><rect x="${x + 1}" y="${y + 1}" width="5" height="5" fill="#fff"/><rect x="${x + 2}" y="${y + 2}" width="3" height="3" fill="#111"/>`
+  for (let y = 0; y < 29; y++) for (let x = 0; x < 29; x++) {
+    const inF = (x < 8 && y < 8) || (x > 20 && y < 8) || (x < 8 && y > 20)
+    if (!inF && rnd()) r += `<rect x="${x}" y="${y}" width="1" height="1" fill="#111"/>`
+  }
+  $("#qr").innerHTML = r + finder(0, 0) + finder(22, 0) + finder(0, 22)
+}
+
+// ── dialogs ──────────────────────────────────────────────────────────
+function openDialog(html, small) {
+  const d = $("#dlg"); d.className = "dlg" + (small ? " small" : ""); d.innerHTML = html
+  $("#dveil").classList.add("open")
+  $$("[data-dclose]", d).forEach((b) => b.onclick = () => closeDialog())
+}
+function closeDialog(instant) { $("#dveil").classList.remove("open") }
+$("#dveil").addEventListener("mousedown", (e) => { if (e.target.id === "dveil") closeDialog() })
+
+const COPY_NAMES = ["Lembar 1 · Asli", "Lembar 2 · Pembawa", "Lembar 3 · Arsip"]
+function printDialog() {
+  const goods = !!tplOf(S.tpl).items
+  if (!goods && S.copies === 3) S.copies = 1
+  openDialog(`
+    <div class="dhead"><div class="tx"><div class="t">Print</div><div class="c mono" style="font-family:var(--font)">${S.number}</div></div><button class="glyph" data-dclose>${ic("x")}</button></div>
+    <div class="dbody"><div class="pv">
+      <div class="pvdesk"><div class="pvstack" id="pvstack"></div></div>
+      <div>
+        <div class="opt"><div class="l">Paper</div><div class="segm" id="pvSize">${["A4", "A5"].map((v) => `<button class="${S.paperSize === v ? "on" : ""}" data-v="${v}">${v}</button>`).join("")}</div></div>
+        <div class="opt"><div class="l">Copies</div><div class="segm" id="pvCopies">${[1, 2, 3].map((v) => `<button class="${S.copies === v ? "on" : ""}" data-v="${v}">${v}</button>`).join("")}</div>
+          <div class="copies" id="copyNames"></div></div>
+      </div></div></div>
+    <div class="dfoot"><button class="word red" id="dPdf">${ic("download", "i i16")}Download PDF</button><span class="sp"></span><button class="btn lg" id="dPrint">${ic("printer", "i i16")}Print</button></div>`)
+  const draw = () => {
+    const a5 = S.paperSize === "A5"
+    const w = a5 ? 200 : 284, h = Math.round(w * 1.414)
+    const z = w / 794
+    const backs = Array.from({ length: S.copies - 1 }, (_, i) => `<div class="pvback" style="transform:translate(${(i + 1) * 8}px,${(i + 1) * -8}px);z-index:${-i - 1}"></div>`).reverse().join("")
+    $("#pvstack").innerHTML = `<div style="position:relative;z-index:0;width:${w}px;height:${h}px">${backs}<div class="pvpage" style="width:${w}px;height:${h}px">${$("#pwrap").innerHTML.replace('id="paper"', "")}</div></div>`
+    const p = $("#pvstack .paper"); p.style.zoom = ""; p.style.transform = `scale(${z})`; p.style.width = "794px"; p.style.height = "1123px"; p.style.overflow = "hidden"
+    $("#copyNames").innerHTML = COPY_NAMES.slice(0, S.copies).join("<br>")
+  }
+  draw()
+  $$("#pvSize button").forEach((b) => b.onclick = () => { S.paperSize = b.dataset.v; $$("#pvSize button").forEach((x) => x.classList.toggle("on", x === b)); draw() })
+  $$("#pvCopies button").forEach((b) => b.onclick = () => { S.copies = +b.dataset.v; $$("#pvCopies button").forEach((x) => x.classList.toggle("on", x === b)); draw() })
+  $("#dPrint").onclick = () => {
+    const root = $("#printroot")
+    root.innerHTML = Array.from({ length: S.copies }, (_, i) => $("#pwrap").innerHTML.replace('id="paper"', "").replace("<div class=\"copy\" data-copy=\"\"></div>", `<div class="copy">${COPY_NAMES[i]}</div>`)).join("")
+    $$(".paper", root).forEach((p) => { p.style.zoom = ""; const c = $(".copy", p); if (c) c.textContent = S.copies > 1 ? COPY_NAMES[$$(".paper", root).indexOf(p)] : "" })
+    closeDialog()
+    S.log.push({ what: `Printed ${S.copies} ${S.copies === 1 ? "copy" : "copies"}`, who: ME.name, at: hhmm() }); drawAside()
+    setTimeout(() => { window.print(); toast("Sent to the printer") }, 220)
+  }
+  $("#dPdf").onclick = () => { closeDialog(); downloaded() }
+}
+function downloaded() {
+  S.log.push({ what: "Downloaded as PDF", who: ME.name, at: hhmm() }); drawAside()
+  toast(`Downloaded ${S.number.replaceAll("/", "-")}.pdf`)
+}
+function keepDialog() {
+  const t = tplOf(S.tpl)
+  openDialog(`<div class="dhead"><div class="tx"><div class="t">Keep as template</div></div><button class="glyph" data-dclose>${ic("x")}</button></div>
+    <div class="dbody"><label><span class="fld-l">Name</span><input class="inp" id="kName" value="${esc(`${t.name} · ${String(S.form.emp || S.form.to || "").split(/ [·—] /)[0]}`)}"></label></div>
+    <div class="dfoot"><span class="sp"></span><button class="btn lg" id="kGo">Keep</button></div>`, true)
+  setTimeout(() => $("#kName").select(), 50)
+  $("#kGo").onclick = () => {
+    const name = $("#kName").value.trim() || t.name
+    TEMPLATES.push({ ...t, id: "k" + Date.now(), name, saved: `Saved by ${ME.name}` })
+    closeDialog(); toast(`Kept in Saved templates`)
+  }
+}
+function voidDialog() {
+  openDialog(`<div class="dhead"><div class="tx"><div class="t">Void ${S.number}</div></div><button class="glyph" data-dclose>${ic("x")}</button></div>
+    <div class="dbody"><label><span class="fld-l">Reason</span><input class="inp" id="vWhy" placeholder="Why"></label></div>
+    <div class="dfoot"><span class="sp"></span><button class="btn lg red" id="vGo" disabled>Void letter</button></div>`, true)
+  const w = $("#vWhy"); setTimeout(() => w.focus(), 50)
+  w.oninput = () => $("#vGo").disabled = !w.value.trim()
+  $("#vGo").onclick = () => {
+    S.voided = true; closeDialog()
+    S.log.push({ what: `Voided — ${w.value.trim()}`, who: ME.name, at: hhmm() })
+    $("#paper").classList.add("void"); $("#wStatus").className = "st bad"; $("#wStatus").textContent = "Void"
+    REGISTER[0].st = "Void"; drawAside(); toast("Letter voided")
+  }
+}
+
+let toastT
+function toast(msg) {
+  const t = $("#toast"); t.innerHTML = `${ic("check", "i i16")}<span>${msg}</span>`
+  t.classList.add("open"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("open"), 3000)
+}
+
+// ── go ───────────────────────────────────────────────────────────────
+resetForm("out")
+showRegister()
+chrome()
+const startAt = +new URLSearchParams(location.search).get("step"); if (startAt > 1) jump(startAt)
+</script>
+<script src="ga-letter-writer-adapter.js"></script>
+</body>
+</html>

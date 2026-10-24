@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rail corner options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="frontend-hub/design-system/tokens.css">
+<style>
+:root{--font-sans:"Inter Variable","Inter",system-ui,-apple-system,"Segoe UI",sans-serif;--accent:#2862dc;--bad:#d70015}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:#e9e9ee;font-family:var(--font-sans);font-size:15px;line-height:1.45;color:#111;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;cursor:pointer}
+.pbar{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:10px 16px;background:#fff;border-bottom:1px solid #e8e8ec}
+.pbar b{font-weight:600}
+.seg{display:inline-flex;flex-wrap:wrap;gap:2px;padding:3px;border-radius:9px;background:#ececf0}
+.seg button{border:0;background:none;padding:5px 12px;border-radius:7px;color:#555}
+.seg button.on{background:#fff;color:#111;box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.star{color:var(--accent)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:20px;padding:24px}
+.shot{display:flex;flex-direction:column;gap:8px}
+.cap{font-weight:600}.cap span{font-weight:400;color:#666}
+/* the shell corner */
+.shell{display:flex;gap:12px;height:420px;padding:12px;background:#e9e9ee;border-radius:14px;border:1px solid #dcdce2}
+.rail{width:44px;display:flex;flex-direction:column;align-items:center;gap:14px;padding-top:6px}
+.ico{width:22px;height:22px;border-radius:6px;background:#c9c9d2}
+.rail .spacer{flex:1}
+.panel{flex:1;background:#fff;border-radius:14px;display:flex;flex-direction:column;padding:16px}
+.panel h3{margin:0 0 14px;font-size:20px}
+.item{padding:7px 8px;border-radius:8px;color:#333}
+.item.on{background:#eef3fc;color:var(--accent)}
+.panel .spacer{flex:1}
+.clock{display:flex;align-items:center;gap:8px;color:#222;padding:4px 6px}
+.clock i{width:16px;height:16px;border:1.5px solid #888;border-radius:50%}
+/* avatars */
+.av{position:relative;display:grid;place-items:center;border-radius:50%;background:#eef3fc;color:var(--accent);font-weight:600}
+.av.big{width:52px;height:52px;border:2.5px solid var(--accent);font-size:18px}
+.av.s32{width:32px;height:32px;font-size:14.5px}
+.av.s28{width:28px;height:28px;font-size:14px;border:1.5px solid var(--accent)}
+.badge{position:absolute;top:-6px;right:-10px;min-width:20px;height:20px;padding:0 5px;border-radius:999px;background:var(--bad);color:#fff;font-size:12px;font-weight:600;display:grid;place-items:center;border:2px solid #e9e9ee}
+.badge.big{top:-4px;right:-14px;height:24px;font-size:13px}
+.dot{position:absolute;top:-1px;right:-1px;width:10px;height:10px;border-radius:50%;background:var(--bad);border:2px solid #e9e9ee}
+.bell{position:relative;width:22px;height:22px;border-radius:6px;border:1.5px solid #777}
+.bell .badge{top:-8px;right:-12px}
+.me{display:flex;align-items:center;gap:10px;padding:6px;border-radius:10px}
+.me .who{display:flex;flex-direction:column;line-height:1.25}
+.me .who b{font-weight:600}.me .who span{color:#666}
+.me .count{margin-left:auto;min-width:22px;height:22px;padding:0 6px;border-radius:999px;background:var(--bad);color:#fff;font-size:12.5px;font-weight:600;display:grid;place-items:center}
+</style>
+</head>
+<body>
+<div class="pbar"><b>Bottom-left corner: no clock, smaller avatar</b><span style="color:#666">Each option side by side.</span></div>
+<div class="grid" id="grid"></div>
+<script>
+const items = '<h3>Merchandise</h3><div class="item">New Articles</div><div class="item on">Allotments</div><div class="item">Return HO</div><div class="item">Articles</div>';
+const icons = '<div class="ico"></div>'.repeat(8);
+const opts = [
+  ["A · Now", "52px ring, 99+, clock in the panel",
+    `<div class="av big">A<span class="badge big">99+</span></div>`, `<div class="clock"><i></i>20 Oct 2026 · 14:40</div>`],
+  ["B · Small, dot", "32px, a red dot only, no clock",
+    `<div class="av s32">A<span class="dot"></span></div>`, ``],
+  ["C · Small, count ★", "32px with a small 9+ badge, no clock",
+    `<div class="av s32">A<span class="badge">9+</span></div>`, ``],
+  ["D · Ring 28px", "28px thin ring, count badge, no clock",
+    `<div class="av s28">A<span class="badge">99+</span></div>`, ``],
+  ["E · Bell + avatar", "the count moves to a bell; avatar 28px plain",
+    `<div class="bell"><span class="badge">99+</span></div><div class="av s28" style="border:0">A</div>`, ``],
+  ["F · You in the panel", "no avatar in the rail; your name where the clock was",
+    ``, `<div class="me"><div class="av s32">A</div><div class="who"><b>Administrator</b><span>admin</span></div><span class="count">99+</span></div>`],
+];
+document.getElementById("grid").innerHTML = opts.map(([t, d, rail, foot]) => `
+  <div class="shot"><div class="cap">${t} <span>— ${d}</span></div>
+  <div class="shell"><div class="rail">${icons}<div class="spacer"></div>${rail}</div>
+  <div class="panel">${items}<div class="spacer"></div>${foot}</div></div></div>`).join("");
+</script>
+</body>
+</html>

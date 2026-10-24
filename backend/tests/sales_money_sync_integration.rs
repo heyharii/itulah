@@ -107,6 +107,7 @@ fn a_sale_queues_its_money_alongside_its_stock_movement() {
             epcs: vec!["EPC90000001".into()],
             tenders: cash(50_000),
             coupon_authorizations: Vec::new(),
+            untagged: Vec::new(),
         })
         .unwrap_or_else(|e| panic!("sale: {e}"));
 
@@ -145,6 +146,7 @@ fn an_idempotent_replay_of_a_sale_queues_no_second_money_fact() {
         epcs: vec!["EPC90000002".into()],
         tenders: cash(15_000),
         coupon_authorizations: Vec::new(),
+        untagged: Vec::new(),
     };
     let first = edge
         .complete_sale(request.clone())
@@ -337,6 +339,7 @@ fn a_basket_paid_half_on_a_card_records_both_halves() {
                 },
             ],
             coupon_authorizations: Vec::new(),
+            untagged: Vec::new(),
         })
         .unwrap_or_else(|e| panic!("split sale: {e}"));
 
@@ -411,6 +414,7 @@ fn a_card_cannot_be_charged_above_the_basket() {
             reference: None,
         }],
         coupon_authorizations: Vec::new(),
+        untagged: Vec::new(),
     });
     assert!(
         refusal.is_err(),
@@ -439,6 +443,7 @@ fn a_reference_that_looks_like_a_card_number_is_refused() {
             reference: Some("4571 2234 9981 0043".into()),
         }],
         coupon_authorizations: Vec::new(),
+        untagged: Vec::new(),
     });
     assert!(
         refusal.is_err(),
@@ -575,6 +580,8 @@ fn an_unknown_coupon_code_is_refused_at_quote_and_sale() {
             customer_id: None,
             charges: Vec::new(),
             coupon_authorizations: Vec::new(),
+            untagged: Vec::new(),
+            actor_id: String::new(),
         })
         .unwrap_or_else(|e| panic!("quote: {e}"));
     assert_eq!(plain["amount_due_minor"], 12_000);
@@ -585,6 +592,8 @@ fn an_unknown_coupon_code_is_refused_at_quote_and_sale() {
         customer_id: None,
         charges: Vec::new(),
         coupon_authorizations: Vec::new(),
+        untagged: Vec::new(),
+        actor_id: String::new(),
     });
     assert!(
         refused.is_err(),
@@ -605,6 +614,7 @@ fn an_unknown_coupon_code_is_refused_at_quote_and_sale() {
         epcs: vec!["EPC90000004".into()],
         tenders: cash(12_000),
         coupon_authorizations: Vec::new(),
+        untagged: Vec::new(),
     });
     assert!(
         sale_refused.is_err(),
@@ -619,6 +629,8 @@ fn an_unknown_coupon_code_is_refused_at_quote_and_sale() {
             customer_id: None,
             charges: Vec::new(),
             coupon_authorizations: Vec::new(),
+            untagged: Vec::new(),
+            actor_id: String::new(),
         })
         .unwrap_or_else(|e| panic!("known code: {e}"));
     let _ = known; // the rule it opens does not exist here, so it prices plain;

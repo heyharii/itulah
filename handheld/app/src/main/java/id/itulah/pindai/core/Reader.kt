@@ -2,10 +2,15 @@ package id.itulah.pindai.core
 
 import android.content.Context
 import com.rscja.deviceapi.RFIDWithUHFUART
+import com.rscja.deviceapi.UhfBase
 import com.rscja.deviceapi.entity.Gen2Entity
 import com.rscja.deviceapi.entity.InventoryModeEntity
+import com.rscja.deviceapi.entity.InventoryParameter
+import com.rscja.deviceapi.entity.UHFTAGInfo
 import com.rscja.deviceapi.interfaces.ConnectionStatus
 import com.rscja.deviceapi.interfaces.ConnectionStatusCallback
+import com.rscja.team.mtk.deviceapi.DeviceAPI
+import id.itulah.pindai.BuildConfig
 
 /**
  * A sighting is handed on as the two strings the module already had.
@@ -48,12 +53,51 @@ data class Gen2State(
 class Reader {
     @Volatile private var rfid: RFIDWithUHFUART? = null
     @Volatile private var polling = false
+    @Volatile private var productionRecipe = true
 
     /** The round is stopped and the poll thread is emptying the SDK's buffer. See [stop]. */
     @Volatile private var draining = false
 
     /** Tag frames handed over since the last [start]. See [heardWithin]. */
     @Volatile private var framesSinceStart = 0L
+
+    /**
+     * How the next round starts. Bench only: nothing on the floor sets it and
+     * nothing saves it, so every launch starts [StartMode.NORMAL].
+     *
+     * Read by every start. A round already running keeps the frame it was
+     * started with; a change takes effect at the next start.
+     */
+    @Volatile var startMode: StartMode = StartMode.NORMAL
+        set(value) {
+            if (BuildConfig.BENCH) {
+                productionRecipe = false
+                field = value
+            }
+        }
+
+    // What the frames since the last [start] carried, in a bench build. Written
+    // by the poll thread alone; see [frameStats].
+    @Volatile private var startedIn = StartMode.NORMAL
+    @Volatile private var strongFrames = 0L
+    @Volatile private var extraFrames = 0L
+    @Volatile private var lastPhase = 0
+    @Volatile private var lastFrequencyMhz = 0f
+
+    /** Armed by [listen] for one window, null otherwise. */
+    @Volatile private var rssiWindow: RssiWindow? = null
+
+    /**
+     * A power written raw at rest and still in force, or -1. Bench only, and
+     * gone at the next open, which applies the chosen power. See [rawPower].
+     */
+    @Volatile private var benchRawPower = -1
+
+    /**
+     * Keep the module when another app broadcasts UHF_POWER_OFF. Bench only,
+     * off unless somebody turns it on, and never saved. See [setIgnorePowerOff].
+     */
+    @Volatile private var ignorePowerOff = false
 
     /**
      * The firmware version, read once when the module opens.
@@ -145,18 +189,25 @@ class Reader {
      * # Why the instance we hold cannot simply be trusted
      *
      * The vendor SDK lets go of the module behind this object's back, and says
-     * nothing. When another app opens the UHF module the SDK broadcasts
-     * `UHF_POWER_OFF` and our instance frees ITSELF (`UhfBase.PowerOffReceiver`).
-     * When the screen goes off it frees itself too — and when the device is
-     * unlocked again it opens the module again on its own
-     * (`UhfBase.ScreenReceiver`), at the module's defaults, with none of the
-     * power or radio profile this app applied. Either way the instance in
+     * nothing. When another app opens the UHF module it broadcasts
+     * `UHF_POWER_OFF`, and our instance frees ITSELF
+     * (`UhfBase.PowerOffReceiver`). The receiver is exported, so any app's
+     * broadcast does it, and a `free()` powers the module off. The instance in
      * [rfid] looks exactly as it did, and an early return on "we have one"
-     * swept with a radio that was off, or at a power nobody chose.
+     * swept with a radio that was off. That case shows in `isPowerOn()`.
      *
-     * The first case shows in `isPowerOn()`. The second does not — the module
-     * IS powered, just not by us — so the SDK's own connection report is
-     * watched for an open we did not make.
+     * The case this flag is for does not show there: a module the SDK opened
+     * again by itself, at the module's defaults, with none of the power or
+     * radio profile this app applied. It IS powered, just not by us — so the
+     * SDK's own connection report is watched for an open we did not make.
+     *
+     * Nothing in DeviceAPI_ver20251103 makes such an open. An earlier note here
+     * blamed `UhfBase.ScreenReceiver` — freeing the module at screen-off and
+     * opening it again on unlock — but that receiver never registers in this
+     * build: `isMonitorScreen` is only ever assigned false, in the `UhfBase`
+     * constructor (javap, 22 Oct 2026). The watch stays. It costs one flag, and
+     * an SDK update that does watch the screen would bring that exact failure
+     * back, silently, at a power nobody chose.
      */
     @Volatile private var openedElsewhere = false
 
@@ -267,11 +318,11 @@ class Reader {
                 lastReason = it.message ?: "getInstance"
                 return@repeat
             }
-            // A module the SDK is already holding open — it re-opens one by
-            // itself when the device is unlocked — answers `init` with "already
-            // initialized" and opens nothing, so the power below would be
-            // written to an open module: accepted, and not radiated (see
-            // [setPower]). Let it go first, so this is a real open.
+            // A module the SDK is already holding open — whoever opened it —
+            // answers `init` with "already initialized" and opens nothing, so
+            // the power below would be written to an open module: accepted,
+            // and not radiated (see [setPower]). Let it go first, so this is a
+            // real open.
             if (runCatching { instance.isPowerOn }.getOrDefault(false)) {
                 runCatching { instance.free() }
             }
@@ -286,9 +337,23 @@ class Reader {
             if (opened) {
                 rfid = instance
                 openedElsewhere = false
+                // A fresh open: the power applied below replaces anything the
+                // bench wrote raw.
+                benchRawPower = -1
                 version = versionOf(instance)
-                applyPower(instance, wantedPower)
-                restoreGen2(instance)
+                try {
+                    applyPower(instance, wantedPower)
+                    restoreGen2(instance)
+                } catch (failure: Exception) {
+                    runCatching { instance.free() }
+                    rfid = null
+                    appliedPower = -1
+                    appliedMode = -1
+                    throw failure
+                }
+                // The SDK registers its UHF_POWER_OFF receiver again on every
+                // open, so a bench that asked for it gone takes it away again.
+                if (ignorePowerOff) dropPowerOffReceiver()
                 return version
             }
             lastReason = lastReason ?: "the module refused to open"
@@ -345,6 +410,7 @@ class Reader {
      */
     @Synchronized
     fun setGen2Extensions(tagFocus: Boolean, fastId: Boolean, session: Int? = null): Gen2State {
+        if (BuildConfig.BENCH) productionRecipe = false
         val r = rfid ?: return Gen2State(false, false)
         // Session first: Tag Focus has nothing to hold on to in S0, so setting
         // it before the session would be switching on a feature that cannot
@@ -436,6 +502,7 @@ class Reader {
         target: Int? = null,
         startQ: Int? = null,
     ): Int {
+        if (BuildConfig.BENCH) productionRecipe = false
         val r = rfid ?: return -1
         val current = runCatching { r.gen2 }.getOrNull() ?: return -1
         session?.let {
@@ -494,6 +561,7 @@ class Reader {
      */
     @Synchronized
     fun resetRadioDefaults(): String {
+        if (BuildConfig.BENCH) productionRecipe = false
         val r = rfid ?: return "module closed"
         val block = runCatching { r.gen2 }.getOrNull() ?: return "gen2 unreadable"
         block.selectTarget = 0
@@ -737,6 +805,7 @@ class Reader {
 
     @Synchronized
     fun setRfLink(mode: Int): Int {
+        if (BuildConfig.BENCH) productionRecipe = false
         val r = rfid ?: return -1
         wantedRfLink = mode
         runCatching { logged("setRFLink($mode)") { r.setRFLink(mode) } }
@@ -755,6 +824,10 @@ class Reader {
      * — which is why the app reads the state back rather than assuming.
      */
     private fun restoreGen2(instance: RFIDWithUHFUART) {
+        if (productionRecipe) {
+            installRecipe(instance)
+            return
+        }
         // The link mode first, in the order the floor's profile has always been
         // applied in: a link profile is the frame the rest of the block lives
         // in, and nothing here may depend on it NOT resetting the session.
@@ -810,6 +883,8 @@ class Reader {
      */
     @Synchronized
     fun useProfile(rfLink: Int, target: Int, tagFocus: Boolean, fastId: Boolean, session: Int) {
+        if (!BuildConfig.BENCH) return
+        productionRecipe = false
         val link = if (rfLink >= 0) rfLink else wantedRfLink
         val tgt = if (target in 0..1) target else wantedTarget
         val sess = if (session in 0..3) session else wantedSession
@@ -824,18 +899,98 @@ class Reader {
         held()?.let { restoreGen2(it) }
     }
 
+    /** Reset to the versioned production recipe, including after a Lab session. At rest only. */
+    @Synchronized
+    fun useProductionRecipe() {
+        check(!polling) { "Stop the current scan before applying the reader profile." }
+        val needsPower = held() != null && appliedPower != RadioRecipe.POWER_DBM
+        productionRecipe = true
+        wantedPower = RadioRecipe.POWER_DBM
+        wantedRfLink = RadioRecipe.RF_LINK
+        wantedSession = RadioRecipe.SESSION
+        wantedTarget = RadioRecipe.TARGET
+        wantedTagFocus = RadioRecipe.TAG_FOCUS
+        wantedFastId = RadioRecipe.FAST_ID
+        if (needsPower) {
+            val context = appContext ?: error("Reader context unavailable")
+            close()
+            init(context)
+        } else held()?.let { installRecipe(it) }
+    }
+
+    private fun controls(block: Gen2Entity) = InventoryControls(
+        block.selectTarget, block.selectAction, block.selectTruncate, block.q,
+        block.startQ, block.minQ, block.maxQ, block.querySel,
+        block.querySession, block.queryTarget,
+    )
+
+    /** No fallback values: an unread setting must never look like an extension being off. */
+    private fun readRecipe(instance: RFIDWithUHFUART): RadioReadback {
+        val block = instance.gen2 ?: error("Reader inventory profile is unreadable. No scan was started.")
+        return RadioReadback(
+            instance.power, instance.rfLink, instance.tagFocus, instance.fastId, controls(block),
+            instance.fastInventoryMode?.cr ?: -1,
+        )
+    }
+
+    private fun installRecipe(instance: RFIDWithUHFUART) {
+        if (instance.rfLink != RadioRecipe.RF_LINK) check(
+            logged("recipe setRFLink(${RadioRecipe.RF_LINK})") { instance.setRFLink(RadioRecipe.RF_LINK) },
+        ) { "Reader refused the radio link. No scan was started." }
+        // The selected link supplies the hardware-specific DR/M/TRext/LF values.
+        val block = instance.gen2 ?: error("Reader inventory profile is unreadable. No scan was started.")
+        check(block.queryDR in 0..1 && block.queryM in 0..3 &&
+            block.queryTRext in 0..1 && block.linkFrequency in 0..7) {
+            "Reader returned invalid radio timing. No scan was started."
+        }
+        if (controls(block) != RadioRecipe.inventory) {
+            val wanted = RadioRecipe.inventory
+            block.selectTarget = wanted.selectTarget
+            block.selectAction = wanted.selectAction
+            block.selectTruncate = wanted.selectTruncate
+            block.q = wanted.q
+            block.startQ = wanted.startQ
+            block.minQ = wanted.minQ
+            block.maxQ = wanted.maxQ
+            block.querySel = wanted.querySel
+            block.querySession = wanted.session
+            block.queryTarget = wanted.target
+            check(logged("recipe setGen2($wanted)") { instance.setGen2(block) }) {
+                "Reader refused the inventory profile. No scan was started."
+            }
+        }
+        if (instance.tagFocus != 0) check(logged("recipe setTagFocus(false)") { instance.setTagFocus(false) }) {
+            "Reader refused TagFocus off. No scan was started."
+        }
+        if (instance.fastId != 0) check(logged("recipe setFastID(false)") { instance.setFastID(false) }) {
+            "Reader refused FastID off. No scan was started."
+        }
+        RadioRecipe.requireApplied(readRecipe(instance))
+        logged("recipe ${RadioRecipe.ID}") { "confirmed" }
+    }
+
+    /** At-rest hardware validation, including the region as observed, without starting inventory. */
+    @Synchronized
+    fun recipeReadback(): String {
+        check(!polling) { "Stop reading before checking the profile." }
+        val instance = held() ?: error("Reader is not open")
+        val actual = readRecipe(instance)
+        RadioRecipe.requireApplied(actual)
+        return "${RadioRecipe.ID} confirmed: $actual; region=${instance.frequencyMode} (unchanged)"
+    }
+
     /** What the antenna is running at, as the module last reported it. */
     fun power(): Int = appliedPower
 
     /**
-     * Which frequency band the module is on, as a bare vendor number.
+     * Which frequency band the module is on: its raw region code, or -1.
+     * [Knobs.regionName] names it from Chainway's own table.
      *
-     * Read-only on purpose. The SDK exposes `setFrequencyMode(int)` with no
-     * named constants anywhere in the AAR — no region enum, no documentation of
-     * which integer means which band. Guessing one and writing it would be
-     * transmitting on a band nobody chose, which in Indonesia is an SDPPI
-     * question and not a performance one. The number is reported so a human can
-     * check it against Chainway's own table before anything writes it.
+     * Read-only on purpose. The AAR names no region anywhere — the table comes
+     * from the vendor's desk-reader demo — and writing one is transmitting on a
+     * band, which in Indonesia is an SDPPI question and not a performance one.
+     * Nothing writes it until the band these devices are certified for is
+     * confirmed. At rest only: mid-round the getter fails after about a second.
      */
     fun frequencyMode(): Int =
         runCatching { rfid?.frequencyMode ?: -1 }.getOrDefault(-1)
@@ -855,6 +1010,7 @@ class Reader {
      */
     @Synchronized
     fun setPower(dbm: Int): Int {
+        if (BuildConfig.BENCH) productionRecipe = false
         val target = dbm.coerceIn(MIN_POWER, MAX_POWER)
         // Only a module that is still ours is already at the figure. One the SDK
         // freed has no power at all, and one it re-opened by itself is at the
@@ -894,6 +1050,16 @@ class Reader {
      * last job left behind.
      */
     private fun applyPower(instance: RFIDWithUHFUART, dbm: Int): Int {
+        if (productionRecipe) {
+            check(logged("recipe setPower(${RadioRecipe.POWER_DBM})") { instance.setPower(RadioRecipe.POWER_DBM) }) {
+                "Reader refused the profile power. No scan was started."
+            }
+            appliedPower = instance.power
+            check(appliedPower == RadioRecipe.POWER_DBM) {
+                "Reader power is $appliedPower, expected ${RadioRecipe.POWER_DBM} dBm. No scan was started."
+            }
+            return appliedPower
+        }
         val ladder = if (dbm >= MIN_POWER) (dbm downTo MIN_POWER) else CEILING.asIterable()
         for (candidate in ladder) {
             val askedAt = System.nanoTime()
@@ -924,10 +1090,10 @@ class Reader {
         if (held() == null || !beginInventory(withTid)) {
             // No longer ours, or refused — and the usual reason on this
             // handheld is not the radio but the SDK, which lets go of the module
-            // behind our back (another app opened it, or the screen went off)
-            // and leaves an instance that refuses everything, or opens it again
-            // by itself at the module's defaults. Open it again, once, and ask
-            // again. A second refusal is a real one, and is reported as one.
+            // behind our back (another app's UHF_POWER_OFF; see
+            // [openedElsewhere]) and leaves an instance that refuses everything.
+            // Open it again, once, and ask again. A second refusal is a real
+            // one, and is reported as one.
             val context = appContext ?: return false
             stop()
             runCatching { rfid?.free() }
@@ -938,6 +1104,12 @@ class Reader {
         }
         val r = rfid ?: return false
         framesSinceStart = 0
+        if (BuildConfig.BENCH) {
+            strongFrames = 0
+            extraFrames = 0
+            lastPhase = 0
+            lastFrequencyMhz = 0f
+        }
         polling = true
         pollThread = Thread {
             var misses = 0
@@ -957,6 +1129,7 @@ class Reader {
                 }
                 misses = 0
                 framesSinceStart++
+                if (BuildConfig.BENCH) watch(info)
                 val epc = info.getEPC()?.takeIf { it.isNotBlank() } ?: continue
                 onTag(epc, info.rssi, info.tid)
             }
@@ -988,6 +1161,7 @@ class Reader {
     /** Put the open module in this app's inventory mode and start a round. */
     private fun beginInventory(withTid: Boolean): Boolean {
         val r = rfid ?: return false
+        if (productionRecipe) RadioRecipe.requireApplied(readRecipe(r))
         // Configure the inventory mode ONCE per open module.
         //
         // Measured on a C5 (E710_V7.10.1): with the module already open, a pull
@@ -996,18 +1170,37 @@ class Reader {
         // TID — so after the first configure every later call is a UART
         // conversation that changes nothing and costs seconds the operator
         // spends staring at a screen that says it is waking up.
-        val mode = if (withTid) InventoryModeEntity.MODE_EPC_TID else InventoryModeEntity.MODE_EPC
+        val mode = if (!productionRecipe && withTid) InventoryModeEntity.MODE_EPC_TID else InventoryModeEntity.MODE_EPC
         if (appliedMode != mode) {
             val configured = runCatching {
                 r.setEPCAndTIDUserMode(InventoryModeEntity.Builder().setMode(mode).build())
-            }.isSuccess
+            }.getOrDefault(false)
             // Remembered only when it worked. A failed configure that we recorded
             // would leave the module in one mode and this object certain of
             // another, which is the shape of every reader bug in this file.
             if (configured) appliedMode = mode
+            else return false
         }
-        return runCatching { logged("startInventoryTag()") { r.startInventoryTag() } }
-            .getOrDefault(false)
+        // `82 00 00` is the floor's start and the only one a release ever
+        // sends: nothing outside a bench sets [startMode]. The other two ask
+        // the firmware to append bytes to every tag frame; see [StartMode].
+        val how = if (productionRecipe) StartMode.NORMAL else startMode
+        startedIn = how
+        return runCatching {
+            when (how) {
+                StartMode.NORMAL -> logged("startInventoryTag()") { r.startInventoryTag() }
+                StartMode.PHASE -> logged("startInventoryTag(phase) ${how.frame}") {
+                    r.startInventoryTag(
+                        InventoryParameter(InventoryParameter.ResultData().setNeedPhase(true)),
+                    )
+                }
+                StartMode.FREQUENCY -> logged("startInventoryTag(frequency point) ${how.frame}") {
+                    r.startInventoryTag(
+                        InventoryParameter(InventoryParameter.ResultData().setNeedFrequencyPoint(true)),
+                    )
+                }
+            }
+        }.getOrDefault(false)
     }
 
     /**
@@ -1064,6 +1257,254 @@ class Reader {
         appliedPower = -1
     }
 
+    // ------------------------------------------------------------- the bench
+    //
+    // Reached only from the Lab, in a bench build. The knobs come from reverse
+    // engineering the SDK, and each is a question for the bench rather than an
+    // answer: docs/research/2026-10-22-chainway-sdk-knobs.md.
+
+    /**
+     * Note what one frame carried. Bench builds only: called on the poll
+     * thread for every non-null frame, and it allocates nothing unless a
+     * window is armed.
+     */
+    private fun watch(info: UHFTAGInfo) {
+        val dbm = Knobs.rssiOf(info.rssi)
+        if (dbm > Knobs.WINDOW_DBM) strongFrames++
+        if (startedIn != StartMode.NORMAL) {
+            val phase = info.phase
+            val mhz = info.frequencyPoint
+            if (phase != 0 || mhz != 0f) {
+                extraFrames++
+                if (phase != 0) lastPhase = phase
+                if (mhz != 0f) lastFrequencyMhz = mhz
+            }
+        }
+        rssiWindow?.add(info.getEPC(), dbm)
+    }
+
+    /** What the frames since the last start carried. Only the frame count outside a bench build. */
+    fun frameStats(): FrameStats =
+        FrameStats(startedIn, framesSinceStart, strongFrames, extraFrames, lastPhase, lastFrequencyMhz)
+
+    /**
+     * The RSSI of every frame for [ms], mid-round. Not synchronized, like
+     * [heardWithin]: it waits.
+     */
+    fun listen(ms: Long): RssiWindow {
+        val window = RssiWindow()
+        rssiWindow = window
+        try {
+            Thread.sleep(ms)
+        } catch (interrupted: InterruptedException) {
+            Thread.currentThread().interrupt()
+        } finally {
+            rssiWindow = null
+        }
+        return window
+    }
+
+    /**
+     * Move the antenna mid-round, without the re-open [setPower] pays.
+     *
+     * `setDynamicDistance` sends `30 01 P` and reads no reply
+     * (`UHF_SetPowerOnDynamic`), so true only says the bytes left. Whether the
+     * antenna moved is what the RSSI either side of it says. What this object
+     * believes the power is does not change: [power] still reports the figure
+     * applied at open, and the next open applies the chosen one again.
+     */
+    @Synchronized
+    fun setDynamicPower(dbm: Int): Boolean {
+        val r = rfid ?: return false
+        if (!polling) return false
+        val target = dbm.coerceIn(MIN_POWER, MAX_POWER)
+        return runCatching {
+            logged("setDynamicDistance($target) ${Knobs.dynamicFrame(target)}") {
+                r.setDynamicDistance(target)
+            }
+        }.getOrDefault(false)
+    }
+
+    /** A power written raw and still in force, or -1. See [rawPower]. */
+    fun rawPowerInForce(): Int = benchRawPower
+
+    /**
+     * Ask the open module everything the bench wants to know about it.
+     *
+     * At rest only, and refused otherwise: mid-round the SDK's reader thread
+     * swallows every reply that is not a tag or a stop, so each of these would
+     * fail after about a second with this object's lock held. Every figure is
+     * the module's own, and nothing this object believes changes.
+     */
+    @Synchronized
+    fun readAtRest(): RestReadout {
+        val r = restingModule()
+        // `UHFGetPwm` lives on the MTK native class and answers
+        // {status, work, wait}. Status 0 is the native call succeeding; the
+        // module's own status byte, 01, was checked underneath it.
+        val pwm = if (onMtk()) {
+            runCatching {
+                logged("UHFGetPwm()") { DeviceAPI.getInstance().UHFGetPwm()?.take(3) }
+            }.getOrNull()
+        } else {
+            null
+        }
+        return RestReadout(
+            region = runCatching { logged("getFrequencyMode()") { r.frequencyMode } }.getOrDefault(-1),
+            fastInventory = runCatching {
+                logged("getFastInventoryMode()") { r.fastInventoryMode?.cr }
+            }.getOrNull(),
+            pwmStatus = pwm?.getOrNull(0) ?: -1,
+            pwmWorkMs = pwm?.getOrNull(1) ?: -1,
+            pwmWaitMs = pwm?.getOrNull(2) ?: -1,
+            temperature = runCatching { logged("getTemperature()") { r.temperature } }.getOrDefault(-1),
+            hardware = runCatching { logged("getHardwareVersion()") { r.hardwareVersion } }.getOrNull(),
+            power = runCatching { logged("getPower()") { r.power } }.getOrDefault(-1),
+            powerOffReceiver = powerOffReceiverRegistered(),
+        )
+    }
+
+    /**
+     * Write the power raw, with the option byte the SDK never sends. At rest only.
+     *
+     * `setPower` always sends option 02, which on the R3 means "save". This
+     * sends 00 ([Knobs.powerFrame]) through the SDK's raw passthrough, which
+     * waits up to 1.2 s for the reply. Status 01 says the module took it, not
+     * that it radiates: a sweep straight after says that.
+     *
+     * Nothing this object believes changes. [power] keeps the figure applied at
+     * open, and the next open — [reopen], a cleared filter, a different power —
+     * applies the chosen figure again and ends the experiment.
+     */
+    @Synchronized
+    fun rawPower(dbm: Int): RawPower {
+        val r = restingModule()
+        productionRecipe = false
+        check(onMtk()) { "not the MTK SDK path — no raw frames" }
+        val target = dbm.coerceIn(MIN_POWER, MAX_POWER)
+        val frame = Knobs.powerFrame(target)
+        val reply = ByteArray(RAW_REPLY_BYTES)
+        val replyLength = IntArray(1)
+        val code = runCatching {
+            logged("UHFUnvarnishedTransmission(${Knobs.hex(frame)})") {
+                DeviceAPI.getInstance().UHFUnvarnishedTransmission(frame, frame.size, reply, replyLength)
+            }
+        }.getOrDefault(-1)
+        // The reply's data, status byte first, read the way the SDK's own raw
+        // getter reads it.
+        val status = if (code == 0 && replyLength[0] >= 1) reply[0].toInt() and 0xFF else -1
+        if (status == 1) benchRawPower = target
+        val readBack = runCatching { logged("getPower()") { r.power } }.getOrDefault(-1)
+        return RawPower(target, Knobs.hex(frame), code, status, readBack)
+    }
+
+    /**
+     * Close the module and open it again, at the chosen power and profile: a
+     * cold boot, and the way back from every experiment above.
+     */
+    @Synchronized
+    fun reopen(): String {
+        val context = appContext ?: error("the module was never opened")
+        stop()
+        runCatching { rfid?.free() }
+        rfid = null
+        appliedPower = -1
+        appliedMode = -1
+        return init(context)
+    }
+
+    /**
+     * Keep the module when another app asks every UHF app to let go. Off unless
+     * a bench turns it on, and never saved.
+     *
+     * The SDK registers `UhfBase.PowerOffReceiver` on every open, exported
+     * (`RECEIVER_EXPORTED` on API 34+). Any `UHF_POWER_OFF` broadcast whose
+     * `apiId` is not ours — or that carries none — makes this instance `free()`
+     * itself, and a free powers the module off. On, the receiver is
+     * unregistered now and after every open. Off, it is registered again now:
+     * the SDK's own behaviour. While it is on, another UHF app cannot make
+     * this one let go.
+     *
+     * Returns whether the receiver is registered afterwards; null when unknown.
+     */
+    @Synchronized
+    fun setIgnorePowerOff(on: Boolean): Boolean? {
+        ignorePowerOff = on
+        if (held() != null) {
+            if (on) dropPowerOffReceiver() else restorePowerOffReceiver()
+        }
+        return powerOffReceiverRegistered()
+    }
+
+    /** Whether the SDK's UHF_POWER_OFF receiver is registered right now; null when unknown. */
+    fun powerOffReceiverRegistered(): Boolean? {
+        val core = sdkCore() ?: return null
+        return runCatching { uhfBaseField("powerOffReceiver").get(core) != null }.getOrNull()
+    }
+
+    /**
+     * The last `UHF_StopGet: okcnt=…` the SDK logged, read from this app's own
+     * log, which an app may read without any permission. Blocking.
+     */
+    fun lastStopCounts(): Pair<Int, Int>? = runCatching {
+        val process = ProcessBuilder("logcat", "-d", "-t", OWN_LOG_LINES.toString())
+            .redirectErrorStream(true)
+            .start()
+        val text = process.inputStream.bufferedReader().use { it.readText() }
+        process.waitFor()
+        Knobs.stopCounts(text)
+    }.getOrNull()
+
+    /** The open module, at rest — or a refusal that says why not. */
+    private fun restingModule(): RFIDWithUHFUART {
+        val r = held() ?: error("the module is not open")
+        check(!polling && !runCatching { r.isInventorying }.getOrDefault(true)) {
+            "stop the sweep first — mid-round the SDK eats the reply"
+        }
+        return r
+    }
+
+    /**
+     * The object the SDK really runs on. `RFIDWithUHFUART` only forwards to a
+     * private static delegate — on a C5, `com.rscja.team.mtk.deviceapi.m` —
+     * and it is the delegate that registered the receivers, holds the context
+     * it was opened with, and frees itself.
+     */
+    private fun sdkCore(): UhfBase? = runCatching {
+        RFIDWithUHFUART::class.java.getDeclaredField("iuhf")
+            .apply { isAccessible = true }
+            .get(null) as? UhfBase
+    }.getOrNull()
+
+    /** The MTK native class answers only on the MTK path. */
+    private fun onMtk(): Boolean = sdkCore()?.javaClass?.name?.startsWith(MTK_PACKAGE) == true
+
+    private fun uhfBaseField(name: String) =
+        UhfBase::class.java.getDeclaredField(name).apply { isAccessible = true }
+
+    private fun dropPowerOffReceiver(): Boolean = receiverCall("unregisterUhfPowerOffReceiver")
+
+    private fun restorePowerOffReceiver(): Boolean = receiverCall("registerUhfPowerOffReceiver")
+
+    /**
+     * One of `UhfBase`'s protected receiver methods, on the delegate, with the
+     * context it was opened with: a receiver is unregistered through the same
+     * context that registered it.
+     */
+    private fun receiverCall(method: String): Boolean {
+        val core = sdkCore() ?: return false
+        val context = runCatching { uhfBaseField("context").get(core) as? Context }.getOrNull()
+            ?: appContext ?: return false
+        return runCatching {
+            logged("$method(${core.javaClass.simpleName})") {
+                UhfBase::class.java.getDeclaredMethod(method, Context::class.java)
+                    .apply { isAccessible = true }
+                    .invoke(core, context)
+                true
+            }
+        }.getOrDefault(false)
+    }
+
     companion object {
         /** The window this module accepts. There is no API to ask it. */
         const val MIN_POWER = 5
@@ -1104,6 +1545,15 @@ class Reader {
 
         /** How often [heardWithin] looks for the first frame. */
         private const val PROOF_POLL_MS = 20L
+
+        /** The reply buffer the SDK's own raw getter allocates for the passthrough. */
+        private const val RAW_REPLY_BYTES = 512
+
+        /** Where the SDK's MTK classes live; the C5 runs on them. */
+        private const val MTK_PACKAGE = "com.rscja.team.mtk."
+
+        /** How far back [lastStopCounts] looks in this app's own log. */
+        private const val OWN_LOG_LINES = 4_000
 
         /**
          * A setter that takes this long has not been refused, it has gone

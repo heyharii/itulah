@@ -27,7 +27,22 @@
 import { Fragment, useEffect, useState } from "react"
 
 import * as api from "@/api"
-import { device, openCustomerDisplay, readRfidPad, type PadRead } from "@/edge"
+import {
+  calibrateReader,
+  openCustomerDisplay,
+  readerDiagnostics,
+  readerProblem,
+  readerStatus,
+  sentence,
+  testReader,
+  type Calibration,
+  type Fault,
+  type PadRead,
+  type RadioProfile,
+  type ReadSummary,
+  type ReaderStatus,
+  type ReaderTest,
+} from "@/edge"
 import { Icon } from "@/icons"
 import {
   localPrinters,
@@ -39,7 +54,8 @@ import {
   type ReceiptPrinter,
 } from "@/peripherals"
 import { adoptConfig, useNodeConfig, useSession } from "@/session"
-import { Topbar } from "@/till"
+import { FingerprintSection } from "@/screens/fingerprint-enrol"
+import { ReaderChip, Topbar } from "@/till"
 
 /// The desk reader every counter has today. Anything else is typed.
 const R3 = "Chainway R3"
@@ -52,24 +68,8 @@ type Printer = {
   readonly purpose: string
 }
 
-/// The reader a test read ran on and its radio profile, as the shell read
-/// them back when it last set the reader up (`src-tauri/src/rfid.rs`).
-/// Read-only: the shell sets the profile itself on opening and after a reset.
-function ReadWith({ read }: { read: PadRead }) {
-  const { profile } = read
-  const rows: readonly (readonly [string, string])[] = [
-    ["Firmware", read.firmware],
-    ["FastID", profile.fast_id ? "On" : "Off"],
-    ["Tag Focus", profile.tag_focus ? "On" : "Off"],
-    ["Session", profile.session],
-    ["Target", profile.target],
-    [
-      "RF link",
-      profile.rf_link_moved_from === null
-        ? profile.rf_link
-        : `${profile.rf_link} · switched from ${profile.rf_link_moved_from}, not saved in the reader`,
-    ],
-  ]
+/// Label and value pairs, one fact a row.
+function Facts({ rows }: { rows: readonly (readonly [string, string])[] }) {
   return (
     <dl
       style={{
@@ -90,6 +90,238 @@ function ReadWith({ read }: { read: PadRead }) {
   )
 }
 
+/// The reader a test ran on and its radio profile, as the shell read them
+/// back when it opened the reader (`src-tauri/src/rfid.rs`). Read-only: the
+/// shell sets the profile itself on opening and after a reset.
+function ReadWith({ firmware, profile }: { firmware: string; profile: RadioProfile }) {
+  const rows: readonly (readonly [string, string])[] = [
+    ["Firmware", firmware],
+    ["FastID", profile.fast_id ? "On" : "Off"],
+    ["Tag Focus", profile.tag_focus ? "On" : "Off"],
+    ["Session", profile.session],
+    ["Target", profile.target],
+    [
+      "RF link",
+      profile.rf_link_moved_from === null
+        ? profile.rf_link
+        : `${profile.rf_link} · switched from ${profile.rf_link_moved_from}, not saved in the reader`,
+    ],
+    ["Region", profile.region ?? "Not read"],
+    ["Channels", profile.channels ?? "Not read"],
+    ["Antenna mask", profile.antennas ?? "Not read"],
+    ["Work / wait", profile.work_wait ?? "Not read"],
+  ]
+  return <Facts rows={rows} />
+}
+
+const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`
+
+/// The check tag in each read: its signal and margin, or not heard.
+function checkTagWords(reads: readonly ReadSummary[]): string {
+  if (!reads.some((read) => read.canary !== null)) return "None set"
+  return reads
+    .map((read) =>
+      read.canary === null
+        ? "—"
+        : !read.canary.heard
+          ? "not heard"
+          : read.canary.rssi_dbm === null || read.canary.margin_db === null
+            ? "heard, no signal"
+            : `${read.canary.rssi_dbm.toFixed(1)} dBm (${read.canary.margin_db.toFixed(1)} dB)`,
+    )
+    .join(" · ")
+}
+
+/// A fault as the installer reads it here: what happened, the detail, what
+/// to do, and the code.
+const faultWords = (fault: Fault) =>
+  `${fault.says} ${fault.detail} ${fault.action} (${fault.code})`
+
+/// The tags of one read, kept and left out, each with its signal.
+function TagLists({ read }: { read: PadRead }) {
+  return (
+    <>
+      {read.tags.length > 0 && (
+        <ul className="muted num" style={{ fontSize: 15, margin: 0, paddingLeft: 18 }}>
+          {read.tags.map((tag) => (
+            <li key={tag.epc}>
+              {tag.epc} · {tag.rssi_dbm.toFixed(1)} dBm · read {tag.reads}×
+            </li>
+          ))}
+        </ul>
+      )}
+      {(read.left_out ?? []).length > 0 && (
+        <>
+          <span className="muted" style={{ fontSize: 15 }}>
+            Left out, below {read.min_rssi_dbm} dBm
+          </span>
+          <ul className="muted num" style={{ fontSize: 15, margin: 0, paddingLeft: 18 }}>
+            {(read.left_out ?? []).map((tag) => (
+              <li key={tag.epc}>
+                {tag.epc} ·{" "}
+                {tag.rssi_dbm === null ? "no signal" : `${tag.rssi_dbm.toFixed(1)} dBm`} ·
+                read {tag.reads}×
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </>
+  )
+}
+
+/// What the Test reader found: PASS or FAIL and why, then the facts support
+/// asks for.
+function TestResult({ test }: { test: ReaderTest }) {
+  const perRead = (count: (read: ReadSummary) => number) =>
+    test.reads.length === 0 ? "None" : test.reads.map(count).join(" · ")
+  const rows: readonly (readonly [string, string])[] = [
+    ["Recipe", test.profile_id],
+    ["Open", test.open_ms === null ? "Did not open" : seconds(test.open_ms)],
+    [
+      "Reads",
+      test.reads
+        .map((read) => (read.fault !== null ? `failed (${read.fault.code})` : seconds(read.took_ms)))
+        .join(" · ") || "None",
+    ],
+    [
+      "Tags per read",
+      test.reads.length === 0
+        ? "None"
+        : `${test.reads.map((read) => read.tags).join(" · ")} · ${
+            test.stable ? "the same tags each time" : "not the same tags"
+          }`,
+    ],
+    ["Records per read", perRead((read) => read.records)],
+    ["EPCs per read", perRead((read) => read.epcs)],
+    [
+      "Weakest on the pad",
+      test.weakest === null
+        ? "None"
+        : `${test.weakest.rssi_dbm.toFixed(1)} dBm · …${test.weakest.epc.slice(-8)}`,
+    ],
+    [
+      "Margin to the floor",
+      test.margin_db === null
+        ? "—"
+        : `${test.margin_db.toFixed(1)} dB above ${test.floor_dbm} dBm`,
+    ],
+    ["Check tag", checkTagWords(test.reads)],
+    [
+      "Settings",
+      `${test.power_dbm} dBm · ${test.window_ms} ms a read · ${test.gap_ms} ms between`,
+    ],
+  ]
+  return (
+    <>
+      <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+        <span className={test.passed ? "badge ok" : "badge bad"}>
+          {test.passed ? "PASS" : "FAIL"}
+        </span>
+        <span style={{ fontSize: 15 }}>
+          {test.reason}
+          {test.fault !== null && ` ${test.fault.action} (${test.fault.code})`}
+        </span>
+      </div>
+      <Facts rows={rows} />
+      {test.firmware !== null && test.profile !== null && (
+        <ReadWith firmware={test.firmware} profile={test.profile} />
+      )}
+      {test.last !== null && <TagLists read={test.last} />}
+    </>
+  )
+}
+
+/// What Calibrate suggests, saved only when the installer says so.
+function CalibrationResult({
+  calibration,
+  saving,
+  onUse,
+  onKeep,
+}: {
+  calibration: Calibration
+  saving: boolean
+  onUse: (floor: number) => void
+  onKeep: () => void
+}) {
+  const { weakest, strongest_off: off, suggested_dbm: suggested } = calibration
+  const rows: readonly (readonly [string, string])[] = [
+    [
+      "Weakest on the pad",
+      weakest === null
+        ? "None"
+        : `${weakest.rssi_dbm.toFixed(1)} dBm · ${
+            weakest.check_tag ? "the check tag" : `…${weakest.epc.slice(-8)}`
+          }`,
+    ],
+    [
+      "Strongest off the pad",
+      off === null ? "None heard" : `${off.rssi_dbm.toFixed(1)} dBm · …${off.epc.slice(-8)}`,
+    ],
+    [
+      "Tags on the pad",
+      `${calibration.on_pad}` +
+        (calibration.unsteady > 0 ? ` · ${calibration.unsteady} missed by a read` : ""),
+    ],
+    ["Floor now", `${calibration.floor_dbm} dBm`],
+  ]
+  return (
+    <>
+      <span style={{ fontSize: 15 }}>
+        {suggested === null
+          ? "No floor to suggest."
+          : `Suggested floor ${suggested} dBm: the weakest tag on the pad less 3 dB.`}
+      </span>
+      <Facts rows={rows} />
+      {calibration.warnings.map((fault, at) => (
+        <p key={at} className="error" style={{ margin: 0 }}>
+          {faultWords(fault)}
+        </p>
+      ))}
+      {suggested !== null && (
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            className="btn primary"
+            type="button"
+            disabled={saving}
+            onClick={() => onUse(suggested)}
+          >
+            Use {suggested} dBm
+          </button>
+          <button className="btn" type="button" disabled={saving} onClick={onKeep}>
+            Keep {calibration.floor_dbm} dBm
+          </button>
+        </div>
+      )}
+    </>
+  )
+}
+
+/// Put text on the clipboard: the browser's way, else the old copy command.
+async function toClipboard(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch {
+    // The page may not have been given the clipboard: try the old way.
+  }
+  const area = document.createElement("textarea")
+  area.value = text
+  area.setAttribute("readonly", "")
+  area.style.position = "fixed"
+  area.style.opacity = "0"
+  document.body.appendChild(area)
+  area.select()
+  let copied = false
+  try {
+    copied = document.execCommand("copy")
+  } catch {
+    copied = false
+  }
+  area.remove()
+  return copied
+}
+
 export function PeripheralsScreen({ onBack }: { onBack: () => void }) {
   const session = useSession()
   const { config } = useNodeConfig()
@@ -97,13 +329,14 @@ export function PeripheralsScreen({ onBack }: { onBack: () => void }) {
   const [readerChoice, setReaderChoice] = useState("")
   const [printers, setPrinters] = useState<readonly Printer[] | null>(null)
   const [printersProblem, setPrintersProblem] = useState<string | null>(null)
-  const [reader, setReader] = useState<{ bound: boolean; detail: string } | null>(null)
-  /// The last test read of the R3's pad, for setting its power on the bench.
-  const [padTest, setPadTest] = useState<{
-    bad: boolean
-    text: string
-    read: PadRead | null
-  } | null>(null)
+  const [reader, setReader] = useState<ReaderStatus | null>(null)
+  /// The R3 is being tested, calibrated or asked for its diagnostics.
+  const [readerBusy, setReaderBusy] = useState(false)
+  const [test, setTest] = useState<ReaderTest | null>(null)
+  const [calibration, setCalibration] = useState<Calibration | null>(null)
+  /// The diagnostics bundle, shown only when the clipboard refused it.
+  const [diagnostics, setDiagnostics] = useState<string | null>(null)
+  const [readerNote, setReaderNote] = useState<{ bad: boolean; text: string } | null>(null)
   const [note, setNote] = useState<{ bad: boolean; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
   /// The printers this machine has, for the USB choice. Null until asked.
@@ -204,36 +437,77 @@ export function PeripheralsScreen({ onBack }: { onBack: () => void }) {
 
   const checkReader = async () => {
     setReader(null)
-    setReader(await device("rfid_state"))
+    setReader(await readerStatus(true))
   }
   useEffect(() => {
     void checkReader()
   }, [])
 
-  /// One read of the pad with the settings this till has saved — the shell
-  /// reads those, not this form — listing every tag with its signal, so the
-  /// power can be lowered until only the pad's garments are read.
-  async function testPad() {
-    setPadTest(null)
+  /// One of the R3's checks, with the reader held for it: the chip says Busy
+  /// meanwhile, and what the shell holds afterwards.
+  async function withReader(work: () => Promise<void>) {
+    setReaderBusy(true)
+    setReaderNote(null)
     try {
-      const read = await readRfidPad()
-      setPadTest({
-        bad: false,
-        read,
-        text:
-          `${read.tags.length} ${read.tags.length === 1 ? "tag" : "tags"} at ` +
-          `${read.power_dbm} dBm in ${read.window_ms} ms` +
-          (read.too_weak > 0 ? ` · ${read.too_weak} below ${read.min_rssi_dbm} dBm left out` : "") +
-          (read.unreadable > 0 ? ` · ${read.unreadable} unreadable` : ""),
-      })
+      await work()
     } catch (error) {
-      setPadTest({
-        bad: true,
-        read: null,
-        text: error instanceof Error ? error.message : String(error),
-      })
+      setReaderNote({ bad: true, text: readerProblem(error) })
+    } finally {
+      setReader(await readerStatus(false))
+      setReaderBusy(false)
     }
   }
+
+  /// The Test reader, with the settings this till has saved — the shell reads
+  /// those, not this form: the R3 opened afresh, its settings read back, three
+  /// reads a second apart, and PASS or FAIL.
+  const runTest = () =>
+    withReader(async () => {
+      setTest(null)
+      setCalibration(null)
+      setTest(await testReader())
+    })
+
+  /// Calibrate: three reads of the test items on the pad, and the floor they
+  /// suggest — saved only when the installer says so.
+  const runCalibrate = () =>
+    withReader(async () => {
+      setCalibration(null)
+      setTest(null)
+      setCalibration(await calibrateReader())
+    })
+
+  /// The suggested floor, saved over what the shell holds — not over this
+  /// form, which may hold other changes nobody saved yet.
+  async function saveFloor(floor: number) {
+    setBusy(true)
+    const saved = await savePeripherals({ ...peripheralsOf(config), r3_min_rssi_dbm: floor })
+    setBusy(false)
+    if (!saved.ok) {
+      setReaderNote({ bad: true, text: saved.problem })
+      return
+    }
+    adoptConfig(saved.value.config)
+    setForm((now) => (now === null ? now : { ...now, r3_min_rssi_dbm: floor }))
+    setCalibration(null)
+    setReaderNote({ bad: false, text: `Floor saved at ${floor} dBm. Test the reader to confirm it.` })
+  }
+
+  /// The reader's facts for support, on the clipboard.
+  const copyDiagnostics = () =>
+    withReader(async () => {
+      setDiagnostics(null)
+      const text = await readerDiagnostics()
+      if (await toClipboard(text)) {
+        setReaderNote({
+          bad: false,
+          text: `Diagnostics copied: ${text.split("\n").length} lines.`,
+        })
+      } else {
+        setDiagnostics(text)
+        setReaderNote({ bad: true, text: "The clipboard refused it. Copy the text below." })
+      }
+    })
 
   if (form === null) {
     return (
@@ -429,51 +703,53 @@ export function PeripheralsScreen({ onBack }: { onBack: () => void }) {
               </label>
             )}
             <div className="kv">
-              <span className="muted" style={{ fontSize: 12 }}>
-                {reader === null ? "Checking the reader…" : reader.detail}
+              <span className="muted" style={{ fontSize: 15 }}>
+                {reader === null
+                  ? "Checking the reader…"
+                  : reader.fault !== null
+                    ? sentence(reader.fault)
+                    : reader.detail}
               </span>
               <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                {reader !== null && (
-                  <span className={reader.bound ? "badge ok" : "badge plain"}>
-                    {reader.bound ? "Connected" : "Not readable"}
-                  </span>
-                )}
-                <button className="btn ghost" type="button" onClick={() => void checkReader()}>
+                <ReaderChip status={reader} busy={readerBusy} />
+                <button
+                  className="btn ghost"
+                  type="button"
+                  disabled={readerBusy}
+                  onClick={() => void checkReader()}
+                >
                   Check
                 </button>
               </span>
             </div>
-            {/* Bench values (README): the power decides how far the R3
-                reaches, and only the pad may be within reach. */}
+            {/* Bench values (README): the weakest kept is what keeps a
+                garment that is not on the pad out of the basket; the power
+                did not change the reach on the bench R3. */}
             {readerChoice === R3 && (
               <>
                 <div style={{ display: "flex", gap: 10 }}>
                   <label className="field" style={{ flex: 1 }}>
-                    Power (dBm)
+                    Profile power (dBm)
                     <input
                       type="number"
                       inputMode="numeric"
-                      min={1}
-                      max={30}
+                      min={5}
+                      max={25}
                       step={1}
-                      value={form.r3_power_dbm ?? 15}
-                      onChange={(event) =>
-                        change({ r3_power_dbm: Number(event.target.value) })
-                      }
+                      value={15}
+                      readOnly
                     />
                   </label>
                   <label className="field" style={{ flex: 1 }}>
-                    One read (ms)
+                    Profile read (ms)
                     <input
                       type="number"
                       inputMode="numeric"
                       min={200}
                       max={2000}
                       step={50}
-                      value={form.r3_read_ms ?? 500}
-                      onChange={(event) =>
-                        change({ r3_read_ms: Number(event.target.value) })
-                      }
+                      value={2000}
+                      readOnly
                     />
                   </label>
                   <label className="field" style={{ flex: 1 }}>
@@ -491,38 +767,83 @@ export function PeripheralsScreen({ onBack }: { onBack: () => void }) {
                     />
                   </label>
                 </div>
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <label className="field">
+                  Check tag (EPC)
+                  <input
+                    value={form.r3_canary_epc ?? ""}
+                    onChange={(event) =>
+                      change({
+                        r3_canary_epc: event.target.value === "" ? null : event.target.value,
+                      })
+                    }
+                    placeholder="A tag fixed at the pad, never sold"
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                </label>
+                <p className="muted" style={{ margin: 0 }}>
+                  Consistent count: 2 seconds per read, 1 second between reads.
+                  Keep all items on the pad and check the result. The signal floor
+                  is installation calibration; it cannot guarantee the pad boundary.
+                </p>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                   <button
                     className="btn"
                     type="button"
-                    disabled={busy}
-                    title="Reads with the saved settings. Save first."
-                    onClick={() => void testPad()}
+                    disabled={busy || readerBusy}
+                    title="Uses the saved settings. Save first."
+                    onClick={() => void runTest()}
                   >
                     <Icon name="rfid" />
-                    Test read
+                    Test reader
                   </button>
-                  {padTest !== null && (
-                    <span className={padTest.bad ? "error" : "muted"} style={{ fontSize: 15 }}>
-                      {padTest.text}
-                    </span>
-                  )}
+                  <button
+                    className="btn"
+                    type="button"
+                    disabled={busy || readerBusy}
+                    title="Put the test items on the pad first."
+                    onClick={() => void runCalibrate()}
+                  >
+                    Calibrate
+                  </button>
+                  <button
+                    className="btn"
+                    type="button"
+                    disabled={readerBusy}
+                    onClick={() => void copyDiagnostics()}
+                  >
+                    Copy diagnostics
+                  </button>
                 </div>
-                {padTest !== null && padTest.read !== null && (
-                  <ReadWith read={padTest.read} />
+                {readerNote !== null && (
+                  <span className={readerNote.bad ? "error" : "muted"} style={{ fontSize: 15 }}>
+                    {readerNote.text}
+                  </span>
                 )}
-                {padTest !== null && padTest.read !== null && padTest.read.tags.length > 0 && (
-                  <ul className="muted num" style={{ fontSize: 15, margin: 0, paddingLeft: 18 }}>
-                    {padTest.read.tags.map((tag) => (
-                      <li key={tag.epc}>
-                        {tag.epc} · {tag.rssi_dbm.toFixed(1)} dBm · read {tag.reads}×
-                      </li>
-                    ))}
-                  </ul>
+                {test !== null && <TestResult test={test} />}
+                {calibration !== null && (
+                  <CalibrationResult
+                    calibration={calibration}
+                    saving={busy}
+                    onUse={(floor) => void saveFloor(floor)}
+                    onKeep={() => setCalibration(null)}
+                  />
+                )}
+                {diagnostics !== null && (
+                  <textarea
+                    readOnly
+                    value={diagnostics}
+                    rows={12}
+                    style={{ width: "100%", fontSize: 15, fontFamily: "monospace" }}
+                    onFocus={(event) => event.target.select()}
+                  />
                 )}
               </>
             )}
           </section>
+
+          {/* ── the fingerprint scanner, and enrolling a finger ── */}
+          <FingerprintSection />
 
           {/* ── drawer and scanner ── */}
           <section className="rows">

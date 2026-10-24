@@ -15,9 +15,9 @@ import type { CatalogRow, MovementView } from "@itulah/contract"
 /// of the pool id the node mints (`store-01.floor`), which is why they are
 /// written once here and nowhere else.
 export const PLACES = [
-  { code: "warehouse", label: "Store room" },
-  { code: "floor", label: "Sales floor" },
-  { code: "reject", label: "Return" },
+  { code: "warehouse", label: "Warehouse" },
+  { code: "floor", label: "Store" },
+  { code: "reject", label: "Reject" },
 ] as const
 
 export type PlaceCode = (typeof PLACES)[number]["code"]

@@ -28,9 +28,21 @@ import { Icon } from "@/icons"
 import { PinPad } from "@/pinpad"
 import { Sheet } from "@/screens/dialogs"
 import { seatNow } from "@/seat"
-import { supervisorByFinger, supervisorByPin, useSession } from "@/session"
+import { NO_FINGER, supervisorByFinger, supervisorByPin, useSession } from "@/session"
+import { useFingerWatch, useScanner } from "@/scanner"
+import { Sensor, type Read } from "@/sensor"
+import { SIMULATED, SIM_FINGERS, SIM_HEAD, SIM_SECRET, titled } from "@/simulation"
+import { sound } from "@/sound"
 
-export type Approved = { readonly username: string; readonly approvalId: string }
+const UNKNOWN_FINGER = "\u0000unknown"
+
+export type Approved = {
+  readonly username: string
+  readonly approvalId: string
+  /// The person's full name, for the till's "disetujui …": the node's name for
+  /// them when it says, else the username with a capital.
+  readonly name: string
+}
 
 type Ask = {
   readonly action: "EDIT_CART" | "CANCEL_BASKET" | "DROP_HOLD"
@@ -42,6 +54,10 @@ type Ask = {
   readonly epcs?: readonly string[]
   readonly amountMinor?: number | null
   readonly onApproved: (by: Approved) => void
+  /// The node action itself, when it takes the supervisor's proof directly
+  /// (a return): the proof is spent there instead of on `till_approval`.
+  /// Answers the node's refusal, or null when it went through.
+  readonly perform?: (supervisor: api.Supervisor) => Promise<string | null>
 }
 
 /// `ask(...)` opens the sheet; the action runs only from `onApproved`.
@@ -82,7 +98,7 @@ function ApprovalSheet({
   onApproved: (by: Approved) => void
 }) {
   const session = useSession()
-  const [stepUp, setStepUp] = useState<api.StepUp | null>(null)
+  const [, setStepUp] = useState<api.StepUp | null>(null)
   const [mode, setMode] = useState<"quick" | "password">("quick")
   const [username, setUsername] = useState("")
   // Held in refs and emptied the moment the node has answered, the same way
@@ -91,9 +107,32 @@ function ApprovalSheet({
   const [password, setPassword] = useState("")
   const [, redraw] = useState(0)
   const [busy, setBusy] = useState(false)
-  const [problem, setProblem] = useState<string | null>(null)
+  const [problem, setProblemState] = useState<string | null>(null)
+  const problemRef = useRef<string | null>(null)
+  const setProblem = (next: string | null) => {
+    problemRef.current = next
+    setProblemState(next)
+  }
   // One key per sheet: a retry after a dropped line is the same approval.
   const key = useRef(newKey())
+  // The card takes the caret, so a key pressed while it is up never types
+  // into the till's scan field behind it.
+  const card = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    card.current?.focus()
+  }, [])
+  // Full names, best effort: the people this shop's node knows.
+  const names = useRef(new Map<string, string>())
+  useEffect(() => {
+    void api.tillPeople().then((reply) => {
+      if (!reply.ok) return
+      for (const one of reply.body?.items ?? []) names.current.set(one.username, one.display_name)
+    }).catch(() => undefined)
+  }, [])
+  const fullName = (username: string) =>
+    names.current.get(username) ??
+    (session.me?.username === username ? session.me?.display_name : undefined) ??
+    titled(username)
 
   useEffect(() => {
     let alive = true
@@ -116,6 +155,15 @@ function ApprovalSheet({
 
   /// Write the approval down on the node, spending the supervisor's proof.
   async function record(supervisor: api.Supervisor): Promise<void> {
+    if (request.perform !== undefined) {
+      const refusedWith = await request.perform(supervisor)
+      if (refusedWith !== null) {
+        setProblem(refusedWith)
+        return
+      }
+      onApproved({ username: supervisor.username, approvalId: "", name: fullName(supervisor.username) })
+      return
+    }
     const reply = await api.recordApproval({
       action: request.action,
       // The drawer the approval is about: the seat the cashier holds, and the
@@ -130,18 +178,25 @@ function ApprovalSheet({
       idempotency_key: key.current,
     })
     if (!reply.ok) {
-      setProblem(reply.problem ?? "The node did not record the approval.")
+      // A finger, or a password, that is not a Kepala toko's: said in the
+      // till's words, not the node's.
+      setProblem(
+        reply.status === 401 || reply.status === 403 || reply.status === 422
+          ? "Bukan kepala toko"
+          : (reply.problem ?? "Persetujuan tidak tercatat di server toko."),
+      )
       return
     }
     onApproved({
       username: reply.body.approved_by,
       approvalId: reply.body.approval_id,
+      name: fullName(reply.body.approved_by),
     })
   }
 
   async function withPin() {
     if (username.trim() === "" || pin.current === "") {
-      setProblem("Enter the supervisor code and PIN.")
+      setProblem("Isi kode dan PIN kepala toko.")
       return
     }
     setBusy(true)
@@ -150,7 +205,7 @@ function ApprovalSheet({
     setPin("")
     if (answer.authorization === null) {
       setBusy(false)
-      setProblem(answer.problem ?? "PIN refused.")
+      setProblem("Bukan kepala toko")
       return
     }
     await record({
@@ -166,7 +221,7 @@ function ApprovalSheet({
     const answer = await supervisorByFinger()
     if (answer.authorization === null) {
       setBusy(false)
-      setProblem(answer.problem ?? "Fingerprint refused.")
+      setProblem("Bukan kepala toko")
       return
     }
     await record({
@@ -178,7 +233,7 @@ function ApprovalSheet({
 
   async function withPassword() {
     if (username.trim() === "" || password === "") {
-      setProblem("Enter the supervisor code and password.")
+      setProblem("Isi username dan password kepala toko.")
       return
     }
     setBusy(true)
@@ -189,117 +244,189 @@ function ApprovalSheet({
     setBusy(false)
   }
 
-  // Finger and PIN grants both travel the pairing channel (`signedEdge`),
-  // which only the desktop shell can sign — see `edition.ts` — so on the web
-  // a supervisor always types a password, and this screen never offers the
-  // quick way or a switch onto it.
-  const quick = !isWeb && mode === "quick" && stepUp !== "NONE"
-  const submit = () =>
-    void (quick
-      ? stepUp === "FINGERPRINT"
-        ? withFinger()
-        : withPin()
-      : withPassword())
+  // The Kepala toko approves with her finger (owner, 23 Oct 2026: "buat sidik
+  // jari juga"), as the prototype's sheet does. With a scanner on this till
+  // (the desktop shell has one open) her finger is matched here against the
+  // node's roster and the node grants the approval; with none, a rig may
+  // simulate it (VITE_SIM_FINGERS): a press on the sensor is the simulated
+  // head's finger, sent as her password.
+  const scanner = useScanner()
+  const realScanner = !isWeb && scanner === true
+  const byFinger = realScanner || SIMULATED
+  const [read, setRead] = useState<Read>("idle")
+  // Approvals are by the Kepala toko's finger only (owner): no password in
+  // the UI.
+  const usePassword = false
+
+  /// The real scanner: a press on the sensor on screen waits ten seconds for
+  /// her finger (`watch` absent); the card listening on its own (`watch`)
+  /// shows nothing until a finger lands. Answers whether to go on listening.
+  async function byScanner(watch?: string): Promise<boolean> {
+    const explicit = watch === undefined
+    let placed = false
+    const begin = () => {
+      placed = true
+      setBusy(true)
+      setProblem(null)
+      setRead("reading")
+      sound.read()
+    }
+    if (explicit) begin()
+    const answer = await supervisorByFinger({
+      watch,
+      waitMs: explicit ? 10_000 : 15_000,
+      onPlaced: explicit ? undefined : begin,
+    })
+    if (answer.problem === NO_FINGER) {
+      if (explicit) {
+        setBusy(false)
+        setRead("idle")
+        setProblem(NO_FINGER)
+      }
+      return true
+    }
+    if (!placed) {
+      setProblem(answer.problem)
+      return false
+    }
+    if (answer.authorization === null) {
+      setBusy(false)
+      refused("Bukan kepala toko")
+      return true
+    }
+    const before = problemRef.current
+    await record({ username: answer.username ?? "", authorization: answer.authorization })
+    setBusy(false)
+    if (problemRef.current !== before && problemRef.current !== null) {
+      refused(problemRef.current)
+      return true
+    }
+    approvedSound()
+    return false
+  }
+
+  // The card listens to the scanner on its own: she lays her finger on it.
+  useFingerWatch(realScanner && !busy && read !== "done", (watch) => byScanner(watch))
+
+  async function press(person?: string) {
+    if (busy || read === "reading" || read === "done") return
+    if (realScanner && person === undefined) {
+      await byScanner()
+      return
+    }
+    setRead("reading")
+    sound.read()
+    setProblem(null)
+    await new Promise((done) => window.setTimeout(done, 980))
+    if (person === UNKNOWN_FINGER) {
+      refused("Jari tidak dikenali")
+      return
+    }
+    setBusy(true)
+    const before = problemRef.current
+    await record({ username: person ?? SIM_HEAD, password: SIM_SECRET })
+    setBusy(false)
+    if (problemRef.current !== before && problemRef.current !== null) {
+      refused(problemRef.current)
+      return
+    }
+    approvedSound()
+  }
+  function refused(text: string) {
+    setRead("no")
+    sound.no()
+    setProblem(text)
+    window.setTimeout(() => setRead((state) => (state === "no" ? "idle" : state)), 1700)
+  }
+  function approvedSound() {
+    setRead("done")
+    sound.ok()
+  }
+
+  // The key that opened this card (an Enter on Batal, say) is still on its
+  // way up to the window when the card mounts: it must not press the sensor.
+  const openedAt = useRef(performance.now())
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.timeStamp <= openedAt.current) return
+      if (event.key === "Escape") {
+        event.preventDefault()
+        onClose()
+      } else if (event.key === "Enter" && !usePassword && byFinger) {
+        event.preventDefault()
+        void press()
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  })
+
+  const say =
+    read === "reading"
+      ? "Membaca…"
+      : read === "done"
+        ? "Disetujui"
+        : read === "no"
+          ? (problem ?? "Bukan kepala toko")
+          : "Tempelkan jari"
 
   return (
-    <Sheet
-      title="Store manager approval"
-      onClose={onClose}
-      foot={
-        <>
-          <button className="btn" onClick={onClose} disabled={busy}>
-            Cancel
-          </button>
-          <button
-            className="btn primary"
-            disabled={busy || stepUp === null}
-            onClick={submit}
+    <div ref={card} tabIndex={-1} style={{ outline: "none" }} className="pdoor papr" role="dialog" aria-modal="true" aria-label="Persetujuan kepala toko">
+      <div className="sup">
+        <p className="d-ttl">{request.title}</p>
+        {request.title !== "Return" && <p className="d-sub" style={{ textAlign: "center" }}>{request.detail}</p>}
+        <p className="d-sub" style={{ textAlign: "center" }}>Kepala toko menyetujui dengan jari</p>
+        {usePassword || !byFinger ? (
+          <form
+            className="d-pw"
+            style={{ marginTop: 18 }}
+            onSubmit={(event) => {
+              event.preventDefault()
+              void withPassword()
+            }}
           >
-            {quick && stepUp === "FINGERPRINT" && <Icon name="finger" />}
-            {busy
-              ? "Checking…"
-              : quick && stepUp === "FINGERPRINT"
-                ? "Scan fingerprint"
-                : "Approve"}
+            <label>
+              Username kepala toko
+              <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="off" spellCheck={false} autoFocus />
+            </label>
+            <label>
+              Password
+              <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="off" />
+            </label>
+            {problem !== null && <p className="d-err">{problem}</p>}
+            <button className="pd-btn" type="submit" disabled={busy || username === "" || password === ""}>
+              <span>{busy ? "Memeriksa…" : "Setujui"}</span>
+              <span className="kbd">Enter</span>
+            </button>
+          </form>
+        ) : (
+          <>
+            <Sensor state={read} onPress={() => void press()} small />
+            <p className={`d-say${read === "no" ? " bad" : ""}`} style={read === "done" ? { color: "#1d7a32" } : undefined} aria-live="polite">
+              {say}
+            </p>
+            <p className="d-hint">{read !== "no" && realScanner ? (problem ?? "") : ""}</p>
+          </>
+        )}
+        <div className="sup-foot">
+          <button className="d-chip" type="button" onClick={onClose} disabled={busy}>
+            Batal<span className="kbd">Esc</span>
           </button>
-        </>
-      }
-    >
-      <div className="approval-what">
-        <span className="seal warn">
-          <Icon name="lock" />
-        </span>
-        <div>
-          <strong>{request.title}</strong>
-          <p>{request.detail}</p>
         </div>
       </div>
-
-      {stepUp === null && <p className="muted">Loading…</p>}
-
-      {!isWeb && stepUp !== null && stepUp !== "NONE" && (
-        <div className="segmented" role="radiogroup" aria-label="How to approve">
-          <button
-            type="button"
-            role="radio"
-            aria-checked={mode === "quick"}
-            aria-pressed={mode === "quick"}
-            onClick={() => setMode("quick")}
-          >
-            {stepUp === "FINGERPRINT" ? "Fingerprint" : "PIN"}
-          </button>
-          <button
-            type="button"
-            role="radio"
-            aria-checked={mode === "password"}
-            aria-pressed={mode === "password"}
-            onClick={() => setMode("password")}
-          >
-            Password
+      {SIMULATED && !realScanner && !usePassword && (
+        <div className="d-sims">
+          {SIM_FINGERS.map((person: string) => (
+            <button key={person} className="ok" type="button" disabled={busy} onClick={() => void press(person)}>
+              Jari {titled(person)}
+              {person === SIM_HEAD ? " · Kepala toko" : ""}
+            </button>
+          ))}
+          <button className="bad" type="button" disabled={busy} onClick={() => void press(UNKNOWN_FINGER)}>
+            Jari tak dikenal
           </button>
         </div>
       )}
-
-      {stepUp !== null && !(quick && stepUp === "FINGERPRINT") && (
-        <form
-          className="rows"
-          onSubmit={(event) => {
-            event.preventDefault()
-            submit()
-          }}
-        >
-          <label className="field">
-            Supervisor code
-            <input
-              value={username}
-              onChange={(event) => setUsername(event.target.value)}
-              autoComplete="off"
-              spellCheck={false}
-              autoFocus
-            />
-          </label>
-          {quick ? (
-            <PinPad
-              value={pin.current}
-              onChange={setPin}
-              onSubmit={submit}
-              disabled={busy}
-            />
-          ) : (
-            <label className="field">
-              Password
-              <input
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                autoComplete="off"
-              />
-            </label>
-          )}
-        </form>
-      )}
-
-      {problem !== null && <p className="error">{problem}</p>}
-    </Sheet>
+    </div>
   )
 }

@@ -1640,6 +1640,21 @@ html[data-look="white"] .shell-panel [aria-current="page"] .nav-count {
   font-weight: 600;
   box-shadow: 0 0 0 2px var(--wt-panel);
 }
+/* A quiet count (`NavItem.badge: "quiet"`) is only a figure: a grey number
+   beside its word, no pill, on the row you are on as well. */
+html[data-look="white"] .nav-count[data-quiet],
+html[data-look="white"] .shell-panel [data-status="active"] .nav-count[data-quiet],
+html[data-look="white"] .shell-panel [aria-current="page"] .nav-count[data-quiet] {
+  display: inline;
+  min-width: 0;
+  height: auto;
+  padding: 0 0.375rem;
+  border-radius: 0;
+  background: transparent;
+  color: var(--mute);
+  font-weight: 500;
+  box-shadow: none;
+}
 
 /* ── Bold blue (owner, 15 Oct: sidebar-color-prototypes.html, Paper D).
    The screens panel is white paper with slate words; the screen you are on

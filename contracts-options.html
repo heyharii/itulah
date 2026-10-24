@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Contracts options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet" />
+<style>
+/* GA › Contracts — tidier list, four options on the List template
+   (design-system/01-pages: head · figures · tabs · bar · framed table).
+   Shell and sizes measured on the running hub :5350 (17 Oct). */
+:root{
+  --ink:#1d1d1f; --body:#6e6e73; --mute:#6e6e73; --nav:#344054;
+  --soft:#fafafb; --soft-2:#f2f2f5; --soft-3:#f5f5f7; --stone:#e8ebf0;
+  --hairline:#e8e8ec; --hairline-2:#dcdce1; --row-line:#eeeef1; --band:#fafafb;
+  --accent:#2862dc; --accent-bg:#eef3fc;
+  --ok:#36b827; --ok-fg:#248a3d; --warn:#c9892e; --warn-fg:#a66c1f; --bad:#d70015; --bad-fg:#d70015;
+  --r-card:10px; --r-inner:8px; --r-sheet:16px;
+  --ring:0 0 0 1px rgb(0 0 0/.05),0 2px 8px rgb(0 0 0/.04);
+  --ease-out:cubic-bezier(.23,1,.32,1);
+  --font:"Inter",system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font-family:var(--font);font-size:15px;line-height:20px;color:var(--ink);background:#141518;letter-spacing:-.006em;-webkit-font-smoothing:antialiased;overflow:hidden}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;letter-spacing:inherit}
+.i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.i.s{width:16px;height:16px}
+
+/* prototype chrome (same as articles-cell-options) */
+.proto{height:50px;overflow-x:auto;background:#141518;color:#fff;display:flex;align-items:center;gap:12px;padding:0 14px 0 18px}
+.proto .t{font-weight:600;white-space:nowrap}
+.seg{display:flex;gap:2px;background:#24262b;border-radius:9px;padding:3px;flex:none}
+.seg button{height:32px;padding:0 11px;border-radius:7px;color:#b9bcc3;white-space:nowrap;transition:background-color .15s ease,color .15s ease,transform .16s ease-out}
+.seg button:active{transform:scale(.97)}
+.seg button b{font-weight:600;color:#fff;margin-right:5px}
+.seg button.on{background:#fff;color:var(--ink)} .seg button.on b{color:var(--ink)}
+.seg .star{color:#f4b740;margin-left:4px}
+.proto .sp{flex:1}
+.note{min-height:36px;background:#1c1e22;color:#a7abb3;line-height:24px;padding:6px 18px;border-top:1px solid #26282d}
+.note b{color:#fff;font-weight:500}
+.stagewrap{height:calc(100vh - 50px - var(--nh,36px));overflow:hidden;display:flex;justify-content:center;background:#141518}
+
+/* hub shell, measured: stone ground, 68 rail, 216 panel, page 12px off the stone */
+.app{height:100%;display:grid;grid-template-columns:68px 216px minmax(0,1fr);background:var(--stone);flex:none}
+.rail{display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:6px;color:var(--nav)}
+.rail .ri{width:40px;height:36px;border-radius:9px;display:grid;place-items:center}
+.rail .ri.on{background:#fff;color:var(--accent);box-shadow:var(--ring)}
+.rail .sp{flex:1}
+.av{width:34px;height:34px;border-radius:50%;border:1.5px solid var(--accent);display:grid;place-items:center;color:var(--accent);font-weight:600;background:#fff}
+.panel{background:#fff;margin:12px 0;border-radius:var(--r-sheet);box-shadow:var(--ring);display:flex;flex-direction:column;min-height:0}
+.panel h2{margin:0;height:52px;padding:12px 16px 0;display:flex;align-items:center;justify-content:space-between;font-size:20px;font-weight:600;letter-spacing:-.01em;color:#1d2939}
+.navs{padding:10px 10px;display:flex;flex-direction:column}
+.nv{height:36px;display:flex;align-items:center;padding:0 10px;border-radius:var(--r-inner);color:var(--nav);width:100%;text-align:left}
+.nv.on{background:var(--accent-bg);color:var(--accent);font-weight:600}
+.navs hr{border:0;border-top:1px solid var(--hairline);margin:6px 8px}
+.clock{margin-top:auto;padding:14px 16px;border-top:1px solid var(--hairline);display:flex;gap:10px;align-items:center;color:var(--ink)}
+.main{margin:12px;background:#fff;border-radius:var(--r-sheet);box-shadow:var(--ring);overflow-y:auto;min-width:0;position:relative}
+
+/* head · figures · tabs · bar · table */
+.head{position:sticky;top:0;z-index:4;background:#fff;padding:24px 28px 16px;border-bottom:1px solid var(--hairline);display:flex;align-items:center;justify-content:space-between;min-height:76px}
+.head h1{margin:0;font-size:17px;line-height:24px;font-weight:600}
+.btn{height:36px;display:inline-flex;align-items:center;gap:6px;padding:0 12px 0 10px;border-radius:var(--r-inner);background:var(--accent);color:#fff;font-weight:600;box-shadow:0 1px 2px rgb(20 50 100/.1);transition:transform .16s var(--ease-out),background-color .15s ease}
+.btn:active{transform:scale(.97)}
+@media (hover:hover){.btn:hover{background:#2257c8}}
+.page{padding:24px 28px 64px}
+.figs{display:flex;margin-bottom:32px}
+.fig{padding:0 24px;border-left:1px solid var(--hairline)}
+.fig:first-child{border-left:0;padding-left:0}
+.fig .l{color:var(--body);white-space:nowrap;display:flex;align-items:center;gap:6px}
+.fig .v{font-size:16px;line-height:24px;font-weight:600;margin-top:4px;font-variant-numeric:tabular-nums;letter-spacing:-.02em;white-space:nowrap}
+.fig .v.warn{color:var(--warn-fg)} .fig .v.bad{color:var(--bad-fg)}
+.mark{display:inline-flex;align-items:center;border-radius:var(--r-inner);background:var(--soft-2);padding:0 6px;font-weight:500;color:var(--body)}
+.tabs{display:flex;gap:20px;box-shadow:inset 0 -1px 0 var(--hairline);margin-bottom:16px;overflow-x:auto;scrollbar-width:none}
+.tab{padding:8px 0 11px;color:var(--body);font-weight:500;white-space:nowrap;border-bottom:2px solid transparent;transition:color .15s ease}
+.tab .c{margin-left:6px;color:var(--mute);font-weight:400;font-variant-numeric:tabular-nums}
+.tab.on{color:var(--ink);border-bottom-color:var(--ink)}
+.bar{display:flex;gap:8px;align-items:center;margin-bottom:12px;position:relative}
+.search{width:280px;height:36px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);display:flex;align-items:center;gap:8px;padding:0 10px;color:var(--mute)}
+.search input{border:0;outline:0;font:inherit;color:var(--ink);flex:1;min-width:0;letter-spacing:inherit}
+.gb{height:36px;display:flex;align-items:center;gap:6px;padding:0 12px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);font-weight:500;white-space:nowrap;transition:background-color .15s ease,transform .16s var(--ease-out)}
+.gb:active{transform:scale(.97)}
+@media (hover:hover){.gb:hover{background:var(--soft-2)}}
+/* a switch in the bar, as Purchase Orders' "Group by supplier" */
+.swp{height:36px;display:flex;align-items:center;gap:8px;padding:0 12px 0 10px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);font-weight:500;white-space:nowrap;transition:background-color .15s ease,transform .16s var(--ease-out)}
+.swp:active{transform:scale(.97)}
+@media (hover:hover){.swp:hover{background:var(--soft)}}
+.swp .tk{width:30px;height:18px;border-radius:9px;background:#e3e3e8;position:relative;transition:background-color .2s var(--ease-out)}
+.swp .tk::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgb(0 0 0/.2);transition:transform .2s var(--ease-out)}
+.swp.on .tk{background:var(--accent)} .swp.on .tk::after{transform:translateX(12px)}
+.swp .c{color:var(--mute);font-weight:400;font-variant-numeric:tabular-nums}
+.swp .c.warn{color:var(--warn-fg)}
+/* a figure that is also its filter */
+button.fig{text-align:left;cursor:pointer}
+@media (hover:hover){button.fig:hover .l{color:var(--ink)}}
+.gb .n{min-width:20px;height:20px;border-radius:10px;background:var(--ink);color:#fff;font-size:15px;line-height:20px;text-align:center;padding:0 6px;font-weight:500}
+.segm{display:inline-flex;gap:2px;padding:3px;border-radius:9px;background:#f2f2f4}
+.segm button{height:28px;padding:0 10px;border-radius:6px;color:var(--body);font-weight:500}
+.segm button.on{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgb(0 0 0/.12)}
+.tally{color:var(--body);white-space:nowrap} .tally b{color:var(--ink);font-weight:500}
+
+/* the filter / columns panels: a popover from its button */
+.pop{position:absolute;top:44px;width:300px;background:#fff;border-radius:12px;box-shadow:0 0 0 1px var(--hairline),0 12px 32px rgb(0 0 0/.12);padding:6px;z-index:6;opacity:0;transform:scale(.97);transform-origin:top left;pointer-events:none;transition:opacity .16s var(--ease-out),transform .16s var(--ease-out)}
+.pop.right{right:0;transform-origin:top right}
+.pop.open{opacity:1;transform:none;pointer-events:auto}
+.pop .ph{padding:10px 10px 4px;color:var(--body);font-weight:500}
+.pop .fr{height:38px;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 10px;border-radius:var(--r-inner);width:100%;text-align:left}
+.pop .fr span{color:var(--mute);font-variant-numeric:tabular-nums}
+.pop .fr.on{color:var(--accent);font-weight:500} .pop .fr.on span{color:var(--accent)}
+@media (hover:hover){.pop .fr:hover{background:var(--soft)}}
+.pop hr{border:0;border-top:1px solid var(--hairline);margin:6px 4px}
+
+/* DataTable, framed */
+.tbox{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:clip}
+table{border-collapse:collapse;width:100%;table-layout:fixed}
+th{height:40px;background:var(--band);color:var(--body);font-weight:500;text-align:left;padding:0 16px;border-bottom:1px solid var(--hairline);white-space:nowrap;position:sticky;top:76px;z-index:2}
+td{padding:12px 16px;border-top:1px solid var(--row-line);vertical-align:middle;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+tbody tr:first-child td{border-top:0}
+tbody tr.rw{cursor:pointer}
+tbody tr.rw td{transition:background-color .12s ease}
+@media (hover:hover){tbody tr.rw:hover td{background:var(--soft)}
+  tbody tr.rw:hover td:last-child::after{content:"";position:absolute;right:14px;top:50%;width:7px;height:7px;margin-top:-4px;border-right:1.6px solid var(--mute);border-top:1.6px solid var(--mute);transform:rotate(45deg)}}
+tbody tr.rw td:last-child{position:relative;padding-right:30px}
+.r{text-align:right}
+.num{font-variant-numeric:tabular-nums}
+.nm{font-weight:500;display:block;overflow:hidden;text-overflow:ellipsis}
+.q{color:var(--mute);display:block;overflow:hidden;text-overflow:ellipsis}
+.m{color:var(--mute)}
+.grp td{height:44px;padding-top:0;padding-bottom:0;background:var(--band);font-weight:500;border-top:1px solid var(--hairline)}
+.grp td .c{color:var(--mute);font-weight:400;margin-left:6px}
+.grp + tr td{border-top:1px solid var(--hairline)}
+tfoot td{height:44px;padding-top:0;padding-bottom:0;background:var(--band);border-top:1px solid var(--hairline)}
+.st{white-space:nowrap}
+.st::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--d,var(--mute));margin:0 7px 2px 0;vertical-align:middle}
+.st.ok{--d:var(--ok)} .st.warn{--d:var(--warn);color:var(--warn-fg)} .st.bad{--d:var(--bad);color:var(--bad-fg)} .st.neutral{--d:#aeaeb2}
+.empty{padding:56px 16px;text-align:center;color:var(--body)}
+
+/* Now: the register as it is drawn today — a div grid in a sideways scroller */
+.now-box{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden}
+.now-scroll{overflow-x:auto}
+.now-g{display:grid;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--hairline)}
+.now-g:last-child{border-bottom:0}
+.now-g.h{height:40px;padding:0 14px;background:var(--band);color:var(--body);font-weight:500}
+.now-g.rw{cursor:pointer} @media (hover:hover){.now-g.rw:hover{background:var(--soft)}}
+.now-g > *{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.now-g .mono{font-family:"JetBrains Mono",ui-monospace,monospace;color:var(--body);letter-spacing:0}
+.now-g .sub{display:block;color:var(--mute);overflow:hidden;text-overflow:ellipsis}
+.pill{display:inline-flex;align-items:center;gap:7px;height:24px;font-weight:500;white-space:nowrap}
+.pill::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.pill.ok{color:var(--ok-fg)} .pill.warn{color:var(--warn-fg)} .pill.neutral{color:var(--body)}
+</style>
+</head>
+<body>
+<div class="proto">
+  <div class="t">Contracts</div>
+  <div class="seg" id="opts"></div>
+  <div class="sp"></div>
+  <div class="seg" id="data"></div>
+  <div class="seg" id="typeseg"></div>
+  <div class="seg" id="widths"></div>
+</div>
+<div class="note" id="note"></div>
+<div class="stagewrap" id="stagewrap">
+  <div class="app" id="app">
+    <nav class="rail">
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></div>
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><path d="M6 6h15l-2 8H8zM6 6 5 3H2"/><circle cx="9" cy="20" r="1"/><circle cx="18" cy="20" r="1"/></svg></div>
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><path d="M8 3 3 6l2 4 2-1v12h10V9l2 1 2-4-5-3c-.5 1.5-2 2.5-4 2.5S8.5 4.5 8 3z"/></svg></div>
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="18" r="1.6"/><circle cx="17" cy="18" r="1.6"/></svg></div>
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><path d="M4 10h3l8-5v14l-8-5H4zM18 9a4 4 0 0 1 0 6"/></svg></div>
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><path d="M4 10h16l-1-5H5zM5 10v9h14v-9M9 19v-5h6v5"/></svg></div>
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><path d="M3 21h18M5 21V10M19 21V10M9 21v-7M15 21v-7M2 10l10-6 10 6"/></svg></div>
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5c2 .6 3.2 2.3 3.5 5.5"/></svg></div>
+      <div class="ri on"><svg class="i" viewBox="0 0 24 24"><path d="M4 5h11v8H8l-4 3zM9 13v3h7l4 3V10h-5"/></svg></div>
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><path d="M12 6c-2-1.5-5-2-8-1.5V19c3-.5 6 0 8 1.5 2-1.5 5-2 8-1.5V4.5c-3-.5-6 0-8 1.5zM12 6v14.5"/></svg></div>
+      <div class="sp"></div>
+      <div class="av">A</div>
+    </nav>
+    <aside class="panel">
+      <h2>GA<svg class="i s" style="color:var(--body)" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg></h2>
+      <div class="navs">
+        <button class="nv">Overview</button><hr>
+        <button class="nv">Supply Requests</button><button class="nv">Repairs</button><button class="nv">Service Schedule</button><hr>
+        <button class="nv">Assets</button><button class="nv on">Contracts</button><button class="nv">Sites</button><button class="nv">Suppliers</button><hr>
+        <button class="nv">Letters</button><button class="nv">Files</button>
+      </div>
+      <div class="clock"><svg class="i s" style="color:var(--body)" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>17 Oct 2026 · 16:20</div>
+    </aside>
+    <main class="main" id="main">
+      <div class="head"><h1>Contracts</h1><button class="btn"><svg class="i s" viewBox="0 0 24 24" style="stroke-width:2"><path d="M12 5v14M5 12h14"/></svg>Add contract</button></div>
+      <div class="page" id="page"></div>
+    </main>
+  </div>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s)
+const TODAY = new Date(2026, 9, 17)
+
+const GROUPS = [
+  ["SEWA","Leases"],["JASA","Services"],["ASURANSI","Insurance"],
+  ["IZIN","Permits"],["LANGGANAN","Subscriptions"],["DISEWAKAN","Leased out"],
+]
+const GROUP = Object.fromEntries(GROUPS)
+const SITE = {"store-01":"Store 01","store-02":"Store 02","dc":"DC",ALL_STORES:"All stores"}
+const SITE_ORDER = ["store-01","store-02","dc","ALL_STORES"]
+
+// the demo rig's five (GET /api/v1/ga/contracts, 17 Oct) …
+const DEMO = [
+  {no:"SW/ST01/2024-10", party:"Hj. Siti Aminah", g:"SEWA", type:"Sewa toko/gudang/kantor", site:"store-01", from:"2024-10-01", to:"2027-09-30", value:450000000, billed:0, rem:120, notes:"Sewa ruko 2 lantai, dibayar per tahun di muka"},
+  {no:"MT/AC/2026-01", party:"CV Sejuk Teknik Mandiri", g:"JASA", type:"Kontrak maintenance", obj:"AC & refrigerator", site:"store-01", from:"2026-01-01", to:"2026-12-31", value:7200000, billed:0, rem:60, notes:"Servis AC 3 bulanan toko 01, termasuk isi freon ringan"},
+  {no:"CL/DC/2026-01", party:"PT Bersih Prima Jasa", g:"JASA", type:"Cleaning", site:"dc", from:"2026-01-01", to:"2026-12-31", value:96000000, billed:0, rem:45, notes:"4 cleaner shift pagi di DC & kantor"},
+  {no:"CL/ST01/2026-03", party:"PT Bersih Prima Jasa", g:"JASA", type:"Cleaning", site:"store-01", from:"2026-03-01", to:"2027-02-28", value:36000000, billed:0, rem:45, notes:"1 cleaner harian toko 01"},
+  {no:"PDAM/ST01/0412118801", party:"PDAM Tirta Bhagasasi", g:"LANGGANAN", type:"Air", site:"store-01", from:"2024-10-01", to:null, value:null, billed:0, rem:30, cust:"0412-118801", usage:"34 m³", period:"Aug 2026"},
+]
+// … and a fuller register: every group, three running out, one expired, two archived
+const MORE = [
+  {no:"SW/DC/2025-01", party:"PT Graha Logistik Cikarang", g:"SEWA", type:"Sewa toko/gudang/kantor", site:"dc", from:"2025-01-01", to:"2027-12-31", value:1350000000, billed:900000000, rem:120, notes:"Gudang 2.400 m², service charge terpisah"},
+  {no:"SW/KND/2026-02", party:"PT Trac Astra Rent a Car", g:"SEWA", type:"Sewa kendaraan", site:"dc", from:"2026-02-01", to:"2026-11-30", value:66000000, billed:52800000, rem:60, notes:"Grand Max blind van B 9123 KX"},
+  {no:"AS/ST01/2025-11", party:"PT Asuransi Sinar Mas", g:"ASURANSI", type:"Asuransi properti", site:"store-01", from:"2025-11-23", to:"2026-11-22", value:18500000, billed:18500000, rem:45},
+  {no:"IZ/RK/2025-11", party:"Bapenda Kota Bekasi", g:"IZIN", type:"Pajak reklame", site:"store-01", from:"2025-11-01", to:"2026-10-31", value:4800000, billed:4800000, rem:30, notes:"Billboard 4×6 m depan toko"},
+  {no:"IZ/STNK/B9123KX", party:"Samsat Kabupaten Bekasi", g:"IZIN", type:"STNK/KIR", site:"dc", from:"2025-09-15", to:"2026-09-15", value:3250000, billed:3250000, rem:30},
+  {no:"JS/ALL/2026-04", party:"PT Rentokil Initial Indonesia", g:"JASA", type:"Pest control", site:"ALL_STORES", from:"2026-04-01", to:"2027-03-31", value:42000000, billed:21000000, rem:45},
+  {no:"JS/DC/2026-05", party:"PT Garda Satria Nusantara", g:"JASA", type:"Security", site:"dc", from:"2026-05-01", to:"2027-04-30", value:168000000, billed:70000000, rem:60},
+  {no:"PLN/ST01/532100987712", party:"PT PLN (Persero)", g:"LANGGANAN", type:"Listrik", site:"store-01", from:"2024-10-01", to:null, value:null, billed:41870000, rem:30, cust:"5321-0098-7712", usage:"4.812 kWh", period:"Sep 2026"},
+  {no:"TLK/DC/122044501", party:"Telkom Indonesia", g:"LANGGANAN", type:"Internet", site:"dc", from:"2025-01-15", to:null, value:null, billed:9900000, rem:30, cust:"1220-445-01"},
+  {no:"DS/ST01/2026-07", party:"Koperasi Karyawan Sejahtera", g:"DISEWAKAN", type:"Sewa ruang", site:"store-01", from:"2026-07-01", to:"2027-06-30", value:24000000, billed:6000000, rem:60, notes:"Pojok 3×4 m dekat kasir"},
+  {no:"SW/ST02/2023-01", party:"Bpk. Hendra Gunawan", g:"SEWA", type:"Sewa toko/gudang/kantor", site:"store-02", from:"2023-01-01", to:"2025-12-31", value:300000000, billed:300000000, rem:120, archived:true, ended:"Not renewed"},
+  {no:"CL/ST01/2025-03", party:"PT Kilau Bersih Mandiri", g:"JASA", type:"Cleaning", site:"store-01", from:"2025-03-01", to:"2026-01-15", value:30000000, billed:25000000, rem:45, archived:true, ended:"Terminated"},
+  {no:"JS/DC/2025-05", party:"PT Garda Satria Nusantara", g:"JASA", type:"Security", site:"dc", from:"2025-05-01", to:"2026-04-30", value:156000000, billed:156000000, rem:60, archived:true, ended:"Renewed"},
+]
+
+const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+const D = (s) => { const [y,m,d] = s.split("-").map(Number); return new Date(y, m-1, d) }
+const day = (s) => { const d = D(s); return `${String(d.getDate()).padStart(2,"0")} ${MON[d.getMonth()]} ${d.getFullYear()}` }
+const dayMonth = (s) => { const d = D(s); return `${String(d.getDate()).padStart(2,"0")} ${MON[d.getMonth()]}` }
+const span = (a, b) => !b ? `From ${day(a)}` : D(a).getFullYear() !== D(b).getFullYear() ? `${day(a)} – ${day(b)}` : `${dayMonth(a)} – ${day(b)}`
+const rp = (n) => n == null ? "—" : "Rp " + n.toLocaleString("id-ID")
+const compact = (n) => { if (n < 1e6) return rp(n); const [s, l] = n >= 1e9 ? [1e9,"B"] : [1e6,"M"]; return `Rp ${(n/s).toLocaleString("id-ID",{maximumFractionDigits:1, minimumFractionDigits: n/s < 10 ? 1 : 0})} ${l}` }
+const daysTo = (s) => s ? Math.round((D(s) - TODAY) / 864e5) : null
+
+// the server's standing: from the window and each contract's own reminder days
+function standing(c){
+  // an ended contract says how it ended: Renewed (a new one took over), Not renewed, Terminated (stopped early)
+  if (c.archived) return {k:"ENDED", word:c.ended, tone: c.ended === "Renewed" ? "ok" : "neutral"}
+  const left = daysTo(c.to)
+  if (left !== null && left < 0) return {k:"HABIS", word:"Expired", tone:"bad"}
+  if (left !== null && left <= c.rem) return {k:"SEGERA_HABIS", word:`Expires in ${left} days`, tone:"warn"}
+  return {k:"AKTIF", word:"Active", tone:"ok"}
+}
+
+const S = Object.assign({opt:"A", data:"full", width:1440, tab:"live", group:null, site:null, q:"", billed:false, typeCol:true, due:false, pop:null},
+  JSON.parse(localStorage.getItem("contracts-options") || "{}"))
+S.pop = null
+let popIn = false, swFrom = null
+const save = () => { try { localStorage.setItem("contracts-options", JSON.stringify({opt:S.opt, data:S.data, width:S.width, billed:S.billed, typeCol:S.typeCol})) } catch {} }
+
+const OPTIONS = [
+  {id:"now", label:"Now", note:"<b>Now</b> — today's register at :5350: seven group tabs (zeros too), Active/Archived in the bar, eight columns in a box that scrolls sideways at 1440, three cells with a second line, mono numbers, the green Active pill, the Finance chip."},
+  {id:"A", label:"Flat", star:true, note:"<b>A · Flat</b> — the List template exactly, like Purchase Orders: tabs Active/Ended, groups and places in Filter, a <b>Due for renewal</b> switch beside it (a click on the figure turns it on), five columns that fit, one quiet line under the party, Billed behind Columns, a totals row."},
+  {id:"B", label:"Renew first", note:"<b>B · Renew first</b> — A's columns, the rows split by what needs doing: <b>Renew</b> (expired or inside its reminder days, soonest first) above <b>Running</b>, by end date. No end date sits last."},
+  {id:"C", label:"By group", note:"<b>C · By group</b> — A's columns, one section per group with its count and its value; a group with nothing is not drawn. Leased out (money in) keeps its own sum."},
+  {id:"D", label:"By place", note:"<b>D · By place</b> — one section per place (Store 01, DC, All stores) with its count and value; the Location column goes."},
+]
+
+const ico = (d, cls="s") => `<svg class="i ${cls}" viewBox="0 0 24 24">${d}</svg>`
+const I = {
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  filter: '<path d="M4 6h16M7 12h10M10 18h4"/>',
+  cols: '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M10 4v16M15 4v16"/>',
+  check: '<path d="m5 12 5 5 9-10"/>',
+}
+
+function rowsAll(){ return S.data === "demo" ? DEMO : [...DEMO, ...MORE] }
+function visible(){
+  const q = S.q.trim().toLowerCase()
+  return rowsAll().filter(c => !!c.archived === (S.tab === "archived"))
+    .filter(c => !S.group || c.g === S.group)
+    .filter(c => !S.site || c.site === S.site)
+    .filter(c => !S.due || S.tab === "archived" || standing(c).k !== "AKTIF")
+    .filter(c => !q || [c.party, c.no, c.type, SITE[c.site], c.notes].join(" ").toLowerCase().includes(q))
+}
+const outgoing = (rows) => rows.filter(c => c.g !== "DISEWAKAN")
+const sum = (rows, k) => rows.reduce((t, c) => t + (c[k] || 0), 0)
+
+// ── Now ──────────────────────────────────────────────────────────────────────
+function drawNow(){
+  const all = rowsAll().filter(c => !!c.archived === (S.tab === "archived"))
+  const live = rowsAll().filter(c => !c.archived)
+  const rows = all.filter(c => !S.group || c.g === S.group)
+  const util = S.group === "LANGGANAN"
+  const due = live.filter(c => standing(c).k === "SEGERA_HABIS").length
+  // today an archived contract still shows its window's standing: Expired, or Terminated
+  const pill = (c) => { const s = c.archived ? {word: c.ended === "Terminated" ? "Terminated" : "Expired", tone:"neutral"} : standing(c); return `<span class="pill ${s.tone==="bad"?"neutral":s.tone}">${s.word}</span>` }
+  const fin = '<span class="mark">Finance</span>'
+  const cols = util ? "minmax(13rem,1fr) 6.5rem 10rem 9rem 10rem 9rem" : "7rem minmax(12rem,1fr) 10rem 6.5rem 11rem 8.5rem 8.5rem 9rem"
+  const head = util
+    ? `<span>Provider</span><span>Location</span><span>Customer no.</span><span class="r">Billed ${fin}</span><span>Last reading</span><span>Status</span>`
+    : `<span>Number</span><span>Party</span><span>Type</span><span>Location</span><span>Term</span><span class="r">Contract value</span><span class="r">Billed ${fin}</span><span>Status</span>`
+  const row = (c) => util
+    ? `<div class="now-g rw" style="grid-template-columns:${cols}"><div><span style="font-weight:500">${c.party}</span><span class="sub">${c.type}</span></div><span>${c.site}</span><span class="mono">${c.cust||"—"}</span><span class="r num">${rp(c.billed)}</span><div>${c.usage?`${c.usage}<span class="sub">${c.period}</span>`:"—"}</div><span>${pill(c)}</span></div>`
+    : `<div class="now-g rw" style="grid-template-columns:${cols}"><span class="mono">${c.no}</span><div><span style="font-weight:500">${c.party}</span>${c.notes?`<span class="sub">${c.notes}</span>`:""}</div><div>${c.type}${c.obj?`<span class="sub">Object: ${c.obj}</span>`:""}</div><span>${c.site === "ALL_STORES" ? "All stores" : c.site}</span><span class="num">${span(c.from,c.to)}</span><span class="r num">${rp(c.value)}</span><div class="r num">${rp(c.billed)}${c.value!=null?`<span class="sub">${rp(c.value-c.billed)} left</span>`:""}</div><span>${pill(c)}</span></div>`
+  const count = (g) => all.filter(c => !g || c.g === g).length
+  return `
+    <div class="figs">${util
+      ? fig("Connections", rows.length) + fig(`Billed to date ${fin}`, rp(sum(rows,"billed")))
+      : fig("Active", live.length) + fig("Due for renewal", due) + fig("Active contract value", rp(sum(outgoing(live),"value"))) + fig(`Billed to date ${fin}`, rp(sum(outgoing(rows),"billed")))}</div>
+    <div class="tabs">${[[null,"All"],...GROUPS].map(([g,l]) => `<button class="tab ${S.group===g?"on":""}" data-g="${g??""}">${l}<span class="c">${count(g)}</span></button>`).join("")}</div>
+    <div class="bar">${searchBox()}<div style="flex:1"></div>
+      <div class="segm"><button class="${S.tab==="live"?"on":""}" data-t="live">Active</button><button class="${S.tab==="archived"?"on":""}" data-t="archived">Archived</button></div>
+      <span class="tally"><b>${rows.length}</b> ${rows.length===1?"contract":"contracts"}</span></div>
+    <div class="now-box"><div class="now-scroll"><div style="min-width:${util?61:78}rem">
+      <div class="now-g h" style="grid-template-columns:${cols}">${head}</div>
+      ${rows.map(row).join("") || `<div class="empty">No contracts in this reading yet.</div>`}
+    </div></div></div>`
+}
+const fig = (l, v, tone="", title="") => `<div class="fig"><div class="l">${l}</div><div class="v ${tone}" ${title?`title="${title}"`:""}>${v}</div></div>`
+const searchBox = () => `<label class="search">${ico(I.search)}<input id="q" placeholder="Search contracts" value="${S.q.replace(/"/g,"&quot;")}"></label>`
+
+// ── A–D: one table, four ways of laying its rows ─────────────────────────────
+function drawNew(o){
+  const live = rowsAll().filter(c => !c.archived), arch = rowsAll().filter(c => c.archived)
+  const rows = visible()
+  const renew = live.filter(c => standing(c).k !== "AKTIF").length
+  const value = sum(outgoing(live), "value")
+  const nFilters = (S.group ? 1 : 0) + (S.site ? 1 : 0)
+  // Contract · Location · Ends · Value · (Billed) · Status
+  const cols = [
+    // Type in the line: "number · type" under the party, Location its own column.
+    // Type column: the type stands on its own, Location joins the line instead.
+    {h:"Contract", w:"auto", cell:(c) => { const q = S.typeCol ? [c.no, o.id === "D" ? null : SITE[c.site]].filter(Boolean).join(" · ") : `${c.no} · ${c.type}`
+      return `<span class="nm" title="${c.party}">${c.party}</span><span class="q" title="${q}">${q}</span>` }},
+    S.typeCol && {h:"Type", w: S.width === 1440 ? 220 : 180, cell:(c) => `<span title="${c.type}">${c.type}</span>`},
+    !S.typeCol && o.id !== "D" && {h:"Location", w: 120, cell:(c) => SITE[c.site]},
+    {h:"Ends", w: 128, cell:(c) => c.to ? `<span class="num">${day(c.to)}</span>` : `<span class="m">No end date</span>`},
+    {h:"Value", w: 164, r:true, cell:(c) => `<span class="num ${c.value==null?"m":""}">${rp(c.value)}</span>`, total:(rs) => rp(sum(outgoing(rs),"value"))},
+    S.billed && {h:"Billed", w: 172, r:true, cell:(c) => `<span class="num">${rp(c.billed)}</span>`, total:(rs) => rp(sum(outgoing(rs),"billed"))},
+    {h:"Status", w: 190, cell:(c) => { const s = standing(c); return `<span class="st ${s.tone}">${s.word}</span>` }},
+  ].filter(Boolean)
+
+  const tr = (c) => `<tr class="rw">${cols.map(k => `<td class="${k.r?"r":""}">${k.cell(c)}</td>`).join("")}</tr>`
+  const section = (label, rs) => {
+    const vi = cols.findIndex(k => k.h === "Value")
+    const out = rs.every(c => c.g === "DISEWAKAN") ? rs : outgoing(rs)
+    return `<tr class="grp"><td colspan="${vi}">${label}<span class="c">${rs.length}</span></td><td class="r num" style="font-weight:400">${rp(sum(out,"value"))}</td><td colspan="${cols.length-vi-1}"></td></tr>` + rs.map(tr).join("")
+  }
+  // the living list reads soonest end first; the ended list, the latest ending first
+  const ended = S.tab === "archived"
+  const byEnd = (a, b) => (ended ? -1 : 1) * ((a.to ? D(a.to) : Infinity) - (b.to ? D(b.to) : Infinity)) || a.party.localeCompare(b.party)
+
+  let body = ""
+  if (o.id === "A" || (o.id === "B" && ended)) body = [...rows].sort(byEnd).map(tr).join("")
+  if (o.id === "B" && !ended) {
+    const now = rows.filter(c => standing(c).k !== "AKTIF").sort(byEnd)
+    const rest = rows.filter(c => standing(c).k === "AKTIF").sort(byEnd)
+    body = (now.length ? section("Renew", now) : "") + (rest.length ? section("Running", rest) : "")
+  }
+  if (o.id === "C") body = GROUPS.map(([g, l]) => [l, rows.filter(c => c.g === g).sort(byEnd)]).filter(([, rs]) => rs.length).map(([l, rs]) => section(l, rs)).join("")
+  if (o.id === "D") body = SITE_ORDER.map(s => [SITE[s], rows.filter(c => c.site === s).sort(byEnd)]).filter(([, rs]) => rs.length).map(([l, rs]) => section(l, rs)).join("")
+
+  const vi = cols.findIndex(k => k.h === "Value")
+  const foot = rows.length ? `<tfoot><tr><td colspan="${vi}"><b style="font-weight:500">${rows.length}</b> <span class="m">${rows.length===1?"contract":"contracts"}${S.tab==="live" && rows.length !== live.length ? ` of ${live.length}` : ""}</span></td>${cols.slice(vi).map(k => `<td class="r num">${k.total ? k.total(rows) : ""}</td>`).join("")}</tr></tfoot>` : ""
+
+  const fopt = (key, val, label, n) => `<button class="fr ${S[key]===val?"on":""}" data-f="${key}" data-v="${val??""}">${label}<span>${n}</span></button>`
+  const pool = rowsAll().filter(c => !!c.archived === (S.tab === "archived"))
+  return `
+    <div class="figs">${fig("Active", live.length)}<button class="fig" data-due title="Show only these">${`<div class="l">Due for renewal</div><div class="v ${renew ? "warn" : ""}">${renew}</div>`}</button>${fig("Contract value", compact(value), "", rp(value))}</div>
+    <div class="tabs"><button class="tab ${S.tab==="live"?"on":""}" data-t="live">Active<span class="c">${live.length}</span></button><button class="tab ${S.tab==="archived"?"on":""}" data-t="archived">Ended<span class="c">${arch.length}</span></button></div>
+    <div class="bar">${searchBox()}
+      <button class="gb" data-pop="filter">${ico(I.filter)}Filter${nFilters?`<span class="n">${nFilters}</span>`:""}</button>
+      ${S.tab === "live" ? `<button class="swp ${S.due?"on":""}" data-due><span class="tk"></span>Due for renewal<span class="c ${renew?"warn":""}">${renew}</span></button>` : ""}
+      <div style="flex:1"></div>
+      <button class="gb" data-pop="cols">${ico(I.cols)}Columns</button>
+      <div class="pop ${S.pop==="filter"&&!popIn?"open":""}" data-p="filter" style="left:288px">
+        ${o.id === "C" ? "" : `<div class="ph">Group</div>${fopt("group", null, "All", pool.length)}${GROUPS.map(([g,l]) => fopt("group", g, l, pool.filter(c=>c.g===g).length)).join("")}<hr>`}
+        ${o.id === "D" ? "" : `<div class="ph">Location</div>${fopt("site", null, "All", pool.length)}${SITE_ORDER.filter(s => pool.some(c=>c.site===s)).map(s => fopt("site", s, SITE[s], pool.filter(c=>c.site===s).length)).join("")}`}
+      </div>
+      <div class="pop right ${S.pop==="cols"&&!popIn?"open":""}" data-p="cols">
+        ${cols.filter(k => k.h !== "Billed" && k.h !== "Status").map(k => k.h).map(h => `<div class="fr" style="color:var(--mute)">${h}${ico(I.check)}</div>`).join("")}
+        <button class="fr" data-billed>Billed${S.billed?ico(I.check):""}</button>
+        ${["Status"].map(h => `<div class="fr" style="color:var(--mute)">${h}${ico(I.check)}</div>`).join("")}
+      </div>
+    </div>
+    <div class="tbox"><table>
+      <colgroup>${cols.map(k => `<col style="width:${k.w==="auto"?"":k.w+"px"}">`).join("")}</colgroup>
+      <thead><tr>${cols.map(k => `<th class="${k.r?"r":""}">${k.h}</th>`).join("")}</tr></thead>
+      <tbody>${body || `<tr><td colspan="${cols.length}" class="empty">${S.tab==="archived" ? "Nothing has ended yet." : S.due && !S.q && !S.group && !S.site ? "Nothing is due for renewal." : "No contract matches these filters."}</td></tr>`}</tbody>
+      ${foot}
+    </table></div>`
+}
+
+function draw(){
+  const o = OPTIONS.find(x => x.id === S.opt) || OPTIONS[1]
+  $("#opts").innerHTML = OPTIONS.map(x => `<button data-o="${x.id}" class="${x.id===o.id?"on":""}">${x.id==="now"?"":`<b>${x.id}</b>`}${x.label}${x.star?'<span class="star">★</span>':""}</button>`).join("")
+  $("#data").innerHTML = [["demo",`Demo rig ${DEMO.length}`],["full",`Full ${DEMO.length + MORE.length}`]].map(([k,l]) => `<button data-d="${k}" class="${k===S.data?"on":""}">${l}</button>`).join("")
+  $("#typeseg").innerHTML = o.id === "now" ? "" : [[false,"Type in line"],[true,"Type column"]].map(([v,l]) => `<button data-tc="${v}" class="${v===S.typeCol?"on":""}">${l}</button>`).join("")
+  $("#typeseg").style.display = o.id === "now" ? "none" : ""
+  $("#widths").innerHTML = [1440,1280].map(w => `<button data-w="${w}" class="${w===S.width?"on":""}">${w}</button>`).join("")
+  $("#note").innerHTML = o.note
+  const focused = document.activeElement?.id === "q", caret = focused ? document.activeElement.selectionStart : 0
+  $("#page").innerHTML = o.id === "now" ? drawNow() : drawNew(o)
+  if (focused) { const q = $("#q"); q.focus(); q.setSelectionRange(caret, caret) }
+  // a popover that is just opening grows from its button; one already open stays put
+  // the switch is redrawn with the page: draw it as it was, then let its knob travel
+  if (swFrom !== null) { const el = document.querySelector(".swp"); if (el && swFrom !== S.due) { el.classList.toggle("on", swFrom); el.offsetWidth; el.classList.toggle("on", S.due) } swFrom = null }
+  if (popIn) { popIn = false; const el = document.querySelector(`[data-p="${S.pop}"]`); requestAnimationFrame(() => requestAnimationFrame(() => el?.classList.add("open"))) }
+  fit()
+}
+function fit(){
+  const app = $("#app"), wrap = $("#stagewrap")
+  document.documentElement.style.setProperty("--nh", $("#note").offsetHeight + "px")
+  app.style.width = S.width + "px"
+  const z = Math.min(1, wrap.clientWidth / S.width)
+  app.style.zoom = z
+  app.style.height = (wrap.clientHeight / z) + "px"
+}
+document.addEventListener("input", (e) => { if (e.target.id === "q") { S.q = e.target.value; draw() } })
+document.addEventListener("click", (e) => {
+  const p = e.target.closest("[data-pop]")
+  if (p) { S.pop = S.pop === p.dataset.pop ? null : p.dataset.pop; popIn = !!S.pop; draw(); return }
+  const t = e.target.closest("[data-o],[data-w],[data-d],[data-t],[data-g],[data-f],[data-billed],[data-tc],[data-due]")
+  if (!t) { if (S.pop && !e.target.closest(".pop")) { S.pop = null; draw() } return }
+  if (t.dataset.o) { S.opt = t.dataset.o; S.group = null; S.site = null; S.pop = null }
+  if (t.dataset.w) S.width = +t.dataset.w
+  if (t.dataset.tc) S.typeCol = t.dataset.tc === "true"
+  if (t.dataset.d) { S.data = t.dataset.d; S.group = null; S.site = null }
+  if (t.dataset.t) S.tab = t.dataset.t
+  if (t.dataset.g !== undefined) S.group = t.dataset.g || null
+  if (t.dataset.f) S[t.dataset.f] = t.dataset.v || null
+  if (t.hasAttribute("data-billed")) S.billed = !S.billed
+  // the switch and the figure are one filter: the figure turns it on, the switch either way
+  if (t.hasAttribute("data-due")) { swFrom = S.due; S.due = t.classList.contains("fig") ? true : !S.due; S.tab = "live" }
+  save(); draw()
+})
+addEventListener("keydown", (e) => { if (e.key === "Escape" && S.pop) { S.pop = null; draw() } })
+addEventListener("resize", fit)
+document.fonts?.ready.then(draw)
+draw()
+</script>
+</body>
+</html>

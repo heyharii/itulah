@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Finance compact tables</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+/* Finance tables, compact (owner, 17 Oct). Only the table changes: head,
+   tabs and bar stay as the hub draws them today.
+   Shell and table measured on the running hub :5350 at 1440×900
+   (Payables › Bills): rows 52, cells 12/16, header 40 on #fafafb, 15px. */
+:root{
+  --ink:#1d1d1f; --body:#6e6e73; --faint:#c7c7cc; --nav:#344054; --chip:#667085;
+  --soft:#fafafb; --soft-2:#f2f2f5; --soft-3:#f5f5f7; --stripe:#f4f4f7; --hover:#eef3fd;
+  --hairline:#e8e8ec; --hairline-2:#dcdce1; --row-line:#e8e8ec; --col-line:#ececf0;
+  --accent:#2862dc; --accent-bg:#eef3fc;
+  --ok:#34c759; --ok-fg:#248a3d; --warn:#ff9f0a; --warn-fg:#a66c1f; --bad-fg:#d70015; --info:#2862dc; --grey:#aeaeb2;
+  --ease-out:cubic-bezier(.23,1,.32,1);
+  --font:"Inter",system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font-family:var(--font);font-size:15px;color:var(--ink);background:#141518;letter-spacing:-.006em;-webkit-font-smoothing:antialiased;overflow:hidden}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+.i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+
+/* prototype chrome */
+.proto{height:50px;overflow-x:auto;background:#141518;color:#fff;display:flex;align-items:center;gap:12px;padding:0 14px 0 18px}
+.proto .t{font-weight:600;white-space:nowrap}
+.seg{display:flex;gap:2px;background:#24262b;border-radius:9px;padding:3px;flex:none}
+.seg button{height:32px;padding:0 11px;border-radius:7px;font-size:15px;color:#b9bcc3;white-space:nowrap;transition:background-color .15s ease,color .15s ease,transform .16s ease-out}
+.seg button:active{transform:scale(.97)}
+.seg button b{font-weight:600;color:#fff;margin-right:5px}
+.seg button.on{background:#fff;color:var(--ink)} .seg button.on b{color:var(--ink)}
+.seg .star{color:#f4b740;margin-left:4px}
+.proto .sp{flex:1}
+.note{min-height:36px;background:#1c1e22;color:#a7abb3;font-size:15px;line-height:24px;padding:6px 18px;border-top:1px solid #26282d;display:flex;gap:16px}
+.note .tx{flex:1} .note b{color:#fff;font-weight:500}
+.note .cnt{color:#fff;white-space:nowrap;font-variant-numeric:tabular-nums}
+.stagewrap{height:calc(100vh - 50px - var(--nh,36px));overflow:hidden;display:flex;justify-content:center;align-items:flex-start;background:#0e0f11}
+
+/* hub shell — app-shell #e8ebf0, panel and page are white cards 12px off the edge */
+.app{position:relative;background:#e8ebf0;flex:none;overflow:hidden}
+.rail{position:absolute;left:0;top:0;bottom:0;width:68px;display:flex;flex-direction:column;align-items:center;padding:14px 0;gap:6px}
+.rail .ri{width:40px;height:36px;border-radius:8px;display:grid;place-items:center;color:#3a3a3c;position:relative}
+.rail .ri.on{background:#fff;color:var(--accent);box-shadow:0 0 0 1px rgba(0,0,0,.05)}
+.rail .ri.dot::after{content:"";position:absolute;right:7px;top:6px;width:7px;height:7px;border-radius:50%;background:var(--bad-fg)}
+.panel{position:absolute;left:68px;top:12px;bottom:12px;width:216px;background:#fff;border-radius:16px;box-shadow:0 0 0 1px rgba(0,0,0,.05),0 2px 6px rgba(0,0,0,.04);display:flex;flex-direction:column}
+.panel .ph{height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 10px 0 16px;border-bottom:1px solid var(--hairline);font-size:20px;font-weight:600;letter-spacing:-.01em}
+.panel .ph svg{color:var(--body);width:16px;height:16px}
+.nav{padding:10px;display:flex;flex-direction:column;gap:1px;flex:1}
+.nav .lab{align-self:flex-start;height:22px;display:flex;align-items:center;padding:0 8px;margin:14px 0 6px 6px;border-radius:6px;background:var(--soft-2);color:var(--chip);font-size:12px;font-weight:500}
+.nav .it{height:36px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-radius:8px;color:var(--nav);text-align:left}
+.nav .it.on{background:var(--accent-bg);color:var(--accent);font-weight:500}
+.nav .it .n{min-width:24px;height:20px;padding:0 7px;border-radius:10px;background:var(--bad-fg);color:#fff;font-size:12px;font-weight:600;display:grid;place-items:center}
+.panel .clock{height:52px;display:flex;align-items:center;gap:8px;padding:0 16px;border-top:1px solid var(--hairline);font-weight:500}
+.panel .clock svg{color:var(--body)}
+.page{position:absolute;left:296px;right:12px;top:12px;bottom:12px;background:#fff;border-radius:16px;box-shadow:0 0 0 1px rgba(0,0,0,.05),0 2px 8px rgba(0,0,0,.04),0 24px 72px rgba(0,0,0,.08);display:flex;flex-direction:column;overflow:hidden}
+.phead{padding:24px 28px 0;border-bottom:1px solid var(--hairline);flex:none}
+.phead .top{height:36px;display:flex;align-items:center;justify-content:space-between}
+.phead h1{margin:0;font-size:17px;font-weight:600}
+.btn{height:36px;padding:0 14px;border-radius:8px;background:var(--accent);color:#fff;font-weight:600;display:inline-flex;align-items:center;gap:6px;transition:transform .16s ease-out}
+.btn:active{transform:scale(.97)}
+.tabsrow{display:flex;align-items:flex-end;justify-content:space-between;margin-top:8px}
+.tabs{display:flex;gap:22px}
+.tab{height:43px;color:var(--body);position:relative;white-space:nowrap}
+.tab.on{color:var(--ink);font-weight:500}
+.tab.on::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--ink);border-radius:2px}
+.view{display:flex;align-items:center;gap:10px;color:var(--body);height:43px;padding-bottom:7px}
+.sel{height:36px;border:1px solid var(--hairline-2);border-radius:8px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 10px 0 12px;color:var(--ink);white-space:nowrap}
+.sel svg{width:15px;height:15px;color:var(--body)}
+.content{flex:1;min-height:0;display:flex;flex-direction:column;padding:26px 28px var(--pb,64px)}
+.bar{display:flex;gap:8px;align-items:center;margin-bottom:16px;flex:none;position:relative}
+.search{height:36px;border:1px solid var(--hairline-2);border-radius:8px;display:flex;align-items:center;gap:8px;padding:0 12px;color:var(--body);white-space:nowrap}
+.search svg{width:16px;height:16px}
+.pill{height:32px;border:1px solid var(--hairline-2);border-radius:16px;display:inline-flex;align-items:center;gap:6px;padding:0 12px;color:var(--ink);white-space:nowrap;transition:background-color .15s ease,transform .16s ease-out}
+.pill svg{width:15px;height:15px}
+.pill:active{transform:scale(.97)}
+@media (hover:hover){.pill:hover{background:var(--soft-2)}}
+.pill.on{border-color:var(--accent);color:var(--accent);background:var(--accent-bg)}
+.menu{position:absolute;right:0;top:42px;width:220px;background:#fff;border-radius:10px;box-shadow:0 0 0 1px var(--hairline),0 12px 32px rgb(0 0 0/.12);padding:6px;opacity:0;transform:scale(.97);transform-origin:top right;pointer-events:none;transition:opacity .16s var(--ease-out),transform .16s var(--ease-out);z-index:20}
+.menu.open{opacity:1;transform:none;pointer-events:auto}
+.menu button{width:100%;height:40px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-radius:8px;text-align:left}
+@media (hover:hover){.menu button:hover{background:var(--soft)}}
+.menu button svg{color:var(--accent);width:16px;height:16px}
+
+/* table — the card scrolls, its header stays */
+.tcard{flex:1;min-height:0;border:1px solid var(--hairline);border-radius:10px;box-shadow:0 1px 2px rgba(0,0,0,.04);overflow:hidden;display:flex;flex-direction:column}
+.tscroll{flex:1;min-height:0;overflow:auto;position:relative}
+table{border-collapse:separate;border-spacing:0;width:100%}
+table.fixed{table-layout:fixed}
+th{position:sticky;top:0;z-index:2;height:var(--hh);background:var(--soft);color:var(--body);font-weight:500;text-align:left;padding:0 var(--px);border-bottom:1px solid var(--hairline);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+td{height:var(--rh);padding:0 var(--px);border-bottom:1px solid var(--row-line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:#fff}
+tbody tr{cursor:pointer}
+@media (hover:hover){tbody tr:hover td{background:var(--soft)}}
+.r{text-align:right}
+td.r,.num{font-variant-numeric:tabular-nums}
+.grow{width:100%}
+td.grow{max-width:0}
+.grow .gm{display:block;height:0;overflow:hidden}
+th.grow{overflow:visible}
+.m{color:var(--body)} .f{color:var(--faint)} .w5{font-weight:500}
+.late{color:var(--bad-fg)}
+.st{white-space:nowrap}
+.st::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--d,var(--grey));margin:0 8px 2px 0;vertical-align:middle}
+.st.warn{color:var(--warn-fg)}
+.hid{display:none}
+
+/* C · Sheet: stripes, column lines, first column stays, totals at the foot */
+table.sheet td{border-bottom:0}
+table.sheet tbody tr:nth-child(even) td{background:var(--stripe)}
+@media (hover:hover){table.sheet tbody tr:hover td{background:var(--hover)}}
+table.sheet td+td,table.sheet th+th{border-left:1px solid var(--col-line)}
+table.sheet th:first-child,table.sheet td:first-child{position:sticky;left:0;z-index:1}
+table.sheet th:first-child{z-index:3}
+table.sheet td:first-child{box-shadow:inset -1px 0 0 var(--col-line)}
+tfoot td{position:sticky;bottom:0;z-index:2;height:var(--fh,40px);background:var(--soft)!important;border-top:1px solid var(--hairline);border-bottom:0;font-weight:600}
+tfoot td:first-child{z-index:3}
+table.sheet tfoot td{border-left-color:var(--col-line)}
+</style>
+</head>
+<body>
+<div class="proto">
+  <div class="t">Finance · Compact tables</div>
+  <div class="seg" id="opts"></div>
+  <div class="sp"></div>
+  <div class="seg" id="sets"></div>
+  <div class="seg" id="switch"></div>
+  <div class="seg" id="sizes"></div>
+</div>
+<div class="note"><div class="tx" id="note"></div><div class="cnt" id="cnt"></div></div>
+<div class="stagewrap" id="stagewrap"><div class="app" id="app"></div></div>
+
+<script>
+const $ = (s) => document.querySelector(s)
+const ico = (d, cls = "i") => `<svg class="${cls}" viewBox="0 0 24 24">${d}</svg>`
+const CHEV = ico('<path d="m6 9 6 6 6-6"/>')
+const SEARCH = ico('<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>')
+const id = (n) => n.toLocaleString("id-ID")
+const rp = (n) => "Rp " + id(n)
+
+// ── options ─────────────────────────────────────────────────────────────
+// rh row · hh header · px cell sides · pb room under the card
+// fixed: the hub's column sizes (Now/A); otherwise columns follow their words
+const OPTIONS = [
+  {id:"now", label:"Now", rh:52, hh:40, px:16, pb:64, fixed:true, rp:true,
+   note:"<b>Now</b> · the hub today: 52px rows, 12/16 cells, “Rp” in every amount, full site names; Bills runs past the card and scrolls sideways."},
+  {id:"A", label:"Tight rows", rh:38, hh:36, px:12, pb:64, fixed:true, rp:true,
+   note:"<b>A · Tight rows</b> · only the row changes: 38px (DataTable's own DENSE_ROW), 12px sides. Same columns and words, so Bills still scrolls sideways."},
+  {id:"B", label:"Tight + fit", star:true, rh:38, hh:36, px:12, pb:28, fit:true,
+   note:"<b>B · Tight + fit</b> · 38px rows, amounts without “Rp”, site as its code (name on hover), a late due date turns red instead of its own Overdue column, the card runs to the page foot. Too narrow → least-needed columns step out (Paid, Site, Posting date), never sideways scroll."},
+  {id:"C", label:"Sheet", rh:32, hh:34, px:10, pb:28, fit:true, sheet:true, foot:true,
+   note:"<b>C · Sheet</b> · B at 32px rows like 7Soft/Excel: row stripes, column lines, first column stays, totals pinned at the foot."},
+]
+
+// ── data ────────────────────────────────────────────────────────────────
+const SITES = {HO:"HO · Head Office", DC:"DC · Cikarang"}
+// invoice, supplier, site, status, posted, due, total, paid, days late (− = due in)
+const BILLS = [
+  ["FAKTUR-0027-202601-05","Kaos & Kemeja Prima, CV","HO","Draft","08 Jan 2026","06 Feb 2026",1800000,0,253],
+  ["FAKTUR-0025-202601-15","Tas & Aksesoris Nusantara, CV","HO","Draft","16 Jan 2026","08 Feb 2026",1950000,0,251],
+  ["FAKTUR-0026-202601-10","Konveksi Sentral Jaya, PT","HO","Draft","12 Jan 2026","22 Feb 2026",4450000,0,237],
+  ["FAKTUR-0026-202602-04","Konveksi Sentral Jaya, PT","HO","Draft","26 Feb 2026","16 Mar 2026",4050000,0,215],
+  ["FAKTUR-0023-202603-13","Busana Anggun Lestari, CV","HO","Draft","21 Mar 2026","02 Apr 2026",3250000,0,198],
+  ["FAKTUR-0025-202603-03","Tas & Aksesoris Nusantara, CV","HO","Draft","15 Mar 2026","12 Apr 2026",2200000,0,188],
+  ["FAKTUR-0024-202604-02","Sepatu Karya Indah, PT","HO","Draft","19 Apr 2026","03 May 2026",5000000,0,167],
+  ["FAKTUR-0024-202604-14","Sepatu Karya Indah, PT","HO","Draft","01 Apr 2026","10 May 2026",5450000,0,160],
+  ["FAKTUR-0024-202605-08","Sepatu Karya Indah, PT","HO","Draft","06 May 2026","01 Jun 2026",2850000,0,138],
+  ["FAKTUR-0022-202605-06","Garmen Mitra Sentosa, PT","HO","Draft","25 May 2026","25 Jun 2026",2550000,0,114],
+  ["FAKTUR-0022-202606-00","Garmen Mitra Sentosa, PT","HO","Draft","20 Jun 2026","17 Jul 2026",2550000,0,92],
+  ["FAKTUR-0022-202608-12","Garmen Mitra Sentosa, PT","HO","Draft","02 Aug 2026","09 Sep 2026",2050000,0,38],
+  ["FAKTUR-0027-202609-11","Kaos & Kemeja Prima, CV","HO","Draft","21 Sep 2026","02 Oct 2026",2700000,0,15],
+  ["FAKTUR-0023-202609-07","Busana Anggun Lestari, CV","HO","Draft","09 Sep 2026","12 Oct 2026",2000000,0,5],
+  ["FAKTUR-0025-202609-09","Tas & Aksesoris Nusantara, CV","HO","Draft","04 Sep 2026","15 Oct 2026",5000000,0,2],
+  ["FAKTUR-0026-202609-16","Konveksi Sentral Jaya, PT","HO","Draft","06 Sep 2026","18 Oct 2026",5550000,0,-1],
+  ["FAKTUR-0027-202609-17","Kaos & Kemeja Prima, CV","HO","Draft","19 Sep 2026","18 Oct 2026",3000000,0,-1],
+  ["FAKTUR-0023-202609-01","Busana Anggun Lestari, CV","HO","Draft","04 Sep 2026","19 Oct 2026",3850000,0,-2],
+  ["INV-GRN-HO-GUDANG-000004","Garmen Nusantara, PT","HO","Posted","26 Sep 2026","20 Oct 2026",1080000,0,-3],
+  ["INV-0001-001","Garmen Nusantara, PT","HO","Matched","26 Sep 2026","20 Oct 2026",1980000,0,-3],
+  ["INV-GRN-HO-GUDANG-000005","Sepatu Sejahtera, CV","HO","Posted","26 Sep 2026","20 Oct 2026",2310000,0,-3],
+  ["INV-GRN-HO-GUDANG-000003","Sepatu Sejahtera, CV","HO","Posted","26 Sep 2026","20 Oct 2026",3420000,0,-3],
+  ["INV-0002-002","Sepatu Sejahtera, CV","HO","Posted","26 Sep 2026","20 Oct 2026",3480000,0,-3],
+  ["INV-0001-003","Garmen Nusantara, PT","HO","Draft","28 Sep 2026","28 Oct 2026",2150000,0,-11],
+  ["INV-0003-004","Sepatu Sejahtera, CV","HO","Partly paid","29 Sep 2026","29 Oct 2026",4200000,2000000,-12],
+  ["INV-GRN-DC-CKR-000011","Batik Sekar Arum, CV","DC","Posted","30 Sep 2026","30 Oct 2026",6750000,0,-13],
+  ["INV-GRN-DC-CKR-000012","Denim Kreasi Bandung, PT","DC","Posted","01 Oct 2026","31 Oct 2026",8120000,0,-14],
+  ["INV-0004-001","Kaos & Kemeja Prima, CV","HO","Matched","02 Oct 2026","01 Nov 2026",2640000,0,-15],
+  ["FAKTUR-0029-202610-02","Rajut Prima Abadi, CV","DC","Draft","03 Oct 2026","02 Nov 2026",3375000,0,-16],
+  ["INV-GRN-DC-CKR-000013","Batik Sekar Arum, CV","DC","Partly paid","03 Oct 2026","02 Nov 2026",5400000,2500000,-16],
+  ["INV-0005-002","Konveksi Sentral Jaya, PT","HO","Posted","05 Oct 2026","04 Nov 2026",4875000,0,-18],
+  ["INV-GRN-HO-GUDANG-000006","Garmen Nusantara, PT","HO","Posted","06 Oct 2026","05 Nov 2026",1620000,0,-19],
+  ["INV-0006-001","Tas & Aksesoris Nusantara, CV","HO","Matched","07 Oct 2026","06 Nov 2026",2980000,0,-20],
+  ["INV-GRN-DC-CKR-000014","Denim Kreasi Bandung, PT","DC","Posted","08 Oct 2026","07 Nov 2026",9450000,0,-21],
+  ["FAKTUR-0030-202610-05","Busana Anggun Lestari, CV","HO","Draft","09 Oct 2026","08 Nov 2026",2275000,0,-22],
+  ["INV-0007-003","Sepatu Karya Indah, PT","HO","Posted","10 Oct 2026","09 Nov 2026",6300000,0,-23],
+  ["INV-GRN-DC-CKR-000015","Rajut Prima Abadi, CV","DC","Posted","12 Oct 2026","11 Nov 2026",3960000,0,-25],
+  ["INV-0008-001","Garmen Mitra Sentosa, PT","HO","Draft","13 Oct 2026","12 Nov 2026",2550000,0,-26],
+  ["INV-GRN-HO-GUDANG-000007","Sepatu Sejahtera, CV","HO","Posted","14 Oct 2026","13 Nov 2026",2870000,0,-27],
+  ["INV-0009-002","Kaos & Kemeja Prima, CV","HO","Draft","15 Oct 2026","14 Nov 2026",3150000,0,-28],
+].map(([inv,sup,site,status,posted,due,total,paid,late]) => ({inv,sup,site,status,posted,due,total,paid,late}))
+
+// Journal › Entries — newest first, the demo's transfer receipts between the day's work
+const JOURNAL = (() => {
+  const day = (d) => `${String(d).padStart(2,"0")} Oct 2026`
+  const P = [
+    (n) => [`RECEIPT 1 unit store-01 -> ho (ALR-000000${61 - (n % 9)})`,"Transfer","Admin",[90000,350000,240000][n%3]],
+    () => ["Sales of the day · Karawaci","Sales","Rina Kusuma",18465000],
+    () => ["Sales of the day · Kemang","Sales","Rina Kusuma",12930500],
+    () => ["BKK-2026-00412 · Sewa toko Oktober · Bekasi","Payment","Dewi Lestari",27500000],
+    () => ["BKM-2026-00218 · Setoran kas toko · Kemang","Receipt","Dewi Lestari",12400000],
+    (n) => [`RECEIPT 1 unit store-02 -> ho (ALR-000000${48 + (n % 7)})`,"Transfer","Admin",[129000,99000][n%2]],
+    () => ["Card and QRIS takings · Karawaci · BCA EDC","Receipt","Rina Kusuma",9870000],
+    () => ["Accrual · Listrik dan air September · Head Office","Accrual","Dewi Lestari",4318250],
+    () => ["Stock count adjustment · Bekasi","Adjustment","Andi Pratama",1240000],
+    () => ["BKK-2026-00398 · Pelunasan Garmen Nusantara, PT","Payment","Dewi Lestari",5490000],
+  ]
+  const rows = []
+  let no = 1572
+  for (let k = 0; k < 46; k++) {
+    const [memo,type,by,amt] = P[(k * 7 + (k > 20 ? 3 : 0)) % P.length](k)
+    const status = k === 5 || k === 17 ? "Draft" : k === 29 ? "Cancelled" : "Posted"
+    rows.push({date: day(17 - Math.floor(k / 4)), entry: "JV-0000" + (no - k), memo, type, by, amt, status})
+  }
+  rows.push({date:"30 Sep 2026", entry:"JV-00001526", memo:"Depreciation September 2026", type:"Depreciation", by:"Dewi Lestari", amt:14625000, status:"Posted"})
+  return rows
+})()
+
+// Reports › Ledger — 2101 Accounts payable, 1–17 Oct
+const LEDGER = (() => {
+  const L = [
+    ["01 Oct 2026","PINV-2026-00398","Bill INV-GRN-DC-CKR-000012","Denim Kreasi Bandung, PT",0,8120000],
+    ["02 Oct 2026","PINV-2026-00399","Bill INV-0004-001","Kaos & Kemeja Prima, CV",0,2640000],
+    ["02 Oct 2026","BKK-2026-00381","Pelunasan FAKTUR-0021-202607-03","Garmen Mitra Sentosa, PT",3150000,0],
+    ["03 Oct 2026","PINV-2026-00400","Bill FAKTUR-0029-202610-02","Rajut Prima Abadi, CV",0,3375000],
+    ["03 Oct 2026","PINV-2026-00401","Bill INV-GRN-DC-CKR-000013","Batik Sekar Arum, CV",0,5400000],
+    ["03 Oct 2026","BKK-2026-00384","Pelunasan sebagian INV-GRN-DC-CKR-000013","Batik Sekar Arum, CV",2500000,0],
+    ["04 Oct 2026","BKK-2026-00386","Pelunasan INV-0000-118","Sepatu Karya Indah, PT",4725000,0],
+    ["05 Oct 2026","PINV-2026-00402","Bill INV-0005-002","Konveksi Sentral Jaya, PT",0,4875000],
+    ["05 Oct 2026","DN-2026-00031","Retur ke supplier RS-00000019","Konveksi Sentral Jaya, PT",640000,0],
+    ["06 Oct 2026","PINV-2026-00403","Bill INV-GRN-HO-GUDANG-000006","Garmen Nusantara, PT",0,1620000],
+    ["06 Oct 2026","BKK-2026-00389","Pelunasan FAKTUR-0028-202608-09","Tas & Aksesoris Nusantara, CV",2800000,0],
+    ["07 Oct 2026","PINV-2026-00404","Bill INV-0006-001","Tas & Aksesoris Nusantara, CV",0,2980000],
+    ["07 Oct 2026","BKK-2026-00391","Giro BG-118204 cair · Busana Anggun Lestari","Busana Anggun Lestari, CV",6150000,0],
+    ["08 Oct 2026","PINV-2026-00405","Bill INV-GRN-DC-CKR-000014","Denim Kreasi Bandung, PT",0,9450000],
+    ["08 Oct 2026","BKK-2026-00393","Pelunasan INV-GRN-DC-CKR-000009","Denim Kreasi Bandung, PT",7300000,0],
+    ["09 Oct 2026","PINV-2026-00406","Bill FAKTUR-0030-202610-05","Busana Anggun Lestari, CV",0,2275000],
+    ["09 Oct 2026","JV-00001488","Potongan pembelian Oktober","Sepatu Sejahtera, CV",350000,0],
+    ["10 Oct 2026","PINV-2026-00407","Bill INV-0007-003","Sepatu Karya Indah, PT",0,6300000],
+    ["10 Oct 2026","BKK-2026-00395","Pelunasan INV-0000-121","Rajut Prima Abadi, CV",3960000,0],
+    ["12 Oct 2026","PINV-2026-00408","Bill INV-GRN-DC-CKR-000015","Rajut Prima Abadi, CV",0,3960000],
+    ["12 Oct 2026","BKK-2026-00397","Pelunasan FAKTUR-0020-202607-14","Kaos & Kemeja Prima, CV",2150000,0],
+    ["13 Oct 2026","PINV-2026-00409","Bill INV-0008-001","Garmen Mitra Sentosa, PT",0,2550000],
+    ["13 Oct 2026","BKK-2026-00398","Pelunasan Garmen Nusantara, PT","Garmen Nusantara, PT",5490000,0],
+    ["14 Oct 2026","PINV-2026-00410","Bill INV-GRN-HO-GUDANG-000007","Sepatu Sejahtera, CV",0,2870000],
+    ["14 Oct 2026","BKK-2026-00401","Pelunasan sebagian INV-0003-004","Sepatu Sejahtera, CV",2000000,0],
+    ["15 Oct 2026","PINV-2026-00411","Bill INV-0009-002","Kaos & Kemeja Prima, CV",0,3150000],
+    ["15 Oct 2026","BKK-2026-00403","Giro BG-118233 cair · Konveksi Sentral Jaya","Konveksi Sentral Jaya, PT",4450000,0],
+    ["15 Oct 2026","DN-2026-00034","Retur ke supplier RS-00000022","Sepatu Karya Indah, PT",1150000,0],
+    ["16 Oct 2026","PINV-2026-00412","Bill INV-0010-001","Batik Sekar Arum, CV",0,4580000],
+    ["16 Oct 2026","BKK-2026-00405","Pelunasan INV-GRN-DC-CKR-000010","Batik Sekar Arum, CV",6750000,0],
+    ["16 Oct 2026","PINV-2026-00413","Bill INV-GRN-HO-GUDANG-000008","Garmen Nusantara, PT",0,1935000],
+    ["17 Oct 2026","PINV-2026-00414","Bill INV-0011-002","Denim Kreasi Bandung, PT",0,7260000],
+    ["17 Oct 2026","BKK-2026-00407","Pelunasan FAKTUR-0019-202606-21","Tas & Aksesoris Nusantara, CV",1950000,0],
+    ["17 Oct 2026","PINV-2026-00415","Bill INV-0012-001","Rajut Prima Abadi, CV",0,2845000],
+  ]
+  let bal = 61240000
+  const rows = [{date:"01 Oct 2026", v:"", memo:"Opening balance", party:"", dr:null, cr:null, bal, open:true}]
+  for (const [date,v,memo,party,dr,cr] of L) { bal += cr - dr; rows.push({date,v,memo,party,dr,cr,bal}) }
+  return rows
+})()
+
+// ── cells ───────────────────────────────────────────────────────────────
+const TONE = {Draft:"warn", Posted:"ok", Matched:"info", "Partly paid":"info", Paid:"ok", Cancelled:"grey"}
+const status = (s) => { const t = TONE[s] || "grey"; return `<span class="st ${t==="warn"?"warn":""}" style="--d:var(--${t==="ok"?"ok":t==="warn"?"warn":t==="info"?"info":"grey"})">${s}</span>` }
+const money = (n, o, mute = true) => n == null ? "" : n === 0 && mute ? '<span class="f">—</span>' : (o.rp ? rp(n) : id(n))
+const lateCell = (d) => d == null ? '<span class="f">—</span>' : d > 0 ? `<span class="late">${d}d</span>` : `<span class="m">in ${-d}d</span>`
+const site = (c, o) => o.rp ? SITES[c] : `<span title="${SITES[c]}">${c}</span>`
+
+// col: k key · h header · w hub size (Now/A) · r right · drop: order it steps out (B/C) · grow
+const SETS = {
+  bills: {
+    label:"Bills", door:"Payables", nav:"Payables", action:"Record bill",
+    tabs:["Bills","Due dates","Suppliers","Credit notes","Loans"], view:"Bills",
+    bar:(o) => `<div class="sel" style="width:223px">Merchandise${CHEV}</div><div class="search" style="width:280px">${SEARCH}Search bills</div><div class="sel" style="width:175px">All units${CHEV}</div>`,
+    rows:BILLS, count:(n) => `${n} bills`,
+    cols:[
+      {k:"inv", h:"Invoice", w:256, c:(r) => `<span class="m">${r.inv}</span>`},
+      {k:"sup", h:"Supplier", w:245, grow:true, min:190, c:(r) => `<span class="w5" title="${r.sup}">${r.sup}</span>`},
+      {k:"site", h:"Site", w:147, drop:2, c:(r,o) => site(r.site,o)},
+      {k:"st", h:"Status", w:105, c:(r) => status(r.status)},
+      {k:"posted", h:"Posting Date", w:137, drop:3, c:(r) => r.posted},
+      {k:"due", h:"Due", w:123, c:(r,o) => o.fit && r.late > 0 ? `<span class="late" title="${r.late} days late">${r.due}</span>` : r.due},
+      {k:"total", h:"Total", w:126, r:true, c:(r,o) => money(r.total,o), sum:(rs) => rs.reduce((a,r)=>a+r.total,0)},
+      {k:"paid", h:"Paid", w:62, r:true, drop:1, c:(r,o) => money(r.paid,o), sum:(rs) => rs.reduce((a,r)=>a+r.paid,0)},
+      {k:"out", h:"Outstanding", w:134, r:true, c:(r,o) => money(r.total - r.paid,o), sum:(rs) => rs.reduce((a,r)=>a+r.total-r.paid,0)},
+      {k:"late", h:"Overdue", w:108, r:true, fixedOnly:true, c:(r) => lateCell(r.late)},
+    ],
+  },
+  journal: {
+    label:"Journal", door:"Journal", nav:"Journal", action:"New entry",
+    tabs:["Entries","Templates"], view:null,
+    bar:() => `<div class="search" style="width:280px">${SEARCH}Search entries</div><div class="sel" style="width:175px">All units${CHEV}</div><div class="sel" style="width:150px">Any type${CHEV}</div>`,
+    rows:JOURNAL, count:(n) => `${n} entries`,
+    cols:[
+      {k:"date", h:"Date", w:132, c:(r) => r.date},
+      {k:"entry", h:"Entry", w:140, c:(r) => `<span class="m">${r.entry}</span>`},
+      {k:"memo", h:"Memo", grow:true, min:240, c:(r) => `<span class="w5" title="${r.memo}">${r.memo}</span>`},
+      {k:"type", h:"Type", w:130, drop:2, c:(r) => r.type},
+      {k:"by", h:"Posted by", w:150, drop:1, c:(r) => r.by},
+      {k:"amt", h:"Total debit", w:150, r:true, c:(r,o) => money(r.amt,o), sum:(rs) => rs.filter(r=>r.status!=="Cancelled").reduce((a,r)=>a+r.amt,0)},
+      {k:"st", h:"Status", w:120, c:(r) => status(r.status)},
+    ],
+  },
+  ledger: {
+    label:"Ledger", door:"Reports", nav:"Reports", action:null,
+    tabs:["Profit and loss","Balance sheet","Cash flow","Ledger","Sales by division"], tab:"Ledger", view:"General Ledger",
+    bar:() => `<div class="sel" style="width:330px">2101 · Accounts payable${CHEV}</div><div class="sel" style="width:175px">All units${CHEV}</div><div class="sel" style="width:150px">01 Oct 2026</div><span class="m">to</span><div class="sel" style="width:150px">17 Oct 2026</div>`,
+    rows:LEDGER, count:(n) => `${n - 1} lines`, footLabel:"Closing balance",
+    cols:[
+      {k:"date", h:"Date", w:132, c:(r) => r.date},
+      {k:"v", h:"Voucher", w:150, c:(r) => `<span class="m">${r.v}</span>`},
+      {k:"memo", h:"Memo", grow:true, min:220, c:(r) => r.open ? '<span class="w5">Opening balance</span>' : `<span title="${r.memo}">${r.memo}</span>`},
+      {k:"party", h:"Party", w:200, drop:1, c:(r) => r.party},
+      {k:"dr", h:"Debit", w:140, r:true, c:(r,o) => r.open ? "" : money(r.dr,o), sum:(rs) => rs.reduce((a,r)=>a+(r.dr||0),0)},
+      {k:"cr", h:"Credit", w:140, r:true, c:(r,o) => r.open ? "" : money(r.cr,o), sum:(rs) => rs.reduce((a,r)=>a+(r.cr||0),0)},
+      {k:"bal", h:"Balance", w:150, r:true, c:(r,o) => `<span class="w5">${money(r.bal,o,false)}</span>`, sum:(rs) => rs[rs.length-1].bal},
+    ],
+  },
+}
+
+// ── state ───────────────────────────────────────────────────────────────
+const KEY = "finance-compact-tables"
+let S = {opt:"B", set:"bills", sw:"always", size:"w1440", comfy:false}
+try { S = {...S, ...JSON.parse(localStorage.getItem(KEY) || "{}")} } catch {}
+if (!(S.size in {w1440:1, w1280:1})) S.size = "w1440"
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)) } catch {} }
+const SIZES = {w1440:[1440,900], w1280:[1280,800]}
+
+function shell(set){
+  const NAV = [["it","Overview"],["lab","Daily work"],["it","Stores"],["it","Payables",55],["it","Cash & Bank"],["lab","Accounting"],["it","Journal"],["it","Assets"],["it","Month End"],["it","Reports"],["lab","Configuration"],["it","Setup"]]
+  const R = ['<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>','<path d="M6 6h15l-2 8H8z"/><circle cx="9" cy="20" r="1"/><circle cx="18" cy="20" r="1"/>','<path d="M8 3 3 6l2 4 2-1v12h10V9l2 1 2-4-5-3c-.5 1.5-2 2.5-4 2.5S8.5 4.5 8 3z"/>','<path d="M3 7h11v9H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="18" r="1.6"/><circle cx="17" cy="18" r="1.6"/>','<path d="M12 3v3M12 18v3M5 12H2M22 12h-3"/><circle cx="12" cy="12" r="5"/>','<path d="M4 10v4h3l6 4V6L7 10z"/>','<path d="M4 10h16M5 10V7l7-4 7 4v3M6 10v8M10 10v8M14 10v8M18 10v8M4 20h16"/>','<circle cx="9" cy="8" r="3"/><path d="M3 20c0-3 3-5 6-5s6 2 6 5M16 4a3 3 0 0 1 0 6M18 14c2 1 3 3 3 6"/>','<path d="M4 5h12v9H8l-4 3z"/><path d="M8 17v1h8l4 3V9h-4"/>','<path d="M4 4h7a3 3 0 0 1 3 3v13a2 2 0 0 0-2-2H4zM20 4h-4"/>']
+  return `
+    <nav class="rail">${R.map((d,i)=>`<div class="ri ${i===6?"on":""} ${[1,2,3,4,7,8].includes(i)?"dot":""}">${ico(d)}</div>`).join("")}</nav>
+    <aside class="panel">
+      <div class="ph">Finance${ico('<path d="m15 6-6 6 6 6"/>')}</div>
+      <div class="nav">${NAV.map(([t,l,n]) => t==="lab" ? `<div class="lab">${l}</div>` : `<button class="it ${l===set.nav?"on":""}">${l}${n?`<span class="n">${n}</span>`:""}</button>`).join("")}</div>
+      <div class="clock">${ico('<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>')}17 Oct 2026 · 15:48</div>
+    </aside>`
+}
+
+function draw(){
+  const o = OPTIONS.find(x => x.id === S.opt) || OPTIONS[2]
+  const set = SETS[S.set] || SETS.bills
+  $("#opts").innerHTML = OPTIONS.map(x => `<button data-o="${x.id}" class="${x.id===o.id?"on":""}">${x.id==="now"?"":`<b>${x.id}</b>`}${x.label}${x.star?'<span class="star">★</span>':""}</button>`).join("")
+  $("#sets").innerHTML = Object.entries(SETS).map(([k,v]) => `<button data-s="${k}" class="${k===S.set?"on":""}">${v.label}</button>`).join("")
+  $("#switch").style.display = o.id === "now" ? "none" : ""
+  $("#switch").innerHTML = [["always","Always compact"],["bar","Switch in bar"]].map(([k,l]) => `<button data-sw="${k}" class="${k===S.sw?"on":""}">${l}</button>`).join("")
+  $("#sizes").innerHTML = Object.keys(SIZES).map(k => `<button data-z="${k}" class="${k===S.size?"on":""}">${SIZES[k][0]}×${SIZES[k][1]}</button>`).join("")
+  $("#note").innerHTML = o.note + (o.id !== "now" && S.sw === "bar" ? " · <b>Switch in bar</b>: Rows on the bar's right sets Comfortable or Compact per person, remembered." : "")
+
+  // Comfortable through the bar puts back today's row, nothing else
+  const comfy = o.id !== "now" && S.sw === "bar" && S.comfy
+  const rh = comfy ? 52 : o.rh, hh = comfy ? 40 : o.hh, px = comfy ? 16 : o.px
+  const rows = set.rows
+  const cols = set.cols.filter(c => !(c.fixedOnly && o.fit))
+  const tabOn = set.tab || set.tabs[0]
+  const rowsBtn = o.id !== "now" && S.sw === "bar" ? `<div style="flex:1"></div>
+    <button class="pill" data-rm>${ico('<path d="M4 6h16M4 10h16M4 14h16M4 18h16"/>')}Rows</button>
+    <div class="menu" id="rmenu">
+      <button data-den="comfy">Comfortable${comfy ? ico('<path d="m5 12 5 5 9-10"/>') : ""}</button>
+      <button data-den="compact">Compact${!comfy ? ico('<path d="m5 12 5 5 9-10"/>') : ""}</button>
+    </div>` : ""
+
+  const head = cols.map(c => `<th data-k="${c.k}" class="${c.r?"r":""} ${c.grow && !o.fixed?"grow":""}">${c.h}${c.grow && !o.fixed ? `<span class="gm" style="width:${c.min}px"></span>` : ""}</th>`).join("")
+  const body = rows.map(r => `<tr>${cols.map(c => `<td data-k="${c.k}" class="${c.r?"r":""} ${c.grow && !o.fixed?"grow":""}">${c.c(r,o)}</td>`).join("")}</tr>`).join("")
+  const foot = o.foot ? `<tfoot><tr>${cols.map((c,i) => `<td data-k="${c.k}" class="${c.r?"r":""} ${c.grow?"grow":""}">${i===0 ? (set.footLabel || set.count(rows.length)) : c.sum ? money(c.sum(rows),o,false) : ""}</td>`).join("")}</tr></tfoot>` : ""
+  const sum = cols.reduce((a,c) => a + (c.w || 160), 0)
+  const colgroup = o.fixed ? `<colgroup>${cols.map(c => `<col style="width:${c.w ? c.w + "px" : ""}">`).join("")}</colgroup>` : ""
+
+  const [W,H] = SIZES[S.size]
+  const app = $("#app")
+  app.style.width = W + "px"; app.style.height = H + "px"
+  app.innerHTML = shell(set) + `
+    <main class="page">
+      <div class="phead">
+        <div class="top"><h1>${set.door}</h1>${set.action ? `<button class="btn">${set.action}</button>` : ""}</div>
+        <div class="tabsrow">
+          <div class="tabs">${set.tabs.map(t => `<button class="tab ${t===tabOn?"on":""}">${t}</button>`).join("")}</div>
+          ${set.view ? `<div class="view">View<div class="sel" style="width:248px">${set.view}${CHEV}</div></div>` : ""}
+        </div>
+      </div>
+      <div class="content" style="--pb:${o.pb}px">
+        <div class="bar">${set.bar(o)}<button class="pill">${ico('<path d="M4 6h16M7 12h10M10 18h4"/>')}Filter</button>${rowsBtn}</div>
+        <div class="tcard"><div class="tscroll" id="tscroll">
+          <table class="${o.fixed?"fixed":""} ${o.sheet?"sheet":""}" style="--rh:${rh}px;--hh:${hh}px;--px:${px}px;${o.fixed?`min-width:${sum}px`:""}">
+            ${colgroup}<thead><tr>${head}</tr></thead><tbody>${body}</tbody>${foot}
+          </table>
+        </div></div>
+      </div>
+    </main>`
+  fit()
+  S._gone = []
+  if (o.fit) giveUp(cols)
+  count()
+}
+
+// B/C: while the table is wider than its card, the next column steps out —
+// what DataTable already does for `meta.priority > 1` (giveUp, data-table.tsx)
+function giveUp(cols){
+  const box = $("#tscroll")
+  const order = cols.filter(c => c.drop).sort((a,b) => a.drop - b.drop)
+  const gone = []
+  for (const c of order) {
+    if (box.scrollWidth <= box.clientWidth + 1) break
+    document.querySelectorAll(`[data-k="${c.k}"]`).forEach(el => el.classList.add("hid"))
+    gone.push(c.h)
+  }
+  S._gone = gone
+}
+
+function count(){
+  const box = $("#tscroll"), b = box.getBoundingClientRect()
+  const th = box.querySelector("thead").getBoundingClientRect()
+  const tf = box.querySelector("tfoot td")
+  const bottom = tf ? tf.getBoundingClientRect().top : b.bottom - (box.offsetHeight - box.clientHeight) * (b.height / box.offsetHeight)
+  const seen = [...box.querySelectorAll("tbody tr")].filter(tr => { const r = tr.getBoundingClientRect(); return r.top >= th.bottom - 1 && r.bottom <= bottom + 1 }).length
+  const side = box.scrollWidth > box.clientWidth + 1
+  const gone = (S._gone || []).length ? ` · stepped out: ${S._gone.join(", ")}` : ""
+  $("#cnt").textContent = `${seen} rows in view${side ? " · scrolls sideways" : ""}${gone}`
+}
+
+function fit(){
+  const app = $("#app"), wrap = $("#stagewrap")
+  document.documentElement.style.setProperty("--nh", $(".note").offsetHeight + "px")
+  const [W,H] = SIZES[S.size]
+  app.style.zoom = Math.min(1, wrap.clientWidth / W, wrap.clientHeight / H)
+}
+
+document.addEventListener("click", (e) => {
+  const menu = $("#rmenu")
+  if (e.target.closest("[data-rm]")) { menu.classList.toggle("open"); return }
+  const den = e.target.closest("[data-den]")
+  if (den) { S.comfy = den.dataset.den === "comfy"; save(); draw(); return }
+  if (menu && !e.target.closest("#rmenu")) menu.classList.remove("open")
+  const t = e.target.closest("[data-o],[data-s],[data-sw],[data-z]")
+  if (!t) return
+  if (t.dataset.o) S.opt = t.dataset.o
+  if (t.dataset.s) S.set = t.dataset.s
+  if (t.dataset.sw) S.sw = t.dataset.sw
+  if (t.dataset.z) S.size = t.dataset.z
+  save(); draw()
+})
+addEventListener("resize", draw)
+document.fonts?.ready.then(draw)
+draw()
+</script>
+</body>
+</html>

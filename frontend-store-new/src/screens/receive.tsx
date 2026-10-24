@@ -1,12 +1,13 @@
 import { useQuery } from "@tanstack/react-query"
 import { useMemo, useState } from "react"
+import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { ListTable, type ListColumn } from "@/components/ui/list-table"
 import { PeopleTabs } from "@/components/ui/people-tabs"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { Card } from "@/components/ui/card"
-import { Pill } from "@/components/ui/pill"
+import { ScanField } from "@/components/ui/scan-field"
 import { Screen } from "@/components/ui/screen"
 import {
   Banner,
@@ -15,14 +16,16 @@ import {
   LoadingState,
 } from "@/components/ui/states"
 import { describe } from "@/lib/errors"
-import { articleId, count, dateText, day, pcs, sku } from "@/lib/format"
+import { count, dateText, day, pcs } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
+  fetchInboundScan,
   fetchOnHold,
   isoDay,
   onHoldKey,
-  type StoreOnHoldLine,
 } from "@/lib/queries"
 import { DeliverySheet } from "@/screens/stock/delivery-sheet"
+import { OnHold } from "@/screens/stock/on-hold"
 import {
   byArrival,
   fromName,
@@ -30,22 +33,22 @@ import {
   useInbound,
 } from "@/screens/stock/inbound"
 import { useOpenRecord } from "@/screens/stock/open-record"
-import { useRange } from "@/screens/stock/shared"
 import type { StoreInboundDelivery } from "@itulah/contract"
 
 /// Receive — the deliveries on their way to this shop, and what arrived.
 ///
 /// **Receiving needs no reader** (owner, 29 Sep 2026). A delivery still in
-/// transit carries the word Receive: it opens the delivery as a sheet and takes
-/// a blind count per SKU, scanned or typed, without being shown what was
-/// packed — the same ceremony a handheld's sweep always was, just without the
-/// handheld. This screen is the list of what is still on the road and, for each
-/// one already counted, what came in against what was sent.
+/// transit carries the word Count receive: it opens the delivery as a sheet
+/// that lists every SKU with what was packed and a count already holding that
+/// figure, so the shop changes only what differs (owner, 23 Oct 2026: no longer
+/// a blind count). This screen is the list of what is still on the road and,
+/// for each one already counted, what came in against what was sent.
 ///
-/// **In transit is blind.** The node does not send what was packed until the
-/// count is in, and nothing on this screen would draw it if it did
-/// (`resultOf`): a count made by somebody who knows the number tends to stop
-/// at that number.
+/// **A scan finds the delivery** (owner, 23 Oct 2026): a koli label, a koli QR
+/// or a surat jalan number typed or scanned into the field opens that delivery,
+/// and a koli label opens with that koli unfolded. The field is the app's one
+/// scan field (`ScanField`), the same on every device; a phone's keyboard stays
+/// down until it is tapped.
 ///
 /// **Laid out as the hub's Ops receiving list** (owner, 20 Oct 2026): the three
 /// figures, tabs To receive / Received (/ On hold), and a calm table — No. ·
@@ -68,6 +71,22 @@ export function Receive() {
     refetchInterval: 15_000,
   })
   const record = useOpenRecord("delivery")
+  const phone = useLayout() === "phone"
+  /// The koli a scanned label named, unfolded in the sheet that opens.
+  const [koliId, setKoliId] = useState<string | null>(null)
+  const scan = async (code: string) => {
+    try {
+      const found = await fetchInboundScan(code)
+      if (found === null) {
+        toast.error(`No koli or surat jalan ${code}`)
+        return
+      }
+      setKoliId(found.koli_id)
+      record.open(found.delivery_id)
+    } catch (error) {
+      toast.error(describe(error))
+    }
+  }
   const deliveries = inbound.data?.deliveries
   const rows = useMemo(() => deliveries ?? [], [deliveries])
   const checkedAt = inbound.dataUpdatedAt
@@ -232,6 +251,13 @@ export function Receive() {
             <Stale failure={inbound.error} checkedAt={checkedAt} />
           )}
 
+          <ScanField
+            autoFocus={!phone}
+            onScan={(code) => void scan(code)}
+            placeholder="Scan a koli label or delivery note"
+            className="mb-3.5"
+          />
+
           <PeopleTabs<View>
             title="Show"
             value={view}
@@ -263,73 +289,13 @@ export function Receive() {
 
       <DeliverySheet
         delivery={rows.find((one) => one.delivery_id === record.value)}
-        onClose={record.close}
+        koliId={koliId}
+        onClose={() => {
+          setKoliId(null)
+          record.close()
+        }}
       />
     </Screen>
-  )
-}
-
-/// **On hold** (owner, 17–18 Oct 2026): what the shop counted beyond what
-/// its delivery said — more of a SKU than was sent, or an article nobody sent.
-/// It is not stock: set it aside. MD answers the trip's review; what goes
-/// back to HO then says so here, and what MD kept is in stock and leaves the
-/// list by itself. One row per article, named, not counted.
-function OnHold({ lines }: { lines: readonly StoreOnHoldLine[] }) {
-  const { bySku } = useRange()
-  const columns: ListColumn<StoreOnHoldLine>[] = [
-    {
-      id: "article",
-      header: "Article",
-      card: "title",
-      className: "whitespace-normal",
-      cell: (one) => (
-        <span className="block">
-          <span className="font-medium text-ink">
-            {one.name ?? bySku.get(one.sku_code)?.name ?? sku(one.sku_code)}
-          </span>
-          <span className="block font-mono text-id text-mute">
-            {articleId(bySku.get(one.sku_code)?.article_code, one.sku_code)} ·{" "}
-            {sku(one.sku_code)}
-          </span>
-        </span>
-      ),
-    },
-    {
-      id: "note",
-      header: "Delivery note",
-      cell: (one) => (
-        <span className="font-mono text-id">{one.shipment_reference ?? "—"}</span>
-      ),
-    },
-    {
-      id: "pcs",
-      header: "Pieces",
-      align: "right",
-      cell: (one) => pcs(one.on_hold),
-    },
-    {
-      id: "state",
-      header: "",
-      align: "right",
-      card: "status",
-      cell: (one) =>
-        one.state === "RETURN_TO_HO" ? (
-          <Pill tone="bad">Return to HO</Pill>
-        ) : (
-          <Pill tone="neutral">Waiting for MD</Pill>
-        ),
-    },
-  ]
-  return (
-    <Card className="overflow-hidden max-md:overflow-visible">
-      <ListTable
-        rows={lines}
-        columns={columns}
-        rowKey={(one) => `${one.delivery_id}:${one.sku_code}`}
-        roomy
-        empty="Nothing is on hold."
-      />
-    </Card>
   )
 }
 

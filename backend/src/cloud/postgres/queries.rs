@@ -815,6 +815,15 @@ fn edge_pool_metadata(
         StoreFloor { .. } => ("STORE_INVENTORY", "FLOOR", "Floor", 20, None),
         Reject { .. } if at_a_shop => ("REJECT", "REJECT", "Reject", 30, None),
         Reject { .. } => ("REJECT", "DC_REJECT", "Reject", 90, None),
+        // A shop's To be returned, beside its reject (owner, 23 Oct 2026).
+        ToReturn {
+            pocket: crate::edge::ToReturnPocket::OverDelivery,
+            ..
+        } => ("REJECT", "OVER_DELIVERY", "Over delivery", 31, None),
+        ToReturn {
+            pocket: crate::edge::ToReturnPocket::ReturnHo,
+            ..
+        } => ("REJECT", "RETURN_HO", "Return HO", 32, None),
     }
 }
 
@@ -2114,6 +2123,15 @@ pub async fn list_fleet_pools(
     } else {
         Value::Null
     };
+    // Sites of a store head office removed (0990). Their pools stay listed,
+    // stock and all, for the reports; they are no longer a destination, and
+    // the allotment screens leave them out of their store pickers.
+    let removed_site_ids: Vec<String> = sqlx::query_scalar(
+        "SELECT site.id FROM site JOIN unit ON unit.id=site.unit_id
+         WHERE unit.status='CLOSED' ORDER BY site.id",
+    )
+    .fetch_all(pool)
+    .await?;
 
     Ok(json!({
         "as_of": Utc::now(),
@@ -2148,6 +2166,7 @@ pub async fn list_fleet_pools(
             "certification_reasons": certification_reasons,
             "routes": route_diagnostics,
         },
+        "removed_site_ids": removed_site_ids,
         "items": items,
     }))
 }

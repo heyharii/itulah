@@ -36,4 +36,11 @@ promotions?: Array<PromotionOutcome>,
  * other — otherwise the stock would say it is still on the shelf. The
  * till's job is to prompt for it, not to invent it.
  */
-granted_lines?: Array<GrantedLine>, points_earned: number, };
+granted_lines?: Array<GrantedLine>, points_earned: number, 
+/**
+ * The 7-letter transaction number (client, 23 Oct 2026): the store's two
+ * letters, the till's letter, and the till's own running number scrambled
+ * into four letters (`till::allocate_receipt`). Empty on a reply saved
+ * before it existed.
+ */
+receipt_no: string, };

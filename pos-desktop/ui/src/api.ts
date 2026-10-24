@@ -28,8 +28,17 @@ export type LoginReply = {
   readonly token_type: string
 }
 
+/// The till's own name, sent on every sign-in so the node can refuse a cashier
+/// who already closed on this till today ("… sudah tutup kasir hari ini").
+/// Set by `session.ts` whenever it knows the terminal.
+let signInTerminal: string | null = null
+export const setSignInTerminal = (id: string | null) => {
+  signInTerminal = id !== null && id.trim() !== "" ? id.trim() : null
+}
+const withTerminal = () => (signInTerminal === null ? {} : { terminal_id: signInTerminal })
+
 export const login = (username: string, password: string) =>
-  edge<LoginReply>("POST", "/api/v1/auth/login", { username, password })
+  edge<LoginReply>("POST", "/api/v1/auth/login", { username, password, ...withTerminal() })
 
 /// `GET /api/v1/auth/me` — who this token belongs to, and what it may do.
 export type Me = {
@@ -40,11 +49,55 @@ export type Me = {
   /// and answers every caller as its development identity — see `me` in
   /// `backend/src/edge/http.rs`.
   readonly source?: string
+  /// `CASHIER`, `SUPERVISOR` or `ADMIN`: anyone above a cashier is a Kepala
+  /// toko at the till door.
+  readonly role?: string
 }
 
 export const me = () => edge<Me>("GET", "/api/v1/auth/me")
 
 export const logout = () => edge<unknown>("POST", "/api/v1/auth/logout")
+
+// ── the store's own tags ────────────────────────────────────────────────
+
+/// One move of one tag, as `GET /api/v1/inventory/movements` answers it.
+export type TagMove = {
+  readonly epc: string
+  readonly to: string
+  readonly occurred_at: string
+}
+
+/// The store's latest tag movements (500 at most), newest first or not — the
+/// caller orders them. Read by the till to find a tag of a typed SKU on the
+/// shop floor.
+export const tagMoves = () =>
+  edge<{ items?: TagMove[] }>("GET", "/api/v1/inventory/movements?limit=500")
+
+// ── opened by the Kepala toko ───────────────────────────────────────────
+
+/// One person a Kepala toko may open this till for — `till_people` in
+/// `backend/src/edge/http.rs`.
+export type TillPerson = {
+  readonly username: string
+  readonly display_name: string
+  /// `CASHIER` or `SUPERVISOR`.
+  readonly role: string
+}
+
+/// `GET /api/v1/auth/on-behalf` — asked with the head's own session.
+export const tillPeople = () =>
+  edge<{ items?: TillPerson[] }>("GET", "/api/v1/auth/on-behalf")
+
+/// `POST /api/v1/auth/on-behalf` → the cashier's session; the head's ends.
+export type OnBehalfReply = {
+  readonly token: string
+  readonly username: string
+  readonly display_name: string
+  readonly opened_by: string
+}
+
+export const openOnBehalf = (username: string) =>
+  edge<OnBehalfReply>("POST", "/api/v1/auth/on-behalf", { username, ...withTerminal() })
 
 // ── a finger, instead of a keyboard ─────────────────────────────────────
 
@@ -95,6 +148,7 @@ export const claimFinger = (
     finger_id: fingerId,
     purpose,
     score,
+    ...withTerminal(),
   })
 
 /// Which quick step-up this node accepts besides a password.
@@ -131,7 +185,7 @@ export const claimPin = (body: {
   username: string
   pin: string
   purpose: "SESSION" | "SUPERVISOR"
-}) => signedEdge<ClaimReply>("POST", "/api/v1/auth/pin/claim", body)
+}) => signedEdge<ClaimReply>("POST", "/api/v1/auth/pin/claim", { ...body, ...withTerminal() })
 
 /// `POST /api/v1/auth/terminals` — pair this machine with the node. Done once,
 /// by somebody with `AuthAdmin`, because pairing grants a machine the standing
@@ -201,6 +255,8 @@ export const rfidSession = (readerSessionId: string) =>
 export type CatalogRow = {
   readonly sku_code: string
   readonly article_code?: string | null
+  /// Which part of the range it is filed under — the grid's Divisi.
+  readonly division_code?: string | null
   readonly barcode: string | null
   readonly name: string
   readonly unit_price_minor: number
@@ -247,6 +303,28 @@ export type CatalogueState = {
 
 export const catalogueState = () =>
   edge<CatalogueState>("GET", "/api/v1/catalog/snapshot")
+
+/// One SKU as head office names it — `CatalogIdentity` in
+/// `backend/src/edge/contracts.rs`. The grid reads `tags` from it (Merchandising's
+/// words under the article's name: "Koko, Lebaran"); prices never come from here.
+export type CatalogIdentity = {
+  readonly sku_code: string
+  readonly name: string
+  readonly article_code: string | null
+  readonly division_code: string | null
+  readonly tags: readonly string[]
+  readonly active: boolean
+}
+
+/// `GET /api/v1/catalog/identities?skus=a,b,c` — `{ items }`, one row for each
+/// SKU the node knows (`catalog_identities` in `backend/src/edge/http.rs`: the
+/// SKUs go in ONE comma-separated `skus` parameter, a repeated parameter is
+/// refused). A SKU it does not know has no row.
+export const catalogIdentities = (skus: readonly string[]) =>
+  edge<{ readonly items?: CatalogIdentity[] }>(
+    "GET",
+    `/api/v1/catalog/identities?skus=${skus.map(encodeURIComponent).join(",")}`,
+  )
 
 /// The whole price book, page after page. Read at the till's start and again
 /// only when it changed: one page is at most 500 rows, and the counter needs
@@ -306,6 +384,69 @@ export type QuoteReply = {
   /// (`quote_basket` in `backend/src/edge/sqlite.rs`). A sale naming one is
   /// refused, so the till takes them off before the money is taken.
   readonly unsellable?: readonly Unsellable[]
+  /// One per line the node could not take from this shop's own stock, so the
+  /// till can say which (`UntaggedQuoteLine`, docs/unmatched-sales-contract.md).
+  readonly untagged?: readonly UntaggedQuoteLine[]
+}
+
+/// A piece the till sells without a tag the node holds here — `UntaggedLine`
+/// in the contract (docs/unmatched-sales-contract.md). One entry per piece:
+/// a SKU typed off the label (`sku_code`), or a Barang tak dikenal, which has
+/// no SKU, so it carries the name and price the Kepala toko approved
+/// (`name`, `unit_price_minor`, and the `approval_id` the node gave when their
+/// finger said yes — `approveUnmatched`). The sale goes through either way;
+/// head office matches it to a real piece later.
+export type UntaggedLine = {
+  readonly sku_code?: string | null
+  /// A read tag the till already knows this shop does not hold. The node
+  /// also classifies the `epcs` itself, so this is optional.
+  readonly epc?: string | null
+  readonly name?: string | null
+  readonly unit_price_minor?: number | null
+  readonly approval_id?: string | null
+}
+
+/// `POST /api/v1/store/unmatched/approve` — `{ name, unit_price_minor,
+/// supervisor }`: the Kepala toko's yes to naming and pricing a piece nobody
+/// can identify (Barang tak dikenal). The node checks the proof once, here,
+/// and answers an `approval_id` that the line carries on the quote and the
+/// sale from then on — it is not a secret. A node that predates unmatched
+/// sales has no such route and answers 404.
+export type UnmatchedApproval = {
+  readonly approval_id: string
+  readonly approved_by: string
+  readonly approved_by_name?: string | null
+}
+
+export const approveUnmatched = (body: {
+  name: string
+  unit_price_minor: number
+  supervisor: Supervisor
+}) => edge<UnmatchedApproval>("POST", "/api/v1/store/unmatched/approve", body)
+
+/// Whether this shop's node knows about unmatched sales at all: the read-only
+/// list answers (any status but 404 / 405) on a node that does, and is not
+/// there on one that predates them.
+export const unmatchedProbe = () =>
+  edge<unknown>("GET", "/api/v1/store/unmatched?status=open")
+
+/// Why a line is untagged: this shop holds some of the SKU (`NO_TAG`), none of
+/// it (`NOT_IN_STOCK`), a tag it does not hold was read (`OTHER`), or nothing
+/// at all is known about it (`UNKNOWN`).
+export type UntaggedKind = "NO_TAG" | "NOT_IN_STOCK" | "OTHER" | "UNKNOWN"
+
+/// One answer per untagged line (`UntaggedQuoteLine`): `index` is the line's
+/// position in the request's `untagged`, or null for a tag in `epcs` the node
+/// turned into one (then `epc` names it).
+export type UntaggedQuoteLine = {
+  readonly index: number | null
+  readonly epc?: string | null
+  readonly kind: UntaggedKind
+  readonly sku_code?: string | null
+  readonly name?: string | null
+  /// The site the piece is known to be at, when it is.
+  readonly from_place?: string | null
+  readonly line_total_minor?: number | null
 }
 
 /// One line as the engine priced it (`QuotedLine` in
@@ -315,6 +456,10 @@ export type QuotedLine = {
   /// What one costs after markdown, before any promotion — the shelf price,
   /// this minute.
   readonly unit_price_minor: number
+  /// The price list's figure, before any markdown.
+  readonly base_unit_price_minor?: number
+  /// What this line comes to after its promotions.
+  readonly line_total_minor?: number
 }
 
 /// A tag the node will not sell from this shop's floor, and why.
@@ -333,6 +478,9 @@ export type PromotionOutcome = {
   /// Head office's hold behind a limited coupon that applied.
   readonly coupon_authorization_id?: string | null
   readonly reason?: string | null
+  /// What it took off each line, by the line's position in the basket — which
+  /// is the order the tags were sent in. Empty for one that grants goods.
+  readonly line_benefits?: readonly { readonly line: number; readonly benefit_minor: number }[]
 }
 
 /// A hold head office granted for a limited coupon, as the node takes it.
@@ -367,6 +515,7 @@ export const quote = (
   customerId: string | null = null,
   charges: readonly Charge[] = [],
   couponAuthorizations: readonly CouponAuthorization[] = [],
+  untagged: readonly UntaggedLine[] = [],
 ) =>
   edge<QuoteReply>("POST", "/api/v1/store/quote", {
     epcs,
@@ -374,6 +523,9 @@ export const quote = (
     customer_id: customerId,
     charges,
     coupon_authorizations: couponAuthorizations,
+    // Left out when there is none, so a node that has not learnt the field
+    // is never asked about it.
+    ...(untagged.length > 0 ? { untagged } : {}),
   })
 
 // ── taking the money ────────────────────────────────────────────────────
@@ -446,7 +598,153 @@ export const sell = (body: {
   /// The holds the quote was priced with. The node refuses a sale naming a
   /// hold it cannot vouch for, rather than quietly charging without it.
   coupon_authorizations?: readonly CouponAuthorization[]
+  /// The pieces with no tag, one entry each (`UntaggedLine`). Sent on the
+  /// quote too, so the figure on screen is the figure the sale settles.
+  untagged?: readonly UntaggedLine[]
 }) => edge<SaleReply>("POST", "/api/v1/store/sales", body)
+
+/// A voucher as head office reports it, read-only — what F2 shows.
+export type VoucherCheck = {
+  readonly code: string
+  /// `GIFT_CARD`, `REFUND` or `GOODWILL`.
+  readonly kind: string
+  readonly balance_minor: number
+  /// `ACTIVE`, `VOIDED`, …
+  readonly status: string
+  readonly expires_at: string | null
+  /// Past its expiry, whatever its status says.
+  readonly expired: boolean
+  readonly member_name: string | null
+}
+
+/// `POST /api/v1/store/vouchers/{code}/check` (no body) — what the voucher is
+/// and what is left on it. The node relays to head office, which is where a
+/// card spendable at any shop is known: no hold is made and nothing is
+/// recorded, so a balance asked is not a balance spent. 404 `{error}` when the
+/// code is unknown; a down line answers with a sentence.
+export const checkVoucher = (code: string) =>
+  edge<VoucherCheck>(
+    "POST",
+    `/api/v1/store/vouchers/${encodeURIComponent(code.trim().toUpperCase())}/check`,
+  )
+
+/// A member as head office knows them.
+export type Member = {
+  /// The phone's digits, or a card number — what a sale carries as
+  /// `customer_id`.
+  readonly member_id: string
+  readonly display_name: string
+  readonly joined_on: string
+  readonly blocked: boolean
+  readonly points_balance: number
+}
+
+/// `POST /api/v1/store/members/lookup` — `{ member_id }`. Who is this number,
+/// and their points. 404 `{error: "no member X"}` when there is none.
+export const lookupMember = (memberId: string) =>
+  edge<Member>("POST", "/api/v1/store/members/lookup", { member_id: memberId })
+
+/// `POST /api/v1/store/members` — `{ member_id, display_name }`, 201 with the
+/// member. The id is the phone's digits (10–13); 400 `{error}` for a phone or
+/// name the node will not take, 409 `{error}` naming who already has the number.
+export const registerMember = (
+  memberId: string,
+  displayName: string,
+  /// The client's registration form (23 Oct 2026, docs/pos-client-feedback-
+  /// contract.md): phone, name, gender, birth place and birth date are
+  /// required, address and email optional. `birth_date` goes as ISO
+  /// `YYYY-MM-DD`. A node that predates the form ignores what it does not know.
+  more?: {
+    readonly gender: "L" | "P"
+    readonly birth_place: string
+    readonly birth_date: string
+    readonly address?: string | null
+    readonly email?: string | null
+  },
+) =>
+  edge<Member>("POST", "/api/v1/store/members", {
+    member_id: memberId,
+    display_name: displayName,
+    ...(more ?? {}),
+  })
+
+/// `POST /api/v1/store/sales/{id}/member` — `{ member_id }`: a member added to
+/// a sale that is already paid ("Tambah member F5" on Transaksi selesai).
+/// Not in the 23 Oct contract yet: 404 / 405 means this node cannot, and the
+/// till says so.
+export const addMemberToSale = (saleId: string, memberId: string) =>
+  edge<unknown>(
+    "POST",
+    `/api/v1/store/sales/${encodeURIComponent(saleId)}/member`,
+    { member_id: memberId },
+  )
+
+/// What tying a member to an earlier sale answers (`POST /api/v1/store/sales/
+/// member`): the sale it found, whose it is now, and the points that sale earned
+/// them — the same rule as if they had been on it at the time.
+export type MemberOnSale = {
+  readonly sale_id: string
+  readonly receipt_no: string
+  readonly member_id: string
+  readonly member_name: string
+  readonly points_earned: number
+}
+
+/// `POST /api/v1/store/sales/member` — `{ receipt_no, member_id }`: F5's "No.
+/// transaksi" (a member registered at the counter for a sale already rung, by
+/// the number on its struk). The refusals come with their words in Indonesian
+/// in `problem`: 404 "Struk … tidak ada"; 409 "… sudah atas nama …", "… sudah
+/// di-void", "… sudah ditukar".
+export const memberToReceipt = (receiptNo: string, memberId: string) =>
+  edge<MemberOnSale>("POST", "/api/v1/store/sales/member", {
+    receipt_no: receiptNo,
+    member_id: memberId,
+  })
+
+// ── held sales (Tunda), kept on the store node ──────────────────────────
+
+/// One held sale as the node lists it (`GET /api/v1/store/held` answers
+/// `{ items }`, today's, any cashier). `basket` is whatever the till stored
+/// with it — see `Held` in `till.tsx`.
+export type HeldSale = {
+  readonly id: string
+  readonly terminal_id?: string
+  readonly held_by?: string
+  readonly held_by_name: string
+  readonly held_at: string
+  readonly business_date?: string
+  readonly total_minor: number
+  readonly pcs: number
+  readonly basket?: unknown
+}
+
+/// `GET /api/v1/store/held`. A node without the route answers 404 / 405; the
+/// till then keeps held sales on this counter only, as it always did.
+export const heldSales = () => edge<{ items: HeldSale[] }>("GET", "/api/v1/store/held")
+
+/// `POST /api/v1/store/held` — `{ basket, total_minor, pcs }` → `{ id,
+/// held_by_name, held_at }`.
+export const holdSaleOnNode = (body: { basket: unknown; total_minor: number; pcs: number; terminal_id?: string }) =>
+  edge<{ id: string; held_by_name: string; held_at: string }>("POST", "/api/v1/store/held", body)
+
+/// `POST /api/v1/store/held/{id}/resume` — removes it and answers the basket.
+export const resumeHeldSale = (id: string) =>
+  edge<HeldSale>("POST", `/api/v1/store/held/${encodeURIComponent(id)}/resume`)
+
+/// `DELETE /api/v1/store/held/{id}` with `{ supervisor }` — the Kepala toko's
+/// finger (or password).
+export const dropHeldSale = (id: string, supervisor: Supervisor) =>
+  edge<HeldSale>("DELETE", `/api/v1/store/held/${encodeURIComponent(id)}`, { supervisor })
+
+/// The slip a drawer movement prints: `PICKUP` (Tambah modal kasir) and `DROP`
+/// (Setoran sementara) both answer one.
+export type MovementSlip = {
+  readonly slip_no: string
+  readonly amount_minor?: number | null
+  readonly given_by_name: string
+  readonly received_by_name: string
+  readonly at: string
+}
 
 /// `GET /api/v1/store/sales/{id}/receipt` — what the node says the sale was.
 /// If this and the screen ever disagree, this is the one that happened.
@@ -672,6 +970,40 @@ export const shiftReport = (shiftId: string) =>
     `/api/v1/store/shifts/${encodeURIComponent(shiftId)}`,
   )
 
+/// One sale on a drawer — `ShiftSale` in `backend/src/edge/till.rs`.
+export type ShiftSale = {
+  readonly sale_id: string
+  /// The number the customer reads back, `C11-JLC-26-10-02765`.
+  readonly receipt_no: string
+  readonly completed_at: string
+  readonly cashier: string
+  /// `COMPLETED` or `VOIDED`.
+  readonly status: string
+  readonly total_minor: number
+  readonly change_minor: number
+  /// Refunded against this sale since.
+  readonly returned_minor: number
+  readonly tenders: readonly {
+    readonly method: string
+    readonly amount_minor: number
+    /// `DEBIT` or `CREDIT` on a card; null on every other tender.
+    readonly card_kind: string | null
+    readonly acquirer: string | null
+    readonly reference: string | null
+  }[]
+}
+
+/// `GET /api/v1/store/shifts/{id}/sales` — the sales rung on one drawer, with
+/// how each was paid. A supervisor gets every sale, oldest first; a CASHIER gets
+/// only the 3 newest of their own shift, newest first (a full receipt list is
+/// the expectation a blind close keeps from them), and any other shift is
+/// refused. The till sorts and takes three either way.
+export const shiftSales = (shiftId: string) =>
+  edge<ShiftSale[]>(
+    "GET",
+    `/api/v1/store/shifts/${encodeURIComponent(shiftId)}/sales`,
+  )
+
 /// `POST /api/v1/store/shifts/{id}/movements` — `CashMovementRequest { kind,
 /// amount_minor, reason, actor_id, idempotency_key }`. Money in or out of the
 /// drawer that is not a sale.
@@ -679,11 +1011,14 @@ export const cashMovement = (
   shiftId: string,
   body: {
     kind: string
-    amount_minor: number
+    /// Optional only for a `DROP` whose amount is left blank on the slip
+    /// (Setoran sementara) on a node that takes it so.
+    amount_minor?: number
     reason: string
     actor_id: string
     idempotency_key: string
-    /// Required for `PAYOUT` and `CORRECTION` and refused without it — see
+    /// Required for `PAYOUT`, `PICKUP` and `DROP` (the Kepala toko who hands
+    /// over or receives), and for `CORRECTION` and refused without it — see
     /// `record_cash_movement` in `src/edge/till.rs`. Money leaving a drawer,
     /// and a figure being rewritten after the fact, are the two movements a
     /// shop cannot let one person make alone.
@@ -814,3 +1149,47 @@ export const refuseJoin = (joinId: string) =>
   )
 
 export type { EdgeReply }
+
+// ── head office's stops (postgres 0990) ─────────────────────────────────
+
+/// A stop as the node holds it — `StopNote` in `backend/src/edge/pos_stop.rs`.
+export type PosStop = {
+  readonly at: string
+  readonly by: string
+  readonly reason: string
+  /// A store only: when head office removed it for good.
+  readonly removed_at?: string
+}
+
+/// A till head office stopped (`SUSPENDED`) or removed (`REVOKED`) —
+/// `TillStop` there.
+export type TillStop = {
+  /// `Kasir 3`.
+  readonly label: string
+  readonly status: "SUSPENDED" | "REVOKED"
+  readonly at: string | null
+  readonly reason: string | null
+}
+
+/// The drawer still open at this till's seat — `OpenDrawer` there.
+export type OpenDrawer = {
+  readonly shift_id: string
+  readonly opened_by: string
+  readonly name: string
+}
+
+/// What head office has stopped that this till shows on its door.
+export type TillStanding = {
+  readonly store: PosStop | null
+  readonly till: TillStop | null
+  readonly open_shift: OpenDrawer | null
+}
+
+/// `GET /api/v1/till/standing` — open on purpose, like `authMethods`: the
+/// door asks it before anybody has signed in. `till_standing` in
+/// `backend/src/edge/http.rs`.
+export const tillStanding = (terminalId: string) =>
+  edge<TillStanding>(
+    "GET",
+    `/api/v1/till/standing?terminal_id=${encodeURIComponent(terminalId)}`,
+  )

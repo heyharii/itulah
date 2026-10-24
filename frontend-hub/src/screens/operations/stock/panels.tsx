@@ -5,18 +5,22 @@ import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Panel } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/field"
+import { Pill } from "@/components/ui/pill"
 import { EmptyState, LoadingState } from "@/components/ui/states"
 import { count, quantity, sku as skuNumber } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { TwoLines } from "@/screens/operations/two-lines"
 import {
+  REASON_LABEL,
   STAGES,
   STAGE_LABEL,
   due,
+  useReturnReasons,
   useOutboundCards,
   usePoolLines,
   type ArticleLine,
   type OutboundCard,
+  type ReturnReason,
   type Stage,
   type StockData,
 } from "@/screens/operations/stock/data"
@@ -420,10 +424,13 @@ function ArticlesTable({
   lines,
   pending,
   withStore = false,
+  reasonsOf,
 }: {
   lines: readonly ArticleLine[]
   pending: boolean
   withStore?: boolean
+  /// Why each line came back — Return stock only.
+  reasonsOf?: (line: ArticleLine) => readonly ReturnReason[]
 }) {
   if (pending && lines.length === 0) return <LoadingState />
   if (lines.length === 0) return <EmptyState>Nothing here.</EmptyState>
@@ -448,6 +455,21 @@ function ArticlesTable({
         <Row key={l.key}>
           <td className={cell}>
             <TwoLines top={l.name} bottom={skuNumber(l.code)} mono />
+            {reasonsOf && reasonsOf(l).length > 0 && (
+              <span className="mt-1.5 flex flex-wrap gap-1.5">
+                {reasonsOf(l).map((reason) => (
+                  <Pill
+                    key={reason}
+                    withDot
+                    tone={
+                      reason === "reject" ? "bad" : reason === "over" ? "warn" : "info"
+                    }
+                  >
+                    {REASON_LABEL[reason]}
+                  </Pill>
+                ))}
+              </span>
+            )}
           </td>
           {withStore && <td className={cell}>{l.store}</td>}
           <td className={num}>{count(l.pcs)}</td>
@@ -483,14 +505,21 @@ function ReturnStockBody({
   )
   // One read per pool, one pool per store of origin: the store is the label.
   const pools = stores.flatMap((s) =>
-    s.poolIds.map((id) => ({ id, name: s.name }))
+    s.poolIds.map((id) => ({ id, name: s.name, siteId: s.id }))
   )
   const { lines, pending } = usePoolLines(pools, true)
+  const reasons = useReturnReasons(
+    stores.map((s) => s.id),
+    true
+  )
   return (
     <ArticlesTable
       lines={lines}
       pending={pending}
       withStore={stores.length !== 1}
+      reasonsOf={(line) => [
+        ...(reasons.get(`${line.siteId}|${line.code}`) ?? []),
+      ]}
     />
   )
 }

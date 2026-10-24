@@ -1,0 +1,1219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Executive stories</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="frontend-hub/design-system/tokens.css">
+<style>
+/* Tokens: frontend-hub/design-system/tokens.css (All white, 17 Oct 2026). Taste from the Headroom cards: a sentence that is the answer, one chart, a detail panel for the chosen row, a key for every mark. */
+:root {
+  --font: "Inter Variable", Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --ease-out: cubic-bezier(.23, 1, .32, 1);
+  --g1: #ececf0; --g2: #d4d4da; --g3: #b0b0b7; --g4: #85858c; --g5: #4a4a50;
+  --hatch-bad: repeating-linear-gradient(135deg, rgba(215,0,21,.30) 0 1.5px, transparent 1.5px 6px);
+  --hatch-warn: repeating-linear-gradient(135deg, rgba(201,137,46,.55) 0 1.5px, transparent 1.5px 6px);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { font-family: var(--font); font-size: 15px; line-height: 1.45; color: var(--ink); background: var(--stone); -webkit-font-smoothing: antialiased; }
+button { font: inherit; color: inherit; }
+svg { display: block; overflow: visible; }
+svg text { font-family: var(--font); font-size: 15px; fill: var(--body); }
+p, h1, h2, h3 { margin: 0; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* ── Prototype chrome ── */
+.chrome { position: sticky; top: 0; z-index: 30; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 16px; background: var(--canvas); border-bottom: 1px solid var(--hairline); }
+.chrome .lab { color: var(--body); }
+.seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: 9px; background: var(--segment-track); max-width: 100%; }
+.seg button { height: 30px; padding: 0 11px; border: 0; border-radius: 7px; background: none; color: var(--body); font-weight: 500; white-space: nowrap; cursor: pointer; transition: transform 160ms var(--ease-out); }
+.seg button:active { transform: scale(.97); }
+.seg button[aria-pressed="true"] { background: var(--canvas); color: var(--ink); box-shadow: var(--shadow-segment); }
+@media (hover: hover) { .seg button:hover { color: var(--ink); } }
+
+/* ── Shell ── */
+.stage { display: flex; gap: 12px; padding: 12px; margin: 0 auto; }
+.stage[data-device="phone"] { max-width: 414px; padding: 12px 0; }
+.rail { flex: none; width: 56px; display: flex; flex-direction: column; align-items: center; gap: 8px; padding-top: 4px; }
+.rail .tile { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; color: var(--rail-mute); }
+.rail .tile.on { background: var(--canvas); box-shadow: var(--shadow-rail-tile); color: var(--ink); }
+.rail .brand { background: var(--brand-tile); color: #fff; font-weight: 600; position: relative; }
+.rail .brand::after { content: ""; position: absolute; right: 9px; bottom: 10px; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+.panel { flex: none; width: 216px; align-self: flex-start; position: sticky; top: 64px; background: var(--canvas); border-radius: 16px; box-shadow: var(--shadow-panel); padding: 20px 12px 16px; }
+.panel h1 { font-size: 20px; line-height: 28px; font-weight: 600; padding: 0 10px 14px; }
+.nav { display: flex; flex-direction: column; gap: 2px; }
+.nav button { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 10px; border: 0; border-radius: 8px; background: none; color: var(--panel-body); font-weight: 500; text-align: left; cursor: pointer; }
+.nav button .dot { margin-left: auto; }
+@media (hover: hover) { .nav button:hover { background: var(--panel-hover); } }
+.nav button[aria-current="page"] { background: var(--accent-bg); color: var(--accent); }
+.page { flex: 1; min-width: 0; background: var(--canvas); border-radius: 16px; box-shadow: var(--shadow-page); padding: 24px 28px 40px; }
+.stage[data-device="phone"] .rail, .stage[data-device="phone"] .panel { display: none; }
+.stage[data-device="phone"] .page { padding: 0 16px 32px; border-radius: 16px; }
+.phonebar { display: none; align-items: center; gap: 6px; height: 52px; margin: 0 -16px 8px; padding: 0 16px; border-bottom: 1px solid var(--hairline); }
+.phonebar .crumb { color: var(--body); }
+.phonebar select { border: 0; background: none; font: inherit; font-weight: 600; color: var(--ink); padding: 0; }
+.stage[data-device="phone"] .phonebar { display: flex; }
+
+/* ── Page head ── */
+.head { display: flex; align-items: center; gap: 12px; min-height: 36px; margin-bottom: 24px; }
+.head h1 { font-size: 17px; line-height: 24px; font-weight: 600; letter-spacing: -.3px; }
+.head .tools { margin-left: auto; display: flex; gap: 8px; }
+.stage[data-device="phone"] .head h1 { display: none; }
+.stage[data-device="phone"] .head .tools { margin-left: 0; }
+.stage[data-device="phone"] .head.empty { display: none; }
+
+.pick { position: relative; }
+.pick > button { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 10px 0 12px; border: 1px solid var(--hairline-2); border-radius: 8px; background: var(--canvas); font-weight: 500; cursor: pointer; white-space: nowrap; transition: transform 160ms var(--ease-out); }
+.pick > button:active { transform: scale(.97); }
+.pick > button svg { color: var(--line-ico); }
+.pop { position: absolute; right: 0; top: 40px; z-index: 20; min-width: 240px; max-height: 420px; overflow: auto; padding: 4px; background: var(--canvas); border: 1px solid var(--hairline); border-radius: 10px; box-shadow: var(--shadow-pop); transform-origin: top right; transition: opacity 150ms var(--ease-out), transform 150ms var(--ease-out); }
+.stage[data-device="phone"] .pop { left: 0; right: auto; transform-origin: top left; }
+.pop[hidden] { display: block; opacity: 0; transform: scale(.97); pointer-events: none; }
+.pop button { display: flex; width: 100%; align-items: center; height: 36px; padding: 0 10px; border: 0; border-radius: 6px; background: none; text-align: left; cursor: pointer; }
+.pop button[aria-current="true"] { color: var(--accent); font-weight: 500; }
+@media (hover: hover) { .pop button:hover { background: var(--soft-2); } }
+
+/* ── Story card ── */
+.story { border: 1px solid var(--hairline); border-radius: 10px; }
+.story + .story { margin-top: 24px; }
+.story-head { display: flex; align-items: flex-start; gap: 16px; padding: 20px 24px 0; }
+.story-head h2 { font-size: 17px; line-height: 24px; font-weight: 600; letter-spacing: -.3px; text-wrap: balance; }
+.story-head p { margin-top: 4px; color: var(--body); max-width: 780px; text-wrap: pretty; }
+.story-head .seg { margin-left: auto; flex: none; }
+.story-body { display: grid; grid-template-columns: minmax(0, 1fr) 320px; }
+.story-body.wide { grid-template-columns: minmax(0, 1fr); }
+.plot { min-width: 0; padding: 16px 24px 20px; }
+.side { border-left: 1px solid var(--hairline); padding: 20px 24px 20px; min-width: 0; }
+.stage[data-device="phone"] .story { border: 0; border-radius: 0; margin: 0 -16px; }
+.stage[data-device="phone"] .story-head { flex-direction: column; gap: 12px; padding: 4px 16px 0; }
+.stage[data-device="phone"] .story-head .seg { margin-left: 0; }
+.stage[data-device="phone"] .story-body { grid-template-columns: minmax(0, 1fr); }
+.stage[data-device="phone"] .plot { padding: 16px 16px 20px; }
+.stage[data-device="phone"] .side { border-left: 0; border-top: 1px solid var(--hairline); padding: 20px 16px; }
+
+.swap { transition: opacity 160ms var(--ease-out), filter 160ms var(--ease-out); }
+.swap.out { opacity: 0; filter: blur(2px); transition-duration: 100ms; }
+@media (prefers-reduced-motion: reduce) { .swap, .swap.out { transition: opacity 120ms linear; filter: none; } }
+
+/* key: one line per mark, over the plot */
+.key { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; color: var(--body); margin-bottom: 12px; }
+.key span { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+.k-line { width: 16px; height: 2px; border-radius: 1px; background: var(--accent); }
+.k-grey { width: 16px; height: 2px; border-radius: 1px; background: var(--g3); }
+.k-dash { width: 16px; height: 0; border-top: 2px dashed var(--accent); }
+.k-dash.ink { border-top-color: var(--ink); }
+.k-dash.grey { border-top-color: var(--hairline-strong); }
+.k-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bad); }
+.k-ring { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--accent); background: var(--canvas); }
+.k-hatch { width: 16px; height: 12px; border-radius: 2px; background: var(--hatch-bad), var(--bad-bg); }
+.k-hatch.warn { background: var(--hatch-warn), var(--warn-bg); }
+.k-tick { width: 2px; height: 14px; border-radius: 1px; background: var(--ink); }
+.k-sw { display: inline-flex !important; gap: 2px !important; }
+.k-sw i { width: 12px; height: 12px; border-radius: 3px; }
+.k-out { width: 12px; height: 12px; border-radius: 3px; border: 1.5px dashed var(--hairline-strong); }
+
+/* side panel */
+.who { display: flex; flex-direction: column; gap: 2px; }
+.who b { font-size: 16px; line-height: 20px; font-weight: 600; }
+.who span { color: var(--body); }
+.hero { display: flex; align-items: baseline; gap: 8px; margin-top: 18px; }
+.hero b { font-size: 24px; line-height: 30px; font-weight: 600; }
+.hero span { color: var(--body); }
+.facts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 24px; margin-top: 18px; }
+.fact .l { color: var(--body); }
+.fact .v { margin-top: 4px; font-size: 16px; line-height: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.fact .v small { font-size: 15px; font-weight: 400; color: var(--body); }
+.sub-t { margin-top: 18px; color: var(--ink); font-weight: 600; }
+.sec { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--hairline); }
+.sec h3 { font-size: 15px; line-height: 20px; font-weight: 600; margin-bottom: 8px; }
+.sec h3 span { font-weight: 400; color: var(--body); }
+.rank { display: flex; flex-direction: column; margin: 0 -10px; }
+.rank button { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 44px; padding: 0 10px; border: 0; border-radius: 8px; background: none; text-align: left; cursor: pointer; }
+@media (hover: hover) { .rank button:hover { background: var(--soft-2); } }
+.rank button[aria-current="true"] { background: var(--accent-bg); }
+.rank .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rank button .n small { display: block; font-size: 15px; color: var(--body); }
+.rank button .n small.warn-t { color: var(--warn-fg); }
+.rank button:has(small) { min-height: 56px; padding-top: 6px; padding-bottom: 6px; }
+.rank .x { font-weight: 600; font-variant-numeric: tabular-nums; }
+.rank .note { flex: none; min-width: 132px; text-align: right; color: var(--body); font-variant-numeric: tabular-nums; }
+.rank.static .row { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 10px; }
+.rank.static .note { min-width: 56px; }
+
+.ok-t { color: var(--ok-fg) !important; }
+.warn-t { color: var(--warn-fg) !important; }
+.bad-t { color: var(--bad-fg) !important; }
+.mute { color: var(--body); }
+.dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+.dot.bad { background: var(--bad); } .dot.warn { background: var(--warn); } .dot.ok { background: var(--ok); } .dot.info { background: var(--info); } .dot.none { background: var(--faint); }
+
+/* overview */
+.brief { border: 1px solid var(--hairline); border-radius: 10px; overflow: hidden; }
+.brief button { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto 16px; align-items: center; gap: 4px 12px; width: 100%; padding: 16px 20px; border: 0; border-top: 1px solid var(--row-line); background: none; text-align: left; cursor: pointer; }
+.brief button:first-child { border-top: 0; }
+@media (hover: hover) { .brief button:hover { background: var(--soft); } }
+.brief b { font-weight: 600; }
+.brief .s { grid-column: 2; color: var(--body); }
+.brief .t { grid-column: 3; grid-row: 1 / span 2; color: var(--body); white-space: nowrap; }
+.brief svg.chev { grid-column: 4; grid-row: 1 / span 2; color: var(--line-ico); }
+.brief .dot { grid-row: 1; justify-self: center; }
+.stage[data-device="phone"] .brief { border: 0; border-radius: 0; margin: 0 -16px; }
+.stage[data-device="phone"] .brief button { padding: 14px 16px; grid-template-columns: 14px minmax(0, 1fr) 16px; }
+.stage[data-device="phone"] .brief .t { grid-column: 2; grid-row: auto; }
+.stage[data-device="phone"] .brief svg.chev { grid-column: 3; }
+
+/* forecast rows (sell-out) */
+.fc { display: grid; grid-template-columns: 196px minmax(0, 1fr) 176px; column-gap: 14px; }
+.fc .hd { color: var(--body); padding-bottom: 8px; }
+.fc .days { display: grid; grid-template-columns: repeat(var(--n, 14), minmax(0, 1fr)); gap: 3px; }
+.fc .days span { text-align: center; white-space: nowrap; }
+.fc[style*="--n:24"] .days span { text-align: left; overflow: visible; width: 0; }
+.fc .days span.now { color: var(--ink); font-weight: 500; }
+.fc .r { display: contents; cursor: pointer; }
+.fc .r > * { padding: 10px 0; border-top: 1px solid var(--row-line); }
+.fc .r.on > * { background: var(--accent-bg); }
+.fc .r.on > :first-child { box-shadow: -10px 0 0 var(--accent-bg); border-radius: 8px 0 0 8px; }
+.fc .r.on > :last-child { box-shadow: 10px 0 0 var(--accent-bg); border-radius: 0 8px 8px 0; }
+@media (hover: hover) { .fc .r:hover > * { background: var(--soft); } .fc .r.on:hover > * { background: var(--accent-bg); } }
+.fc .nm b { display: block; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fc .nm span { color: var(--body); }
+.fc .cells { display: grid; grid-template-columns: repeat(var(--n, 14), minmax(0, 1fr)); gap: 3px; align-items: center; position: relative; }
+.fc[style*="--n:24"] .cells, .fc[style*="--n:24"] .days { gap: 2px; }
+.fc .cells i.over { background: var(--hatch-warn), var(--warn-bg); }
+.fc .cells i.gone { background: var(--soft-2); }
+.fc .cells i.aim::before { content: ""; position: absolute; left: -2px; top: -5px; bottom: -5px; width: 2px; border-radius: 1px; background: var(--ink); }
+.fc .days span.aim { color: var(--ink); font-weight: 500; text-align: left; white-space: nowrap; overflow: visible; }
+.fc .cells i { position: relative; height: 34px; border-radius: 4px; }
+.fc .cells i.empty { background: var(--hatch-bad), var(--bad-bg); }
+.fc .cells i.out { background: var(--bad-bg); }
+.fc .cells i.out::after { content: ""; position: absolute; left: 50%; top: 50%; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; background: var(--bad); box-shadow: 0 0 0 2px var(--canvas); }
+.fc .cells i.del::before { content: ""; position: absolute; left: -3px; top: -5px; bottom: -5px; width: 2px; border-radius: 1px; background: var(--ink); }
+.fc .rt b { display: block; font-weight: 500; font-variant-numeric: tabular-nums; }
+.fc .rt span { color: var(--body); }
+.stage[data-device="phone"] .fc { grid-template-columns: minmax(0, 1fr); }
+.stage[data-device="phone"] .fc .hd.nmh, .stage[data-device="phone"] .fc .hd.rth { display: none; }
+.stage[data-device="phone"] .fc .r > * { border-top: 0; padding: 4px 0; }
+.stage[data-device="phone"] .fc .r > .nm { border-top: 1px solid var(--row-line); padding-top: 12px; }
+.stage[data-device="phone"] .fc .r > .rt { padding-bottom: 12px; display: flex; justify-content: space-between; gap: 8px; }
+.stage[data-device="phone"] .fc .cells i { height: 26px; }
+.stage[data-device="phone"] .fc .r.on > * { box-shadow: -16px 0 0 var(--accent-bg), 16px 0 0 var(--accent-bg); border-radius: 0; }
+
+/* week table (stores) */
+.wk { display: grid; column-gap: 12px; align-items: center; }
+.wk .hd { color: var(--body); padding-bottom: 8px; line-height: 20px; }
+.wk .hd b { display: block; color: var(--ink); font-weight: 500; }
+.wk .r { display: contents; cursor: pointer; }
+.wk .r > * { padding: 10px 0; border-top: 1px solid var(--row-line); height: 100%; }
+.wk .r.on > * { background: var(--accent-bg); }
+.wk .r.on > :first-child { box-shadow: -10px 0 0 var(--accent-bg); border-radius: 8px 0 0 8px; }
+.wk .r.on > :last-child { box-shadow: 10px 0 0 var(--accent-bg); border-radius: 0 8px 8px 0; }
+@media (hover: hover) { .wk .r:hover > * { background: var(--soft); } .wk .r.on:hover > * { background: var(--accent-bg); } }
+.wk .nm { font-weight: 500; display: flex; align-items: center; min-width: 0; }
+.wk .cell { display: flex; flex-direction: column; gap: 4px; }
+.wk .cell .ix { font-weight: 600; font-variant-numeric: tabular-nums; }
+.wk .cell .ix.fc { color: var(--body); font-weight: 500; }
+.wk .gr b { display: block; font-weight: 600; font-variant-numeric: tabular-nums; }
+.wk .gr span { color: var(--body); font-variant-numeric: tabular-nums; }
+
+/* small multiples */
+.cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.mini { border: 1px solid var(--hairline); border-radius: 10px; padding: 14px 16px 12px; cursor: pointer; min-width: 0; }
+.mini.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.mini b { display: block; font-size: 16px; line-height: 20px; font-weight: 600; }
+.mini p { color: var(--body); margin: 2px 0 8px; font-variant-numeric: tabular-nums; }
+.stage[data-device="phone"] .cards { grid-template-columns: minmax(0, 1fr); }
+
+
+/* matrix (hours) */
+.mx { display: grid; grid-template-columns: minmax(0, 1fr) 200px; gap: 24px; }
+.stage[data-device="phone"] .mx { grid-template-columns: minmax(0, 1fr); }
+
+/* table view */
+.tbl { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.tbl th { height: 40px; padding: 0 12px; text-align: left; font-weight: 500; color: var(--body); background: var(--band); border-bottom: 1px solid var(--hairline); white-space: nowrap; }
+.tbl td { height: 52px; padding: 0 12px; border-bottom: 1px solid var(--row-line); white-space: nowrap; }
+.tbl .r { text-align: right; }
+.tbl tr.on td { background: var(--accent-bg); }
+.tbl tbody tr { cursor: pointer; }
+@media (hover: hover) { .tbl tbody tr:hover td { background: var(--soft); } .tbl tbody tr.on:hover td { background: var(--accent-bg); } }
+.tblwrap { border: 1px solid var(--hairline); border-radius: 10px; overflow: hidden; }
+.stage[data-device="phone"] .tblwrap { overflow-x: auto; }
+
+
+/* ── B · Simple: one page, four cards, each = the answer, one figure, one plain chart or a short list ── */
+.stage.simple .panel { display: none; }
+.cards2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+.card2 { display: flex; flex-direction: column; min-width: 0; border: 1px solid var(--hairline); border-radius: 10px; padding: 18px 24px 8px; }
+.card2 .lab { display: flex; align-items: center; justify-content: space-between; color: var(--body); }
+.card2 .lab button { border: 0; background: none; padding: 0; color: var(--accent); font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 2px; }
+.card2 h2 { margin-top: 4px; font-size: 17px; line-height: 24px; font-weight: 600; letter-spacing: -.3px; text-wrap: balance; }
+.card2 .fig { display: flex; align-items: baseline; gap: 8px; margin-top: 14px; }
+.card2 .fig b { font-size: 24px; line-height: 30px; font-weight: 600; }
+.card2 .fig span { color: var(--body); }
+.card2 .ch { margin-top: 12px; }
+.card2 .rows { margin-top: 8px; }
+.card2 .rows button { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 8px 0; border: 0; border-top: 1px solid var(--row-line); background: none; text-align: left; cursor: pointer; }
+.card2 .rows button:first-child { border-top: 0; }
+.card2 .ch + .rows button:first-child { border-top: 1px solid var(--row-line); }
+@media (hover: hover) { .card2 .rows button:hover { background: var(--soft); box-shadow: -12px 0 0 var(--soft), 12px 0 0 var(--soft); } }
+.card2 .rows .a { flex: 1; min-width: 0; }
+.card2 .rows .a b, .card2 .rows .z b { display: block; font-weight: 500; }
+.card2 .rows .a b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card2 .rows .a span, .card2 .rows .z span { color: var(--body); }
+.card2 .rows .z { flex: none; text-align: right; font-variant-numeric: tabular-nums; }
+.stage[data-device="phone"] .cards2 { grid-template-columns: minmax(0, 1fr); gap: 0; }
+.stage[data-device="phone"] .card2 { border: 0; border-radius: 0; border-top: 8px solid var(--soft-2); margin: 0 -16px; padding: 18px 16px 8px; }
+.stage[data-device="phone"] .card2:first-child { border-top: 0; }
+
+/* tooltip */
+.tip { position: fixed; z-index: 50; pointer-events: none; min-width: 180px; padding: 10px 12px; background: var(--canvas); border: 1px solid var(--hairline); border-radius: 8px; box-shadow: var(--shadow-pop); opacity: 0; transform: translateY(2px); transition: opacity 120ms var(--ease-out), transform 120ms var(--ease-out); }
+.tip.on { opacity: 1; transform: none; }
+.tip .t { font-weight: 500; margin-bottom: 4px; }
+.tip .l { display: flex; align-items: center; gap: 8px; color: var(--body); }
+.tip .l b { margin-left: auto; padding-left: 16px; color: var(--ink); font-weight: 500; font-variant-numeric: tabular-nums; }
+.tip .l i { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+</style>
+</head>
+<body>
+<div class="chrome">
+  <span class="lab">Version</span>
+  <div class="seg" id="version">
+    <button aria-pressed="false" data-v="stories">A · Stories</button>
+    <button aria-pressed="true" data-v="simple">B · Simple</button>
+  </div>
+  <span class="lab">Device</span>
+  <div class="seg" id="device">
+    <button aria-pressed="true" data-v="desk">Desktop</button>
+    <button aria-pressed="false" data-v="phone">Phone</button>
+  </div>
+</div>
+<div class="stage" id="stage" data-device="desk">
+  <nav class="rail" aria-label="Departments">
+    <div class="tile brand">C</div>
+    <div class="tile on" title="Executive"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg></div>
+    <div class="tile" title="Selling"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/></svg></div>
+    <div class="tile" title="Inventory"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8 12 3 3 8v8l9 5 9-5Z"/><path d="m3 8 9 5 9-5"/><path d="M12 13v8"/></svg></div>
+    <div class="tile" title="Finance"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="13" rx="2"/><path d="M2 10h20"/></svg></div>
+  </nav>
+  <aside class="panel">
+    <h1>Executive</h1>
+    <div class="nav" id="nav"></div>
+  </aside>
+  <main class="page" id="page"></main>
+</div>
+<div class="tip" id="tip"></div>
+
+<script>
+/* ═════════ utilities ═════════ */
+const NS = "http://www.w3.org/2000/svg";
+function S(tag, a, p) { const e = document.createElementNS(NS, tag); if (a) for (const k in a) e.setAttribute(k, a[k]); if (p) p.appendChild(e); return e; }
+function H(tag, cls, html) { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
+function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const R = rng(20261017);
+const nf = (v, d = 0) => v.toLocaleString("id-ID", { minimumFractionDigits: d, maximumFractionDigits: d });
+const MINUS = "−";
+function rpc(v) {
+  const a = Math.abs(v), s = v < 0 ? MINUS : "";
+  if (a >= 1e9) return s + "Rp " + nf(a / 1e9, a >= 1e10 ? 1 : 2) + " B";
+  if (a >= 1e6) return s + "Rp " + nf(a / 1e6, a >= 1e8 ? 0 : 1) + " M";
+  if (a >= 1e3) return s + "Rp " + nf(a / 1e3) + " K";
+  return s + "Rp " + nf(a);
+}
+const rpAxis = v => v === 0 ? "0" : (v >= 1e9 ? nf(v / 1e9, v % 1e9 ? 1 : 0) + " B" : nf(v / 1e6) + " M");
+const pct = (v, d = 0) => nf(v * 100, d) + "%";
+const sgnPct = v => (v >= 0 ? "+" : MINUS) + nf(Math.abs(v * 100), Math.abs(v) < .095 ? 1 : 0) + "%";
+const times = v => nf(v, 2) + "×";
+const pcs = v => nf(Math.round(v)) + " pcs";
+const andList = a => a.length < 2 ? a.join("") : a.slice(0, -1).join(", ") + " and " + a[a.length - 1];
+const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTH = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const WDN = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const WDL = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const DAYMS = 864e5;
+const D = (y, m, d) => new Date(y, m, d, 12);
+const addDays = (d, n) => new Date(d.getTime() + n * DAYMS);
+const short = d => d.getDate() + " " + MON[d.getMonth()];
+const wshort = d => WDN[d.getDay()] + " " + d.getDate() + " " + MON[d.getMonth()];
+const full = d => d.getDate() + " " + MON[d.getMonth()] + " " + d.getFullYear();
+const wfull = d => WDN[d.getDay()] + " " + full(d);
+const TODAY = D(2026, 9, 17);          // Sat 17 Oct 2026, read at 15:00
+const DONE = 0.42;                      // the share of a Saturday's trade done by 15:00
+const CHEV = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>';
+const CHEV_R = '<svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>';
+
+const tip = document.getElementById("tip");
+function showTip(html, ev) {
+  tip.innerHTML = html; tip.classList.add("on");
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  let x = ev.clientX + 16, y = ev.clientY + 14;
+  if (x + w > innerWidth - 8) x = ev.clientX - w - 16;
+  if (y + h > innerHeight - 8) y = ev.clientY - h - 14;
+  tip.style.left = Math.max(8, x) + "px"; tip.style.top = Math.max(8, y) + "px";
+}
+const hideTip = () => tip.classList.remove("on");
+const tline = (colour, label, value) => `<div class="l">${colour ? `<i style="background:${colour}"></i>` : ""}${label}<b>${value}</b></div>`;
+function hoverable(node, html) { node.addEventListener("mousemove", e => showTip(typeof html === "function" ? html() : html, e)); node.addEventListener("mouseleave", hideTip); }
+
+/* ═════════ data: 13 stores, 1 Jul → 17 Oct 2026 ═════════ */
+const STORES = [
+  ["C001", "Cikupa", 420, .03], ["C002", "Kota Baru Parahyangan", 380, .013], ["C003", "Muaro Bungo", 300, .011],
+  ["C004", "Muara Enim", 265, -.016], ["C005", "Lubuk Linggau", 340, .02], ["C006", "Prabumulih", 290, .008],
+  ["C007", "Baturaja", 270, .01], ["C008", "Lahat", 235, -.02], ["C009", "Serpong", 455, .025],
+  ["C010", "Bintaro", 410, .015], ["C011", "Depok", 360, .002], ["C012", "Bekasi", 395, .012], ["C013", "Karawaci", 330, -.006],
+].map(([id, name, base, g]) => ({ id, name, base, g }));
+const WD = [1.38, .82, .80, .84, .88, 1.05, 1.45];
+const WDM = WD.reduce((a, b) => a + b) / 7;
+const START = D(2026, 6, 1);
+const idx = d => Math.round((d - START) / DAYMS);
+const NDAYS = idx(TODAY) + 1;
+const ANCHOR = D(2026, 8, 14);
+for (const s of STORES) {
+  s.daily = [];
+  for (let i = 0; i < NDAYS; i++) {
+    const d = addDays(START, i), w = (d - ANCHOR) / DAYMS / 7;
+    const pay = d.getDate() >= 25 || d.getDate() <= 2 ? 1.12 : 1;
+    let v = s.base * 1e6 / 30 * WD[d.getDay()] / WDM * Math.pow(1 + s.g, w) * pay * (1 + (R() - .5) * .26);
+    if (i === NDAYS - 1) v *= DONE;
+    s.daily.push(v);
+  }
+}
+const ALL = { id: "all", name: "All stores", daily: Array.from({ length: NDAYS }, (_, i) => STORES.reduce((a, s) => a + s.daily[i], 0)) };
+const ENT = [ALL, ...STORES];
+const byId = id => ENT.find(e => e.id === id) || ALL;
+const sum = (arr, from, to) => { let t = 0; for (let i = from; i <= to; i++) t += arr[i] || 0; return t; };
+
+/* ═════════ state ═════════ */
+const state = { version: "simple", page: "overview", device: "desk", store: "all", views: {}, sel: {} };
+const view = (id, def) => state.views[id] || def;
+
+/* ═════════ chart helpers ═════════ */
+function frame(host, height, m) {
+  const cs = getComputedStyle(host);
+  const W = Math.max(220, host.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight));
+  const svg = S("svg", { width: W, height, role: "img" }, host);
+  return { svg, W, H: height, m, iw: W - m.l - m.r, ih: height - m.t - m.b };
+}
+function gridY(f, ticks, y, fmt) {
+  for (const t of ticks) {
+    S("line", { x1: f.m.l, x2: f.W - f.m.r, y1: y(t), y2: y(t), stroke: "var(--row-line)" }, f.svg);
+    const tx = S("text", { x: f.m.l - 10, y: y(t) + 5, "text-anchor": "end" }, f.svg); tx.textContent = fmt(t);
+  }
+}
+function xLabel(f, x, text, anchor = "middle", cls) {
+  const t = S("text", { x, y: f.H - 8, "text-anchor": anchor }, f.svg); t.textContent = text;
+  if (cls) t.style.fill = cls; return t;
+}
+const pathOf = pts => pts.map((p, i) => (i ? "L" : "M") + p[0].toFixed(1) + "," + p[1].toFixed(1)).join("");
+function label(f, x, y, text, opts = {}) {
+  const t = S("text", { x, y, "text-anchor": opts.anchor || "start" }, f.svg);
+  t.textContent = text; t.style.fill = opts.fill || "var(--ink)"; if (opts.weight) t.style.fontWeight = opts.weight;
+  return t;
+}
+function haloLabel(f, x, y, text, opts = {}) {
+  const t = label(f, x, y, text, opts);
+  t.setAttribute("paint-order", "stroke"); t.setAttribute("stroke", "var(--canvas)"); t.setAttribute("stroke-width", "4"); t.setAttribute("stroke-linejoin", "round");
+  return t;
+}
+function crosshair(f, xs, onMove) {
+  const line = S("line", { y1: f.m.t, y2: f.H - f.m.b, stroke: "var(--hairline-strong)", opacity: 0 }, f.svg);
+  const hit = S("rect", { x: f.m.l, y: f.m.t, width: f.iw, height: f.ih, fill: "transparent" }, f.svg);
+  hit.addEventListener("mousemove", e => {
+    const r = f.svg.getBoundingClientRect(), px = e.clientX - r.left;
+    let best = 0; for (let i = 1; i < xs.length; i++) if (Math.abs(xs[i] - px) < Math.abs(xs[best] - px)) best = i;
+    line.setAttribute("x1", xs[best]); line.setAttribute("x2", xs[best]); line.setAttribute("opacity", 1);
+    showTip(onMove(best), e);
+  });
+  hit.addEventListener("mouseleave", () => { line.setAttribute("opacity", 0); hideTip(); });
+}
+function keyRow(items) { return `<div class="key">${items.map(([g, t]) => `<span>${g}${t}</span>`).join("")}</div>`; }
+function seg(id, opts, cur) { return `<div class="seg" data-seg="${id}">${opts.map(([v, l]) => `<button data-v="${v}" aria-pressed="${v === cur}">${l}</button>`).join("")}</div>`; }
+function facts(list) { return `<div class="facts">${list.map(([l, v, cls]) => `<div class="fact"><div class="l">${l}</div><div class="v ${cls || ""}">${v}</div></div>`).join("")}</div>`; }
+
+/* ═════════ story 1 · Sales Pace ═════════ */
+const SEP0 = idx(D(2026, 8, 1)), SEP1 = idx(D(2026, 8, 30)), OCT0 = idx(D(2026, 9, 1));
+const ELAPSED = 16 + DONE;
+function paceOf(e) {
+  const sep = sum(e.daily, SEP0, SEP1);
+  const cum = [0]; let c = 0;
+  for (let i = OCT0; i < NDAYS; i++) { c += e.daily[i]; cum.push(c); }
+  const used = c / sep, even = ELAPSED / 31, x = used / even, rate = c / ELAPSED, end = rate * 31;
+  const passDay = end > sep ? sep / rate : null;
+  return { e, sep, cum, c, used, even, x, end, endPct: end / sep, passDay };
+}
+const passDate = p => D(2026, 9, Math.floor(p.passDay) + 1);
+function paceNote(p) {
+  return p.passDay != null ? { t: "Passes Sep " + short(passDate(p)), cls: "" } : { t: "~" + pct(p.endPct) + " at month end", cls: "warn-t" };
+}
+const PACE = {
+  id: "pace", nav: "Sales Pace",
+  brief() {
+    const a = paceOf(ALL), behind = STORES.filter(s => paceOf(s).endPct < 1).length;
+    return { tone: behind > 3 ? "warn" : "none", title: `October is ${times(a.x)} September's pace`, sub: `Closes near ${rpc(a.end)} if the pace holds. ${behind} of 13 stores are behind.` };
+  },
+  head() {
+    const p = paceOf(byId(state.store));
+    const others = STORES.filter(s => s.id !== state.store);
+    const behind = others.filter(s => paceOf(s).endPct < 1).length;
+    const name = p.e.id === "all" ? "October" : p.e.name;
+    const verdict = p.x >= 1 ? `${name} is ${times(p.x)} September's pace` : `${name} is behind September's pace, at ${times(p.x)}`;
+    const when = p.passDay != null ? `Passes September's ${rpc(p.sep)} on ${wshort(passDate(p))} and closes near ${rpc(p.end)} if the pace holds.` : `Closes near ${rpc(p.end)} if the pace holds, ${pct(1 - p.endPct)} short of September.`;
+    const rest = p.e.id === "all" ? `${behind} of 13 stores are behind.` : `${behind} of the other 12 stores are behind.`;
+    return { title: verdict, sub: when + " " + rest, views: [["month", "This month"], ["past", "Past months"]], def: "month" };
+  },
+  plot(host) {
+    const v = view("pace", "month");
+    if (v === "past") return pastMonths(host);
+    host.innerHTML = keyRow([['<i class="k-line"></i>', "Sold so far"], ['<i class="k-dash"></i>', "If the pace holds"], ['<i class="k-grey"></i>', "Other stores"], ['<i class="k-dash grey"></i>', "Even pace to September"]]);
+    const sel = paceOf(byId(state.store));
+    const all = ENT.map(paceOf);
+    const ymax = Math.max(1.25, Math.ceil((sel.endPct + .05) * 4) / 4);
+    const f = frame(host, 330, { l: 52, r: 20, t: 12, b: 34 });
+    const x = d => f.m.l + f.iw * d / 31, y = v => f.m.t + f.ih * (1 - v / ymax);
+    S("path", { d: `M${x(0)},${y(0)}L${x(31)},${y(1)}L${x(31)},${y(ymax)}L${x(0)},${y(ymax)}Z`, fill: "var(--soft)" }, f.svg);
+    const ticks = []; for (let t = 0; t <= ymax + 1e-9; t += .25) ticks.push(t);
+    gridY(f, ticks, y, t => pct(t));
+    label(f, x(.6), y(ymax) + 22, "Ahead", { fill: "var(--body)" });
+    label(f, x(30.4), y(0) - 10, "Behind", { fill: "var(--body)", anchor: "end" });
+    S("line", { x1: x(0), y1: y(0), x2: x(31), y2: y(1), stroke: "var(--hairline-strong)", "stroke-dasharray": "5 4", "stroke-width": 1.5 }, f.svg);
+    const ang = Math.atan2(y(1) - y(0), x(31) - x(0)) * 180 / Math.PI;
+    const ex = x(25.5), ey = y(25.5 / 31) - 8;
+    haloLabel(f, ex, ey, "Even pace", { fill: "var(--body)", anchor: "middle" }).setAttribute("transform", `rotate(${ang} ${ex} ${ey})`);
+    // now marker
+    S("line", { x1: x(ELAPSED), x2: x(ELAPSED), y1: f.m.t, y2: f.H - f.m.b, stroke: "var(--hairline-2)" }, f.svg);
+    [[0, "1 Oct"], [7, "8 Oct"], [21, "22 Oct"], [31, "31 Oct"]].forEach(([d, t]) => xLabel(f, x(d), t, d === 0 ? "start" : d === 31 ? "end" : "middle"));
+    xLabel(f, x(ELAPSED), "Now", "middle", "var(--ink)");
+    const ptsOf = p => p.cum.map((c, k) => [x(k === p.cum.length - 1 ? ELAPSED : k), y(c / p.sep)]);
+    for (const p of all) {
+      if (p.e.id === state.store) continue;
+      S("path", { d: pathOf(ptsOf(p)), fill: "none", stroke: p.e.id === "all" ? "var(--g4)" : "var(--g2)", "stroke-width": p.e.id === "all" ? 1.75 : 1.25, "stroke-linejoin": "round" }, f.svg);
+    }
+    // projection + line of the chosen one
+    const nowX = x(ELAPSED), nowY = y(sel.used);
+    S("path", { d: `M${nowX},${nowY}L${x(31)},${y(sel.endPct)}`, stroke: "var(--accent)", "stroke-width": 1.75, "stroke-dasharray": "5 4", fill: "none" }, f.svg);
+    const pts = ptsOf(sel);
+    S("path", { d: pathOf(pts) + `L${nowX},${y(0)}L${x(0)},${y(0)}Z`, fill: "var(--accent)", opacity: .07 }, f.svg);
+    S("path", { d: pathOf(pts), fill: "none", stroke: "var(--accent)", "stroke-width": 2.25, "stroke-linejoin": "round" }, f.svg);
+    // labels: the chosen one, the fastest and the slowest store
+    const placed = [];
+    const put = (px, py, text, fill, weight) => { if (placed.some(q => Math.abs(q - py) < 20)) return; placed.push(py); haloLabel(f, px + 10, py + 5, text, { fill, weight }); };
+    S("circle", { cx: nowX, cy: nowY, r: 4.5, fill: "var(--canvas)", stroke: "var(--accent)", "stroke-width": 2 }, f.svg);
+    put(nowX, nowY, pct(sel.used) + " · " + (sel.e.id === "all" ? "All stores" : sel.e.name), "var(--ink)", 600);
+    const ranked = STORES.map(paceOf).filter(p => p.e.id !== state.store).sort((a, b) => b.x - a.x);
+    for (const p of [ranked[0], ranked[ranked.length - 1]]) {
+      const py = y(p.used); S("circle", { cx: nowX, cy: py, r: 3, fill: "var(--g4)" }, f.svg);
+      put(nowX, py, `${pct(p.used)} · ${p.e.name}`, "var(--body)");
+    }
+    if (sel.passDay != null) {
+      const px = x(sel.passDay), py = y(1);
+      S("circle", { cx: px, cy: py, r: 5, fill: "var(--canvas)", stroke: "var(--accent)", "stroke-width": 2 }, f.svg);
+      haloLabel(f, px, py - 12, "Passes September · " + short(passDate(sel)), { anchor: px > f.W - 160 ? "end" : "middle", weight: 500 });
+    } else {
+      const py = y(sel.endPct);
+      S("circle", { cx: x(31), cy: py, r: 5, fill: "var(--canvas)", stroke: "var(--warn)", "stroke-width": 2 }, f.svg);
+      haloLabel(f, x(31) - 10, py + 22, "~" + pct(sel.endPct) + " at month end", { anchor: "end", fill: "var(--warn-fg)", weight: 500 });
+    }
+    const xs = sel.cum.map((_, k) => x(k === sel.cum.length - 1 ? ELAPSED : k));
+    crosshair(f, xs, k => {
+      const day = k === 0 ? "1 Oct 2026, opening" : (k === sel.cum.length - 1 ? "17 Oct 2026, 15:00" : wfull(D(2026, 9, k)) + ", close");
+      const evenK = (k === sel.cum.length - 1 ? ELAPSED : k) / 31;
+      return `<div class="t">${day}</div>` + tline("var(--accent)", sel.e.name, pct(sel.cum[k] / sel.sep) + " · " + rpc(sel.cum[k])) + tline("var(--hairline-strong)", "Even pace", pct(evenK));
+    });
+  },
+  side(host) {
+    const p = paceOf(byId(state.store));
+    const n = paceNote(p);
+    const list = ENT.map(paceOf).sort((a, b) => (a.e.id === "all" ? -1 : b.e.id === "all" ? 1 : b.x - a.x));
+    host.innerHTML = `
+      <div class="who"><b>${p.e.name}</b><span>${p.e.id === "all" ? "13 stores" : p.e.id} · September ${rpc(p.sep)}</span></div>
+      <div class="hero"><b>${times(p.x)}</b><span>September's pace</span></div>
+      ${facts([["Sold so far", pct(p.used)], ["Even pace", pct(p.even)]])}
+      <div class="sub-t">If the pace holds</div>
+      ${facts([["Month end", rpc(p.end)], p.passDay != null ? ["Passes Sep", short(passDate(p))] : ["Against September", sgnPct(p.endPct - 1), "warn-t"]])}
+      <div class="sec"><h3>All stores <span>· fastest first</span></h3><div class="rank">${list.map(q => {
+        const nn = paceNote(q);
+        return `<button data-store="${q.e.id}" aria-current="${q.e.id === state.store}"><span class="n">${q.e.name}<small class="${nn.cls}">${nn.t}</small></span><span class="x">${times(q.x)}</span></button>`;
+      }).join("")}</div></div>`;
+  },
+};
+function pastMonths(host) {
+  const e = byId(state.store);
+  host.innerHTML = keyRow([['<i class="k-line"></i>', "October"], ['<i class="k-dash"></i>', "If the pace holds"], ['<i class="k-grey"></i>', "July to September"]]);
+  const months = [6, 7, 8, 9].map(m => {
+    const days = new Date(2026, m + 1, 0).getDate(), i0 = idx(D(2026, m, 1));
+    const cum = [0]; let c = 0;
+    for (let d = 0; d < days && i0 + d < NDAYS; d++) { c += e.daily[i0 + d]; cum.push(c); }
+    return { m, days, cum, total: c };
+  });
+  const oct = months[3], rate = oct.total / ELAPSED, end = rate * 31;
+  const ymax = Math.max(end, ...months.map(m => m.total)) * 1.08;
+  const f = frame(host, 330, { l: 64, r: 120, t: 12, b: 34 });
+  const x = d => f.m.l + f.iw * d / 31, y = v => f.m.t + f.ih * (1 - v / ymax);
+  const step = ymax > 4e9 ? 1e9 : ymax > 1.6e9 ? 5e8 : ymax > 8e8 ? 2e8 : 1e8;
+  const ticks = []; for (let t = 0; t <= ymax; t += step) ticks.push(t);
+  gridY(f, ticks, y, rpAxis);
+  [[0, "Day 1"], [10, "10"], [20, "20"], [31, "31"]].forEach(([d, t]) => xLabel(f, x(d), t, d === 0 ? "start" : "middle"));
+  const placed = [];
+  const put = (py, text, fill, weight) => { let yy = py + 5; while (placed.some(q => Math.abs(q - yy) < 19)) yy += 19; placed.push(yy); haloLabel(f, x(31) + 10, yy, text, { fill, weight }); };
+  months.slice(0, 3).forEach((mm, i) => {
+    const pts = mm.cum.map((c, k) => [x(k * 31 / mm.days), y(c)]);
+    S("path", { d: pathOf(pts), fill: "none", stroke: ["var(--g2)", "var(--g3)", "var(--g4)"][i], "stroke-width": 1.5 }, f.svg);
+    put(y(mm.total), `${MON[mm.m]} ${rpc(mm.total)}`, "var(--body)");
+  });
+  const pts = oct.cum.map((c, k) => [x(k === oct.cum.length - 1 ? ELAPSED : k), y(c)]);
+  S("path", { d: `M${x(ELAPSED)},${y(oct.total)}L${x(31)},${y(end)}`, stroke: "var(--accent)", "stroke-width": 1.75, "stroke-dasharray": "5 4", fill: "none" }, f.svg);
+  S("path", { d: pathOf(pts), fill: "none", stroke: "var(--accent)", "stroke-width": 2.25 }, f.svg);
+  S("circle", { cx: x(31), cy: y(end), r: 4.5, fill: "var(--canvas)", stroke: "var(--accent)", "stroke-width": 2 }, f.svg);
+  put(y(end), `Oct ~${rpc(end)}`, "var(--ink)", 600);
+}
+
+/* ═════════ story 2 · Sell-Out ═════════ */
+const SELL = [
+  { a: "Kaos Basic Katun Combed", div: "Men · Tops", s: "Cikupa", on: 16, pd: 7.2, del: { d: 5, pcs: 60 }, ho: 120, st: .78 },
+  { a: "Kemeja Oxford Lengan Panjang", div: "Men · Tops", s: "Serpong", on: 19, pd: 5.1, del: null, ho: 84, st: .71 },
+  { a: "Celana Chino Slim Fit", div: "Men · Bottoms", s: "Lubuk Linggau", on: 22, pd: 4.4, del: { d: 7, pcs: 36 }, ho: 40, st: .66 },
+  { a: "Blus Rayon Motif Bunga", div: "Women · Tops", s: "Kota Baru Parahyangan", on: 28, pd: 4.0, del: null, ho: 0, st: .74 },
+  { a: "Gamis Polos Ceruti", div: "Women · Dresses", s: "Bintaro", on: 30, pd: 3.6, del: { d: 10, pcs: 48 }, ho: 96, st: .62 },
+  { a: "Kaos Anak Karakter", div: "Kids", s: "Cikupa", on: 34, pd: 3.1, del: { d: 8, pcs: 60 }, ho: 150, st: .58 },
+  { a: "Flat Shoes Wanita", div: "Women · Shoes", s: "Bekasi", on: 41, pd: 2.2, del: null, ho: 30, st: .49 },
+  { a: "Jaket Hoodie Fleece", div: "Men · Outerwear", s: "Muaro Bungo", on: 52, pd: 2.6, del: null, ho: 12, st: .41 },
+].map((r, i) => {
+  const end = []; let stock = r.on - r.pd * (1 - DONE); end.push(stock);
+  for (let d = 1; d < 14; d++) { stock = Math.max(0, stock) - r.pd + (r.del && r.del.d === d ? r.del.pcs : 0); end.push(stock); }
+  let out = null; for (let d = 0; d < 14; d++) if (end[d] <= 0 && (d === 0 || end[d - 1] > 0) && out == null) out = d;
+  const gap = out == null ? 0 : (r.del && r.del.d > out ? r.del.d - out - 1 : r.del ? 0 : 13 - out);
+  const risk = out != null && (!r.del || r.del.d > out);
+  const rr = rng(100 + i); const sold = Array.from({ length: 14 }, () => r.pd * (.6 + rr() * .8));
+  const elsewhere = STORES.filter(s => s.name !== r.s).map(s => ({ s: s.name, on: Math.round(4 + rr() * 34), pd: .3 + rr() * 2.2 })).sort((a, b) => b.on / b.pd - a.on / a.pd).slice(0, 3);
+  return { ...r, id: "r" + i, end, out, gap, risk, sold, elsewhere };
+});
+const dayAt = d => addDays(TODAY, d);
+const SELLOUT = {
+  id: "sellout", nav: "Sell-Out",
+  brief() {
+    const risk = SELL.filter(r => r.risk), first = risk[0];
+    return { tone: "bad", title: `${risk.length} best sellers sell out before stock arrives`, sub: `${first.a} at ${first.s} goes first, ${wshort(dayAt(first.out))}.` };
+  },
+  head() {
+    const rows = this.rows(), risk = rows.filter(r => r.risk), none = risk.filter(r => !r.del);
+    if (!risk.length) return { title: "No best seller sells out before its next delivery", sub: "Read over the next 14 days, if the pace holds.", views: [["forecast", "Forecast"], ["table", "Table"]], def: "forecast" };
+    const first = risk[0];
+    return {
+      title: `${risk.length} best seller${risk.length > 1 ? "s" : ""} sell out before stock arrives`,
+      sub: `${first.a} at ${first.s} goes first, ${wshort(dayAt(first.out))}. ${none.length ? `${none.length === 1 ? "One has" : nf(none.length) + " have"} no delivery planned${none.some(r => r.ho === 0) ? ", and " + none.find(r => r.ho === 0).a + " has none left at HO" : ""}.` : ""}`,
+      views: [["forecast", "Forecast"], ["table", "Table"]], def: "forecast",
+    };
+  },
+  rows() { const s = byId(state.store); return s.id === "all" ? SELL : SELL.filter(r => r.s === s.name).concat(SELL.filter(r => r.s !== s.name)); },
+  selRow() { return SELL.find(r => r.id === state.sel.sellout) || this.rows()[0]; },
+  plot(host) {
+    const sel = this.selRow();
+    if (view("sellout", "forecast") === "table") {
+      host.innerHTML = `<div class="tblwrap"><table class="tbl"><thead><tr><th>Article</th><th>Store</th><th class="r">On hand</th><th class="r">Sells a day</th><th>Sells out</th><th>Next delivery</th><th class="r">Days without</th></tr></thead><tbody>${this.rows().map(r => `<tr data-row="${r.id}" class="${r.id === sel.id ? "on" : ""}"><td>${r.a}</td><td>${r.s}</td><td class="r">${pcs(r.on)}</td><td class="r">${nf(r.pd, 1)} pcs</td><td class="${r.risk ? "bad-t" : ""}">${r.out == null ? "—" : wshort(dayAt(r.out))}</td><td class="${r.risk && !r.del ? "warn-t" : ""}">${r.del ? wshort(dayAt(r.del.d)) + " · " + pcs(r.del.pcs) : "None planned"}</td><td class="r">${r.risk ? (r.del ? nf(r.gap) : "13+") : "—"}</td></tr>`).join("")}</tbody></table></div>`;
+      return;
+    }
+    const days = Array.from({ length: 14 }, (_, d) => dayAt(d));
+    const shade = (stock, pd) => { const cov = stock / pd; return cov >= 7 ? "var(--g4)" : cov >= 4 ? "var(--g3)" : cov >= 2 ? "var(--g2)" : "var(--g1)"; };
+    let html = keyRow([['<i class="k-sw"><i style="background:var(--g1)"></i><i style="background:var(--g2)"></i><i style="background:var(--g3)"></i><i style="background:var(--g4)"></i></i>', "Stock left: under 2, 4, 7, more days"], ['<i class="k-dot"></i>', "Sells out"], ['<i class="k-hatch"></i>', "No stock"], ['<i class="k-tick"></i>', "Delivery"]]);
+    html += `<div class="fc"><div class="hd nmh">Article · store</div><div class="hd days">${days.map((d, i) => `<span class="${i === 0 ? "now" : ""}">${d.getDay() === 1 ? d.getDate() : WDN[d.getDay()][0]}</span>`).join("")}</div><div class="hd rth">Sells out</div>`;
+    for (const r of this.rows()) {
+      const cells = r.end.map((st, d) => {
+        const startStock = d === 0 ? r.on : Math.max(0, r.end[d - 1]) + (r.del && r.del.d === d ? r.del.pcs : 0);
+        const cls = [d === r.out ? "out" : (startStock <= 0 ? "empty" : ""), r.del && r.del.d === d ? "del" : ""].join(" ");
+        const style = d === r.out || startStock <= 0 ? "" : `background:${shade(Math.max(st, 0), r.pd)}`;
+        const left = Math.max(0, st);
+        return `<i class="${cls}" style="${style}" data-tip="${wfull(dayAt(d))}|${startStock <= 0 ? "No stock" : pcs(left) + " left at close"}${r.del && r.del.d === d ? "|Delivery " + pcs(r.del.pcs) : ""}"></i>`;
+      }).join("");
+      const right = r.out == null
+        ? `<b>Covered</b><span>${pcs(Math.max(0, r.end[13]))} left on ${short(dayAt(13))}</span>`
+        : !r.risk ? `<b>Delivery arrives first</b><span>${wshort(dayAt(r.del.d))} · ${pcs(r.del.pcs)}</span>`
+        : `<b class="bad-t">Sells out ${wshort(dayAt(r.out))}</b>${r.del ? `<span>Delivery ${wshort(dayAt(r.del.d))} · ${pcs(r.del.pcs)}</span>` : `<span class="${r.ho ? "warn-t" : "bad-t"}">No delivery · ${r.ho ? pcs(r.ho) + " at HO" : "none at HO"}</span>`}`;
+      html += `<div class="r ${r.id === sel.id ? "on" : ""}" data-row="${r.id}"><div class="nm"><b>${r.a}</b><span>${r.s}</span></div><div class="cells">${cells}</div><div class="rt">${right}</div></div>`;
+    }
+    host.innerHTML = html + "</div>";
+    host.querySelectorAll("[data-tip]").forEach(c => hoverable(c, () => { const [t, a, b] = c.dataset.tip.split("|"); return `<div class="t">${t}</div><div class="l">${a}</div>${b ? `<div class="l">${b}</div>` : ""}`; }));
+  },
+  side(host) {
+    const r = this.selRow();
+    host.innerHTML = `
+      <div class="who"><b>${r.a}</b><span>${r.s} · ${r.div}</span></div>
+      <div class="hero"><b class="${r.risk ? "bad-t" : ""}">${r.risk ? (r.del ? r.gap + (r.gap === 1 ? " day" : " days") : "13+ days") : "Covered"}</b><span>${r.risk ? "without stock" : "until the next delivery"}</span></div>
+      ${facts([["On hand", pcs(r.on)], ["Sells", nf(r.pd, 1) + " pcs a day"], ["Sells out", r.out == null ? "—" : full(dayAt(r.out)), r.risk ? "bad-t" : ""], ["Next delivery", r.del ? full(dayAt(r.del.d)) : "None planned", r.del ? "" : "warn-t"], ["Sell-through", pct(r.st)], ["At HO", r.ho ? pcs(r.ho) : "None", r.ho ? "" : "bad-t"]])}
+      <div class="sec"><h3>Sold per day <span>· last 14 days</span></h3><div id="soldbars"></div></div>
+      <div class="sec"><h3>Most stock for its sales <span>· other stores</span></h3><div class="rank static">${r.elsewhere.map(e => `<div class="row"><span class="n">${e.s}</span><span class="x">${pcs(e.on)}</span><span class="note">${nf(e.pd, 1)} a day</span></div>`).join("")}</div></div>`;
+    miniBars(host.querySelector("#soldbars"), r.sold, r.pd, i => wfull(addDays(TODAY, i - 14)), v => nf(v, 1) + " pcs", "Average");
+  },
+};
+function miniBars(host, vals, avg, titleOf, fmt, avgLabel, opts = {}) {
+  const f = frame(host, 120, { l: 40, r: 4, t: 8, b: 28 });
+  const max = Math.max(...vals, avg) * 1.15;
+  const y = v => f.m.t + f.ih * (1 - v / max), bw = f.iw / vals.length;
+  [0, Math.round(max / 2), Math.round(max)].forEach((t, i) => { if (i === 0 || i === 2) { const tx = S("text", { x: f.m.l - 8, y: y(t) + 5, "text-anchor": "end" }, f.svg); tx.textContent = opts.axis ? opts.axis(t) : nf(t); } });
+  S("line", { x1: f.m.l, x2: f.W - f.m.r, y1: y(0), y2: y(0), stroke: "var(--hairline-2)" }, f.svg);
+  vals.forEach((v, i) => {
+    const cx = f.m.l + bw * i + bw / 2, w = Math.min(11, bw - 3);
+    const forecast = opts.forecastFrom != null && i >= opts.forecastFrom;
+    const r = S("rect", { x: cx - w / 2, y: y(v), width: w, height: Math.max(1, y(0) - y(v)), rx: 3, fill: forecast ? "none" : (opts.colour ? opts.colour(v, i) : "var(--g3)") }, f.svg);
+    if (forecast) { r.setAttribute("stroke", "var(--line-ico)"); r.setAttribute("stroke-dasharray", "3 2"); }
+    const hit = S("rect", { x: f.m.l + bw * i, y: f.m.t, width: bw, height: f.ih, fill: "transparent" }, f.svg);
+    hoverable(hit, () => `<div class="t">${titleOf(i)}</div>` + tline(null, forecast ? "Forecast" : "Sold", fmt(v)) + tline(null, avgLabel, fmt(avg)));
+  });
+  S("line", { x1: f.m.l, x2: f.W - f.m.r, y1: y(avg), y2: y(avg), stroke: "var(--ink)", "stroke-dasharray": "4 3", opacity: .55 }, f.svg);
+  (opts.labels || [[0, "start"], [vals.length - 1, "end"]]).forEach(([i, a, t]) => xLabel(f, a === "start" ? f.m.l : a === "end" ? f.W - f.m.r : f.m.l + bw * i + bw / 2, t || short(addDays(TODAY, i - vals.length)), a));
+}
+
+/* ═════════ story 3 · Stores ═════════ */
+const WEEKS = [D(2026, 8, 14), D(2026, 8, 21), D(2026, 8, 28), D(2026, 9, 5), D(2026, 9, 12)];
+function weeksOf(e) {
+  const wk = WEEKS.map(w0 => Array.from({ length: 7 }, (_, d) => { const i = idx(addDays(w0, d)); return i < NDAYS ? e.daily[i] : null; }));
+  // finish this week: what the same weekday sold last week, the rest of Saturday and all of Sunday
+  const last = wk[4], prev = wk[3];
+  const fc = last.map((v, d) => v == null ? prev[d] * 1.02 : null);
+  fc[5] = prev[5] * 1.02 * (1 - DONE);
+  const totals = wk.map((w, i) => w.reduce((a, b) => a + (b || 0), 0) + (i === 4 ? fc.reduce((a, b) => a + (b || 0), 0) : 0));
+  const n = totals.length, xs = totals.map((_, i) => i), ys = totals.map(Math.log);
+  const mx = xs.reduce((a, b) => a + b) / n, my = ys.reduce((a, b) => a + b) / n;
+  const b = xs.reduce((a, x, i) => a + (x - mx) * (ys[i] - my), 0) / xs.reduce((a, x) => a + (x - mx) ** 2, 0);
+  const growth = Math.exp(b) - 1;
+  const best = [0, 1, 2, 3, 4, 5, 6].sort((a, c) => wk[3][c] - wk[3][a])[0];
+  return { e, wk, fc, totals, ix: totals.map(t => t / totals[0]), growth, next: totals[4] * (1 + growth), best };
+}
+const STORE = {
+  id: "stores", nav: "Stores",
+  brief() {
+    const w = STORES.map(weeksOf), up = w.filter(x => x.growth > .005).length, down = w.filter(x => x.growth < -.005).sort((a, b) => a.growth - b.growth);
+    return { tone: down.length ? "warn" : "none", title: `${up} of 13 stores sell more each week`, sub: `${andList(down.map(d => d.e.name))} sell less each week.` };
+  },
+  head() {
+    const w = STORES.map(weeksOf).sort((a, b) => b.growth - a.growth);
+    const up = w.filter(x => x.growth > .005).length, down = w.filter(x => x.growth < -.005).reverse();
+    return { title: `${up} of 13 stores sell more each week`, sub: `${w[0].e.name} grows fastest, ${sgnPct(w[0].growth)} a week. ${andList(down.map(d => d.e.name))} sell less each week, ${down[0].e.name} the most at ${sgnPct(down[0].growth)}.`, views: [["weeks", "Weeks"], ["cards", "Cards"]], def: "weeks" };
+  },
+  selId() { return state.store === "all" ? (state.sel.stores || STORES.map(weeksOf).sort((a, b) => b.growth - a.growth)[0].e.id) : state.store; },
+  plot(host) {
+    if (view("stores", "weeks") === "cards") return storeCards(host, this.selId());
+    const phone = state.device === "phone";
+    const cols = phone ? [3, 4] : [1, 2, 3, 4];
+    const rows = STORES.map(weeksOf).sort((a, b) => b.growth - a.growth);
+    const sel = this.selId();
+    let html = keyRow([['<i class="k-sw"><i style="background:var(--g3)"></i></i>', "Sold per day, Monday to Sunday"], ['<i class="k-out"></i>', "Forecast"], ["", "× against the week of 14 Sep"]].filter(k => !(phone && k[1].startsWith("×"))));
+    html += `<div class="wk" style="grid-template-columns:${phone ? "minmax(0,1fr)" : "minmax(130px,1.2fr)"} ${cols.map(() => "minmax(60px,1fr)").join(" ")} minmax(${phone ? 96 : 136}px,1fr)">`;
+    html += `<div class="hd"><b>Store</b>&nbsp;</div>` + cols.map(c => `<div class="hd"><b>${c === 4 ? "This week" : short(WEEKS[c])}</b>${c === 0 ? "Base" : c === 4 ? "Forecast" : "&nbsp;"}</div>`).join("") + `<div class="hd"><b>Growth</b>&nbsp;</div>`;
+    for (const r of rows) {
+      html += `<div class="r ${r.e.id === sel ? "on" : ""}" data-store-row="${r.e.id}"><div class="nm">${r.e.name}</div>` + cols.map(c => `<div class="cell"><span class="ix ${c === 4 ? "fc" : ""}">${c === 0 ? "1,00×" : (c === 4 ? "~" : "") + times(r.ix[c])}</span>${weekGlyph(r, c)}</div>`).join("") +
+        `<div class="gr"><b class="${r.growth > .005 ? "ok-t" : r.growth < -.005 ? "bad-t" : ""}">${sgnPct(r.growth)} a week</b><span>Next ~${rpc(r.next)}</span></div></div>`;
+    }
+    host.innerHTML = html + "</div>";
+  },
+  side(host) {
+    const r = weeksOf(byId(this.selId()));
+    const vals = [...r.totals, r.next, r.next * (1 + r.growth), r.next * (1 + r.growth) ** 2];
+    host.innerHTML = `
+      <div class="who"><b>${r.e.name}</b><span>${r.e.id} · week of ${full(WEEKS[4])}</span></div>
+      <div class="hero"><b class="${r.growth < -.005 ? "bad-t" : ""}">${sgnPct(r.growth)}</b><span>a week</span></div>
+      ${facts([["This week", "~" + rpc(r.totals[4])], ["Against 14 Sep", sgnPct(r.ix[4] - 1), r.ix[4] < 1 ? "bad-t" : ""], ["Next week", "~" + rpc(r.next)], ["Best day", WDL[r.best]]])}
+      <div class="sec"><h3>Sales per week <span>· with 3 weeks ahead</span></h3><div id="wkbars"></div></div>`;
+    miniBars(host.querySelector("#wkbars"), vals, r.totals[0], i => "Week of " + full(addDays(WEEKS[0], 7 * i)), rpc, "Week of 14 Sep", { forecastFrom: 5, axis: rpAxis, labels: [[0, "start", "14 Sep"], [4, "middle", "Now"], [7, "end", short(addDays(WEEKS[0], 49))]] });
+  },
+};
+function weekGlyph(r, c) {
+  const vals = r.wk[c].map((v, d) => [v, c === 4 ? r.fc[d] : null]);
+  const max = Math.max(...r.wk.flat().filter(v => v != null), ...r.fc.filter(v => v != null)) || 1;
+  const bars = vals.map(([v, f], d) => {
+    const h1 = v == null ? 0 : Math.max(2, v / max * 30), h2 = f == null ? 0 : Math.max(2, f / max * 30);
+    return `<span style="position:relative;width:7px;height:30px">${h1 ? `<span style="position:absolute;left:0;right:0;bottom:0;height:${h1}px;border-radius:2px;background:var(--g3)"></span>` : ""}${h2 ? `<span style="position:absolute;left:0;right:0;bottom:${h1}px;height:${h2}px;border-radius:2px;border:1.5px dashed var(--line-ico)"></span>` : ""}</span>`;
+  }).join("");
+  return `<span style="display:flex;align-items:flex-end;gap:2px;height:30px">${bars}</span>`;
+}
+function storeCards(host, sel) {
+  host.innerHTML = keyRow([['<i class="k-line"></i>', "Sold per day, 7-day average"], ['<i class="k-sw"><i style="background:var(--accent-bg);outline:1px solid #d6e2fa"></i></i>', "Middle 80% of days"]]) + `<div class="cards"></div>`;
+  const grid = host.querySelector(".cards");
+  const J0 = idx(D(2026, 6, 1)), J1 = idx(D(2026, 6, 31)), last = NDAYS - 2;
+  for (const s of [...STORES].sort((a, b) => b.g - a.g)) {
+    const jul = sum(s.daily, J0, J1) / 31, oct = sum(s.daily, OCT0, last) / (last - OCT0 + 1), ch = oct / jul - 1;
+    const card = H("div", "mini" + (s.id === sel ? " on" : ""), `<b>${s.name}</b><p>Jul ${rpc(jul)} → Oct ${rpc(oct)} a day · <span class="${ch >= 0 ? "ok-t" : "bad-t"}">${sgnPct(ch)}</span></p>`);
+    card.dataset.storeRow = s.id; grid.appendChild(card);
+    const pts = []; for (let i = 6; i <= last; i++) { const w = s.daily.slice(i - 6, i + 1).sort((a, b) => a - b); pts.push({ i, avg: w.reduce((a, b) => a + b) / 7, lo: w[1], hi: w[5], peak: w[6] }); }
+    const f = frame(card, 132, { l: 40, r: 4, t: 6, b: 28 });
+    const max = Math.max(...pts.map(p => p.hi)) * 1.05;
+    const x = i => f.m.l + f.iw * (i - 6) / (last - 6), y = v => f.m.t + f.ih * (1 - v / max);
+    const top = Math.floor(max / 1e7) * 1e7;
+    gridY(f, [0, top], y, v => v ? nf(v / 1e6) + " M" : "0");
+    S("path", { d: pathOf(pts.map(p => [x(p.i), y(p.hi)])) + pts.slice().reverse().map(p => `L${x(p.i).toFixed(1)},${y(p.lo).toFixed(1)}`).join("") + "Z", fill: "var(--accent)", opacity: .1 }, f.svg);
+    S("path", { d: pathOf(pts.map(p => [x(p.i), y(p.avg)])), fill: "none", stroke: "var(--accent)", "stroke-width": 1.5 }, f.svg);
+    [[D(2026, 7, 1), "Aug"], [D(2026, 8, 1), "Sep"], [D(2026, 9, 1), "Oct"]].forEach(([d, t]) => xLabel(f, x(idx(d)), t));
+    crosshair(f, pts.map(p => x(p.i)), k => { const p = pts[k]; return `<div class="t">${wfull(addDays(START, p.i))}</div>` + tline("var(--accent)", "Sold per day", rpc(p.avg)) + tline(null, "Middle 80%", rpc(p.lo) + " – " + rpc(p.hi)) + tline(null, "Peak", rpc(p.peak)); });
+  }
+}
+
+/* ═════════ story 4 · Busy Hours ═════════ */
+const HRS = Array.from({ length: 12 }, (_, i) => 10 + i);
+const WKDAY = [3, 5, 8, 11, 10, 7, 6, 7, 10, 13, 12, 8], WKEND = [2, 4, 6, 8, 9, 10, 11, 12, 13, 12, 8, 5];
+const norm = a => { const t = a.reduce((x, y) => x + y); return a.map(v => v / t); };
+const SH_WD = norm(WKDAY), SH_WE = norm(WKEND);
+const MX_DAYS = Array.from({ length: 28 }, (_, i) => addDays(TODAY, i - 27));
+const TICKET = 185000;
+function hourGrid(e) {
+  const rr = rng(e.id === "all" ? 7 : 7 + e.id.charCodeAt(3) * 13);
+  const shift = e.id === "all" ? 0 : Math.round((rr() - .5) * 2);
+  return MX_DAYS.map((d, di) => {
+    const i = idx(d), today = di === 27, total = (today ? e.daily[i] / DONE : e.daily[i]) / TICKET;
+    const sh = d.getDay() === 0 || d.getDay() === 6 ? SH_WE : SH_WD;
+    return HRS.map((h, hi) => { if (today && h >= 15) return null; const k = Math.min(11, Math.max(0, hi - shift)); return total * sh[k] * (1 + (rr() - .5) * .3); });
+  });
+}
+function hourStats(grid) {
+  const we = HRS.map(() => 0), wd = HRS.map(() => 0); let nwe = 0, nwd = 0, tWe = 0, tAll = 0;
+  grid.forEach((row, di) => {
+    if (di === 27) return;
+    const w = MX_DAYS[di].getDay() === 0 || MX_DAYS[di].getDay() === 6;
+    row.forEach((v, hi) => { (w ? we : wd)[hi] += v; tAll += v; if (w) tWe += v; });
+    w ? nwe++ : nwd++;
+  });
+  const aWe = we.map(v => v / nwe), aWd = wd.map(v => v / nwd);
+  const win = a => { let b = 0; for (let i = 1; i <= a.length - 3; i++) if (a[i] + a[i + 1] + a[i + 2] > a[b] + a[b + 1] + a[b + 2]) b = i; return b; };
+  return { aWe, aWd, weShare: tWe / tAll, weWin: win(aWe), wdWin: win(aWd) };
+}
+const HOURS = {
+  id: "hours", nav: "Busy Hours",
+  brief() { const st = hourStats(hourGrid(ALL)); return { tone: "none", title: `Busiest ${HRS[st.weWin]}:00–${HRS[st.weWin] + 3}:00 on weekends`, sub: `Weekends take ${pct(st.weShare)} of the week's sales.` }; },
+  head() {
+    const e = byId(state.store), st = hourStats(hourGrid(e));
+    return { title: `${e.id === "all" ? "Busiest" : e.name + " is busiest"} ${HRS[st.weWin]}:00–${HRS[st.weWin] + 3}:00 on weekends`, sub: `Weekends take ${pct(st.weShare)} of the week's sales. On weekdays the rush is ${HRS[st.wdWin]}:00–${HRS[st.wdWin] + 3}:00.`, views: [["matrix", "Matrix"], ["stores", "By store"]], def: "matrix" };
+  },
+  wide: true,
+  plot(host) {
+    const steps = ["var(--g1)", "var(--g2)", "var(--g3)", "var(--g4)", "var(--g5)"];
+    host.innerHTML = keyRow([['<i class="k-sw">' + steps.map(c => `<i style="background:${c}"></i>`).join("") + "</i>", "Sales per hour, fewest to most"], ['<i class="k-out"></i>', "Not yet"], ['<i class="k-grey" style="background:var(--ink)"></i>', "Weekday"], ['<i class="k-dash ink"></i>', "Weekend"]]) + `<div class="mx"><div class="m1"></div><div class="m2"></div></div>`;
+    const byStore = view("hours", "matrix") === "stores";
+    const e = byId(state.store), grid = hourGrid(e), st = hourStats(grid);
+    let rows, colsLabel;
+    if (byStore) {
+      rows = STORES.map(s => { const g = hourGrid(s); return { name: s.name, vals: HRS.map((_, hi) => g.slice(0, 27).reduce((a, r) => a + r[hi], 0) / 27) }; });
+    }
+    const all = byStore ? rows.flatMap(r => { const m = Math.max(...r.vals); return r.vals.map(v => v / m); }) : grid.flat().filter(v => v != null);
+    const sorted = [...all].sort((a, b) => a - b), q = p => sorted[Math.floor(p * (sorted.length - 1))];
+    const cuts = [q(.2), q(.4), q(.6), q(.8)];
+    const tone = v => steps[cuts.filter(c => v > c).length];
+    const m1 = host.querySelector(".m1"), phone = state.device === "phone";
+    if (!byStore) {
+      const f = frame(m1, 30 + HRS.length * 26 + 6, { l: 56, r: 0, t: 30, b: 6 });
+      const cw = f.iw / 28, ch = 26;
+      MX_DAYS.forEach((d, di) => {
+        if (!phone || d.getDay() === 1) { const t = S("text", { x: f.m.l + cw * di + (phone ? 0 : cw / 2), y: 18, "text-anchor": phone ? "start" : "middle" }, f.svg); t.textContent = phone ? short(d) : WDN[d.getDay()][0]; if (d.getDay() === 0 || d.getDay() === 6) t.style.fill = "var(--ink)"; }
+        grid[di].forEach((v, hi) => {
+          const r = S("rect", { x: f.m.l + cw * di + 1, y: f.m.t + ch * hi + 1, width: Math.max(1, cw - 2), height: ch - 2, rx: 3, fill: v == null ? "none" : tone(v) }, f.svg);
+          if (v == null) { r.setAttribute("stroke", "var(--hairline-strong)"); r.setAttribute("stroke-dasharray", "2 2"); }
+          hoverable(r, () => `<div class="t">${wfull(d)}, ${HRS[hi]}:00</div>` + (v == null ? `<div class="l">Not yet</div>` : tline(null, "Sales", nf(v) + " transactions") + tline(null, "Takings", "~" + rpc(v * TICKET))));
+        });
+      });
+      HRS.forEach((h, hi) => { if (hi % 2 === 0) { const t = S("text", { x: f.m.l - 10, y: f.m.t + ch * hi + ch / 2 + 5, "text-anchor": "end" }, f.svg); t.textContent = h + ":00"; } });
+    } else {
+      const f = frame(m1, 30 + rows.length * 26 + 6, { l: phone ? 120 : 190, r: 0, t: 30, b: 6 });
+      const cw = f.iw / HRS.length, ch = 26;
+      HRS.forEach((h, hi) => { if (!phone || hi % 3 === 0) { const t = S("text", { x: f.m.l + cw * hi + cw / 2, y: 18, "text-anchor": "middle" }, f.svg); t.textContent = phone ? h : h + ":00"; } });
+      rows.forEach((r, ri) => {
+        const t = S("text", { x: f.m.l - 10, y: f.m.t + ch * ri + ch / 2 + 5, "text-anchor": "end" }, f.svg); t.textContent = phone && r.name.length > 12 ? r.name.slice(0, 11) + "…" : r.name; t.style.fill = "var(--ink)";
+        const m = Math.max(...r.vals), tot = r.vals.reduce((a, b) => a + b);
+        r.vals.forEach((v, hi) => { const rect = S("rect", { x: f.m.l + cw * hi + 1, y: f.m.t + ch * ri + 1, width: cw - 2, height: ch - 2, rx: 3, fill: tone(v / m) }, f.svg); hoverable(rect, () => `<div class="t">${r.name}, ${HRS[hi]}:00</div>` + tline(null, "Share of the day", pct(v / tot, 1)) + tline(null, "Average", nf(v, 1) + " transactions")); });
+      });
+    }
+    // day profile, aligned with the hours
+    const m2 = host.querySelector(".m2");
+    if (byStore) { m2.innerHTML = `<div class="sec" style="margin-top:0;border-top:0;padding-top:0"><h3>Share of the week</h3><div class="rank static">${[["Weekends", pct(st.weShare)], ["Weekdays", pct(1 - st.weShare)], ["Busiest weekend hours", `${HRS[st.weWin]}:00–${HRS[st.weWin] + 3}:00`], ["Busiest weekday hours", `${HRS[st.wdWin]}:00–${HRS[st.wdWin] + 3}:00`]].map(([a, b]) => `<div class="row"><span class="n">${a}</span><span class="x">${b}</span></div>`).join("")}</div></div>`; return; }
+    const f = frame(m2, 30 + HRS.length * 26 + 34, { l: 8, r: 16, t: 30, b: 34 });
+    const max = Math.max(...st.aWe, ...st.aWd) * 1.1, ch = 26;
+    const x = v => f.m.l + f.iw * v / max, y = hi => f.m.t + ch * hi + ch / 2;
+    const ht = S("text", { x: f.m.l, y: 18 }, f.svg); ht.textContent = "Average day"; ht.style.fill = "var(--ink)"; ht.style.fontWeight = 500;
+    S("line", { x1: f.m.l, x2: f.m.l, y1: f.m.t, y2: f.H - f.m.b, stroke: "var(--hairline-2)" }, f.svg);
+    S("path", { d: pathOf(st.aWd.map((v, hi) => [x(v), y(hi)])), fill: "none", stroke: "var(--ink)", "stroke-width": 1.75 }, f.svg);
+    S("path", { d: pathOf(st.aWe.map((v, hi) => [x(v), y(hi)])), fill: "none", stroke: "var(--ink)", "stroke-width": 1.5, "stroke-dasharray": "4 3" }, f.svg);
+    xLabel(f, f.m.l, "0", "start"); xLabel(f, f.W - f.m.r, nf(max) + " sales", "end");
+    for (let hi = 0; hi < HRS.length; hi++) { const hit = S("rect", { x: f.m.l, y: y(hi) - ch / 2, width: f.iw, height: ch, fill: "transparent" }, f.svg); hoverable(hit, () => `<div class="t">${HRS[hi]}:00</div>` + tline("var(--ink)", "Weekday", nf(st.aWd[hi]) + " sales") + tline("var(--ink)", "Weekend", nf(st.aWe[hi]) + " sales")); }
+  },
+  side() {},
+};
+
+/* ═════════ story 5 · Sell-Through ═════════ */
+const COH = [
+  { m: 6, recv: 5820, age: 94, k: .022, cap: .86, arts: 34 },
+  { m: 7, recv: 6410, age: 63, k: .016, cap: .80, arts: 41 },
+  { m: 8, recv: 6240, age: 32, k: .019, cap: .84, arts: 38 },
+  { m: 9, recv: 3120, age: 9, k: .024, cap: .86, arts: 19 },
+].map(c => ({ ...c, id: "c" + c.m, name: MONTH[c.m] + " arrivals" }));
+const DIVS = [["Women · Tops", 1.25, .24], ["Women · Dresses", 1.05, .2], ["Men · Tops", 1.0, .22], ["Kids", .92, .14], ["Men · Bottoms", .62, .2]];
+const stAt = (c, t) => c.cap * (1 - Math.exp(-c.k * t));
+const AIM = .7, AIMT = 84;
+const THROUGH = {
+  id: "through", nav: "Sell-Through",
+  brief() { const [, a, s, o] = COH; return { tone: stAt(a, AIMT) < AIM ? "warn" : "none", title: `October's arrivals sell faster than September's`, sub: `${pct(stAt(o, o.age))} sold in their first ${o.age} days, against ${pct(stAt(s, o.age))}. August's head for ${pct(stAt(a, AIMT))}, under the ${pct(AIM)} aim.` }; },
+  head() {
+    const [, a, s, o] = COH;
+    return { title: `October's arrivals sell faster than September's`, sub: `${pct(stAt(o, o.age))} sold in their first ${o.age} days, against ${pct(stAt(s, o.age))} for September's at the same age. August's stand at ${pct(stAt(a, a.age))} after 9 weeks and head for ${pct(stAt(a, AIMT))}, under the ${pct(AIM)} aim.`, views: [["months", "Months"], ["divisions", "Divisions"]], def: "months" };
+  },
+  sel() { return COH.find(c => c.id === state.sel.through) || COH[3]; },
+  plot(host) {
+    const byDiv = view("through", "months") === "divisions", sel = this.sel();
+    host.innerHTML = keyRow([['<i class="k-line"></i>', byDiv ? "Fastest division" : MONTH[sel.m]], ['<i class="k-dash"></i>', "If the pace holds"], ['<i class="k-grey"></i>', byDiv ? "Other divisions" : "Other months"], ['<i class="k-dash grey"></i>', `Aim: ${pct(AIM)} in 12 weeks`]]);
+    const f = frame(host, 330, { l: 52, r: 150, t: 12, b: 34 });
+    const x = t => f.m.l + f.iw * t / AIMT, y = v => f.m.t + f.ih * (1 - v);
+    gridY(f, [0, .25, .5, .75, 1], y, t => pct(t));
+    [0, 28, 56, 84].forEach(t => xLabel(f, x(t), t === 0 ? "Arrived" : "Week " + t / 7, t === 0 ? "start" : "middle"));
+    S("line", { x1: x(0), y1: y(0), x2: x(AIMT), y2: y(AIM), stroke: "var(--hairline-strong)", "stroke-width": 1.5, "stroke-dasharray": "5 4" }, f.svg);
+    const lines = byDiv ? DIVS.map(([name, kf, share]) => ({ id: name, name, k: sel.k * kf, cap: Math.min(.95, sel.cap * (kf > 1 ? 1.04 : kf < .8 ? .9 : 1)), age: sel.age, recv: sel.recv * share }))
+      : COH.map(c => ({ ...c, name: MON[c.m] }));
+    const focus = byDiv ? lines.reduce((a, b) => (stAt(b, b.age) > stAt(a, a.age) ? b : a)) : lines.find(l => l.id === sel.id);
+    const placed = [];
+    const put = (py, text, fill, weight) => { let yy = py + 5; while (placed.some(q => Math.abs(q - yy) < 19)) yy -= 19; placed.push(yy); haloLabel(f, x(AIMT) + 10, yy, text, { fill, weight }); };
+    const draw = (l, on) => {
+      const a = Math.min(l.age, AIMT), pts = []; for (let t = 0; t <= a; t += 1) pts.push([x(t), y(stAt(l, t))]);
+      if (a < AIMT) { S("path", { d: `M${x(a)},${y(stAt(l, a))}` + Array.from({ length: 11 }, (_, i) => { const t = a + (AIMT - a) * (i + 1) / 11; return `L${x(t)},${y(stAt(l, t))}`; }).join(""), fill: "none", stroke: on ? "var(--accent)" : "var(--g2)", "stroke-width": on ? 1.75 : 1.25, "stroke-dasharray": "5 4" }, f.svg); }
+      S("path", { d: pathOf(pts), fill: "none", stroke: on ? "var(--accent)" : "var(--g3)", "stroke-width": on ? 2.25 : 1.5 }, f.svg);
+      if (a < AIMT) S("circle", { cx: x(a), cy: y(stAt(l, a)), r: on ? 4.5 : 3, fill: on ? "var(--canvas)" : "var(--g4)", stroke: on ? "var(--accent)" : "none", "stroke-width": 2 }, f.svg);
+      const endV = stAt(l, AIMT);
+      put(y(endV), `${l.name} ${a < AIMT ? "~" : ""}${pct(endV)}`, on ? "var(--ink)" : endV < AIM ? "var(--warn-fg)" : "var(--body)", on ? 600 : 400);
+    };
+    lines.filter(l => l !== focus).forEach(l => draw(l, false)); draw(focus, true);
+    const ts = Array.from({ length: AIMT + 1 }, (_, t) => t);
+    crosshair(f, ts.map(x), t => `<div class="t">Day ${t} after arrival</div>` + lines.map(l => tline(l === focus ? "var(--accent)" : "var(--g3)", l.name, (t > l.age ? "~" : "") + pct(stAt(l, t)))).join("") + tline(null, "Aim", pct(AIM * t / AIMT)));
+  },
+  side(host) {
+    const c = this.sel(), now = stAt(c, c.age), sold = c.recv * now, left = c.recv - sold, ho = left * .19;
+    const divs = DIVS.map(([name, kf]) => ({ name, v: stAt({ k: c.k * kf, cap: c.cap }, c.age) })).sort((a, b) => a.v - b.v);
+    host.innerHTML = `
+      <div class="who"><b>${c.name}</b><span>${c.m === TODAY.getMonth() ? "Received since 1 " + MON[c.m] + " 2026" : "Received 1–" + new Date(2026, c.m + 1, 0).getDate() + " " + MON[c.m] + " 2026"} · ${c.arts} articles</span></div>
+      <div class="hero"><b>${pct(now)}</b><span>sold after ${c.age} days</span></div>
+      ${facts([["Received", pcs(c.recv)], ["Sold", pcs(sold)], ["At stores", pcs(left - ho)], ["At HO", pcs(ho)], ["At week 12", "~" + pct(stAt(c, AIMT)), stAt(c, AIMT) < AIM ? "warn-t" : ""], ["Aim", pct(AIM)]])}
+      <div class="sec"><h3>Arrivals</h3><div class="rank">${COH.slice().reverse().map(k => `<button data-coh="${k.id}" aria-current="${k.id === c.id}"><span class="n">${k.name}<small>after ${Math.min(k.age, AIMT)} days</small></span><span class="x">${pct(stAt(k, Math.min(k.age, AIMT)))}</span></button>`).join("")}</div></div>
+      <div class="sec"><h3>By division <span>· slowest first</span></h3><div class="rank static">${divs.map(d => `<div class="row"><span class="n">${d.name}</span><span class="x ${d.v < now * .8 ? "warn-t" : ""}">${pct(d.v)}</span></div>`).join("")}</div></div>`;
+  },
+};
+
+/* ═════════ story 6 · Cash ═════════ */
+const FLOOR = 5e8;
+const BILLS = [
+  ["3 Oct", "PT Sinar Garmen", 4.2e8], ["9 Oct", "CV Busana Prima", 3.8e8], ["14 Oct", "PT Kain Nusantara", 5.5e8], ["16 Oct", "PT Mode Indah", 3.1e8],
+  ["20 Oct", "PT Sinar Garmen", 4.6e8], ["23 Oct", "CV Rajut Jaya", 4.0e8], ["28 Oct", "PT Kain Nusantara", 5.2e8],
+  ["4 Nov", "CV Busana Prima", 4.4e8], ["10 Nov", "PT Mode Indah", 5.6e8], ["13 Nov", "PT Tekstil Andalan", 6.1e8], ["18 Nov", "PT Sinar Garmen", 7.2e8],
+  ["20 Nov", "CV Rajut Jaya", 6.8e8], ["23 Nov", "PT Kain Nusantara", 9.4e8], ["24 Nov", "PT Tekstil Andalan", 7.6e8], ["27 Nov", "CV Busana Prima", 6.6e8],
+  ["2 Dec", "PT Mode Indah", 3.5e8], ["8 Dec", "PT Sinar Garmen", 4.2e8], ["11 Dec", "CV Rajut Jaya", 3.8e8],
+].map(([d, s, a], i) => { const [dd, mm] = d.split(" "); return { id: "b" + i, date: D(2026, MON.indexOf(mm), +dd), sup: s, amt: a, no: "AP-2026-" + String(1180 + i * 7).padStart(5, "0") }; });
+const CASH = (() => {
+  const from = D(2026, 9, 1), to = D(2026, 11, 15), n = Math.round((to - from) / DAYMS) + 1;
+  // expected takings: the same weekday's average over the last four weeks, growing 2% a week
+  const avgWd = [0, 1, 2, 3, 4, 5, 6].map(w => { let t = 0, k = 0; for (let i = NDAYS - 2; i >= NDAYS - 29; i--) if (addDays(START, i).getDay() === w) { t += ALL.daily[i]; k++; } return t / k; });
+  let bal = 2.24e9; const pts = [];
+  for (let i = 0; i < n; i++) {
+    const d = addDays(from, i), si = idx(d), past = d < TODAY;
+    const sales = past ? ALL.daily[si - 1] : avgWd[addDays(d, -1).getDay()] * Math.pow(1.02, (d - TODAY) / DAYMS / 7);
+    let out = 0, why = [];
+    if (d.getDate() === 1) { out += 4.1e8; why.push("Rent"); }
+    if (d.getDate() === 10) { out += 1.2e8; why.push("Tax and BPJS"); }
+    if (d.getDate() === 25) { out += 6.6e8; why.push("Salaries"); }
+    for (const b of BILLS) if (+b.date === +d) { out += b.amt; why.push(b.sup); }
+    bal += sales * .93 - out;
+    pts.push({ d, bal, past, out, why, inflow: sales * .93 });
+  }
+  const nowI = pts.findIndex(p => !p.past);
+  const fut = pts.slice(nowI);
+  const low = fut.reduce((a, b) => (b.bal < a.bal ? b : a));
+  const below = fut.findIndex(p => p.bal < FLOOR), backI = below < 0 ? -1 : fut.findIndex((p, i) => i > below && p.bal >= FLOOR);
+  return { pts, nowI, low, below: below < 0 ? null : fut[below], back: backI < 0 ? null : fut[backI], now: pts[nowI - 1] };
+})();
+const CASHS = {
+  id: "cash", nav: "Cash",
+  brief() { return CASH.below ? { tone: "bad", title: `Cash drops under ${rpc(FLOOR)} on ${short(CASH.below.d)}`, sub: `The low is ${rpc(CASH.low.bal)} on ${wshort(CASH.low.d)}, when November's supplier bills and salaries fall due together.` } : { tone: "none", title: `Cash stays above ${rpc(FLOOR)} to 15 Dec`, sub: "" }; },
+  head() {
+    const b = this.brief(), nov = BILLS.filter(x => x.date.getMonth() === 10).reduce((a, x) => a + x.amt, 0);
+    return { title: b.title, sub: `${b.sub} ${CASH.back ? `Back above on ${wshort(CASH.back.d)} if sales hold.` : ""}`.trim() + ` November's bills come to ${rpc(nov)}.`, views: [["forecast", "Forecast"], ["bills", "Bills"]], def: "forecast" };
+  },
+  plot(host) {
+    const futBills = BILLS.filter(b => b.date >= TODAY);
+    if (view("cash", "forecast") === "bills") {
+      host.innerHTML = `<div class="tblwrap"><table class="tbl"><thead><tr><th>Due</th><th>Supplier</th><th>Bill</th><th class="r">Amount</th><th class="r">Cash after</th></tr></thead><tbody>${futBills.map(b => { const p = CASH.pts.find(q => +q.d === +b.date); return `<tr><td>${full(b.date)}</td><td>${b.sup}</td><td class="mute">${b.no}</td><td class="r">Rp ${nf(b.amt)}</td><td class="r ${p.bal < FLOOR ? "bad-t" : ""}">${rpc(p.bal)}</td></tr>`; }).join("")}</tbody></table></div>`;
+      return;
+    }
+    host.innerHTML = keyRow([['<i class="k-line"></i>', "Cash & bank"], ['<i class="k-dash"></i>', "If sales hold"], ['<i class="k-dash grey"></i>', "Floor " + rpc(FLOOR)], ['<i class="k-dot"></i>', "Drops under"], ['<i class="k-hatch"></i>', "Under the floor"]]);
+    const P = CASH.pts, f = frame(host, 330, { l: 64, r: 20, t: 12, b: 34 });
+    const max = Math.max(...P.map(p => p.bal)) * 1.1, min = Math.min(0, CASH.low.bal);
+    const x = i => f.m.l + f.iw * i / (P.length - 1), y = v => f.m.t + f.ih * (1 - (v - min) / (max - min));
+    const ticks = []; for (let t = 0; t <= max; t += 1e9) ticks.push(t);
+    gridY(f, ticks, y, rpAxis);
+    // under-the-floor band
+    const fi = P.indexOf(CASH.below), bi = CASH.back ? P.indexOf(CASH.back) : P.length - 1;
+    if (CASH.below) {
+      const seg = P.slice(fi - 1, bi + 1).map((p, k) => [x(fi - 1 + k), y(Math.min(p.bal, FLOOR))]);
+      const pat = S("pattern", { id: "hb", width: 6, height: 6, patternUnits: "userSpaceOnUse", patternTransform: "rotate(45)" }, S("defs", {}, f.svg));
+      S("rect", { width: 6, height: 6, fill: "var(--bad-bg)" }, pat); S("line", { x1: 0, y1: 0, x2: 0, y2: 6, stroke: "var(--bad)", "stroke-width": 1.5, opacity: .35 }, pat);
+      S("path", { d: pathOf(seg) + `L${seg[seg.length - 1][0]},${y(FLOOR)}L${seg[0][0]},${y(FLOOR)}Z`, fill: "url(#hb)" }, f.svg);
+    }
+    S("line", { x1: f.m.l, x2: f.W - f.m.r, y1: y(FLOOR), y2: y(FLOOR), stroke: "var(--hairline-strong)", "stroke-width": 1.5, "stroke-dasharray": "5 4" }, f.svg);
+    haloLabel(f, f.m.l + 8, y(FLOOR) - 8, "Floor " + rpc(FLOOR), { fill: "var(--body)" });
+    const nowI = CASH.nowI - 1;
+    S("line", { x1: x(nowI), x2: x(nowI), y1: f.m.t, y2: f.H - f.m.b, stroke: "var(--hairline-2)" }, f.svg);
+    [[0, "1 Oct", "start"], [31, "1 Nov", "middle"], [61, "1 Dec", "middle"], [P.length - 1, "15 Dec", "end"]].forEach(([i, t, a]) => xLabel(f, x(i), t, a));
+    xLabel(f, x(nowI), "Now", "middle", "var(--ink)");
+    const past = P.slice(0, nowI + 1).map((p, i) => [x(i), y(p.bal)]), fut = P.slice(nowI).map((p, i) => [x(nowI + i), y(p.bal)]);
+    S("path", { d: pathOf(past) + `L${x(nowI)},${y(min)}L${x(0)},${y(min)}Z`, fill: "var(--accent)", opacity: .07 }, f.svg);
+    S("path", { d: pathOf(fut), fill: "none", stroke: "var(--accent)", "stroke-width": 1.75, "stroke-dasharray": "5 4" }, f.svg);
+    S("path", { d: pathOf(past), fill: "none", stroke: "var(--accent)", "stroke-width": 2.25 }, f.svg);
+    S("circle", { cx: x(nowI), cy: y(P[nowI].bal), r: 4.5, fill: "var(--canvas)", stroke: "var(--accent)", "stroke-width": 2 }, f.svg);
+    haloLabel(f, x(nowI) + 10, y(P[nowI].bal) - 10, rpc(P[nowI].bal), { weight: 600 });
+    if (CASH.below) {
+      S("circle", { cx: x(fi), cy: y(CASH.below.bal), r: 5, fill: "var(--bad)", stroke: "var(--canvas)", "stroke-width": 2 }, f.svg);
+      const li = P.indexOf(CASH.low);
+      haloLabel(f, x(li), y(CASH.low.bal) + 24, `Low ${rpc(CASH.low.bal)} · ${short(CASH.low.d)}`, { anchor: "middle", fill: "var(--bad-fg)", weight: 500 });
+    }
+    crosshair(f, P.map((_, i) => x(i)), i => { const p = P[i]; return `<div class="t">${wfull(p.d)}${p.past ? "" : " · forecast"}</div>` + tline("var(--accent)", "Cash & bank", rpc(p.bal)) + tline(null, "Takings in", rpc(p.inflow)) + (p.out ? tline(null, p.why.length > 1 ? p.why.length + " payments out" : p.why[0], MINUS + rpc(p.out).replace("Rp", "Rp")) : ""); });
+  },
+  side(host) {
+    const fut = BILLS.filter(b => b.date >= TODAY);
+    const weeks = {}; for (const b of fut) { const w0 = addDays(b.date, -((b.date.getDay() + 6) % 7)); const k = +w0; (weeks[k] = weeks[k] || { w0, amt: 0, n: 0 }); weeks[k].amt += b.amt; weeks[k].n++; }
+    const P = CASH.pts, sales = P.slice(CASH.nowI).reduce((a, p) => a + p.inflow, 0), out = P.slice(CASH.nowI).reduce((a, p) => a + p.out, 0);
+    host.innerHTML = `
+      <div class="who"><b>Cash & bank</b><span>All units · as of ${full(TODAY)}</span></div>
+      <div class="hero"><b>${rpc(CASH.now.bal)}</b><span>today</span></div>
+      ${facts([["Lowest", rpc(CASH.low.bal), CASH.low.bal < FLOOR ? "bad-t" : ""], ["On", full(CASH.low.d)], ["Takings to 15 Dec", rpc(sales)], ["Payments to 15 Dec", rpc(out)]])}
+      <div class="sec"><h3>Supplier bills <span>· by week</span></h3><div class="rank static">${Object.values(weeks).map(w => { const end = P.find(p => +p.d === +addDays(w.w0, 6)) || P[P.length - 1]; const bad = P.some(p => p.d >= w.w0 && p.d <= addDays(w.w0, 6) && p.bal < FLOOR); return `<div class="row"><span class="n">Week of ${short(w.w0)}</span><span class="x ${bad ? "bad-t" : ""}">${rpc(w.amt)}</span><span class="note">${w.n} ${w.n > 1 ? "bills" : "bill"}</span></div>`; }).join("")}</div></div>`;
+  },
+};
+
+
+/* ═════════ story 7 · Stock (more than a turn's worth) ═════════ */
+const AIMW = 16; // weeks of sales a division should hold: about 3,2 turns a year, the clothing-store median turns
+const NW = 24;
+const DIVSTOCK = [
+  { n: "Women · Tops", pcs: 2610, pw: 290, price: 149000, gm: .55, order: [] , sup: [["CV Busana Prima", 7], ["PT Mode Indah", 10], ["CV Rajut Jaya", 11]] },
+  { n: "Women · Dresses", pcs: 3900, pw: 230, price: 289000, gm: .52, order: [], sup: [["PT Mode Indah", 21], ["CV Busana Prima", 15], ["PT Sinar Garmen", 14]] },
+  { n: "Women · Bottoms", pcs: 3300, pw: 160, price: 219000, gm: .50, order: [], sup: [["PT Kain Nusantara", 26], ["CV Busana Prima", 19], ["PT Mode Indah", 17]] },
+  { n: "Men · Tops", pcs: 3400, pw: 250, price: 159000, gm: .53, order: [{ w: 4, pcs: 700 }], sup: [["PT Sinar Garmen", 18], ["CV Rajut Jaya", 15], ["PT Tekstil Andalan", 14]] },
+  { n: "Men · Bottoms", pcs: 5200, pw: 165, price: 239000, gm: .46, order: [], sup: [["PT Tekstil Andalan", 41], ["PT Kain Nusantara", 33], ["PT Sinar Garmen", 22]] },
+  { n: "Men · Outerwear", pcs: 2100, pw: 70, price: 349000, gm: .48, order: [], sup: [["PT Tekstil Andalan", 38], ["CV Rajut Jaya", 27], ["PT Mode Indah", 24]] },
+  { n: "Kids", pcs: 2400, pw: 190, price: 99000, gm: .55, order: [{ w: 3, pcs: 900 }], sup: [["CV Rajut Jaya", 19], ["PT Sinar Garmen", 17], ["CV Busana Prima", 15]] },
+  { n: "Shoes", pcs: 1500, pw: 85, price: 259000, gm: .47, order: [], sup: [["PT Mode Indah", 20], ["CV Busana Prima", 17], ["PT Kain Nusantara", 15]] },
+].map((d, i) => stockRow({ ...d, id: "d" + i }));
+const STORESTOCK = STORES.map((s, i) => { const rr = rng(300 + i); const pw = s.base * 1e6 / 30 * 7 / 175000 * .38; const cover = [11, 22, 19, 29, 14, 21, 24, 33, 12, 15, 18, 17, 25][i]; return stockRow({ id: s.id, n: s.name, pcs: Math.round(pw * cover), pw: Math.round(pw), price: 185000 + rr() * 30000, gm: .49 + rr() * .05, order: i === 0 ? [{ w: 2, pcs: Math.round(pw * 4) }] : [], sup: [] }); });
+function stockRow(d) {
+  const ordered = d.order.reduce((a, o) => a + o.pcs, 0);
+  const cover = (d.pcs + ordered) / d.pw;
+  const costOf = pcsN => pcsN * d.price * (1 - d.gm);
+  const end = []; let st = d.pcs; let out = null;
+  for (let w = 0; w < NW; w++) { st = Math.max(0, st) + d.order.filter(o => o.w === w).reduce((a, o) => a + o.pcs, 0) - d.pw; end.push(st); if (st <= 0 && out == null) out = w; }
+  const overPcs = Math.max(0, d.pcs + ordered - AIMW * d.pw);
+  const weekMargin = d.pw * d.price * d.gm, atCost = costOf(d.pcs);
+  return { ...d, cover, end, out, overPcs, over: costOf(overPcs), atCost, gmroi: weekMargin * 52 / atCost, turns: d.pw * 52 / d.pcs };
+}
+const weekAt = w => addDays(TODAY, 7 * w);
+const STOCKS = {
+  id: "stock", nav: "Stock",
+  rows() { return view("stock", "divisions") === "stores" ? STORESTOCK : DIVSTOCK; },
+  brief() {
+    const over = DIVSTOCK.reduce((a, d) => a + d.over, 0), worst = [...DIVSTOCK].sort((a, b) => b.over - a.over)[0];
+    return { tone: "warn", title: `${rpc(over)} of stock is more than ${AIMW} weeks of sales`, sub: `${worst.n} holds ${nf(worst.cover)} weeks of stock.` };
+  },
+  head() {
+    const rows = this.rows(), over = rows.reduce((a, d) => a + d.over, 0);
+    const worst = [...rows].sort((a, b) => b.cover - a.cover)[0], short = rows.filter(d => d.out != null && d.out < AIMW).sort((a, b) => a.out - b.out)[0];
+    return {
+      title: `${rpc(over)} of stock is more than ${AIMW} weeks of sales`,
+      sub: `${worst.n} holds ${nf(worst.cover)} weeks against the ${AIMW}-week aim.${short ? ` ${short.n} runs out in ${short.out + 1} weeks${short.order.length ? "" : " with nothing on order"}.` : ""}`,
+      views: [["divisions", "Divisions"], ["stores", "Stores"]], def: "divisions",
+    };
+  },
+  selRow() { return this.rows().find(r => r.id === state.sel.stock) || [...this.rows()].sort((a, b) => b.over - a.over)[0]; },
+  plot(host) {
+    const sel = this.selRow(), rows = [...this.rows()].sort((a, b) => b.cover - a.cover);
+    const shade = (st, pw) => { const c = st / pw; return c >= 12 ? "var(--g4)" : c >= 8 ? "var(--g3)" : c >= 4 ? "var(--g2)" : "var(--g1)"; };
+    let html = keyRow([['<i class="k-sw"><i style="background:var(--g1)"></i><i style="background:var(--g2)"></i><i style="background:var(--g3)"></i><i style="background:var(--g4)"></i></i>', "Stock left: under 4, 8, 12, more weeks"], ['<i class="k-hatch warn"></i>', `Still here after ${AIMW} weeks`], ['<i class="k-dot"></i>', "Runs out early"], ['<i class="k-hatch"></i>', "No stock"], ['<i class="k-sw"><i style="background:var(--soft-2)"></i></i>', "Sold through"], ['<i class="k-tick"></i>', `Aim, ${AIMW} weeks`]]);
+    html += `<div class="fc" style="--n:${NW}"><div class="hd nmh">${view("stock", "divisions") === "stores" ? "Store" : "Division"}</div><div class="hd days">${Array.from({ length: NW }, (_, w) => { const d = weekAt(w), first = w === 0 || d.getDate() <= 7; const txt = w === 0 ? "Now" : w === AIMW ? "Aim" : (first && w >= 3 && Math.abs(w - AIMW) >= 3 && state.device !== "phone" ? MON[d.getMonth()] : ""); return `<span class="${w === 0 ? "now" : w === AIMW ? "aim" : ""}">${txt}</span>`; }).join("")}</div><div class="hd rth">More than ${AIMW} weeks</div>`;
+    for (const r of rows) {
+      const cells = r.end.map((st, w) => {
+        const start = w === 0 ? r.pcs : Math.max(0, r.end[w - 1]);
+        let cls = "", style = "";
+        const early = r.out != null && r.out < AIMW;
+        if (w === r.out && early) cls = "out";
+        else if (st <= 0 && !early) cls = "gone";
+        else if (start <= 0 && !r.order.some(o => o.w === w)) cls = "empty";
+        else if (w >= AIMW && st > 0) cls = "over";
+        else style = `background:${shade(Math.max(st, 0), r.pw)}`;
+        if (w === AIMW) cls += " aim";
+        return `<i class="${cls}" style="${style}" data-tip="Week of ${full(weekAt(w))}|${st > 0 ? pcs(st) + " left" : "No stock"}${r.order.find(o => o.w === w) ? "|Arrives " + pcs(r.order.find(o => o.w === w).pcs) : ""}"></i>`;
+      }).join("");
+      const right = r.over > 0 ? `<b class="warn-t">${rpc(r.over)}</b><span>${nf(r.cover)} weeks of stock</span>` : r.out != null && r.out < AIMW ? `<b class="bad-t">Runs out in ${r.out + 1} weeks</b><span>${r.order.length ? "More on order" : "Nothing on order"}</span>` : `<b>On aim</b><span>${nf(r.cover)} weeks of stock</span>`;
+      html += `<div class="r ${r.id === sel.id ? "on" : ""}" data-stockrow="${r.id}"><div class="nm"><b>${r.n}</b><span>${rpc(r.atCost)} at cost</span></div><div class="cells">${cells}</div><div class="rt">${right}</div></div>`;
+    }
+    host.innerHTML = html + "</div>";
+    host.querySelectorAll("[data-tip]").forEach(c => hoverable(c, () => { const [t, a, b] = c.dataset.tip.split("|"); return `<div class="t">${t}</div><div class="l">${a}</div>${b ? `<div class="l">${b}</div>` : ""}`; }));
+  },
+  side(host) {
+    const r = this.selRow();
+    host.innerHTML = `
+      <div class="who"><b>${r.n}</b><span>${pcs(r.pcs)} · ${nf(r.pw)} pcs sold a week</span></div>
+      <div class="hero"><b class="${r.over > 0 ? "warn-t" : r.out != null && r.out < AIMW ? "bad-t" : ""}">${nf(r.cover)} weeks</b><span>of stock · aim ${AIMW}</span></div>
+      ${facts([["Over the aim", r.over > 0 ? rpc(r.over) : "—", r.over > 0 ? "warn-t" : ""], ["Stock at cost", rpc(r.atCost)], ["Gross margin", pct(r.gm)], ["GMROI", nf(r.gmroi, 1)], ["Turns a year", nf(r.turns, 1)], ["On order", r.order.length ? pcs(r.order.reduce((a, o) => a + o.pcs, 0)) : "None"]])}
+      ${r.sup.length ? `<div class="sec"><h3>By supplier <span>· most weeks first</span></h3><div class="rank static">${r.sup.map(([n, w]) => `<div class="row"><span class="n">${n}</span><span class="x ${w > AIMW ? "warn-t" : ""}">${w} weeks</span></div>`).join("")}</div></div>` : ""}`;
+  },
+};
+
+
+/* ═════════ B · Simple ═════════ */
+// Same-day comparison: October up to now against September up to the same day.
+function sameDay(e) {
+  const oct = sum(e.daily, OCT0, NDAYS - 1);
+  const sep = sum(e.daily, SEP0, SEP0 + 15) + e.daily[SEP0 + 16] * DONE;
+  return { oct, sep, ch: oct / sep - 1 };
+}
+const ARROW = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>';
+function card2({ lab, go, title, fig, chart, rows }) {
+  return `<section class="card2"><div class="lab"><span>${lab}</span><button data-goto="${go}">Details${ARROW}</button></div><h2>${title}</h2>${fig ? `<div class="fig"><b>${fig[0]}</b><span>${fig[1]}</span></div>` : ""}${chart ? `<div class="ch" id="${chart}"></div>` : ""}<div class="rows">${rows.map(r => `<button data-goto="${r.go || go}"><span class="a"><b>${r.a}</b><span>${r.as || ""}</span></span><span class="z"><b class="${r.zc || ""}">${r.z}</b><span class="${r.zsc || ""}">${r.zs || ""}</span></span></button>`).join("")}</div></section>`;
+}
+function renderSimple() {
+  const all = sameDay(ALL), p = paceOf(ALL);
+  const behind = STORES.map(s => ({ s, ...sameDay(s) })).filter(x => x.ch < 0).sort((a, b) => a.ch - b.ch);
+  const risk = SELL.filter(r => r.risk);
+  const over = DIVSTOCK.filter(d => d.over > 0).sort((a, b) => b.over - a.over), overSum = over.reduce((a, d) => a + d.over, 0);
+  const novWeek = (() => { const w = {}; for (const b of BILLS) if (b.date >= TODAY) { const w0 = +addDays(b.date, -((b.date.getDay() + 6) % 7)); w[w0] = (w[w0] || 0) + b.amt; } const k = Object.keys(w).sort((a, b) => w[b] - w[a])[0]; return { d: new Date(+k), amt: w[k] }; })();
+  page.innerHTML = `<div class="phonebar"><span class="crumb">Central /</span><b>Executive</b></div><div class="head empty"><h1>Executive</h1></div><div class="cards2">` +
+    card2({
+      lab: "Cash", go: "cash",
+      title: CASH.below ? `Cash drops under ${rpc(FLOOR)} on ${short(CASH.below.d)}` : `Cash stays above ${rpc(FLOOR)} to 15 Dec`,
+      fig: [rpc(CASH.now.bal), "in the bank today"], chart: "c-cash",
+      rows: [
+        { a: `Supplier bills, week of ${short(novWeek.d)}`, as: "the biggest week", z: rpc(novWeek.amt), zc: "bad-t" },
+        { a: "Salaries", as: "25 Nov", z: rpc(6.6e8) },
+      ],
+    }) +
+    card2({
+      lab: "Sales", go: "pace",
+      title: `October sells ${pct(Math.abs(all.ch))} ${all.ch >= 0 ? "more" : "less"} than September`,
+      fig: [rpc(all.oct), "sold so far"], chart: "c-sales",
+      rows: behind.slice(0, 2).map(x => ({ a: x.s.name, as: `${rpc(x.oct)} so far`, z: sgnPct(x.ch), zc: "bad-t", zs: "on September", go: "pace" })),
+    }) +
+    card2({
+      lab: "Running out", go: "sellout",
+      title: `${risk.length} best sellers run out before new stock arrives`,
+      rows: risk.slice(0, 4).map(r => ({ a: r.a, as: r.s, z: "Out " + wshort(dayAt(r.out)), zc: "bad-t", zs: r.del ? "New stock " + wshort(dayAt(r.del.d)) : "No delivery planned", zsc: r.del ? "" : "warn-t", go: "sellout:" + r.id })),
+    }) +
+    card2({
+      lab: "Too much stock", go: "stock",
+      title: `${rpc(overSum)} of stock won't sell within 4 months`,
+      rows: over.slice(0, 4).map(d => ({ a: d.n, as: `${nf(d.cover)} weeks of stock`, z: rpc(d.over), zc: "warn-t", go: "stock:" + d.id })),
+    }) + `</div>`;
+  simpleCash(page.querySelector("#c-cash"));
+  simpleSales(page.querySelector("#c-sales"));
+}
+function simpleCash(host) {
+  const P = CASH.pts, f = frame(host, 190, { l: 44, r: 8, t: 22, b: 28 });
+  const max = Math.ceil(Math.max(...P.map(p => p.bal)) / 1e9) * 1e9, min = 0;
+  const x = i => f.m.l + f.iw * i / (P.length - 1), y = v => f.m.t + f.ih * (1 - Math.max(v, min) / max);
+  const ticks = []; for (let t = 0; t <= max; t += 1e9) ticks.push(t);
+  gridY(f, ticks, y, rpAxis);
+  const nowI = CASH.nowI - 1;
+  S("line", { x1: f.m.l, x2: f.W - f.m.r, y1: y(FLOOR), y2: y(FLOOR), stroke: "var(--bad)", "stroke-width": 1, "stroke-dasharray": "4 4", opacity: .6 }, f.svg);
+  const past = P.slice(0, nowI + 1).map((p, i) => [x(i), y(p.bal)]), fut = P.slice(nowI).map((p, i) => [x(nowI + i), y(p.bal)]);
+  S("path", { d: pathOf(fut), fill: "none", stroke: "var(--accent)", "stroke-width": 1.75, "stroke-dasharray": "5 4" }, f.svg);
+  S("path", { d: pathOf(past), fill: "none", stroke: "var(--accent)", "stroke-width": 2.25 }, f.svg);
+  haloLabel(f, x(nowI) + 8, y(P[nowI].bal) - 10, "Today", { weight: 500 });
+  { const span = P.slice(nowI + 6, nowI + 26), top = Math.min(...span.map(q => y(q.bal))); haloLabel(f, x(nowI + 6), top - 10, "if sales hold", { fill: "var(--body)" }); }
+  if (CASH.below) {
+    const fi = P.indexOf(CASH.below);
+    S("circle", { cx: x(fi), cy: y(CASH.below.bal), r: 5, fill: "var(--bad)", stroke: "var(--canvas)", "stroke-width": 2 }, f.svg);
+    haloLabel(f, x(fi) - 10, y(FLOOR) - 10, "Under " + rpc(FLOOR) + " · " + short(CASH.below.d), { anchor: "end", fill: "var(--bad-fg)", weight: 500 });
+  }
+  [[0, "1 Oct", "start"], [31, "1 Nov", "middle"], [61, "1 Dec", "middle"], [P.length - 1, "15 Dec", "end"]].filter(([i]) => f.iw > 420 || i !== 61).forEach(([i, t, a]) => xLabel(f, x(i), t, a));
+  crosshair(f, P.map((_, i) => x(i)), i => `<div class="t">${wfull(P[i].d)}</div>` + tline("var(--accent)", P[i].past ? "In the bank" : "Expected", rpc(P[i].bal)));
+}
+function simpleSales(host) {
+  const sepCum = [0], octCum = [0]; let a = 0, b = 0;
+  for (let d = 0; d < 30; d++) { a += ALL.daily[SEP0 + d]; sepCum.push(a); }
+  for (let i = OCT0; i < NDAYS; i++) { b += ALL.daily[i]; octCum.push(b); }
+  const p = paceOf(ALL), max = Math.ceil(Math.max(p.end, a) * 1.1 / 1e9) * 1e9;
+  const f = frame(host, 190, { l: 44, r: 8, t: 22, b: 28 });
+  const x = d => f.m.l + f.iw * d / 31, y = v => f.m.t + f.ih * (1 - v / max);
+  const ticks = []; for (let t = 0; t <= max; t += 2e9) ticks.push(t);
+  gridY(f, ticks, y, rpAxis);
+  S("path", { d: pathOf(sepCum.map((v, k) => [x(k * 31 / 30), y(v)])), fill: "none", stroke: "var(--g3)", "stroke-width": 1.75 }, f.svg);
+  const oPts = octCum.map((v, k) => [x(k === octCum.length - 1 ? ELAPSED : k), y(v)]);
+  S("path", { d: `M${x(ELAPSED)},${y(b)}L${x(31)},${y(p.end)}`, fill: "none", stroke: "var(--accent)", "stroke-width": 1.75, "stroke-dasharray": "5 4" }, f.svg);
+  S("path", { d: pathOf(oPts), fill: "none", stroke: "var(--accent)", "stroke-width": 2.25 }, f.svg);
+  haloLabel(f, x(ELAPSED) - 8, y(b) - 12, "October", { anchor: "end", weight: 500 });
+  haloLabel(f, x(31), y(p.end) - 12, "~" + rpc(p.end) + " by 31 Oct", { anchor: "end", weight: 500 });
+  haloLabel(f, x(24), y(sepCum[24]) + 22, "September", { anchor: "start", fill: "var(--body)" });
+  [[0, "1st", "start"], [15, "15th", "middle"], [31, "31st", "end"]].forEach(([d, t, an]) => xLabel(f, x(d), t, an));
+  const xs = Array.from({ length: 32 }, (_, d) => x(d));
+  crosshair(f, xs, d => `<div class="t">Day ${d}</div>` + (d < octCum.length ? tline("var(--accent)", "October", rpc(octCum[Math.min(d, octCum.length - 1)])) : tline("var(--accent)", "October, expected", rpc(p.end * d / 31))) + tline("var(--g3)", "September", rpc(sepCum[Math.min(d, 30)])));
+}
+
+/* ═════════ pages ═════════ */
+const STORIES = [CASHS, SELLOUT, STOCKS, PACE, STORE, THROUGH, HOURS];
+const PICKER = { pace: true, stores: true, sellout: true, hours: true };
+const nav = document.getElementById("nav"), page = document.getElementById("page"), stage = document.getElementById("stage");
+function renderNav() {
+  const items = [{ id: "overview", nav: "Overview" }, ...STORIES];
+  nav.innerHTML = items.map(s => { const tone = s.brief ? s.brief().tone : null; return `<button data-page="${s.id}" aria-current="${state.page === s.id ? "page" : "false"}">${s.nav}${tone === "bad" ? '<i class="dot bad"></i>' : ""}</button>`; }).join("");
+}
+function phoneBar(title) {
+  const items = [{ id: "overview", nav: "Overview" }, ...STORIES];
+  return `<div class="phonebar"><span class="crumb">Executive /</span><select id="phonepage">${items.map(s => `<option value="${s.id}" ${s.id === state.page ? "selected" : ""}>${s.nav}</option>`).join("")}</select></div>`;
+}
+function storePicker() {
+  const cur = byId(state.store);
+  return `<div class="pick"><button id="pickbtn" aria-haspopup="menu">${cur.name} ${CHEV}</button><div class="pop" id="pop" hidden>${ENT.map(e => `<button data-store="${e.id}" aria-current="${e.id === state.store}">${e.name}</button>`).join("")}</div></div>`;
+}
+function render() {
+  stage.dataset.device = state.device;
+  stage.classList.toggle("simple", state.version === "simple");
+  if (state.version === "simple") return renderSimple();
+  renderNav();
+  page.classList.toggle("narrow", page.clientWidth < 1100);
+  if (state.page === "overview") {
+    const rows = STORIES.map(s => ({ s, b: s.brief() })).sort((a, b) => ({ bad: 0, warn: 1, none: 2 }[a.b.tone] - { bad: 0, warn: 1, none: 2 }[b.b.tone]));
+    page.innerHTML = phoneBar() + `<div class="head"><h1>Overview</h1></div><div class="brief">${rows.map(({ s, b }) => `<button data-page="${s.id}"><i class="dot ${b.tone}"></i><b>${b.title}</b><span class="s">${b.sub}</span><span class="t">${s.nav}</span>${CHEV_R}</button>`).join("")}</div>`;
+    return;
+  }
+  const s = STORIES.find(x => x.id === state.page);
+  const hd = s.head(), v = view(s.id, hd.def);
+  page.innerHTML = phoneBar() + `<div class="head ${PICKER[s.id] ? "" : "empty"}"><h1>${s.nav}</h1><div class="tools">${PICKER[s.id] ? storePicker() : ""}</div></div>
+    <section class="story"><div class="story-head"><div class="swap" id="sh"><h2>${hd.title}</h2><p>${hd.sub}</p></div>${seg(s.id, hd.views, v)}</div>
+    <div class="story-body ${s.wide ? "wide" : ""}"><div class="plot swap" id="plot"></div>${s.wide ? "" : '<div class="side swap" id="side"></div>'}</div></section>`;
+  s.plot(page.querySelector("#plot"));
+  if (!s.wide) s.side(page.querySelector("#side"));
+}
+// a choice inside the card swaps the card's contents in place (the hub's "mode" move: out 100ms, in 160ms)
+function swapRender() {
+  const parts = page.querySelectorAll(".swap");
+  if (!parts.length || matchMedia("(prefers-reduced-motion: reduce)").matches) return render();
+  parts.forEach(p => p.classList.add("out"));
+  setTimeout(() => { render(); page.querySelectorAll(".swap").forEach(p => { p.classList.add("out"); requestAnimationFrame(() => requestAnimationFrame(() => p.classList.remove("out"))); }); }, 100);
+}
+document.addEventListener("click", e => {
+  const t = e.target.closest("button, [data-row], [data-store-row], [data-stockrow], .r");
+  const pop = document.getElementById("pop");
+  if (pop && !e.target.closest(".pick")) pop.hidden = true;
+  if (!t) return;
+  if (t.id === "pickbtn") { pop.hidden = !pop.hidden; return; }
+  if (t.dataset.page) { state.page = t.dataset.page; hideTip(); render(); window.scrollTo({ top: 0 }); return; }
+  const segEl = t.closest("[data-seg]");
+  if (segEl && t.dataset.v) { state.views[segEl.dataset.seg] = t.dataset.v; hideTip(); swapRender(); return; }
+  if (t.closest("#version")) { state.version = t.dataset.v; document.querySelectorAll("#version button").forEach(b => b.setAttribute("aria-pressed", b === t)); if (state.version === "stories") state.page = "overview"; render(); window.scrollTo({ top: 0 }); return; }
+  if (t.dataset.goto) { const [pg, id] = t.dataset.goto.split(":"); state.version = "stories"; state.page = pg; if (id && pg === "sellout") state.sel.sellout = id; if (id && pg === "stock") state.sel.stock = id; document.querySelectorAll("#version button").forEach(b => b.setAttribute("aria-pressed", b.dataset.v === "stories")); hideTip(); render(); window.scrollTo({ top: 0 }); return; }
+  if (t.closest("#device")) { state.device = t.dataset.v; document.querySelectorAll("#device button").forEach(b => b.setAttribute("aria-pressed", b === t)); render(); return; }
+  if (t.dataset.store) { state.store = t.dataset.store; if (state.page === "stores") state.sel.stores = null; swapRender(); return; }
+  if (t.dataset.coh) { state.sel.through = t.dataset.coh; swapRender(); return; }
+  const sk = e.target.closest("[data-stockrow]");
+  if (sk) { state.sel.stock = sk.dataset.stockrow; swapRender(); return; }
+  const row = e.target.closest("[data-row]");
+  if (row) { state.sel.sellout = row.dataset.row; swapRender(); return; }
+  const sr = e.target.closest("[data-store-row]");
+  if (sr) { if (state.store !== "all") state.store = sr.dataset.storeRow; else state.sel.stores = sr.dataset.storeRow; swapRender(); return; }
+});
+document.addEventListener("change", e => { if (e.target.id === "phonepage") { state.page = e.target.value; render(); } });
+document.addEventListener("keydown", e => { if (e.key === "Escape") { const pop = document.getElementById("pop"); if (pop) pop.hidden = true; } });
+let rt; new ResizeObserver(() => { clearTimeout(rt); rt = setTimeout(render, 80); }).observe(page);
+const hashPage = location.hash.slice(1); if (hashPage) { state.page = hashPage; state.version = "stories"; document.querySelectorAll("#version button").forEach(b => b.setAttribute("aria-pressed", b.dataset.v === "stories")); }
+render();
+</script>
+</body>
+</html>

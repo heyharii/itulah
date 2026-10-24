@@ -1,0 +1,1321 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>GA connections</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+/* GA — every record, its lifecycle, its detail and form sheets, and what points at what (17 Oct).
+   States and links read from the code on 17 Oct (ga_assets.rs, ga_maintenance.rs, ga_contracts.rs,
+   ga_supplies.rs, ga_locations.rs, letters.rs, documents.rs); "Today" says whether each step or link
+   is in the hub, only in the data, or still to build. Sheet look: design-system/02-sheets.md. */
+/* GA › Assets › one asset — the detail that gathers everything filed against it (17 Oct).
+   Sheet anatomy: frontend-hub/design-system/02-sheets.md + components/Sheet.md.
+   Tokens: design-system/tokens.json. Spec fields: backend/src/cloud/domain/ga.rs build_fields. */
+:root{
+  --ink:#1d1d1f; --body:#6e6e73; --faint:#c7c7cc; --line-ico:#8e8e93; --crumb:#aeaeb2;
+  --soft:#fafafb; --soft-2:#f2f2f5; --band:#fafafb; --stone:#e8ebf0;
+  --hairline:#e8e8ec; --hairline-2:#dcdce1; --row-line:#eeeef1; --strong:#c7c7cc;
+  --accent:#2862dc; --accent-bg:#eef3fc; --cta-hover:#2055c7;
+  --ok:#36b827; --ok-fg:#248a3d; --warn:#c9892e; --warn-fg:#a66c1f; --bad:#d70015; --bad-fg:#d70015; --info:#2f86d8;
+  --ease-out:cubic-bezier(.23,1,.32,1); --ease-drawer:cubic-bezier(.32,.72,0,1);
+  --shadow-page:0 0 0 1px rgba(0,0,0,.05),0 2px 8px rgba(0,0,0,.04),0 24px 72px rgba(0,0,0,.08);
+  --shadow-sheet:0 0 0 1px rgba(0,0,0,.05),0 2px 8px rgba(0,0,0,.05),0 24px 64px rgba(0,0,0,.14);
+  --shadow-pop:0 0 0 1px var(--hairline),0 4px 8px rgba(24,39,60,.04),0 12px 32px rgba(24,39,60,.08);
+  --scrim:rgba(208,208,213,.48);
+  --font:"Inter",system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font-family:var(--font);font-size:15px;line-height:22px;color:var(--ink);background:#d9dbe0;letter-spacing:-.006em;-webkit-font-smoothing:antialiased;overflow:hidden}
+button,input,select,textarea{font:inherit;color:inherit;letter-spacing:inherit}
+button{background:none;border:0;padding:0;margin:0;cursor:pointer}
+.i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+
+/* prototype chrome */
+.proto{height:50px;overflow-x:auto;background:#141518;color:#fff;display:flex;align-items:center;gap:12px;padding:0 14px 0 18px}
+.proto .t{font-weight:600;white-space:nowrap}
+.seg{display:flex;gap:2px;background:#24262b;border-radius:9px;padding:3px}
+.seg button{height:32px;padding:0 11px;border-radius:7px;color:#b9bcc3;white-space:nowrap;transition:background-color .15s ease,color .15s ease,transform .12s var(--ease-out)}
+.seg button:active{transform:scale(.97)}
+.seg button b{font-weight:600;color:#fff;margin-right:5px}
+.seg button.on{background:#fff;color:var(--ink)} .seg button.on b{color:var(--ink)}
+.seg .star{color:#f4b740;margin-left:4px}
+.proto .sp{flex:1}
+.note{min-height:36px;background:#1c1e22;color:#a7abb3;line-height:24px;padding:6px 18px;border-top:1px solid #26282d}
+.note b{color:#fff;font-weight:500}
+.stagewrap{height:calc(100vh - 50px - var(--nh,36px));overflow:hidden;display:flex;justify-content:center;align-items:flex-start}
+
+/* hub shell behind the sheet */
+.app{position:relative;width:1440px;height:900px;display:flex;background:var(--stone);padding:12px 12px 12px 0;flex:none;overflow:hidden}
+.rail{width:68px;flex:none;display:flex;flex-direction:column;align-items:center;gap:4px;padding-top:2px}
+.rail .ri{width:40px;height:40px;border-radius:10px;display:grid;place-items:center;color:#344054}
+.rail .ri .i{width:18px;height:18px}
+.rail .ri.on{background:#fff;color:var(--accent);box-shadow:0 0 0 1px rgba(16,24,40,.07),0 1px 2px rgba(16,24,40,.08)}
+.panel{width:216px;flex:none;background:#fff;border-radius:16px;box-shadow:0 0 0 1px rgba(0,0,0,.05),0 2px 6px rgba(0,0,0,.04);margin-right:12px}
+.panel h2{margin:0;height:56px;display:flex;align-items:center;padding:0 18px;font-size:17px;font-weight:600;color:#1d2939}
+.nav{padding:0 10px;display:flex;flex-direction:column;gap:2px}
+.nav .nr{height:36px;display:flex;align-items:center;padding:0 10px;border-radius:8px;color:#344054}
+.nav .nr.on{background:var(--accent-bg);color:var(--accent);font-weight:600}
+.nav hr{border:0;border-top:1px solid var(--hairline);margin:6px 10px}
+.page{flex:1;min-width:0;background:#fff;border-radius:16px;box-shadow:var(--shadow-page);overflow:hidden}
+.page .ph{height:77px;display:flex;align-items:center;justify-content:space-between;padding:8px 28px 0;border-bottom:1px solid var(--hairline)}
+.page .ph h1{margin:0;font-size:17px;font-weight:600}
+.page .lb{padding:24px 28px}
+.ghostrow{height:62px;border-bottom:1px solid var(--row-line);display:flex;align-items:center;gap:16px;padding:0 16px}
+.ghostrow.sel{background:var(--accent-bg)}
+.ghostrow b{font-weight:500}
+.scrim{position:absolute;inset:0;background:var(--scrim);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);z-index:10;opacity:1;transition:opacity .2s ease}
+
+/* phone frame */
+.phone{position:relative;width:414px;height:896px;border-radius:44px;background:#fff;overflow:hidden;box-shadow:0 0 0 10px #111,0 30px 80px rgba(0,0,0,.25);margin-top:24px;flex:none}
+.phone .pbar{height:47px;display:flex;align-items:center;justify-content:space-between;padding:0 30px;font-weight:600}
+.phone .plist{padding:8px 16px}
+.phone .plist h1{font-size:17px;margin:6px 0 14px}
+
+/* the sheet */
+.sheet{position:absolute;top:12px;right:12px;bottom:12px;width:1040px;background:#fff;border-radius:16px;box-shadow:var(--shadow-sheet);display:flex;flex-direction:column;overflow:hidden;z-index:20}
+.sheet.s-rail{width:480px}
+.sheet.layer{top:24px;right:24px;bottom:24px;transform:translateX(calc(100% + 40px));transition:transform .28s var(--ease-drawer)}
+.sheet.layer.in{transform:none}
+.sheet.layer.out{transform:translateX(calc(100% + 40px));transition:transform .2s var(--ease-out)}
+.m-phone .sheet{top:12px;left:0;right:0;bottom:0;width:auto;border-radius:16px 16px 0 0;box-shadow:0 8px 24px rgba(24,39,60,.06),0 24px 64px rgba(24,39,60,.12)}
+.m-phone .sheet.layer{top:24px;transform:translateY(100%);transition:transform .34s var(--ease-drawer)}
+.m-phone .sheet.layer.in{transform:none}
+.m-phone .sheet.layer.out{transform:translateY(100%);transition:transform .2s var(--ease-out)}
+.grip{position:absolute;top:8px;left:50%;width:36px;height:4px;margin-left:-18px;border-radius:4px;background:var(--strong)}
+.sh-head{position:relative;flex:none;padding:24px 76px 16px 28px;border-bottom:1px solid var(--hairline)}
+.m-phone .sh-head{padding:22px 64px 14px 16px}
+.crumb{color:var(--body);line-height:18px;margin-bottom:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.crumb .sep{color:var(--crumb);margin:0 6px}
+.crumb a{color:var(--body);text-decoration:none;cursor:pointer}
+.titlerow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.titlerow h2{margin:0;font-size:17px;line-height:24px;font-weight:600;letter-spacing:-.3px}
+.caption{color:var(--body);margin-top:4px}
+.xbtn{position:absolute;top:20px;right:20px;width:36px;height:36px;border-radius:8px;display:grid;place-items:center;color:var(--ink);transition:background-color .12s ease,transform .12s var(--ease-out)}
+.m-phone .xbtn{top:16px;right:12px;width:44px;height:44px}
+@media (hover:hover){.xbtn:hover{background:var(--soft-2)}}
+.xbtn:active{transform:scale(.97)}
+.xbtn .i{width:17px;height:17px}
+.sh-body{position:relative;flex:1;overflow-y:auto;overflow-x:hidden;padding:20px 28px 24px;display:flex;flex-direction:column;gap:24px;transition:opacity .16s ease}
+.sh-body > *{flex:none}
+.sh-body.swapping{opacity:0;transition:opacity .1s ease}
+.m-phone .sh-body{padding:20px 16px 24px}
+.sh-foot{flex:none;min-height:64px;padding:12px 28px;border-top:1px solid var(--hairline);display:flex;justify-content:flex-end;align-items:center;gap:8px;background:#fff}
+.m-phone .sh-foot{padding:12px 16px 30px}
+.m-phone .sh-foot .b{height:44px;flex:1;justify-content:center}
+.m-phone .sh-foot .b.sq{flex:none;width:44px;padding:0}
+
+/* buttons */
+.b{height:36px;display:inline-flex;align-items:center;gap:6px;padding:0 16px;border-radius:8px;font-weight:500;white-space:nowrap;transition:background-color .12s ease,transform .12s var(--ease-out)}
+.b:active{transform:scale(.97)}
+.b.primary{background:var(--accent);color:#fff;box-shadow:0 1px 2px rgba(20,50,100,.1)}
+@media (hover:hover){.b.primary:hover{background:var(--cta-hover)}}
+.b.ghost{border:1px solid var(--hairline-2);background:#fff}
+@media (hover:hover){.b.ghost:hover{background:var(--soft-2)}}
+.b.red{background:var(--bad);color:#fff}
+.b.soft{background:var(--soft-2)}
+.tint{color:var(--accent);font-weight:500;display:inline-flex;align-items:center;gap:4px;border-radius:6px;padding:2px 4px;margin:-2px -4px;transition:background-color .12s ease}
+@media (hover:hover){.tint:hover{background:var(--accent-bg)}}
+.tint .i{width:15px;height:15px}
+.rlink{color:var(--accent);cursor:pointer;border-radius:4px}
+@media (hover:hover){.rlink:hover{text-decoration:underline;text-underline-offset:3px}}
+
+/* status: Pill in a head colours dot and word; Status in a cell keeps an ink word */
+.pill{display:inline-flex;align-items:center;gap:7px;font-weight:500;white-space:nowrap;color:var(--body)}
+.pill::before,.st::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--body);flex:none}
+.pill.ok{color:var(--ok-fg)} .pill.ok::before{background:var(--ok)}
+.st{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+.st.ok::before{background:var(--ok)} .st.warn{color:var(--warn-fg)} .st.warn::before{background:var(--warn)}
+.st.bad{color:var(--bad-fg)} .st.bad::before{background:var(--bad)} .st.done{color:var(--body)} .st.done::before{background:var(--body)}
+.st.info::before{background:var(--info)}
+
+/* figures, facts, sections */
+.kpis{display:flex;flex-wrap:wrap;row-gap:12px}
+.kpi{padding:0 24px;border-left:1px solid var(--hairline);white-space:nowrap}
+.kpi:first-child{padding-left:0;border-left:0}
+.kpi .l{color:var(--body);line-height:20px}
+.kpi .v{display:block;font-size:16px;font-weight:600;line-height:22px;margin-top:4px;font-variant-numeric:tabular-nums}
+.kpi .v.warn{color:var(--warn-fg)}
+.m-phone .kpis{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--hairline);border-radius:10px;overflow:hidden;gap:1px;background:var(--hairline)}
+.m-phone .kpi{background:#fff;border:0;padding:10px 14px}
+.sec-h{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
+.sec-h h3{margin:0;font-size:15px;font-weight:600}
+.sec-h .n{color:var(--body);font-variant-numeric:tabular-nums}
+.sec-h .sp{flex:1}
+.sec-h .acts{display:flex;gap:16px}
+.facts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px 32px;margin:0}
+.facts.c2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.facts.c3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.m-phone .facts{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.facts div{min-width:0}
+.facts dt{color:var(--body)}
+.facts dd{margin:4px 0 0;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.sub{color:var(--body)}
+.empty-line{color:var(--body);padding:4px 0}
+
+/* mini tables: framed, heading on band, rows open their record */
+.mt{border:1px solid var(--hairline);border-radius:10px;overflow:clip}
+.mt table{width:100%;border-collapse:collapse;table-layout:fixed}
+.mt th{height:40px;background:var(--band);color:var(--body);font-weight:500;text-align:left;padding:0 16px;border-bottom:1px solid var(--hairline);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mt td{white-space:nowrap;padding:12px 16px;border-top:1px solid var(--row-line);vertical-align:top;overflow:hidden;text-overflow:ellipsis}
+.mt tbody tr:first-child td{border-top:0}
+.mt tr.row{cursor:pointer}
+.mt tr.row td{transition:background-color .12s ease}
+@media (hover:hover){.mt tr.row:hover td{background:var(--soft)}}
+.mt td:last-child{position:relative;padding-right:34px}
+@media (hover:hover){.mt tr.row:hover td:last-child::after{content:"";position:absolute;right:16px;top:20px;width:7px;height:7px;border-right:1.6px solid var(--body);border-top:1.6px solid var(--body);transform:rotate(45deg)}}
+.mt .nm{font-weight:500;display:block;overflow:hidden;text-overflow:ellipsis}
+.mt .q{display:block;color:var(--body);overflow:hidden;text-overflow:ellipsis}
+.mt + .mt{margin-top:12px}
+.mt .cap{display:flex;justify-content:space-between;padding:0 16px;height:40px;align-items:center;background:var(--band);border-bottom:1px solid var(--hairline);font-weight:500}
+.mt .cap span{color:var(--body);font-weight:400}
+/* phone: a row is a block — its first cell, then the rest two to a line under their names */
+.mcards{border:1px solid var(--hairline);border-radius:10px;overflow:clip}
+.mcard{padding:12px 14px;border-top:1px solid var(--row-line);cursor:pointer}
+.mcard:first-child{border-top:0}
+.mcard .ft{font-weight:500}
+.mcard .nm{display:block;font-weight:500}
+.mcard .q{display:block;color:var(--body);font-weight:400}
+.mcard dl{display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;margin:8px 0 0}
+.mcard dt{color:var(--body)} .mcard dd{margin:2px 0 0;overflow-wrap:anywhere}
+
+/* B · two sides */
+.sides{display:grid;grid-template-columns:380px minmax(0,1fr);gap:32px;align-items:start}
+.sides > div{display:flex;flex-direction:column;gap:24px;min-width:0}
+.docs-list{border:1px solid var(--hairline);border-radius:10px;overflow:clip}
+.docs-list .dl{display:flex;justify-content:space-between;gap:12px;padding:11px 14px;border-top:1px solid var(--row-line);cursor:pointer;transition:background-color .12s ease}
+.docs-list .dl:first-child{border-top:0}
+@media (hover:hover){.docs-list .dl:hover{background:var(--soft)}}
+.docs-list .dl .w{color:var(--body);white-space:nowrap}
+
+/* C · index */
+.withindex{display:grid;grid-template-columns:196px minmax(0,1fr);gap:28px;align-items:start}
+.index{position:sticky;top:0;display:flex;flex-direction:column;gap:2px;padding-top:2px}
+.index button{white-space:nowrap;height:36px;display:flex;align-items:center;gap:8px;padding:0 10px;border-radius:8px;text-align:left;color:var(--ink);transition:background-color .12s ease,color .12s ease}
+@media (hover:hover){.index button:hover{background:var(--soft-2)}}
+.index button.on{background:var(--accent-bg);color:var(--accent);font-weight:500}
+.index button .n{margin-left:auto;color:var(--body);font-variant-numeric:tabular-nums}
+.index button.on .n{color:var(--accent)}
+.index .dot{width:6px;height:6px;border-radius:50%;background:var(--warn);flex:none}
+.cstack{display:flex;flex-direction:column;gap:32px;min-width:0}
+.cstack section{scroll-margin-top:4px}
+
+/* Now — today's sheet */
+.badges{display:flex;gap:8px}
+.npill{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border:1px solid var(--hairline-2);border-radius:999px;font-weight:500;color:var(--body)}
+.npill::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--body)}
+.ntabs{display:flex;gap:20px;border-bottom:1px solid var(--hairline);padding:0 28px;flex:none}
+.ntabs button{position:relative;padding:10px 0 11px;font-weight:500;color:var(--body)}
+.ntabs button.on{color:var(--ink)} .ntabs button.on::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--ink);border-radius:2px}
+.nsec h4{margin:0 0 10px;padding-bottom:6px;border-bottom:1px solid var(--hairline);font-size:15px;font-weight:600}
+.nhist li{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--hairline)}
+.nhist{list-style:none;margin:0;padding:0}
+
+/* forms */
+.form{display:grid;grid-template-columns:1fr 1fr;gap:20px 16px}
+.m-phone .form{grid-template-columns:1fr}
+.fld{display:flex;flex-direction:column;gap:8px;min-width:0}
+.fld.full{grid-column:1/-1}
+.fld label{font-weight:500}
+.fld label .opt{color:var(--body);font-weight:400}
+.box{height:40px;border:1px solid var(--hairline-2);border-radius:8px;padding:0 12px;background:#fff;display:flex;align-items:center;outline:0;width:100%;transition:border-color .12s ease,box-shadow .12s ease}
+.box:focus{border-color:var(--accent);box-shadow:0 0 0 2px rgba(40,98,220,.12)}
+textarea.box{height:84px;padding:9px 12px;resize:none}
+select.box{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238e8e93' stroke-width='1.8' stroke-linecap='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;background-size:16px}
+.locked{height:40px;border-radius:8px;background:var(--soft-2);padding:0 12px;display:flex;align-items:center;gap:8px;color:var(--ink);overflow:hidden;white-space:nowrap}
+.locked .i{color:var(--line-ico)}
+.locked .q{color:var(--body);overflow:hidden;text-overflow:ellipsis}
+.chips{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.chip{height:32px;display:inline-flex;align-items:center;gap:6px;padding:0 10px;border-radius:8px;background:var(--soft-2)}
+.segpick{display:flex;background:#f2f2f4;border-radius:9px;padding:2px;width:max-content}
+.segpick button{height:34px;padding:0 14px;border-radius:7px;color:var(--body);font-weight:500}
+.segpick button.on{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.drop{height:84px;border:1px dashed var(--hairline-2);border-radius:10px;display:grid;place-items:center;color:var(--body)}
+.switchrow{display:flex;align-items:center;gap:10px}
+.sw{width:30px;height:18px;border-radius:999px;background:#e5e5ea;position:relative;transition:background-color .16s ease;flex:none}
+.sw::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);transition:transform .16s var(--ease-out)}
+.sw.on{background:var(--accent)} .sw.on::after{transform:translateX(12px)}
+
+/* toast, bottom right */
+.toast{position:absolute;right:36px;bottom:96px;z-index:90;background:#fff;border-radius:12px;box-shadow:var(--shadow-pop);padding:12px 16px;display:flex;align-items:center;gap:10px;font-weight:500;transform:translateY(16px);opacity:0;transition:transform .4s ease,opacity .4s ease}
+.toast.show{transform:none;opacity:1}
+.toast .ok{width:18px;height:18px;border-radius:50%;background:var(--ok-fg);display:grid;place-items:center;color:#fff}
+.toast .ok .i{width:12px;height:12px;stroke-width:2.4}
+.m-phone .toast{left:16px;right:16px;bottom:96px}
+@media (prefers-reduced-motion:reduce){.sheet.layer,.sheet.layer.out,.m-phone .sheet.layer{transition:opacity .2s ease}}
+
+/* ---- atlas additions ---- */
+.app{position:relative;width:1440px;height:900px;display:flex;background:var(--stone);padding:12px 12px 12px 0;flex:none;overflow:hidden}
+.panel .nr{cursor:pointer;transition:background-color .12s ease}
+@media (hover:hover){.panel .nr:not(.on):hover{background:#f2f4f7}}
+.panel .nr .tag{margin-left:auto;color:var(--body);font-weight:400}
+.page{flex:1;min-width:0;background:#fff;border-radius:16px;box-shadow:var(--shadow-page);overflow-y:auto;overflow-x:hidden;position:relative}
+.page .ph{position:sticky;top:0;z-index:4;background:#fff;height:77px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 28px 0;border-bottom:1px solid var(--hairline)}
+.page .ph h1{margin:0;font-size:17px;font-weight:600}
+.page .ph .acts{display:flex;gap:8px}
+.pbody{padding:24px 28px 48px;display:flex;flex-direction:column;gap:32px}
+.rtype{display:flex;flex-direction:column;gap:20px;padding-top:4px}
+.rtype + .rtype{border-top:1px solid var(--hairline);padding-top:28px}
+.rhead{display:flex;align-items:center;gap:12px}
+.rhead h2{margin:0;font-size:17px;font-weight:600}
+.rhead .sub{color:var(--body)}
+.rhead .sp{flex:1}
+.new-tag{display:inline-flex;align-items:center;height:24px;padding:0 8px;border-radius:6px;background:var(--accent-bg);color:var(--accent);font-weight:500}
+.blk h3{margin:0 0 12px;font-size:15px;font-weight:600;display:flex;gap:10px;align-items:baseline}
+.blk h3 .n{color:var(--body);font-weight:400}
+
+/* state machine */
+.sm{display:flex;align-items:flex-start;flex-wrap:wrap;row-gap:18px}
+.sm .stp{display:flex;align-items:flex-start}
+.state{height:38px;padding:0 14px;border:1px solid var(--hairline-2);border-radius:8px;display:inline-flex;align-items:center;gap:8px;background:#fff;font-weight:500;white-space:nowrap;cursor:pointer;transition:background-color .12s ease,border-color .12s ease}
+@media (hover:hover){.state:hover{background:var(--soft)}}
+.state::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--body)}
+.state.ok::before{background:var(--ok)} .state.warn::before{background:var(--warn)} .state.bad::before{background:var(--bad)} .state.info::before{background:var(--info)} .state.done::before{background:var(--body)}
+.state.end{background:var(--soft)}
+.state.new{border-style:dashed}
+.arr{display:flex;flex-direction:column;align-items:center;padding:0 6px;min-width:64px}
+.arr .v{color:var(--body);white-space:nowrap;line-height:18px;height:18px}
+.arr .ln{position:relative;height:2px;width:100%;min-width:52px;background:var(--strong);margin-top:1px}
+.arr .ln::after{content:"";position:absolute;right:-1px;top:-4px;width:8px;height:8px;border-right:2px solid var(--strong);border-top:2px solid var(--strong);transform:rotate(45deg)}
+.branches{display:flex;flex-direction:column;gap:10px;margin-top:16px}
+.branch{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.branch .from{color:var(--body)}
+.branch .via{display:inline-flex;align-items:center;gap:6px;color:var(--body)}
+.branch .via::after{content:"";width:28px;height:2px;background:var(--strong)}
+
+/* transitions + links tables reuse .mt */
+.mt td.dim{color:var(--body)}
+.mt td.wrap{white-space:normal}
+.lk{display:flex;align-items:center;gap:10px}
+.lk .ti{width:28px;height:28px;border-radius:8px;background:var(--soft-2);display:grid;place-items:center;color:var(--body);flex:none}
+.lk .ti .i{width:15px;height:15px}
+.where{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+.where::before{content:"";width:6px;height:6px;border-radius:50%}
+.where.hub::before{background:var(--ok)} .where.data::before{background:var(--warn)} .where.build::before{background:var(--info)}
+.where.data{color:var(--warn-fg)}
+.two-col{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:24px;align-items:start}
+.samples{display:flex;flex-wrap:wrap;gap:8px}
+.sample{height:36px;display:inline-flex;align-items:center;gap:8px;padding:0 14px;border:1px solid var(--hairline-2);border-radius:8px;font-weight:500;transition:background-color .12s ease,transform .12s var(--ease-out)}
+.sample:active{transform:scale(.97)}
+@media (hover:hover){.sample:hover{background:var(--soft-2)}}
+.sample .q{color:var(--body);font-weight:400}
+.fieldmap{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));border:1px solid var(--hairline);border-radius:10px;overflow:clip}
+
+/* map */
+.mapwrap{position:relative;border:1px solid var(--hairline);border-radius:10px;overflow:hidden;background:#fff}
+.map svg{display:block;width:100%;height:auto}
+.map .edge{stroke:var(--strong);stroke-width:1.6;fill:none;transition:stroke .15s ease,opacity .15s ease}
+.map .edge.data{stroke-dasharray:5 5}
+.map .edge.build{stroke-dasharray:2 6;stroke:#9cc3ef}
+.map .node rect{fill:#fff;stroke:var(--hairline-2);stroke-width:1.2;transition:fill .15s ease,stroke .15s ease}
+.map .node{cursor:pointer}
+.map .node text{font-family:var(--font);font-size:15px;fill:var(--ink);font-weight:500}
+.map .node .ns{fill:var(--body);font-weight:400}
+.map .node.ext rect{fill:var(--soft);stroke-dasharray:4 4}
+.map .node.new rect{stroke:var(--accent);stroke-dasharray:5 4}
+.map .grp{font-family:var(--font);font-size:15px;fill:var(--body)}
+.map .zone{fill:var(--band);stroke:none}
+.map.hl .edge{opacity:.15} .map.hl .edge.on{opacity:1;stroke:var(--accent)}
+.map.hl .node{opacity:.35} .map.hl .node.on{opacity:1}
+.map .node.on rect{stroke:var(--accent)}
+.legend{display:flex;gap:20px;flex-wrap:wrap;color:var(--body)}
+.legend span{display:inline-flex;align-items:center;gap:8px}
+.legend i{display:inline-block;width:28px;height:0;border-top:2px solid var(--strong)}
+.legend i.data{border-top-style:dashed} .legend i.build{border-top:2px dotted #9cc3ef}
+.relist{display:flex;flex-direction:column}
+
+/* step timeline inside a sheet */
+.steps{display:flex;flex-direction:column}
+.step{display:grid;grid-template-columns:28px minmax(0,1fr);gap:12px;position:relative;padding-bottom:16px}
+.step:last-child{padding-bottom:0}
+.step::before{content:"";position:absolute;left:13px;top:28px;bottom:0;width:2px;background:var(--hairline)}
+.step:last-child::before{display:none}
+.step .k{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;background:var(--soft-2);color:var(--body);font-weight:600;font-variant-numeric:tabular-nums}
+.step.done .k{background:#e7f6e5;color:var(--ok-fg)}
+.step.now .k{background:var(--accent);color:#fff}
+.step .w{color:var(--body)}
+.step.todo{color:var(--body)}
+
+/* state switcher in the chrome */
+.stsw{display:flex;align-items:center;gap:8px;color:#a7abb3;white-space:nowrap}
+.dialog{position:absolute;left:50%;top:50%;width:420px;transform:translate(-50%,-50%) scale(.97);opacity:0;background:#fff;border-radius:14px;box-shadow:var(--shadow-sheet);padding:22px 24px 18px;z-index:80;transition:opacity .16s var(--ease-out),transform .16s var(--ease-out)}
+.dialog.in{opacity:1;transform:translate(-50%,-50%)}
+.dialog h4{margin:0 0 6px;font-size:17px}
+.dialog p{margin:0 0 18px;color:var(--body)}
+.dialog .row{display:flex;justify-content:flex-end;gap:8px}
+.pill.warn{color:var(--warn-fg)} .pill.warn::before{background:var(--warn)}
+.pill.bad{color:var(--bad-fg)} .pill.bad::before{background:var(--bad)}
+.pill.info::before{background:var(--info)} .pill.done::before{background:var(--body)}
+.rail .ri.on{background:#fff;color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="proto">
+  <div class="t">GA · Connections</div>
+  <div class="sp"></div>
+  <div id="stw"></div>
+</div>
+<div class="note" id="note"></div>
+<div class="stagewrap" id="stagewrap"><div id="stage"></div></div>
+<script>
+const P = {
+  x:'<path d="M6 6l12 12M18 6 6 18"/>', plus:'<path d="M12 5v14M5 12h14"/>', lock:'<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+  check:'<path d="M5 12.5 10 17l9-10"/>', file:'<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
+  search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+}
+const ICON = {
+  asset:'<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5M12 22V12"/>',
+  site:'<path d="M4 9h16l-1-4H5zM5 9v11h14V9"/><path d="M10 20v-5h4v5"/>',
+  repair:'<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
+  replacement:'<path d="M17 2l4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>',
+  disposal:'<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/>',
+  task:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/>',
+  insp:'<path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/>',
+  contract:'<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/>',
+  claim:'<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
+  supply:'<path d="M6 6h15l-2 8H8z"/><circle cx="9" cy="20" r="1"/><circle cx="18" cy="20" r="1"/>',
+  supplier:'<path d="M3 7h11v9H3zM14 10h4l3 3v3h-7z"/><circle cx="7" cy="17" r="1.6"/><circle cx="17" cy="17" r="1.6"/>',
+  letter:'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>',
+  doc:'<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
+  loan:'<path d="M12 2v20M5 9l7-7 7 7"/>',
+  bill:'<path d="M5 3h14v18l-3-2-2 2-2-2-2 2-2-2-3 2z"/><path d="M9 8h6M9 12h6"/>',
+  person:'<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/>',
+  po:'<path d="M6 6h15l-2 8H8z"/><path d="M6 6 5 3H2"/>',
+}
+const RAIL = [P.search, ICON.supply, '<path d="M8 3 3 6l2 4 2-1v12h10V9l2 1 2-4-5-3c-.5 1.5-2 2.5-4 2.5S8.5 4.5 8 3z"/>', ICON.supplier, ICON.asset, '<path d="m3 11 15-6v14L3 13z"/>', ICON.site, '<path d="M3 21h18M5 21V10M19 21V10M12 3 3 8h18z"/>', ICON.person, '<path d="M4 5h12v9H8l-4 3z"/><path d="M8 17h8l4 3V9h-4"/>', '<path d="M4 4h7a3 3 0 0 1 3 3v13a2 2 0 0 0-2-2H4z"/>']
+
+// ================= engine =================
+const $ = (s, r = document) => r.querySelector(s)
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))
+const ico = (d, cls = "i") => `<svg class="${cls}" viewBox="0 0 24 24">${d}</svg>`
+const store = {get(k){try{return localStorage.getItem(k)}catch{return null}}, set(k,v){try{localStorage.setItem(k,v)}catch{}}}
+const q0 = new URLSearchParams(location.search)
+const S = {menu: q0.get("m") || store.get("atlas-menu") || "map", hover:null}
+const layers = []
+const tyOf = (key) => TYPES[key.split(":")[0]]
+const rec = (key) => RECS[key]
+
+// ---------- small renderers ----------
+const st = (tone, word) => `<span class="st ${tone || ""}">${esc(word)}</span>`
+const stateOf = (t, id) => t.states.find((s) => s.id === id) || t.states[0]
+const facts = (list, cls = "") => `<dl class="facts ${cls}">${list.filter(Boolean).map(([l, v]) => `<div><dt>${esc(l)}</dt><dd>${v ?? "—"}</dd></div>`).join("")}</dl>`
+const linkTo = (key, label) => `<span class="rlink" data-open="${key}">${esc(label ?? titleOf(key))}</span>`
+const titleOf = (key) => { if (key?.startsWith("cp:")) return key.slice(3); const r = rec(key); return r ? r.title : key }
+const whereTag = (w) => ({hub:'<span class="where hub">In the hub</span>', data:'<span class="where data">Data only</span>', build:'<span class="where build">To build</span>'}[w] || "")
+function secHead(title, n, acts = []){
+  return `<div class="sec-h"><h3>${title}</h3>${n === null || n === undefined ? "" : `<span class="n">${n}</span>`}<span class="sp"></span><span class="acts">${acts.join("")}</span></div>`
+}
+const addBtn = (label, type, prefill) => `<button class="tint" data-new="${type}" data-prefill="${esc(JSON.stringify(prefill || {}))}">${ico(P.plus)}${esc(label)}</button>`
+function table(cols, rows, empty){
+  if (!rows.length) return `<div class="empty-line">${esc(empty || "Nothing yet.")}</div>`
+  return `<div class="mt"><table><colgroup>${cols.map((c) => `<col${c.w ? ` style="width:${c.w}px"` : ""}>`).join("")}</colgroup>
+    <thead><tr>${cols.map((c) => `<th>${c.l}</th>`).join("")}</tr></thead>
+    <tbody>${rows.map((r) => `<tr class="${r._open ? "row" : ""}" ${r._open ? `data-open="${r._open}"` : ""}>${cols.map((c) => `<td class="${c.dim ? "dim" : ""} ${c.wrap ? "wrap" : ""}">${c.cell(r)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`
+}
+const two = (a, b) => `<span class="nm">${a}</span>${b ? `<span class="q">${b}</span>` : ""}`
+
+// records of a type that point at a key (through any field)
+const pointing = (type, field, key) => Object.entries(RECS).filter(([k, r]) => k.startsWith(type + ":") && [].concat(r[field] || []).includes(key)).map(([k, r]) => ({...r, _key:k, _open:k}))
+
+// ---------- the chrome ----------
+function chrome(){
+  const top = layers[layers.length - 1]
+  let sw = ""
+  if (top && top.kind === "detail") {
+    const t = tyOf(top.key), r = rec(top.key)
+    sw = `<div class="stsw">State<div class="seg">${t.states.map((s) => `<button data-state="${s.id}" class="${r.state === s.id ? "on" : ""}">${esc(s.label)}</button>`).join("")}</div></div>`
+  }
+  $("#stw").innerHTML = sw
+  const m = MENUS.find((x) => x.id === S.menu)
+  $("#note").innerHTML = top
+    ? `<b>${esc((top.kind === "detail" ? tyOf(top.key) : TYPES[top.type])?.name || "")}</b> — ${top.kind === "detail" ? "the detail sheet. The State switch above shows it in each state; the foot holds only the steps that state allows. Blue words open the record they name, as a layer." : top.kind === "form" ? "the form sheet. Fields that come from where it was opened are locked." : "a step form: the facts this step needs, nothing else."}`
+    : (m?.note || "")
+  fit()
+}
+
+// ---------- the hub shell ----------
+function panel(){
+  return `<aside class="panel"><h2>GA</h2><div class="nav">${MENUS.map((m) => m.hr ? "<hr>" : `<div class="nr ${S.menu === m.id ? "on" : ""}" data-menu="${m.id}">${esc(m.label)}${m.tag ? `<span class="tag">${m.tag}</span>` : ""}</div>`).join("")}</div></aside>`
+}
+function draw(){
+  const m = MENUS.find((x) => x.id === S.menu) || MENUS[0]
+  const page = m.id === "map" ? mapPage() : menuPage(m)
+  $("#stage").innerHTML = `<div class="app" id="frame"><nav class="rail">${RAIL.map((d, i) => `<div class="ri ${i === 7 ? "on" : ""}">${ico(d)}</div>`).join("")}</nav>${panel()}<main class="page" id="page">${page}</main></div>`
+  layers.length = 0
+  chrome()
+  if (m.id === "map") wireMap()
+}
+function fit(){
+  document.documentElement.style.setProperty("--nh", $("#note").offsetHeight + "px")
+  const wrap = $("#stagewrap"), frame = $("#frame")
+  if (!frame) return
+  frame.style.zoom = Math.min(1, wrap.clientWidth / 1440, wrap.clientHeight / 900)
+}
+
+// ---------- a menu: each record type, its lifecycle, its links, its samples ----------
+function menuPage(m){
+  const types = m.types.map((k) => TYPES[k])
+  const main = types[0]
+  return `<header class="ph"><h1>${esc(m.label)}</h1><div class="acts">${main.form ? `<button class="b primary" data-new="${main.key}">${ico(P.plus)}${esc(main.newLabel)}</button>` : ""}</div></header>
+    <div class="pbody">${types.map(typeBlock).join("")}</div>`
+}
+function typeBlock(t){
+  const samples = Object.entries(RECS).filter(([k]) => k.startsWith(t.key + ":"))
+  return `<section class="rtype">
+    <div class="rhead"><h2>${esc(t.name)}</h2>${t.isNew ? '<span class="new-tag">New</span>' : ""}<span class="sub">${esc(t.blurb || "")}</span><span class="sp"></span>
+      ${t.form ? `<button class="b ghost" data-new="${t.key}">Form sheet</button>` : ""}${samples.length ? `<button class="b ghost" data-open="${samples[0][0]}">Detail sheet</button>` : ""}</div>
+    <div class="blk"><h3>Lifecycle <span class="n">${t.states.length} states</span></h3>${smStrip(t)}</div>
+    <div class="blk"><h3>Steps <span class="n">${t.trans.length}</span></h3>${table([
+      {l:"Step", w:200, cell:(r) => `<span class="nm">${esc(r.verb)}</span>`},
+      {l:"From → to", w:250, wrap:true, cell:(r) => r.self ? `Stays ${esc(stateOf(t, r.to).label)}` : `${[].concat(r.from).map((f) => f === "—" ? "New" : esc(stateOf(t, f).label)).join(", ")} → ${esc(stateOf(t, r.to).label)}`},
+      {l:"Who", w:190, wrap:true, cell:(r) => esc(r.who || "—")},
+      {l:"What else happens", dim:true, cell:(r) => `<span style="white-space:normal;display:block">${esc(r.effect || "—")}</span>`},
+      {l:"Today", w:150, cell:(r) => whereTag(r.where)},
+    ], t.trans)}</div>
+    ${t.groups ? `<div class="blk"><h3>Types <span class="n">${t.groups.reduce((n, g) => n + g.types.length, 0)}</span></h3>${groupTable(t)}</div>` : ""}
+    <div class="blk"><h3>Connections <span class="n">${t.links.length}</span></h3>${table([
+      {l:"Linked to", w:240, cell:(r) => `<span class="lk"><span class="ti">${ico(ICON[r.to] || P.file)}</span><span class="nm">${esc(TYPES[r.to]?.name || r.toName || r.to)}</span></span>`},
+      {l:"How", wrap:true, cell:(r) => esc(r.how)},
+      {l:"Today", w:150, cell:(r) => whereTag(r.where)},
+    ], t.links)}</div>
+    ${samples.length ? `<div class="blk"><h3>Open a sample <span class="n">${samples.length}</span></h3><div class="samples">${samples.map(([k, r]) => `<button class="sample" data-open="${k}">${esc(r.title)}<span class="q">${esc(stateOf(t, r.state).label)}</span></button>`).join("")}</div></div>` : ""}
+  </section>`
+}
+function groupTable(t){
+  return table([
+    {l:"Group", w:170, cell:(g) => `<span class="nm">${esc(g.label)}</span>`},
+    {l:"Types", wrap:true, cell:(g) => esc(g.types.join(" · "))},
+    {l:"The form also asks", w:420, wrap:true, cell:(g) => esc(g.asks)},
+  ], t.groups.map((g) => ({...g, _open:g.sample || null})))
+}
+function smStrip(t){
+  const main = t.states.filter((s) => !s.side)
+  const strip = main.map((s, i) => {
+    const next = main[i + 1]
+    const tr = next && t.trans.find((x) => [].concat(x.from).includes(s.id) && x.to === next.id)
+    return `<span class="stp"><span class="state ${s.tone || ""} ${s.end ? "end" : ""} ${s.isNew ? "new" : ""}">${esc(s.label)}</span>${next ? `<span class="arr"><span class="v">${esc(tr ? tr.verb : "")}</span><span class="ln"></span></span>` : ""}</span>`
+  }).join("")
+  const side = t.trans.filter((x) => { if (x.self || [].concat(x.from).includes("—")) return false; const to = stateOf(t, x.to); return to.side || !main.some((s, i) => main[i + 1]?.id === x.to && [].concat(x.from).includes(s.id)) })
+  const branches = side.map((x) => `<div class="branch"><span class="from">From ${[].concat(x.from).map((f) => esc(stateOf(t, f).label)).join(", ")}</span><span class="via">${esc(x.verb)}</span><span class="state ${stateOf(t, x.to).tone || ""} ${stateOf(t, x.to).end ? "end" : ""}">${esc(stateOf(t, x.to).label)}</span></div>`).join("")
+  return `<div class="sm">${strip}</div>${branches ? `<div class="branches">${branches}</div>` : ""}`
+}
+
+// ---------- sheets ----------
+function sheetHTML(spec, depth){
+  const off = 12 + depth * 12
+  return `<div class="sheet layer ${spec.wide ? "" : "s-rail"}" style="z-index:${31 + depth * 2};top:${off}px;right:${off}px;bottom:${off}px">
+    <header class="sh-head"><div class="crumb">${spec.crumb}</div>
+      <div class="titlerow"><h2>${esc(spec.title)}</h2>${spec.status ? `<span class="pill ${spec.status[0]}">${esc(spec.status[1])}</span>` : ""}</div>
+      ${spec.caption ? `<div class="caption">${spec.caption}</div>` : ""}
+      <button class="xbtn" data-close aria-label="Close">${ico(P.x)}</button></header>
+    <div class="sh-body">${spec.body}</div>
+    <footer class="sh-foot">${spec.foot || `<button class="b ghost" data-close>Close</button>`}</footer></div>`
+}
+function pushLayer(spec, meta){
+  const frame = $("#frame")
+  const depth = layers.length
+  frame.insertAdjacentHTML("beforeend", `<div class="scrim" data-close style="z-index:${30 + depth * 2};${depth ? "background:var(--scrim);" : ""}"></div>`)
+  const scrim = frame.lastElementChild
+  frame.insertAdjacentHTML("beforeend", sheetHTML(spec, depth))
+  const el = frame.lastElementChild
+  layers.push({el, scrim, ...meta})
+  el.getBoundingClientRect(); el.classList.add("in")
+  chrome()
+}
+function closeLayer(){
+  const top = layers.pop(); if (!top) return
+  top.el.classList.remove("in"); top.el.classList.add("out")
+  top.scrim.style.opacity = "0"
+  setTimeout(() => { top.el.remove(); top.scrim.remove() }, 210)
+  chrome()
+  // a record under a closed form may have changed
+  const under = layers[layers.length - 1]
+  if (under && under.kind === "detail") rerender(under)
+}
+function rerender(layer){
+  const spec = layer.kind === "detail" ? detailSpec(layer.key) : null
+  if (!spec) return
+  const depth = layers.indexOf(layer)
+  const tmp = document.createElement("div"); tmp.innerHTML = sheetHTML(spec, depth)
+  const fresh = tmp.firstElementChild; fresh.classList.add("in")
+  const scroll = layer.el.querySelector(".sh-body").scrollTop
+  layer.el.replaceWith(fresh); layer.el = fresh
+  fresh.querySelector(".sh-body").scrollTop = scroll
+  chrome()
+}
+function openDetail(key){
+  const existing = layers.findIndex((l) => l.kind === "detail" && l.key === key)
+  if (existing >= 0) { while (layers.length > existing + 1) closeLayer(); return }
+  pushLayer(detailSpec(key), {kind:"detail", key})
+}
+function detailSpec(key){
+  const t = tyOf(key), r = rec(key), s = stateOf(t, r.state)
+  // steps the system takes (a date passing) are states, never buttons
+  const steps = t.trans.filter((x) => [].concat(x.from).includes(r.state) && !x.via && !/^The system/.test(x.who || ""))
+  const acts = (t.acts || []).filter((a) => a.from.includes(r.state) && (!a.groups || a.groups.includes(r.group)))
+  const actBtn = (a) => `<button class="b ${a.tone}" data-new="${a.type}" data-prefill="${esc(JSON.stringify({[a.pre]:key}))}">${esc(a.verb)}</button>`
+  // one foot: ghosts, then the red verb, then the one blue — Edit is blue only when nothing else is
+  const items = [
+    ...acts.map((a) => ({tone:a.tone || "ghost", html:(tone) => actBtn({...a, tone})})),
+    ...steps.map((x) => ({tone:x.tone || "ghost", html:(tone) => `<button class="b ${tone}" data-step="${t.trans.indexOf(x)}">${esc(x.verb)}</button>`})),
+  ]
+  const blues = items.filter((x) => x.tone === "primary")
+  blues.slice(0, -1).forEach((x) => { x.tone = "ghost" })
+  if (t.editable && !s.end) items.push({tone:blues.length ? "ghost" : "primary", html:(tone) => `<button class="b ${tone}" data-edit>Edit</button>`})
+  const rank = {ghost:0, red:1, primary:2}
+  const foot = items.sort((a, b) => rank[a.tone] - rank[b.tone]).map((x) => x.html(x.tone)).join("") || `<button class="b ghost" data-close>Close</button>`
+  return {wide:t.wide, crumb:`${esc(t.menuLabel)}<span class="sep">/</span>${esc(r.number)}`, title:r.title, status:[s.tone || "", s.label], caption:r.caption ? esc(r.caption) : "", body:t.detail(r, key), foot}
+}
+function openForm(typeKey, prefill = {}, step){
+  const t = TYPES[typeKey]
+  const spec = step ? stepFormSpec(t, step) : formSpec(t, prefill)
+  pushLayer(spec, {kind:"form", type:typeKey, prefill, step})
+}
+function field(f, prefill){
+  const locked = f.from && prefill[f.from]
+  let inner
+  if (locked) inner = `<div class="locked">${ico(P.lock)}${esc(titleOf(prefill[f.from]))}</div>`
+  else if (f.k === "select") inner = `<select class="box">${(f.opts || []).map((o) => `<option>${esc(o)}</option>`).join("")}</select>`
+  else if (f.k === "area") inner = `<textarea class="box" placeholder="${esc(f.ph || "")}"></textarea>`
+  else if (f.k === "seg") inner = `<div class="segpick" data-seg>${f.opts.map((o, i) => `<button class="${i ? "" : "on"}">${esc(o)}</button>`).join("")}</div>`
+  else if (f.k === "switch") return `<div class="fld full"><div class="switchrow"><span class="sw" data-sw></span>${esc(f.l)}</div></div>`
+  else if (f.k === "file") inner = `<div class="drop">${ico(P.file)} Drop a PDF or photo</div>`
+  else if (f.k === "chips") inner = `<div class="chips">${(prefill[f.from] ? [titleOf(prefill[f.from])] : (f.v || [])).map((c) => `<span class="chip">${esc(c)}</span>`).join("")}<button class="tint">${ico(P.plus)}${esc(f.add || "Add")}</button></div>`
+  else inner = `<input class="box" placeholder="${esc(f.ph || "")}" value="${esc(f.v || "")}"${f.main ? " data-main" : ""}>`
+  return `<div class="fld ${f.full ? "full" : ""}"><label>${esc(f.l)}${f.opt ? ' <span class="opt">(optional)</span>' : ""}</label>${inner}</div>`
+}
+function formSpec(t, prefill){
+  return {wide:t.formWide, crumb:`${esc(t.menuLabel)}<span class="sep">/</span>${esc(t.newLabel)}`, title:t.newLabel, body:`<div class="form">${t.form.map((f) => field(f, prefill)).join("")}</div>`, foot:`<button class="b red" data-close>Cancel</button><button class="b primary" data-create="${t.key}">${esc(t.saveLabel || "Save")}</button>`}
+}
+function stepFormSpec(t, step){
+  const top = layers[layers.length - 1]
+  const r = rec(top.key)
+  return {crumb:`${esc(r.number)}<span class="sep">/</span>${esc(step.verb)}`, title:step.verb, body:`<div class="form">${step.form.map((f) => field(f, {self:top.key})).join("")}</div>`, foot:`<button class="b red" data-close>Cancel</button><button class="b ${step.tone === "red" ? "red" : "primary"}" data-dostep="${t.trans.indexOf(step)}" data-for="${top.key}">${esc(step.verb)}</button>`}
+}
+function doStep(key, i){
+  const t = tyOf(key), r = rec(key), x = t.trans[i]
+  r.state = x.to
+  r.log = [{on:"17 Oct 2026", what:x.verb, by:"Nina Oktaviani"}, ...(r.log || [])]
+  if (x.make) x.make(r, key)
+  const layer = layers.find((l) => l.kind === "detail" && l.key === key)
+  if (layer) rerender(layer)
+  toast(`${x.verb} · ${stateOf(t, x.to).label}`)
+}
+function toast(text){
+  const frame = $("#frame")
+  frame.insertAdjacentHTML("beforeend", `<div class="toast"><span class="ok">${ico(P.check)}</span>${esc(text)}</div>`)
+  const el = frame.lastElementChild
+  el.getBoundingClientRect(); el.classList.add("show")
+  setTimeout(() => { el.classList.remove("show"); setTimeout(() => el.remove(), 400) }, 2400)
+}
+
+// ---------- the map ----------
+function mapPage(){
+  const W = 1076, H = 720
+  const nodes = MAP.nodes, byId = Object.fromEntries(nodes.map((n) => [n.id, n]))
+  const cx = (n) => n.x + n.w / 2, cy = (n) => n.y + 28
+  const edges = MAP.edges.map(([a, b, how, where], i) => {
+    const A = byId[a], B = byId[b]
+    const x1 = cx(A), y1 = cy(A), x2 = cx(B), y2 = cy(B)
+    const mx = (x1 + x2) / 2
+    const d = Math.abs(y1 - y2) < 10 ? `M${x1},${y1} L${x2},${y2}` : `M${x1},${y1} C${x1},${(y1 + y2) / 2} ${x2},${(y1 + y2) / 2} ${x2},${y2}`
+    return `<path class="edge ${where}" data-e="${i}" data-a="${a}" data-b="${b}" d="${d}"/>`
+  }).join("")
+  const zones = MAP.zones.map((z) => `<rect class="zone" x="${z.x}" y="${z.y}" width="${z.w}" height="${z.h}" rx="12"/><text class="grp" x="${z.x + 16}" y="${z.y + 26}">${esc(z.label)}</text>`).join("")
+  const ns = nodes.map((n) => `<g class="node ${n.kind || ""}" data-node="${n.id}" data-go="${n.menu || ""}" data-open="${n.open || ""}"><rect x="${n.x}" y="${n.y}" width="${n.w}" height="56" rx="10"/><text x="${n.x + 14}" y="${n.y + 24}">${esc(n.label)}</text><text class="ns" x="${n.x + 14}" y="${n.y + 44}">${esc(n.sub || "")}</text></g>`).join("")
+  return `<header class="ph"><h1>Map</h1></header><div class="pbody">
+    <div class="legend"><span><i></i>Shown in the hub</span><span><i class="data"></i>In the data, not shown</span><span><i class="build"></i>To build</span></div>
+    <div class="mapwrap map" id="map"><svg viewBox="0 0 ${W} ${H}">${zones}${edges}${ns}</svg></div>
+    <div class="relist" id="relist">${relist(null)}</div></div>`
+}
+function relist(id){
+  const list = MAP.edges.filter(([a, b]) => !id || a === id || b === id)
+  const name = (x) => MAP.nodes.find((n) => n.id === x)?.label || x
+  return `<div class="blk"><h3>${id ? esc(name(id)) : "Every link"} <span class="n">${list.length}</span></h3>${table([
+    {l:"Link", cell:([a, b, how]) => two(`${esc(name(a))} → ${esc(name(b))}`, esc(how))},
+    {l:"Today", w:150, cell:([, , , w]) => whereTag(w)},
+  ], list)}</div>`
+}
+function wireMap(){
+  const map = $("#map")
+  map.querySelectorAll(".node").forEach((g) => {
+    g.addEventListener("mouseenter", () => {
+      const id = g.dataset.node
+      map.classList.add("hl")
+      map.querySelectorAll(".edge").forEach((e) => e.classList.toggle("on", e.dataset.a === id || e.dataset.b === id))
+      const near = new Set([id]); map.querySelectorAll(".edge.on").forEach((e) => { near.add(e.dataset.a); near.add(e.dataset.b) })
+      map.querySelectorAll(".node").forEach((n) => n.classList.toggle("on", near.has(n.dataset.node)))
+      $("#relist").innerHTML = relist(id)
+    })
+    g.addEventListener("mouseleave", () => { map.classList.remove("hl"); $("#relist").innerHTML = relist(null) })
+  })
+}
+
+// ---------- events ----------
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("[data-menu],[data-go],[data-open],[data-new],[data-close],[data-step],[data-dostep],[data-create],[data-state],[data-edit],[data-seg] button,[data-sw]")
+  if (!t) return
+  const d = t.dataset
+  if (d.menu) { S.menu = d.menu; store.set("atlas-menu", d.menu); history.replaceState(null, "", `?m=${d.menu}`); draw(); return }
+  if (d.go) { S.menu = d.go; store.set("atlas-menu", d.go); history.replaceState(null, "", `?m=${d.go}`); draw(); if (d.open) openDetail(d.open); return }
+  if (t.parentElement?.dataset.seg !== undefined) { t.parentElement.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b === t)); return }
+  if (d.sw !== undefined) { t.classList.toggle("on"); return }
+  if (d.close !== undefined) { closeLayer(); return }
+  if (d.open) { if (RECS[d.open]) openDetail(d.open); return }
+  if (d.new) { let pre = {}; try { pre = JSON.parse(d.prefill || "{}") } catch {} ; openForm(d.new, pre); return }
+  if (d.state) { const top = layers[layers.length - 1]; rec(top.key).state = d.state; rerender(top); return }
+  if (d.step) {
+    const top = layers[layers.length - 1], tt = tyOf(top.key), x = tt.trans[+d.step]
+    if (x.form) openForm(tt.key, {}, x)
+    else doStep(top.key, +d.step)
+    return
+  }
+  if (d.dostep) { closeLayer(); doStep(d.for, +d.dostep); return }
+  if (d.create) {
+    const tt = TYPES[d.create], top = layers[layers.length - 1]
+    const main = top.el.querySelector("[data-main]")?.value.trim()
+    const key = tt.make ? tt.make(top.prefill || {}, main) : null
+    closeLayer()
+    toast(`${tt.name} saved`)
+    if (key) setTimeout(() => openDetail(key), 230)
+    return
+  }
+  if (d.edit !== undefined) { toast("Edit swaps this sheet into its form") ; return }
+})
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && layers.length) closeLayer() })
+addEventListener("resize", fit)
+document.fonts?.ready.then(fit)
+
+// ================= sample records, one web of them =================
+// Avanza (made up) and the demo rig's AC at Store 01, with everything filed against them.
+const RECS = {
+  // ---- assets ----
+  "asset:AVZ": {number:"AST-000047", title:"Toyota Avanza 1.5 G — B 1234 ABC", state:"REG", caption:"Bought on INV-2303-0412 line 1 · 12 Mar 2023",
+    kind:"Vehicles", cls:"Mobil", site:"site:DC", area:"Parkir DC", holder:"person:YUSUF", condition:"Good",
+    specs:[["Make / model","Toyota Avanza 1.5 G MT"],["Plate","B 1234 ABC"],["Year","2023"],["Chassis no.","MHKAA1BA0PJ012345"],["Engine no.","2NR-F123456"],["Odometer","48.210 km"]],
+    bill:"bill:INV-2303", acquired:"12 Mar 2023"},
+  "asset:AC6": {number:"AST-000006", title:"AC split toko 01 — Daikin 2 PK", state:"REG", caption:"Bought on INV-2609-0088 line 2 · 4 Sep 2026",
+    kind:"Technical", cls:"Air Conditioner", site:"site:ST01", area:"Area penjualan", holder:null, condition:"Good",
+    specs:[["Make / model","Daikin FTKC50"],["Capacity","2 PK"],["Serial","DKN-FTKC50-0101"],["Installed","4 Sep 2026"],["Warranty until","4 Sep 2029"]],
+    bill:"bill:INV-2609", acquired:"4 Sep 2026", replaces:"asset:ACOLD"},
+  "asset:ACOLD": {number:"AST-GA-002", title:"AC split toko 01 (lama)", state:"REPLACED", caption:"Replaced on 4 Sep 2026",
+    kind:"Technical", cls:"Air Conditioner", site:"site:ST01", area:"Ruang stok", holder:null, condition:"Broken",
+    specs:[["Make / model","Samsung AR18"],["Serial","SAM-AR18-0101"]], acquired:"3 Mar 2019"},
+  "asset:PRN": {number:"AST-GA-004", title:"Printer struk lama toko 01", state:"DISP_REQ", caption:"Disposal requested 15 Oct 2026",
+    kind:"IT hardware", cls:"FFE Komputer", site:"site:ST01", area:"Gudang toko", holder:null, condition:"Broken",
+    specs:[["Device","Receipt printer"],["Make","Epson TM-U220"],["Serial","EPS-U220-0101"]], acquired:"10 Jan 2020"},
+
+  // ---- repairs ----
+  "repair:R12": {number:"RPR-2610-012", title:"Front brake pads", state:"APPROVED", asset:"asset:AVZ", site:"site:DC", objek:"Kendaraan", supplier:"supplier:A2K",
+    failed:"15 Oct 2026", estimate:"Rp 850.000", budget:"Rp 900.000", approver:"Hendra Wijaya", inspection:"insp:I14", contract:"contract:SVC-AVZ"},
+  "repair:R07": {number:"RPR-2608-007", title:"Rear tyre puncture", state:"CLOSED", asset:"asset:AVZ", site:"site:DC", objek:"Kendaraan", supplier:"supplier:JAYA",
+    failed:"3 Aug 2026", completed:"3 Aug 2026", estimate:"Rp 150.000", budget:"Rp 150.000", approver:"Hendra Wijaya", bill:"bill:JB-0803"},
+  "repair:R15": {number:"RPR-2610-015", title:"Roof leaking over the fitting room", state:"OPEN", asset:null, site:"site:ST01", objek:"Bangunan", supplier:"supplier:BANGUN",
+    failed:"16 Oct 2026", estimate:"Rp 2.400.000"},
+  "repair:R03": {number:"RPR-2608-003", title:"Old AC compressor dead", state:"CANCELLED", asset:"asset:ACOLD", site:"site:ST01", objek:"AC & refrigerator", supplier:"supplier:SEJUK",
+    failed:"28 Aug 2026", estimate:"Rp 3.800.000", note:"Not worth repairing: replaced instead"},
+
+  // ---- replacement + disposal ----
+  "replacement:RP1": {number:"RPL-2608-001", title:"Replace AC split toko 01 (lama)", state:"INSTALLED", asset:"asset:ACOLD", newAsset:"asset:AC6", repair:"repair:R03", supplier:"supplier:SEJUK",
+    proposed:"29 Aug 2026", reason:"Compressor dead; a repair costs most of a new unit"},
+  "disposal:DS1": {number:"DSP-2610-001", title:"Dispose: Printer struk lama toko 01", state:"REQUESTED", asset:"asset:PRN", method:"Scrap", proceeds:"—",
+    requested:"15 Oct 2026", reason:"Replaced by the till's own printer; parts no longer sold"},
+
+  // ---- schedule ----
+  "task:T1": {number:"TSK-0001", title:"Periodic service, every 10.000 km", state:"ACTIVE", asset:"asset:AVZ", site:null, every:"10.000 km", next:"At 50.000 km", supplier:"supplier:A2K", contract:"contract:SVC-AVZ"},
+  "task:T2": {number:"TSK-0002", title:"Tyre and battery check", state:"ACTIVE", asset:"asset:AVZ", site:null, every:"3 months", next:"2 Nov 2026", supplier:null, by:"person:YUSUF"},
+  "task:T3": {number:"TSK-0007", title:"AC cleaning, 13 stores", state:"ACTIVE", asset:null, site:"site:ALL", every:"3 months", next:"5 Dec 2026", supplier:"supplier:SEJUK", contract:"contract:MNT-AC"},
+  "task:T4": {number:"TSK-0009", title:"Pest control", state:"PAUSED", asset:null, site:"site:ST01", every:"1 month", next:"—", supplier:"supplier:PEST"},
+  "insp:I14": {number:"INS-1410", title:"Inspection · 14 Oct 2026", state:"ATTENTION", asset:"asset:AVZ", site:"site:DC", by:"person:YUSUF", on:"14 Oct 2026", findings:"Front brake pads thin", task:"task:T2", repair:"repair:R12"},
+  "insp:I05": {number:"INS-0509", title:"Inspection · 5 Sep 2026", state:"GOOD", asset:"asset:AC6", site:"site:ST01", by:"person:DIAN", on:"5 Sep 2026", findings:"—", task:"task:T3"},
+
+  // ---- contracts, one per group ----
+  "contract:INS-AVZ": {number:"01-GO-26-001234", title:"Vehicle insurance · Asuransi Astra", state:"ACTIVE", group:"ASURANSI", type:"Asuransi kendaraan", party:"supplier:ASTRA",
+    covers:["asset:AVZ"], site:null, scope:null, starts:"1 Jan 2026", ends:"31 Dec 2026", value:"Rp 6.200.000 / year", reminder:"60 days", signed:"Hendra Wijaya", bills:["bill:AST-0102"]},
+  "contract:STNK-AVZ": {number:"PKB-0312-2026", title:"STNK / KIR · Samsat Jakarta Timur", state:"ACTIVE", group:"IZIN", type:"STNK / KIR", party:"supplier:SAMSAT",
+    covers:["asset:AVZ"], starts:"12 Mar 2026", ends:"12 Mar 2027", value:"Rp 3.450.000", reminder:"45 days"},
+  "contract:SVC-AVZ": {number:"SVC-A2000-118", title:"Maintenance contract · Auto2000 Cibubur", state:"ACTIVE", group:"JASA", type:"Kontrak maintenance", objek:"Kendaraan", party:"supplier:A2K",
+    covers:["asset:AVZ"], starts:"1 Jan 2026", ends:"31 Dec 2026", value:"Rp 4.800.000", reminder:"30 days"},
+  "contract:MNT-AC": {number:"SJ-2026-04", title:"AC maintenance · CV Sejuk Abadi", state:"EXPIRING", group:"JASA", type:"Kontrak maintenance", objek:"AC & refrigerator", party:"supplier:SEJUK",
+    covers:[], scope:"All stores", starts:"1 Nov 2025", ends:"31 Oct 2026", value:"Rp 31.200.000", reminder:"30 days"},
+  "contract:LEASE-ST01": {number:"SWT-C01-2024", title:"Shop lease · Ruko Cikupa Blok A3", state:"ACTIVE", group:"SEWA", type:"Sewa toko/gudang/kantor", party:"cp:Bpk. Hartono (pemilik ruko)",
+    site:"site:ST01", starts:"1 Feb 2024", ends:"31 Jan 2027", value:"Rp 180.000.000 / 3 years", reminder:"90 days", signed:"Hendra Wijaya"},
+  "contract:PLN-ST01": {number:"5123 4567 8901", title:"Electricity · PLN UP3 Cikupa", state:"ACTIVE", group:"LANGGANAN", type:"Listrik", party:"supplier:PLN",
+    site:"site:ST01", customer:"5123 4567 8901", starts:"1 Feb 2024", ends:"—", value:"Monthly bill", reminder:"—"},
+  "contract:OUT-ST01": {number:"DSW-01-2026", title:"Space let out · ATM corner, Store 01", state:"ENDED", group:"DISEWAKAN", type:"Sewa ruang/gedung", party:"cp:Bank BRI KCP Cikupa",
+    site:"site:ST01", starts:"1 Jan 2025", ends:"30 Sep 2026", value:"Rp 2.000.000 / month", reminder:"60 days", howEnded:"Not renewed"},
+  "claim:CL1": {number:"CLM-2610-001", title:"Claim · rear bumper dent", state:"SUBMITTED", policy:"contract:INS-AVZ", asset:"asset:AVZ", incident:"9 Oct 2026", amount:"Rp 2.750.000", deductible:"Rp 300.000", repair:null},
+
+  // ---- supply ----
+  "supply:SR1": {number:"SR-161026-004", title:"Shopping bags, large", state:"PROCUREMENT", site:"site:ST01", qty:"1.000 pcs", needed:"24 Oct 2026", estimate:"Rp 1.500.000", by:"person:DIAN", category:"Store supplies", po:"PO-161026-021"},
+
+  // ---- places, parties, papers ----
+  "site:ST01": {number:"C001-TOKO", title:"Store 01 · Cikupa", state:"COMPLETE", kind:"Store", address:"Ruko Cikupa Blok A3 No. 7, Tangerang", contact:"Dian Pertiwi", area:"180 m²"},
+  "site:DC": {number:"DC-01", title:"DC · Gudang Cibubur", state:"COMPLETE", kind:"Distribution centre", address:"Jl. Alternatif Cibubur Km 4", contact:"Nina Oktaviani", area:"2.400 m²"},
+  "site:ALL": {number:"ALL", title:"All stores", state:"COMPLETE", kind:"Scope"},
+  "supplier:A2K": {number:"SUP-0142", title:"Auto2000 Cibubur", state:"ACTIVE", category:"Workshop", phone:"021 845 1200"},
+  "supplier:JAYA": {number:"SUP-0151", title:"Bengkel Jaya Ban", state:"ACTIVE", category:"Workshop"},
+  "supplier:SEJUK": {number:"SUP-0098", title:"CV Sejuk Abadi", state:"ACTIVE", category:"AC service"},
+  "supplier:BANGUN": {number:"SUP-0160", title:"CV Bangun Rapi", state:"ACTIVE", category:"Building works"},
+  "supplier:PEST": {number:"SUP-0171", title:"Rentokil Indonesia", state:"ACTIVE", category:"Pest control"},
+  "supplier:ASTRA": {number:"SUP-0201", title:"Asuransi Astra", state:"ACTIVE", category:"Insurer"},
+  "supplier:SAMSAT": {number:"SUP-0205", title:"Samsat Jakarta Timur", state:"ACTIVE", category:"Government office"},
+  "supplier:PLN": {number:"SUP-0003", title:"PLN UP3 Cikupa", state:"ACTIVE", category:"Utility"},
+  "doc:STNK": {number:"DOC-1188", title:"STNK · B 1234 ABC", state:"VALID", paper:"STNK", subjects:["asset:AVZ","contract:STNK-AVZ"], until:"12 Mar 2028"},
+  "doc:BPKB": {number:"DOC-1187", title:"BPKB · M-12345678", state:"VALID", paper:"BPKB", subjects:["asset:AVZ"], until:"No expiry", custody:"HO safe"},
+  "doc:POLIS": {number:"DOC-1203", title:"Policy · 01-GO-26-001234", state:"EXPIRING", paper:"Insurance policy", subjects:["contract:INS-AVZ","asset:AVZ"], until:"31 Dec 2026"},
+  "doc:LEASE": {number:"DOC-0940", title:"Lease agreement · Ruko Cikupa", state:"VALID", paper:"Agreement", subjects:["contract:LEASE-ST01","site:ST01"], until:"31 Jan 2027"},
+  "doc:WARR": {number:"DOC-1301", title:"Warranty card · Daikin", state:"VALID", paper:"Warranty card", subjects:["asset:AC6"], until:"4 Sep 2029"},
+  "letter:L1": {number:"SK-GA-2610-003", title:"Power of attorney · STNK renewal", state:"ISSUED", form:"Surat kuasa", to:"person:YUSUF", about:["asset:AVZ","contract:STNK-AVZ"], issued:"10 Oct 2026", signer:"Hendra Wijaya"},
+  "bill:INV-2303": {number:"INV-2303-0412", title:"Toyota Astra Motor · INV-2303-0412", state:"POSTED", ext:true},
+  "bill:INV-2609": {number:"INV-2609-0088", title:"PT Daikin Airconditioning · INV-2609-0088", state:"POSTED", ext:true},
+  "bill:JB-0803": {number:"JB-0803", title:"Bengkel Jaya Ban · JB-0803", state:"POSTED", ext:true},
+  "bill:AST-0102": {number:"AST-0102", title:"Asuransi Astra · premium 2026", state:"POSTED", ext:true},
+  "person:YUSUF": {number:"EMP-0412", title:"Yusuf Ramadhan", state:"ACTIVE", role:"Driver, DC", ext:true},
+  "person:DIAN": {number:"EMP-0233", title:"Dian Pertiwi", state:"ACTIVE", role:"Store head, Store 01", ext:true},
+}
+
+// ================= record types: the things and their upkeep =================
+// States and steps follow the code (backend/src/cloud/postgres/ga_maintenance.rs, ga_assets.rs, assets.rs);
+// `where` says whether a step or a link is in the hub today, only in the data, or still to build.
+const ref = (key) => !key ? "—" : key.startsWith("cp:") ? esc(key.slice(3)) : RECS[key] ? linkTo(key) : esc(key)
+const refs = (keys) => (keys || []).length ? keys.map(ref).join(", ") : "—"
+const figs = (list) => `<div class="kpis">${list.map(([l, v, t]) => `<div class="kpi"><span class="l">${esc(l)}</span><span class="v ${t || ""}">${v}</span></div>`).join("")}</div>`
+const sec = (title, n, body, acts) => `<section>${secHead(title, n, acts)}${body}</section>`
+const logSec = (r) => sec("Activity", (r.log || []).length || null, (r.log || []).length ? table([{l:"Date", w:130, cell:(x) => esc(x.on)}, {l:"What happened", cell:(x) => esc(x.what)}, {l:"By", w:180, cell:(x) => esc(x.by)}], r.log) : `<div class="empty-line">Nothing since it was recorded.</div>`)
+// the record's steps as a timeline: done, now, still to come
+function stepsSec(t, r){
+  const main = t.states.filter((s) => !s.side)
+  const at = main.findIndex((s) => s.id === r.state)
+  const side = stateOf(t, r.state).side
+  return sec("Steps", null, `<div class="steps">${main.map((s, i) => {
+    const cls = side ? (i === 0 ? "done" : "todo") : i < at ? "done" : i === at ? "now" : "todo"
+    return `<div class="step ${cls}"><span class="k">${i + 1}</span><div><div>${esc(s.label)}</div><div class="w">${cls === "done" ? "Done" : cls === "now" ? esc(s.waits || "Here now") : ""}</div></div></div>`
+  }).join("")}${side ? `<div class="step now"><span class="k">×</span><div><div>${esc(stateOf(t, r.state).label)}</div><div class="w">${esc(r.note || "")}</div></div></div>` : ""}</div>`)
+}
+const rowsOf = (type, field, key) => pointing(type, field, key)
+
+const TYPES = {}
+function def(key, t){ TYPES[key] = {key, ...t}; return TYPES[key] }
+
+def("asset", {
+  name:"Asset", menuLabel:"Assets", newLabel:"Register asset", saveLabel:"Register", wide:true, editable:true,
+  blurb:"one register; its kind decides the form",
+  states:[
+    {id:"REG", label:"In use", tone:"", waits:"Moved, repaired, inspected as needed"},
+    {id:"DISP_REQ", label:"Disposal requested", tone:"warn", waits:"Waiting for the disposal decision"},
+    {id:"DISPOSED", label:"Disposed", tone:"done", end:true},
+    {id:"REPLACED", label:"Replaced", tone:"done", end:true, side:true},
+  ],
+  trans:[
+    {verb:"Register", from:["—"], to:"REG", who:"GA, or a posted bill line", effect:"History: Registered. A bill line makes a Draft today, which Hari dropped.", where:"hub"},
+    {verb:"Move", from:["REG"], to:"REG", self:true, who:"GA", effect:"Site, area or holder change; history line with the reason", where:"hub", form:[
+      {l:"Asset", from:"self", full:true},{l:"To site", k:"select", opts:["Store 01 · Cikupa","DC · Gudang Cibubur","Store 02"]},{l:"Area", ph:"Area penjualan"},{l:"New holder", ph:"Name"},{l:"Date moved", v:"17 Oct 2026"},{l:"Reason", k:"area", full:true}]},
+    {verb:"Request disposal", from:["REG"], to:"DISP_REQ", via:"disposal", who:"GA", effect:"Opens a Disposal record", where:"hub"},
+    {verb:"Disposal rejected", from:["DISP_REQ"], to:"REG", via:"disposal", who:"GA approver", effect:"Back in use; the reason stays on the disposal", where:"hub"},
+    {verb:"Disposal posted", from:["DISP_REQ"], to:"DISPOSED", via:"disposal", who:"Finance", effect:"Journal posted; the row freezes. Today GA's close posts nothing and Finance's dispose is a separate screen.", where:"build"},
+    {verb:"Replacement installed", from:["REG"], to:"REPLACED", via:"replacement", who:"GA", effect:"A new asset takes its place, linked both ways", where:"hub"},
+  ],
+  acts:[{verb:"Propose replacement", type:"replacement", from:["REG"], pre:"asset"}, {verb:"Request disposal", type:"disposal", from:["REG"], pre:"asset", tone:"red"}],
+  links:[
+    {to:"site", how:"where it stands, and the area inside", where:"hub"},
+    {to:"person", how:"who holds it — free text today, not a person record", where:"build"},
+    {to:"bill", how:"the bill line that bought it", where:"hub"},
+    {to:"doc", how:"papers: BPKB, STNK, warranty, photos", where:"hub"},
+    {to:"contract", how:"insurance, permits, maintenance that cover it", where:"data"},
+    {to:"repair", how:"its repairs", where:"data"},
+    {to:"task", how:"its recurring care", where:"data"},
+    {to:"insp", how:"its inspections", where:"data"},
+    {to:"replacement", how:"replaced by / replaces", where:"data"},
+    {to:"disposal", how:"its disposal request", where:"hub"},
+    {to:"claim", how:"insurance claims for damage to it", where:"build"},
+    {to:"letter", how:"letters about it (power of attorney for STNK)", where:"build"},
+  ],
+  form:[
+    {l:"Kind", k:"select", opts:["Vehicles","Technical","IT hardware","Furniture & fixtures","Property","Audio","Operating equipment","Software","Projects"]},
+    {l:"Class", k:"select", opts:["Mobil","Motor"]},
+    {l:"Name", ph:"Toyota Avanza 1.5 G — B 1234 ABC", full:true, main:true},
+    {l:"Site", k:"select", opts:["DC · Gudang Cibubur","Store 01 · Cikupa"]},{l:"Area", ph:"Parkir DC", opt:true},
+    {l:"Holder", ph:"Name", opt:true},{l:"Acquired", v:"17 Oct 2026"},
+    {l:"Plate", ph:"B 1234 ABC"},{l:"Make / model", ph:"Toyota Avanza 1.5 G MT"},
+    {l:"Chassis no.", ph:""},{l:"Engine no.", ph:""},
+  ],
+  make:(pre, main) => { const k = "asset:NEW" + Date.now(); RECS[k] = {number:"AST-000048", title:main || "New asset", state:"REG", kind:"Vehicles", cls:"Mobil", site:"site:DC", specs:[], acquired:"17 Oct 2026", log:[{on:"17 Oct 2026", what:"Registered", by:"Nina Oktaviani"}]}; return k },
+  detail:(r, key) => {
+    const reps = rowsOf("repair", "asset", key), tasks = rowsOf("task", "asset", key), insps = rowsOf("insp", "asset", key)
+    const cons = rowsOf("contract", "covers", key), docs = rowsOf("doc", "subjects", key), claims = rowsOf("claim", "asset", key), letters = rowsOf("letter", "about", key)
+    const repl = [...rowsOf("replacement", "asset", key), ...rowsOf("replacement", "newAsset", key)], disp = rowsOf("disposal", "asset", key)
+    const open = reps.filter((x) => !["CLOSED","CANCELLED"].includes(x.state)).length
+    return [
+      figs([["Condition", r.condition || "Good", r.condition === "Broken" ? "warn" : ""],["Next care", tasks[0]?.next || "—"],["Open repairs", String(open), open ? "warn" : ""],["Next renewal", cons.map((c) => c.ends).find((e) => e && e !== "—") || "—"]]),
+      sec("Identity", null, facts([["Kind", esc(r.kind)],["Class", esc(r.cls)], ...(r.specs || []).map(([l, v]) => [l, esc(v)]),["Acquired", esc(r.acquired)],["Purchase bill", ref(r.bill)]])),
+      sec("Location & holder", null, facts([["Site", ref(r.site)],["Area", esc(r.area || "—")],["Holder", ref(r.holder)],["Since", "2 Jun 2025"]])),
+      sec("Documents", docs.length, table([{l:"Paper", cell:(x) => `<span class="nm">${esc(x.title)}</span>`},{l:"Valid until", w:150, cell:(x) => esc(x.until)}], docs, "No papers yet."), [addBtn("Attach", "doc", {subject:key})]),
+      sec("Contracts", cons.length, table([{l:"Contract", cell:(x) => two(esc(x.title), esc(x.type))},{l:"Ends", w:140, cell:(x) => esc(x.ends)},{l:"Status", w:150, cell:(x) => st(stateOf(TYPES.contract, x.state).tone, stateOf(TYPES.contract, x.state).label)}], cons, "No contract covers it."), [addBtn("Contract", "contract", {covers:key})]),
+      claims.length ? sec("Insurance claims", claims.length, table([{l:"Claim", cell:(x) => two(esc(x.title), esc(x.number))},{l:"Amount", w:150, cell:(x) => esc(x.amount)},{l:"Status", w:150, cell:(x) => st(stateOf(TYPES.claim, x.state).tone, stateOf(TYPES.claim, x.state).label)}], claims), [addBtn("Claim", "claim", {asset:key})]) : "",
+      sec("Service schedule & inspections", null, table([{l:"Task", cell:(x) => `<span class="nm">${esc(x.title)}</span>`},{l:"Every", w:120, cell:(x) => esc(x.every)},{l:"Next due", w:140, cell:(x) => esc(x.next)}], tasks, "No recurring care yet.") + `<div style="height:12px"></div>` + table([{l:"Inspected", w:140, cell:(x) => esc(x.on)},{l:"Findings", cell:(x) => esc(x.findings)},{l:"Result", w:140, cell:(x) => st(stateOf(TYPES.insp, x.state).tone, stateOf(TYPES.insp, x.state).label)}], insps, "No inspection yet."), [addBtn("Task", "task", {asset:key}), addBtn("Inspection", "insp", {asset:key})]),
+      sec("Repairs", reps.length, table([{l:"Repair", cell:(x) => two(esc(x.title), esc(x.number))},{l:"Failed on", w:130, cell:(x) => esc(x.failed)},{l:"Status", w:150, cell:(x) => st(stateOf(TYPES.repair, x.state).tone, stateOf(TYPES.repair, x.state).label)}], reps, "No repairs yet."), [addBtn("Repair", "repair", {asset:key})]),
+      sec("Replacement & disposal", repl.length + disp.length || null, table([{l:"Record", cell:(x) => two(esc(x.title), esc(x.number))},{l:"Status", w:150, cell:(x) => { const tt = tyOf(x._key); const s = stateOf(tt, x.state); return st(s.tone, s.label) }}], [...repl, ...disp], "Neither yet.")),
+      letters.length ? sec("Letters", letters.length, table([{l:"Letter", cell:(x) => two(esc(x.title), esc(x.number))},{l:"Issued", w:140, cell:(x) => esc(x.issued)}], letters)) : "",
+      logSec(r),
+    ].join("")
+  },
+})
+
+def("repair", {
+  name:"Repair", menuLabel:"Repairs", newLabel:"New repair", saveLabel:"Save repair", editable:true,
+  blurb:"for an asset, or for a place with no asset (a leaking roof in a rented shop)",
+  states:[
+    {id:"OPEN", label:"Open", tone:"warn", waits:"Waiting for a budget approver"},
+    {id:"APPROVED", label:"Approved", tone:"", waits:"Waiting for the vendor to start"},
+    {id:"IN_PROGRESS", label:"In progress", tone:"info", waits:"The vendor is on it"},
+    {id:"COMPLETED", label:"Completed", tone:"", waits:"Waiting for the bill to go to Finance"},
+    {id:"CLOSED", label:"Closed", tone:"done", end:true},
+    {id:"CANCELLED", label:"Cancelled", tone:"done", end:true, side:true},
+  ],
+  trans:[
+    {verb:"Report", from:["—"], to:"OPEN", who:"GA", effect:"From an asset, a site, or an inspection's finding", where:"hub"},
+    {verb:"Approve budget", from:["OPEN"], to:"APPROVED", tone:"primary", who:"Another GA supervisor (not the maker)", effect:"Budget, approver and time recorded together. Today a second 'Move stage' path skips the budget.", where:"hub", form:[{l:"Repair", from:"self", full:true},{l:"Approved budget", v:"Rp 900.000"},{l:"Note", k:"area", opt:true, full:true}]},
+    {verb:"Start work", from:["APPROVED"], to:"IN_PROGRESS", tone:"primary", who:"GA", where:"hub"},
+    {verb:"Complete", from:["IN_PROGRESS"], to:"COMPLETED", tone:"primary", who:"GA", effect:"Completed date set", where:"hub", form:[{l:"Repair", from:"self", full:true},{l:"Completed on", v:"17 Oct 2026"},{l:"Vendor's invoice no.", ph:"INV-…", opt:true}]},
+    {verb:"Send bill & close", from:["COMPLETED"], to:"CLOSED", tone:"primary", who:"GA", effect:"A bill request goes to Finance with this repair on every line; the actual cost is what Finance posts. Today: Send bill and Close are two separate buttons.", where:"build", form:[{l:"Repair", from:"self", full:true},{l:"Supplier", from:"self"},{l:"Invoice no.", ph:"AUTO-2610-118"},{l:"Amount", ph:"Rp 0"},{l:"Invoice", k:"file", full:true}]},
+    {verb:"Cancel", from:["OPEN","APPROVED","IN_PROGRESS"], to:"CANCELLED", tone:"red", who:"GA", effect:"Reason kept", where:"hub", form:[{l:"Repair", from:"self", full:true},{l:"Reason", k:"area", full:true}]},
+  ],
+  acts:[{verb:"Propose replacement", type:"replacement", from:["OPEN","APPROVED"], pre:"repair"}],
+  links:[
+    {to:"asset", how:"the thing repaired — optional", where:"hub"},
+    {to:"site", how:"where it broke — always", where:"hub"},
+    {to:"supplier", how:"who repairs it", where:"hub"},
+    {to:"contract", how:"the maintenance contract it falls under", where:"hub"},
+    {to:"insp", how:"the finding it came from", where:"data"},
+    {to:"task", how:"the recurring care it came from", where:"data"},
+    {to:"bill", how:"bill lines carrying this repair = its actual cost", where:"hub"},
+    {to:"replacement", how:"a replacement proposed instead", where:"data"},
+    {to:"doc", how:"quotes, photos, the vendor's report", where:"hub"},
+    {to:"claim", how:"the insurance claim that pays for it", where:"build"},
+  ],
+  form:[
+    {l:"Asset", from:"asset", k:"select", opts:["No asset — a place","Toyota Avanza 1.5 G — B 1234 ABC","AC split toko 01 — Daikin 2 PK"], full:true},
+    {l:"Site", k:"select", opts:["DC · Gudang Cibubur","Store 01 · Cikupa"]},{l:"Object", k:"select", opts:["Kendaraan","Bangunan","AC & refrigerator","Komputer","FFE & OE"]},
+    {l:"What broke", ph:"Front brake pads", full:true, main:true},
+    {l:"Vendor", k:"select", opts:["Auto2000 Cibubur","Bengkel Jaya Ban","CV Sejuk Abadi","CV Bangun Rapi"]},{l:"Failed on", v:"17 Oct 2026"},
+    {l:"Under contract", k:"select", opts:["None","Maintenance contract · Auto2000 Cibubur"], opt:true},{l:"Estimate", ph:"Rp 0", opt:true},
+    {l:"Came from", from:"insp", k:"select", opts:["Nothing","Inspection · 14 Oct 2026","Tyre and battery check"], opt:true, full:true},
+  ],
+  make:(pre, main) => { const k = "repair:NEW" + Date.now(); RECS[k] = {number:"RPR-2610-016", title:main || "New repair", state:"OPEN", asset:pre.asset || null, site:pre.asset ? RECS[pre.asset].site : "site:ST01", objek:"Kendaraan", supplier:"supplier:A2K", failed:"17 Oct 2026", estimate:"—", inspection:pre.insp || null, log:[{on:"17 Oct 2026", what:"Reported", by:"Nina Oktaviani"}]}; return k },
+  detail:(r, key) => {
+    const bills = r.bill ? [{...RECS[r.bill], _open:r.bill}] : []
+    return [
+      figs([["Failed on", esc(r.failed)],["Estimate", esc(r.estimate || "—")],["Budget", esc(r.budget || "—")],["Actual cost", bills.length ? "Rp 150.000" : "—"]]),
+      stepsSec(TYPES.repair, r),
+      sec("Details", null, facts([["Asset", r.asset ? ref(r.asset) : "No asset — a place"],["Site", ref(r.site)],["Object", esc(r.objek)],["Vendor", ref(r.supplier)],["Under contract", ref(r.contract)],["Came from", r.inspection ? ref(r.inspection) : "—"],["Approved by", esc(r.approver || "—")],["Completed", esc(r.completed || "—")]], "c2")),
+      sec("Bills", bills.length, table([{l:"Bill", cell:(x) => `<span class="nm">${esc(x.title)}</span>`},{l:"Status", w:120, cell:() => st("", "Posted")}], bills, "No bill yet. The cost is what Finance posts against this repair.")),
+      sec("Documents", null, `<div class="empty-line">Quotes, photos and the vendor's report attach here.</div>`, [addBtn("Attach", "doc", {subject:key})]),
+      logSec(r),
+    ].join("")
+  },
+})
+
+def("replacement", {
+  name:"Replacement", menuLabel:"Repairs", newLabel:"Propose replacement", saveLabel:"Propose",
+  blurb:"the answer 'do not repair it': ends with a new asset",
+  states:[
+    {id:"PROPOSED", label:"Proposed", tone:"warn", waits:"Waiting for an approver"},
+    {id:"APPROVED", label:"Approved", waits:"Waiting for the purchase"},
+    {id:"PURCHASED", label:"Purchased", tone:"info", waits:"Waiting for installation"},
+    {id:"INSTALLED", label:"Installed", waits:"Close once the bill is in"},
+    {id:"CLOSED", label:"Closed", tone:"done", end:true},
+    {id:"REJECTED", label:"Rejected", tone:"done", end:true, side:true},
+  ],
+  trans:[
+    {verb:"Propose", from:["—"], to:"PROPOSED", who:"GA", effect:"From the asset or from its repair", where:"hub"},
+    {verb:"Approve", from:["PROPOSED"], to:"APPROVED", tone:"primary", who:"Another GA supervisor", where:"hub"},
+    {verb:"Mark purchased", from:["APPROVED"], to:"PURCHASED", tone:"primary", who:"GA", effect:"Supplier and PO noted", where:"hub", form:[{l:"Replacement", from:"self", full:true},{l:"Supplier", k:"select", opts:["CV Sejuk Abadi","PT Daikin Airconditioning"]},{l:"PO or bill no.", ph:"PO-…"}]},
+    {verb:"Install", from:["PURCHASED"], to:"INSTALLED", tone:"primary", who:"GA", effect:"Old asset → Replaced; the new asset is registered (copied from the old, or picked). Today neither asset gets a history line.", where:"hub", form:[{l:"Replacement", from:"self", full:true},{l:"New asset", k:"seg", opts:["Copy the old one","Pick a registered one"], full:true},{l:"Installed on", v:"17 Oct 2026"},{l:"Serial", ph:"DKN-…"}]},
+    {verb:"Close", from:["INSTALLED"], to:"CLOSED", tone:"primary", who:"GA", where:"hub"},
+    {verb:"Reject", from:["PROPOSED"], to:"REJECTED", tone:"red", who:"Approver", effect:"Reason kept; the repair goes on", where:"build", form:[{l:"Replacement", from:"self", full:true},{l:"Reason", k:"area", full:true}]},
+  ],
+  links:[
+    {to:"asset", how:"the old asset, and the new one once installed", where:"hub"},
+    {to:"repair", how:"the repair that led here", where:"hub"},
+    {to:"supplier", how:"who sells the new one", where:"hub"},
+    {to:"bill", how:"bill lines carry the replacement — never read back today", where:"data"},
+    {to:"doc", how:"quote, handover", where:"build"},
+  ],
+  form:[{l:"Old asset", from:"asset", full:true},{l:"Related repair", from:"repair", k:"select", opts:["None","Old AC compressor dead"], full:true},{l:"Reason", k:"area", full:true, main:true},{l:"Vendor", k:"select", opts:["Not chosen yet","CV Sejuk Abadi"], opt:true},{l:"Proposed on", v:"17 Oct 2026"}],
+  make:(pre) => { const k = "replacement:NEW" + Date.now(); RECS[k] = {number:"RPL-2610-002", title:`Replace ${pre.asset ? RECS[pre.asset].title : "asset"}`, state:"PROPOSED", asset:pre.asset || (pre.repair && RECS[pre.repair].asset) || null, repair:pre.repair || null, proposed:"17 Oct 2026", reason:"—"}; return k },
+  detail:(r) => [
+    stepsSec(TYPES.replacement, r),
+    sec("Details", null, facts([["Old asset", ref(r.asset)],["New asset", ref(r.newAsset)],["From repair", ref(r.repair)],["Vendor", ref(r.supplier)],["Proposed", esc(r.proposed)],["Reason", esc(r.reason)]], "c2")),
+    logSec(r),
+  ].join(""),
+})
+
+def("disposal", {
+  name:"Disposal", menuLabel:"Assets", newLabel:"Request disposal", saveLabel:"Request",
+  blurb:"GA asks, Finance posts — one record from request to journal",
+  states:[
+    {id:"REQUESTED", label:"Requested", tone:"warn", waits:"Waiting for an approver"},
+    {id:"APPROVED", label:"Approved", waits:"Waiting for Finance to post"},
+    {id:"POSTED", label:"Disposed", tone:"done", end:true},
+    {id:"REJECTED", label:"Rejected", tone:"done", end:true, side:true},
+  ],
+  trans:[
+    {verb:"Request", from:["—"], to:"REQUESTED", who:"GA", effect:"Asset → Disposal requested", where:"hub"},
+    {verb:"Approve", from:["REQUESTED"], to:"APPROVED", tone:"primary", who:"Another GA supervisor", where:"hub"},
+    {verb:"Reject", from:["REQUESTED"], to:"REJECTED", tone:"red", who:"Approver", effect:"Asset back in use; reason shown (hidden today)", where:"hub", form:[{l:"Disposal", from:"self", full:true},{l:"Reason", k:"area", full:true}]},
+    {verb:"Post disposal", from:["APPROVED"], to:"POSTED", tone:"primary", who:"Finance", effect:"Journal (gain or loss), asset → Disposed and frozen. Today: no Close button, GA's close posts nothing, Finance's dispose is unlinked.", where:"build", form:[{l:"Disposal", from:"self", full:true},{l:"Disposed on", v:"17 Oct 2026"},{l:"Proceeds", ph:"Rp 0"}]},
+  ],
+  links:[{to:"asset", how:"the asset leaving", where:"hub"},{to:"bill", how:"the journal Finance posts", where:"build"},{to:"doc", how:"berita acara, buyer's receipt", where:"build"}],
+  form:[{l:"Asset", from:"asset", full:true},{l:"Method", k:"seg", opts:["Sold","Scrapped","Donated","Lost"], full:true},{l:"Proceeds", ph:"Rp 0", opt:true},{l:"Requested on", v:"17 Oct 2026"},{l:"Reason", k:"area", full:true, main:true}],
+  make:(pre) => { const k = "disposal:NEW" + Date.now(); RECS[k] = {number:"DSP-2610-002", title:`Dispose: ${pre.asset ? RECS[pre.asset].title : "asset"}`, state:"REQUESTED", asset:pre.asset || null, method:"Scrap", requested:"17 Oct 2026", reason:"—"}; if (pre.asset) RECS[pre.asset].state = "DISP_REQ"; return k },
+  detail:(r) => [stepsSec(TYPES.disposal, r), sec("Details", null, facts([["Asset", ref(r.asset)],["Method", esc(r.method)],["Proceeds", esc(r.proceeds || "—")],["Requested", esc(r.requested)],["Reason", esc(r.reason)]], "c2")), logSec(r)].join(""),
+})
+
+def("task", {
+  name:"Recurring task", menuLabel:"Service Schedule", newLabel:"New task", saveLabel:"Save task", editable:true,
+  blurb:"for one asset or one place (\"AC cleaning, 13 stores\")",
+  states:[{id:"ACTIVE", label:"Active", waits:"Due on its next date"},{id:"PAUSED", label:"Paused", tone:"done", side:true}],
+  trans:[
+    {verb:"Schedule", from:["—"], to:"ACTIVE", who:"GA", where:"hub"},
+    {verb:"Record done", from:["ACTIVE"], to:"ACTIVE", self:true, tone:"primary", who:"GA or the vendor's visit", effect:"An asset task records an inspection and moves the next date; a place task only moves the date today (no record kept).", where:"hub", form:[{l:"Task", from:"self", full:true},{l:"Done on", v:"17 Oct 2026"},{l:"By", ph:"Name or vendor"},{l:"Result", k:"seg", opts:["Good","Attention","Broken"], full:true},{l:"Findings", k:"area", full:true},{k:"switch", l:"Make a repair from this finding"}]},
+    {verb:"Pause", from:["ACTIVE"], to:"PAUSED", who:"GA", where:"data"},
+    {verb:"Resume", from:["PAUSED"], to:"ACTIVE", tone:"primary", who:"GA", where:"data"},
+  ],
+  links:[{to:"asset", how:"the thing cared for — or…", where:"hub"},{to:"site", how:"…the place (exactly one of the two)", where:"hub"},{to:"contract", how:"the maintenance contract behind it — form always sends none today", where:"data"},{to:"supplier", how:"who does it", where:"hub"},{to:"insp", how:"each visit's inspection", where:"hub"},{to:"repair", how:"repairs it led to", where:"data"}],
+  form:[{l:"For", k:"seg", opts:["One asset","One place"], full:true},{l:"Asset", from:"asset", k:"select", opts:["Toyota Avanza 1.5 G — B 1234 ABC","AC split toko 01 — Daikin 2 PK"], full:true},{l:"Task", ph:"Periodic service", full:true, main:true},{l:"Every", ph:"3"},{l:"Unit", k:"select", opts:["Months","Days","Km"]},{l:"Next due", v:"17 Jan 2027", opt:true},{l:"Vendor", k:"select", opts:["Auto2000 Cibubur","CV Sejuk Abadi"], opt:true},{l:"Under contract", k:"select", opts:["None","AC maintenance · CV Sejuk Abadi"], opt:true, full:true}],
+  make:(pre, main) => { const k = "task:NEW" + Date.now(); RECS[k] = {number:"TSK-0010", title:main || "New task", state:"ACTIVE", asset:pre.asset || null, site:pre.site || null, every:"3 months", next:"17 Jan 2027"}; return k },
+  detail:(r, key) => {
+    const insps = rowsOf("insp", "task", key)
+    return [figs([["Every", esc(r.every)],["Next due", esc(r.next)],["Last done", insps[0]?.on || "—"]]),
+      sec("Details", null, facts([["For", r.asset ? ref(r.asset) : ref(r.site)],["Vendor", ref(r.supplier)],["By", ref(r.by)],["Under contract", ref(r.contract)]], "c2")),
+      sec("Visits", insps.length, table([{l:"Done on", w:140, cell:(x) => esc(x.on)},{l:"Findings", cell:(x) => esc(x.findings)},{l:"Result", w:140, cell:(x) => st(stateOf(TYPES.insp, x.state).tone, stateOf(TYPES.insp, x.state).label)}], insps, "Not done yet.")),
+      logSec(r)].join("")
+  },
+})
+
+def("insp", {
+  name:"Inspection", menuLabel:"Service Schedule", newLabel:"New inspection", saveLabel:"Save inspection",
+  blurb:"a result, not a stage: written once, never edited",
+  states:[{id:"GOOD", label:"Good", end:true},{id:"ATTENTION", label:"Attention", tone:"warn", end:true},{id:"BROKEN", label:"Broken", tone:"bad", end:true}],
+  trans:[
+    {verb:"Record · Good", from:["—"], to:"GOOD", who:"GA, store head, driver", effect:"Moves its task's next date", where:"hub"},
+    {verb:"Record · Attention", from:["—"], to:"ATTENTION", who:"GA, store head, driver", effect:"Switch on: a repair is made with the finding (two saves today, not one)", where:"hub"},
+    {verb:"Record · Broken", from:["—"], to:"BROKEN", who:"GA, store head, driver", effect:"Same; should also set the asset's condition to Broken (it doesn't today)", where:"build"},
+  ],
+  acts:[{verb:"Make a repair", type:"repair", from:["ATTENTION","BROKEN"], pre:"insp", tone:"primary"}],
+  links:[{to:"asset", how:"what was inspected", where:"hub"},{to:"task", how:"the visit of a recurring task", where:"hub"},{to:"repair", how:"the repair the finding became", where:"data"},{to:"person", how:"who inspected — free text today", where:"build"}],
+  form:[{l:"Asset", from:"asset", k:"select", opts:["Toyota Avanza 1.5 G — B 1234 ABC","AC split toko 01 — Daikin 2 PK"], full:true},{l:"Inspected on", v:"17 Oct 2026"},{l:"By", ph:"Name"},{l:"Result", k:"seg", opts:["Good","Attention","Broken"], full:true},{l:"Findings", k:"area", full:true},{k:"switch", l:"Make a repair from this finding"}],
+  make:(pre) => { const k = "insp:NEW" + Date.now(); RECS[k] = {number:"INS-1710", title:"Inspection · 17 Oct 2026", state:"GOOD", asset:pre.asset || null, on:"17 Oct 2026", findings:"—", by:null}; return k },
+  detail:(r) => [sec("Details", null, facts([["Asset", ref(r.asset)],["Site", ref(r.site)],["Inspected by", ref(r.by)],["On", esc(r.on)],["Findings", esc(r.findings)],["Task", ref(r.task)],["Repair made", ref(r.repair)]], "c2")), logSec(r)].join(""),
+})
+
+// ================= record types: deals, supplies, places, parties, papers =================
+const CGROUPS = [
+  {id:"SEWA", label:"Lease · we rent", types:["Sewa tanah","Sewa toko/gudang/kantor","Sewa rumah/mess","Sewa kendaraan"], asks:"Landlord · the site (a shop lease may cover all stores) · value · period · signed by", sample:"contract:LEASE-ST01"},
+  {id:"JASA", label:"Service", types:["Kontrak maintenance","Cleaning"], asks:"Vendor · object (AC, genset, lift…) · site or all stores · the assets it maintains (to build)", sample:"contract:MNT-AC"},
+  {id:"ASURANSI", label:"Insurance", types:["Asuransi properti","Asuransi kendaraan"], asks:"Insurer · policy no. · sum insured · deductible · the assets it covers (to build) · claims", sample:"contract:INS-AVZ"},
+  {id:"IZIN", label:"Permit & tax", types:["Izin usaha","STNK / KIR","PBB","Pajak reklame"], asks:"Issuing office · number · valid until · the vehicle (STNK/KIR) or the site (PBB, reklame)", sample:"contract:STNK-AVZ"},
+  {id:"LANGGANAN", label:"Utility", types:["Listrik","Air","Telepon / internet"], asks:"Provider · customer no. · the site · a meter reading each month · recurring bill", sample:"contract:PLN-ST01"},
+  {id:"DISEWAKAN", label:"Let out · we earn", types:["Sewa ruang/gedung","Sewa peralatan"], asks:"Tenant (free text, not a supplier) · the space or equipment · rent we invoice", sample:"contract:OUT-ST01"},
+]
+
+def("contract", {
+  name:"Contract", menuLabel:"Contracts", newLabel:"New contract", saveLabel:"Save contract", wide:true, editable:true,
+  blurb:"one record for every deal with a window: 6 groups, 17 types",
+  groups:CGROUPS,
+  states:[
+    {id:"DRAFT", label:"Draft", tone:"warn", waits:"Waiting for signature"},
+    {id:"ACTIVE", label:"Active", waits:"Runs until its reminder window"},
+    {id:"EXPIRING", label:"Due for renewal", tone:"warn", waits:"Inside its reminder days: renew or let it end"},
+    {id:"EXPIRED", label:"Expired", tone:"bad", waits:"Past its end date: decide"},
+    {id:"ENDED", label:"Ended", tone:"done", end:true},
+    {id:"TERMINATED", label:"Terminated", tone:"done", end:true, side:true},
+  ],
+  trans:[
+    {verb:"Record", from:["—"], to:"DRAFT", who:"GA", where:"hub"},
+    {verb:"Activate", from:["DRAFT"], to:"ACTIVE", tone:"primary", who:"GA, once signed", effect:"Reminders start. Today there is no button, so contracts made in the hub stay Draft and never remind anyone.", where:"data", form:[{l:"Contract", from:"self", full:true},{l:"Signed by", ph:"Hendra Wijaya"},{l:"Signed on", v:"17 Oct 2026"},{l:"Signed copy", k:"file", full:true}]},
+    {verb:"Reminder window", from:["ACTIVE"], to:"EXPIRING", who:"The system, daily", effect:"Admin notified; on the GA overview", where:"hub"},
+    {verb:"End date passes", from:["EXPIRING"], to:"EXPIRED", who:"The system", where:"hub"},
+    {verb:"Renew", from:["EXPIRING","EXPIRED"], to:"ENDED", tone:"primary", who:"GA", effect:"Ends as Renewed; a new Draft contract starts with this one as its previous", where:"build", form:[{l:"Contract", from:"self", full:true},{l:"New start", v:"1 Jan 2027"},{l:"New end", v:"31 Dec 2027"},{l:"New value", ph:"Rp 0"},{l:"Paper no.", ph:"", opt:true}], make:(r, key) => { const k = key + "-R"; RECS[k] = {...r, number:r.number + "-R", state:"DRAFT", starts:"1 Jan 2027", ends:"31 Dec 2027", previous:key, log:[]}; r.howEnded = "Renewed"; r.next = k }},
+    {verb:"Let it end", from:["EXPIRING","EXPIRED"], to:"ENDED", who:"GA", effect:"Ends as Not renewed (today: End contract archives it)", where:"hub", form:[{l:"Contract", from:"self", full:true},{l:"Reason", k:"area", full:true}], make:(r) => { r.howEnded = "Not renewed" }},
+    {verb:"Terminate", from:["ACTIVE","EXPIRING"], to:"TERMINATED", tone:"red", who:"GA approver", effect:"Stopped before its end; reason and date kept. Server can, hub can't today.", where:"data", form:[{l:"Contract", from:"self", full:true},{l:"Terminated on", v:"17 Oct 2026"},{l:"Reason", k:"area", full:true}]},
+  ],
+  acts:[
+    {verb:"New claim", type:"claim", from:["ACTIVE","EXPIRING"], pre:"policy", groups:["ASURANSI"]},
+    {verb:"Record reading", type:"reading", from:["ACTIVE","EXPIRING"], pre:"contract", groups:["LANGGANAN"]},
+    {verb:"Send bill to Finance", type:"billreq", from:["ACTIVE","EXPIRING","EXPIRED"], pre:"contract", groups:["SEWA","JASA","ASURANSI","IZIN","LANGGANAN"]},
+  ],
+  links:[
+    {to:"supplier", how:"landlord, vendor, insurer, issuing office — or a free-text tenant when we let out", where:"hub"},
+    {to:"site", how:"one site, or all stores / all sites", where:"hub"},
+    {to:"asset", how:"what it covers — one asset in the data, never set by the form; a policy over many assets needs a list", where:"build"},
+    {to:"bill", how:"bill lines and recurring bill templates = billed and remaining", where:"hub"},
+    {to:"repair", how:"repairs done under it", where:"data"},
+    {to:"task", how:"the recurring care it pays for", where:"data"},
+    {to:"doc", how:"the signed agreement, the policy, the permit", where:"hub"},
+    {to:"claim", how:"insurance claims under a policy", where:"build"},
+    {to:"letter", how:"power of attorney for a renewal", where:"build"},
+    {to:"contract", how:"previous / next when renewed", where:"build"},
+  ],
+  form:[
+    {l:"Group", k:"select", opts:CGROUPS.map((g) => g.label)},{l:"Type", k:"select", opts:["Asuransi kendaraan","Asuransi properti"]},
+    {l:"Covers", k:"chips", from:"covers", add:"Add asset", full:true},
+    {l:"Insurer", k:"select", opts:["Asuransi Astra","Sinar Mas"]},{l:"Policy no.", ph:"01-GO-26-…", main:true},
+    {l:"Starts", v:"1 Jan 2027"},{l:"Ends", v:"31 Dec 2027"},
+    {l:"Sum insured", ph:"Rp 0"},{l:"Deductible", ph:"Rp 300.000"},
+    {l:"Premium", ph:"Rp 0"},{l:"Remind", v:"60 days before"},
+  ],
+  formWide:false,
+  make:(pre, main) => { const k = "contract:NEW" + Date.now(); RECS[k] = {number:main || "01-GO-27-000001", title:"Vehicle insurance · Asuransi Astra", state:"DRAFT", group:"ASURANSI", type:"Asuransi kendaraan", party:"supplier:ASTRA", covers:pre.covers ? [pre.covers] : [], starts:"1 Jan 2027", ends:"31 Dec 2027", value:"Rp 6.400.000 / year", reminder:"60 days", log:[{on:"17 Oct 2026", what:"Recorded", by:"Nina Oktaviani"}]}; return k },
+  detail:(r, key) => {
+    const g = CGROUPS.find((x) => x.id === r.group)
+    const reps = rowsOf("repair", "contract", key), tasks = rowsOf("task", "contract", key), claims = rowsOf("claim", "policy", key), docs = rowsOf("doc", "subjects", key), letters = rowsOf("letter", "about", key)
+    const covers = (r.covers || []).map((k) => ({...RECS[k], _open:k}))
+    const scopeLine = r.scope ? `${esc(r.scope)} · ${r.group === "JASA" ? "13 ACs" : ""}` : ref(r.site)
+    const groupFacts = {
+      ASURANSI:[["Policy no.", esc(r.number)],["Sum insured","Rp 240.000.000"],["Deductible","Rp 300.000"],["Premium", esc(r.value)]],
+      IZIN:[["Number", esc(r.number)],["Valid until", esc(r.ends)],["For", r.covers?.length ? ref(r.covers[0]) : ref(r.site)]],
+      LANGGANAN:[["Customer no.", esc(r.customer || r.number)],["Last reading","3.412 kWh · Sep 2026"]],
+      JASA:[["Object", esc(r.objek || "—")],["Visits","Every 3 months"]],
+      SEWA:[["Rent", esc(r.value)],["Deposit","Rp 15.000.000"]],
+      DISEWAKAN:[["Rent we invoice", esc(r.value)],["How it ended", esc(r.howEnded || "—")]],
+    }[r.group] || []
+    return [
+      figs([["Ends", esc(r.ends), r.state === "EXPIRING" ? "warn" : ""],["Remind", esc(r.reminder || "—")],["Value", esc(r.value)],["Billed", r.bills?.length ? "Rp 6.200.000" : "—"]]),
+      sec("Details", null, facts([["Group", esc(g?.label)],["Type", esc(r.type)],[r.group === "DISEWAKAN" ? "Tenant" : r.group === "ASURANSI" ? "Insurer" : r.group === "IZIN" ? "Issued by" : "With", ref(r.party)],["Covers", covers.length ? refs(r.covers) : scopeLine],["Starts", esc(r.starts)],["Ends", esc(r.ends)],["Signed by", esc(r.signed || "—")],["Previous", ref(r.previous)], ...groupFacts], "")),
+      covers.length || r.group === "ASURANSI" || r.group === "JASA" ? sec("Covers", covers.length || null, table([{l:"Asset", cell:(x) => two(esc(x.title), esc(x.number))},{l:"Site", w:200, cell:(x) => ref(x.site)}], covers, r.scope ? `${r.scope}: every asset of its object at those sites.` : "No asset linked."), [addBtn("Add asset", "asset", {})]) : "",
+      r.group === "ASURANSI" ? sec("Claims", claims.length, table([{l:"Claim", cell:(x) => two(esc(x.title), esc(x.number))},{l:"Amount", w:150, cell:(x) => esc(x.amount)},{l:"Status", w:150, cell:(x) => st(stateOf(TYPES.claim, x.state).tone, stateOf(TYPES.claim, x.state).label)}], claims, "No claims under this policy."), [addBtn("Claim", "claim", {policy:key})]) : "",
+      r.group === "JASA" ? sec("Work under it", reps.length + tasks.length || null, table([{l:"Record", cell:(x) => two(esc(x.title), esc(x.number))},{l:"Status", w:150, cell:(x) => { const s = stateOf(tyOf(x._key), x.state); return st(s.tone, s.label) }}], [...tasks, ...reps], "Nothing under it yet.")) : "",
+      r.group === "LANGGANAN" ? sec("Meter readings", 3, table([{l:"Month", w:160, cell:(x) => esc(x.m)},{l:"Reading", cell:(x) => esc(x.v)},{l:"Bill", w:160, cell:(x) => esc(x.b)}], [{m:"Sep 2026", v:"3.412 kWh", b:"Rp 5.120.000"},{m:"Aug 2026", v:"3.380 kWh", b:"Rp 5.070.000"},{m:"Jul 2026", v:"3.297 kWh", b:"Rp 4.945.000"}]), [addBtn("Reading", "reading", {contract:key})]) : "",
+      sec("Bills", (r.bills || []).length || null, table([{l:"Bill", cell:(x) => `<span class="nm">${esc(x.title)}</span>`},{l:"Status", w:120, cell:() => st("", "Posted")}], (r.bills || []).map((b) => ({...RECS[b], _open:b})), "No bill yet.")),
+      sec("Documents", docs.length, table([{l:"Paper", cell:(x) => `<span class="nm">${esc(x.title)}</span>`},{l:"Valid until", w:150, cell:(x) => esc(x.until)}], docs, "No papers yet."), [addBtn("Attach", "doc", {subject:key})]),
+      letters.length ? sec("Letters", letters.length, table([{l:"Letter", cell:(x) => two(esc(x.title), esc(x.number))},{l:"Issued", w:140, cell:(x) => esc(x.issued)}], letters)) : "",
+      r.next ? sec("Renewed as", null, `<div class="docs-list"><div class="dl" data-open="${r.next}"><span>${esc(RECS[r.next].number)}</span><span class="w">${esc(RECS[r.next].starts)} – ${esc(RECS[r.next].ends)}</span></div></div>`) : "",
+      logSec(r),
+    ].join("")
+  },
+})
+
+def("claim", {
+  name:"Insurance claim", isNew:true, menuLabel:"Contracts", newLabel:"New claim", saveLabel:"Save claim",
+  blurb:"damage to an insured asset, paid under its policy",
+  states:[
+    {id:"DRAFT", label:"Draft", tone:"warn", waits:"Photos and police report to attach"},
+    {id:"SUBMITTED", label:"Submitted", tone:"info", waits:"Waiting for the insurer's survey"},
+    {id:"SURVEYED", label:"Surveyed", waits:"Waiting for the insurer's decision"},
+    {id:"APPROVED", label:"Approved", waits:"Repair at the insurer's workshop; then payment"},
+    {id:"PAID", label:"Paid", tone:"done", end:true},
+    {id:"REJECTED", label:"Rejected", tone:"done", end:true, side:true},
+  ],
+  trans:[
+    {verb:"Report", from:["—"], to:"DRAFT", who:"GA or the holder", effect:"From the asset or the policy", where:"build"},
+    {verb:"Submit to insurer", from:["DRAFT"], to:"SUBMITTED", tone:"primary", who:"GA", effect:"Claim no. from the insurer kept", where:"build", form:[{l:"Claim", from:"self", full:true},{l:"Insurer's claim no.", ph:"CLM-…"},{l:"Submitted on", v:"17 Oct 2026"}]},
+    {verb:"Survey done", from:["SUBMITTED"], to:"SURVEYED", tone:"primary", who:"GA", where:"build", form:[{l:"Claim", from:"self", full:true},{l:"Surveyed on", v:"17 Oct 2026"},{l:"Surveyor", ph:"Name"}]},
+    {verb:"Approved", from:["SURVEYED"], to:"APPROVED", tone:"primary", who:"GA, from the insurer's letter", effect:"Approved amount and deductible; a repair is opened at the named workshop", where:"build", form:[{l:"Claim", from:"self", full:true},{l:"Approved amount", ph:"Rp 2.450.000"},{l:"Deductible we pay", v:"Rp 300.000"},{k:"switch", l:"Open a repair at the insurer's workshop"}]},
+    {verb:"Paid", from:["APPROVED"], to:"PAID", tone:"primary", who:"Finance", effect:"The insurer's payment received; the deductible billed to us", where:"build"},
+    {verb:"Rejected", from:["SUBMITTED","SURVEYED"], to:"REJECTED", tone:"red", who:"GA, from the insurer's letter", where:"build", form:[{l:"Claim", from:"self", full:true},{l:"Reason", k:"area", full:true}]},
+  ],
+  links:[{to:"contract", how:"the policy it claims under", where:"build"},{to:"asset", how:"the damaged asset", where:"build"},{to:"repair", how:"the repair it pays for", where:"build"},{to:"doc", how:"photos, police report, survey letter", where:"build"},{to:"bill", how:"payment received; deductible paid", where:"build"}],
+  form:[{l:"Policy", from:"policy", k:"select", opts:["Vehicle insurance · Asuransi Astra"], full:true},{l:"Asset", from:"asset", k:"select", opts:["Toyota Avanza 1.5 G — B 1234 ABC"], full:true},{l:"What happened", ph:"Rear bumper dent in the DC yard", full:true, main:true},{l:"Incident on", v:"9 Oct 2026"},{l:"Estimated loss", ph:"Rp 0"},{l:"Photos", k:"file", full:true}],
+  make:(pre, main) => { const k = "claim:NEW" + Date.now(); RECS[k] = {number:"CLM-2610-002", title:`Claim · ${main || "new"}`, state:"DRAFT", policy:pre.policy || "contract:INS-AVZ", asset:pre.asset || "asset:AVZ", incident:"9 Oct 2026", amount:"—", deductible:"Rp 300.000"}; return k },
+  detail:(r) => [figs([["Incident", esc(r.incident)],["Claimed", esc(r.amount)],["Deductible", esc(r.deductible)]]), stepsSec(TYPES.claim, r), sec("Details", null, facts([["Policy", ref(r.policy)],["Asset", ref(r.asset)],["Repair", ref(r.repair)]], "c2")), sec("Documents", null, `<div class="empty-line">Photos, police report and the survey letter attach here.</div>`, [addBtn("Attach", "doc", {})]), logSec(r)].join(""),
+})
+
+def("supply", {
+  name:"Supply request", menuLabel:"Supply Requests", newLabel:"New supply request", saveLabel:"Request supplies",
+  blurb:"consumables for a site: bags, cleaning, office",
+  states:[
+    {id:"REQUESTED", label:"Requested", tone:"warn", waits:"Waiting for GA to approve"},
+    {id:"APPROVED", label:"Approved", waits:"Waiting for Procurement"},
+    {id:"PROCUREMENT", label:"With Procurement", tone:"info", waits:"Ordered; waiting for delivery"},
+    {id:"RECEIVED", label:"Received", waits:"Waiting for the bill"},
+    {id:"BILLED", label:"Billed", tone:"done", end:true},
+    {id:"REJECTED", label:"Rejected", tone:"done", end:true, side:true},
+  ],
+  trans:[
+    {verb:"Request", from:["—"], to:"REQUESTED", who:"Store head or GA", where:"hub"},
+    {verb:"Approve", from:["REQUESTED"], to:"APPROVED", tone:"primary", who:"GA (should not be the requester — not checked today)", where:"hub"},
+    {verb:"Reject", from:["REQUESTED"], to:"REJECTED", tone:"red", who:"GA", effect:"Reason required", where:"hub", form:[{l:"Request", from:"self", full:true},{l:"Reason", k:"area", full:true}]},
+    {verb:"Add PO number", from:["APPROVED"], to:"PROCUREMENT", tone:"primary", who:"Procurement or GA", effect:"PO kept as text, not a link", where:"hub", form:[{l:"Request", from:"self", full:true},{l:"PO number", ph:"PO-161026-021"}]},
+    {verb:"Mark received", from:["PROCUREMENT"], to:"RECEIVED", tone:"primary", who:"Store", where:"hub"},
+    {verb:"Send bill to Finance", from:["RECEIVED"], to:"BILLED", tone:"primary", who:"GA", effect:"One step: bill request and Billed (today two separate buttons)", where:"build", form:[{l:"Request", from:"self", full:true},{l:"Supplier", ph:"CV Plastik Jaya"},{l:"Invoice no.", ph:""},{l:"Amount", ph:"Rp 0"}]},
+  ],
+  links:[{to:"site", how:"where it is needed", where:"hub"},{to:"po", how:"the purchase order — a text number today", where:"data"},{to:"bill", how:"bill lines carrying this request", where:"hub"},{to:"person", how:"requested by — free text", where:"build"},{to:"doc", how:"quotes, delivery note — record kind mismatch breaks Activity today", where:"build"}],
+  form:[{l:"Item", ph:"Shopping bags, large", full:true, main:true},{l:"Quantity", ph:"1.000"},{l:"Unit", k:"select", opts:["pcs","pack","box","roll"]},{l:"Needed by", v:"24 Oct 2026"},{l:"Category", k:"select", opts:["Store supplies","Cleaning","Office","Packaging"]},{l:"Location", k:"select", opts:["Store 01 · Cikupa","DC · Gudang Cibubur"]},{l:"Estimate", ph:"Rp 0", opt:true},{l:"Notes", k:"area", opt:true, full:true}],
+  make:(pre, main) => { const k = "supply:NEW" + Date.now(); RECS[k] = {number:"SR-171026-001", title:main || "New request", state:"REQUESTED", site:"site:ST01", qty:"—", needed:"24 Oct 2026", estimate:"—", by:"person:DIAN", category:"Store supplies"}; return k },
+  detail:(r) => [figs([["Quantity", esc(r.qty)],["Needed by", esc(r.needed)],["Estimate", esc(r.estimate)]]), stepsSec(TYPES.supply, r), sec("Details", null, facts([["Category", esc(r.category)],["Location", ref(r.site)],["Requested by", ref(r.by)],["PO number", esc(r.po || "—")]], "c2")), logSec(r)].join(""),
+})
+
+def("site", {
+  name:"Site", menuLabel:"Sites", wide:true, editable:true,
+  blurb:"GA's card of a place; the site itself is made in Setup › Add store",
+  states:[{id:"MISSING", label:"Details missing", tone:"warn", waits:"Address, contact and floor area to fill"},{id:"COMPLETE", label:"Complete"}],
+  trans:[{verb:"Complete details", from:["MISSING"], to:"COMPLETE", tone:"primary", who:"GA", effect:"Writes GA's half only; name and code stay with Setup", where:"hub", form:[{l:"Site", from:"self", full:true},{l:"Address", full:true},{l:"Contact", ph:"Name"},{l:"Phone", ph:""},{l:"Floor area", ph:"180 m²"},{l:"Building", ph:"Ruko"}]}],
+  links:[{to:"asset", how:"what stands there", where:"hub"},{to:"contract", how:"its lease, utilities, permits — plus all-stores contracts", where:"hub"},{to:"repair", how:"repairs there, with or without an asset", where:"hub"},{to:"task", how:"care scheduled there", where:"hub"},{to:"supply", how:"supplies requested", where:"hub"},{to:"bill", how:"this month's bills there", where:"hub"},{to:"doc", how:"floor plan, IMB, photos", where:"build"}],
+  detail:(r, key) => {
+    const assets = rowsOf("asset", "site", key).filter((a) => a.state !== "REPLACED"), cons = rowsOf("contract", "site", key).concat(key === "site:ST01" ? [{...RECS["contract:MNT-AC"], _key:"contract:MNT-AC", _open:"contract:MNT-AC"}] : [])
+    const reps = rowsOf("repair", "site", key), tasks = rowsOf("task", "site", key).concat(key === "site:ST01" ? [{...RECS["task:T3"], _key:"task:T3", _open:"task:T3"}] : []), sups = rowsOf("supply", "site", key)
+    const stc = (x) => { const s = stateOf(tyOf(x._key), x.state); return st(s.tone, s.label) }
+    return [
+      sec("Details", null, facts([["Kind", esc(r.kind)],["Address", esc(r.address || "—")],["Contact", esc(r.contact || "—")],["Floor area", esc(r.area || "—")]])),
+      sec("Assets", assets.length, table([{l:"Asset", cell:(x) => two(esc(x.title), esc(x.number))},{l:"Kind", w:180, cell:(x) => esc(x.kind)},{l:"Status", w:180, cell:stc}], assets, "No assets here."), [addBtn("Asset", "asset", {})]),
+      sec("Contracts", cons.length, table([{l:"Contract", cell:(x) => two(esc(x.title), esc(x.type))},{l:"Ends", w:140, cell:(x) => esc(x.ends)},{l:"Status", w:180, cell:stc}], cons, "No contracts."), [addBtn("Contract", "contract", {})]),
+      sec("Repairs", reps.length, table([{l:"Repair", cell:(x) => two(esc(x.title), x.asset ? esc(RECS[x.asset].title) : "No asset")},{l:"Status", w:180, cell:stc}], reps, "No repairs."), [addBtn("Repair", "repair", {})]),
+      sec("Schedule", tasks.length, table([{l:"Task", cell:(x) => `<span class="nm">${esc(x.title)}</span>`},{l:"Next due", w:140, cell:(x) => esc(x.next)},{l:"Status", w:180, cell:stc}], tasks, "Nothing scheduled.")),
+      sec("Supply requests", sups.length, table([{l:"Item", cell:(x) => two(esc(x.title), esc(x.qty))},{l:"Status", w:180, cell:stc}], sups, "No requests.")),
+      logSec(r),
+    ].join("")
+  },
+})
+
+def("supplier", {
+  name:"Supplier", menuLabel:"Suppliers", editable:true,
+  blurb:"GA's operating vendors: workshops, insurers, offices, utilities",
+  states:[{id:"ACTIVE", label:"Active"},{id:"INACTIVE", label:"Inactive", tone:"done", side:true}],
+  trans:[{verb:"Add", from:["—"], to:"ACTIVE", who:"Procurement or Finance (GA reads only today)", where:"hub"},{verb:"Deactivate", from:["ACTIVE"], to:"INACTIVE", tone:"red", who:"Procurement or Finance", where:"hub"},{verb:"Activate", from:["INACTIVE"], to:"ACTIVE", tone:"primary", who:"Procurement or Finance", where:"hub"}],
+  links:[{to:"contract", how:"its contracts with us", where:"data"},{to:"repair", how:"repairs it did", where:"data"},{to:"task", how:"care it does", where:"data"},{to:"bill", how:"its bills", where:"hub"}],
+  detail:(r, key) => {
+    const cons = rowsOf("contract", "party", key), reps = rowsOf("repair", "supplier", key), tasks = rowsOf("task", "supplier", key)
+    const stc = (x) => { const s = stateOf(tyOf(x._key), x.state); return st(s.tone, s.label) }
+    return [sec("Details", null, facts([["Category", esc(r.category)],["Phone", esc(r.phone || "—")]], "c2")),
+      sec("Contracts", cons.length, table([{l:"Contract", cell:(x) => two(esc(x.title), esc(x.type))},{l:"Status", w:150, cell:stc}], cons, "No contracts.")),
+      sec("Repairs & care", reps.length + tasks.length || null, table([{l:"Record", cell:(x) => two(esc(x.title), esc(x.number))},{l:"Status", w:150, cell:stc}], [...reps, ...tasks], "Nothing yet.")), logSec(r)].join("")
+  },
+})
+
+def("letter", {
+  name:"Letter", menuLabel:"Letters", newLabel:"New letter", saveLabel:"Save draft",
+  blurb:"10 forms GA writes (BAST, Surat kuasa, Surat tugas…) plus letters other flows print",
+  states:[{id:"DRAFT", label:"Draft", tone:"warn", waits:"Edit freely; nothing is numbered"},{id:"ISSUED", label:"Issued", waits:"Numbered in its series; printable"},{id:"VOID", label:"Void", tone:"done", end:true},{id:"DISCARDED", label:"Discarded", tone:"done", end:true, side:true}],
+  trans:[{verb:"Write", from:["—"], to:"DRAFT", who:"GA, People", where:"hub"},{verb:"Issue", from:["DRAFT"], to:"ISSUED", tone:"primary", who:"GA, People", effect:"Number taken from the form's series", where:"hub"},{verb:"Void", from:["ISSUED"], to:"VOID", tone:"red", who:"GA, People", effect:"Reason required; the number stays used", where:"hub", form:[{l:"Letter", from:"self", full:true},{l:"Reason", k:"area", full:true}]},{verb:"Discard", from:["DRAFT"], to:"DISCARDED", tone:"red", who:"GA, People", effect:"Deleted", where:"hub"}],
+  links:[{to:"person", how:"addressed to — free text today", where:"build"},{to:"asset", how:"what it is about (BAST of a laptop, STNK power of attorney)", where:"build"},{to:"contract", how:"the renewal it authorises", where:"build"}],
+  form:[{l:"Form", k:"select", opts:["Surat kuasa (SKP)","BAST","Surat tugas","Surat keterangan"], full:true},{l:"To", ph:"Yusuf Ramadhan", main:true},{l:"About", from:"subject", k:"select", opts:["Toyota Avanza 1.5 G — B 1234 ABC","Nothing"]},{l:"Purpose", k:"area", full:true, ph:"Renew the STNK at Samsat Jakarta Timur"}],
+  make:(pre, main) => { const k = "letter:NEW" + Date.now(); RECS[k] = {number:"(draft)", title:`Surat kuasa · ${main || "new"}`, state:"DRAFT", form:"Surat kuasa", about:pre.subject ? [pre.subject] : [], issued:"—"}; return k },
+  detail:(r) => [sec("Details", null, facts([["Form", esc(r.form)],["To", ref(r.to)],["About", refs(r.about)],["Issued", esc(r.issued)],["Signed by", esc(r.signer || "—")]], "c2")), sec("Paper", null, `<div class="drop" style="height:240px">${ico(P.file)} The letter as printed</div>`), logSec(r)].join(""),
+})
+
+def("doc", {
+  name:"Document", menuLabel:"Files", newLabel:"Attach a paper", saveLabel:"Attach",
+  blurb:"one file, linked to any number of records; its date drives the reminders",
+  states:[{id:"VALID", label:"Valid"},{id:"EXPIRING", label:"Expiring", tone:"warn", waits:"Within 90 days of its date"},{id:"EXPIRED", label:"Expired", tone:"bad", end:true}],
+  trans:[{verb:"Attach", from:["—"], to:"VALID", who:"Anyone who sees the record", where:"hub"},{verb:"90 days before", from:["VALID"], to:"EXPIRING", who:"The system", effect:"On the GA overview", where:"hub"},{verb:"Date passes", from:["EXPIRING"], to:"EXPIRED", who:"The system", where:"hub"},{verb:"Replace with new copy", from:["EXPIRING","EXPIRED"], to:"VALID", tone:"primary", who:"GA", effect:"New file, same links (no re-link today)", where:"build", form:[{l:"Paper", from:"self", full:true},{l:"New file", k:"file", full:true},{l:"Valid until", v:"12 Mar 2033"}]}],
+  acts:[{verb:"Lend original", type:"loan", from:["VALID","EXPIRING"], pre:"doc"}],
+  links:[{to:"asset", how:"BPKB, STNK, warranty", where:"hub"},{to:"contract", how:"agreement, policy, permit", where:"hub"},{to:"site", how:"IMB, floor plan", where:"build"},{to:"repair", how:"quote, report", where:"hub"},{to:"supply", how:"quote, delivery note", where:"build"},{to:"claim", how:"photos, police report", where:"build"},{to:"loan", how:"original lent out (BPKB)", where:"build"}],
+  form:[{l:"Linked to", k:"chips", from:"subject", add:"Link a record", full:true},{l:"File", k:"file", full:true},{l:"Paper", k:"select", opts:["STNK","BPKB","Insurance policy","Agreement","Warranty card","Photo","Other"]},{l:"Number", ph:"", main:true},{l:"Issued by", ph:"Samsat Jakarta Timur", opt:true},{l:"Valid until", ph:"empty = no expiry", opt:true}],
+  make:(pre, main) => { const k = "doc:NEW" + Date.now(); RECS[k] = {number:"DOC-1400", title:`STNK · ${main || "new"}`, state:"VALID", paper:"STNK", subjects:pre.subject ? [pre.subject] : [], until:"12 Mar 2033"}; return k },
+  detail:(r) => [sec("Paper", null, `<div class="drop" style="height:200px">${ico(P.file)} ${esc(r.paper)}.pdf</div>`), sec("Details", null, facts([["Paper", esc(r.paper)],["Valid until", esc(r.until)],["Original kept in", esc(r.custody || "—")]], "c2")), sec("Linked to", (r.subjects || []).length, table([{l:"Record", cell:(x) => two(esc(x.title), esc(x.number))}], (r.subjects || []).map((k) => ({...RECS[k], _open:k}))), [`<button class="tint">${ico(P.plus)}Link a record</button>`]), logSec(r)].join(""),
+})
+
+def("loan", {
+  name:"Original paper loan", isNew:true, menuLabel:"Files", newLabel:"Lend original", saveLabel:"Lend",
+  blurb:"who has the original BPKB right now, and since when",
+  states:[{id:"OUT", label:"Lent out", tone:"warn", waits:"Back by the due date"},{id:"BACK", label:"Returned", tone:"done", end:true},{id:"LATE", label:"Overdue", tone:"bad", side:true}],
+  trans:[{verb:"Lend", from:["—"], to:"OUT", who:"GA (keeper of the safe)", effect:"Signed handover; a BAST letter can be issued", where:"build"},{verb:"Due date passes", from:["OUT"], to:"LATE", who:"The system", where:"build"},{verb:"Returned", from:["OUT","LATE"], to:"BACK", tone:"primary", who:"GA", where:"build", form:[{l:"Loan", from:"self", full:true},{l:"Returned on", v:"17 Oct 2026"},{l:"Received by", ph:"Name"}]}],
+  links:[{to:"doc", how:"the original lent", where:"build"},{to:"person", how:"who borrowed it", where:"build"},{to:"letter", how:"the handover letter", where:"build"}],
+  form:[{l:"Paper", from:"doc", full:true},{l:"To", ph:"Yusuf Ramadhan", main:true},{l:"Purpose", ph:"STNK renewal at Samsat"},{l:"Lent on", v:"17 Oct 2026"},{l:"Back by", v:"24 Oct 2026"}],
+  make:(pre, main) => { const k = "loan:NEW" + Date.now(); RECS[k] = {number:"LN-2610-001", title:`BPKB lent to ${main || "—"}`, state:"OUT", doc:pre.doc || "doc:BPKB", to:main, lent:"17 Oct 2026", due:"24 Oct 2026"}; return k },
+  detail:(r) => [figs([["Lent on", esc(r.lent)],["Back by", esc(r.due)]]), sec("Details", null, facts([["Paper", ref(r.doc)],["To", esc(r.to || "—")]], "c2")), logSec(r)].join(""),
+})
+
+// small helpers opened from contracts: a meter reading and a bill request
+def("reading", {name:"Meter reading", menuLabel:"Contracts", newLabel:"Record reading", saveLabel:"Save reading", states:[{id:"DONE", label:"Recorded"}], trans:[], links:[], form:[{l:"Contract", from:"contract", full:true},{l:"Month", v:"Oct 2026"},{l:"Reading", ph:"3.455 kWh", main:true},{l:"Bill amount", ph:"Rp 0", opt:true}], detail:() => ""})
+def("billreq", {name:"Bill request", menuLabel:"Contracts", newLabel:"Send bill to Finance", saveLabel:"Send to Finance", states:[{id:"SENT", label:"Sent"}], trans:[], links:[], form:[{l:"Contract", from:"contract", full:true},{l:"Invoice no.", ph:"", main:true},{l:"Invoice date", v:"17 Oct 2026"},{l:"Amount", ph:"Rp 0"},{l:"Invoice", k:"file", full:true}], detail:() => ""})
+// outside GA: opened read-only as layers
+def("bill", {name:"Bill", menuLabel:"Finance › Bills", states:[{id:"POSTED", label:"Posted"}], trans:[], links:[], detail:(r) => sec("Details", null, facts([["Bill", esc(r.number)],["Status", "Posted"]], "c2"))})
+def("person", {name:"Person", menuLabel:"People", states:[{id:"ACTIVE", label:"Active"}], trans:[], links:[], detail:(r) => sec("Details", null, facts([["Role", esc(r.role)]], "c2"))})
+
+// ================= the map =================
+const MAP = {
+  zones:[
+    {x:20, y:12, w:240, h:696, label:"Things & papers"},
+    {x:280, y:12, w:240, h:696, label:"Work on them"},
+    {x:540, y:12, w:240, h:696, label:"Care & deals"},
+    {x:800, y:12, w:256, h:696, label:"Outside GA"},
+  ],
+  nodes:[
+    {id:"site", label:"Sites", sub:"where things stand", x:40, y:64, w:200, menu:"sites"},
+    {id:"asset", label:"Assets", sub:"the things owned", x:40, y:164, w:200, menu:"assets"},
+    {id:"doc", label:"Files", sub:"papers on any record", x:40, y:404, w:200, menu:"files"},
+    {id:"letter", label:"Letters", sub:"what GA issues", x:40, y:504, w:200, menu:"letters"},
+    {id:"loan", label:"Paper loans", sub:"new · originals lent", x:40, y:604, w:200, menu:"files", kind:"new"},
+    {id:"repair", label:"Repairs", sub:"a breakdown, fixed", x:300, y:64, w:200, menu:"repairs"},
+    {id:"replacement", label:"Replacements", sub:"too far gone, swapped", x:300, y:164, w:200, menu:"repairs"},
+    {id:"disposal", label:"Disposals", sub:"leaves the register", x:300, y:264, w:200, menu:"assets"},
+    {id:"supply", label:"Supply requests", sub:"consumables bought", x:300, y:504, w:200, menu:"supplies"},
+    {id:"task", label:"Schedule", sub:"care that repeats", x:560, y:64, w:200, menu:"schedule"},
+    {id:"insp", label:"Inspections", sub:"what a walk found", x:560, y:164, w:200, menu:"schedule"},
+    {id:"contract", label:"Contracts", sub:"6 groups · 17 types", x:560, y:304, w:200, menu:"contracts"},
+    {id:"claim", label:"Insurance claims", sub:"new", x:560, y:404, w:200, menu:"contracts", kind:"new"},
+    {id:"supplier", label:"Suppliers", sub:"who does the work", x:836, y:64, w:200, menu:"suppliers"},
+    {id:"bill", label:"Bills · Finance", sub:"what it cost", x:836, y:264, w:200, kind:"ext"},
+    {id:"person", label:"People · HR", sub:"holders, inspectors", x:836, y:404, w:200, kind:"ext"},
+    {id:"po", label:"Purchase orders", sub:"Procurement", x:836, y:504, w:200, kind:"ext"},
+  ],
+  edges:[
+    ["asset","site","stands at a site","hub"],
+    ["asset","bill","bought on a bill line","hub"],
+    ["asset","person","held by — free text today","build"],
+    ["doc","asset","BPKB, STNK, warranty, photos","hub"],
+    ["contract","asset","covers — one asset in the data, never set","build"],
+    ["repair","asset","repairs it (optional)","hub"],
+    ["repair","site","broke at","hub"],
+    ["repair","supplier","done by","hub"],
+    ["repair","contract","under a maintenance contract","hub"],
+    ["repair","insp","came from a finding","data"],
+    ["repair","task","came from recurring care","data"],
+    ["bill","repair","bill lines = its actual cost","hub"],
+    ["replacement","asset","old asset → new asset","hub"],
+    ["replacement","repair","instead of a repair","hub"],
+    ["disposal","asset","takes it off the register","hub"],
+    ["disposal","bill","Finance posts the journal","build"],
+    ["task","asset","cares for an asset…","hub"],
+    ["task","site","…or a place","hub"],
+    ["task","contract","paid under a contract","data"],
+    ["task","supplier","done by","hub"],
+    ["insp","task","a visit of a task","hub"],
+    ["insp","asset","inspects","hub"],
+    ["contract","site","one site or all stores","hub"],
+    ["contract","supplier","landlord, vendor, insurer, office","hub"],
+    ["bill","contract","billed and remaining","hub"],
+    ["doc","contract","agreement, policy, permit","hub"],
+    ["claim","contract","under the policy","build"],
+    ["claim","asset","damage to","build"],
+    ["claim","repair","pays for the repair","build"],
+    ["supply","site","needed at","hub"],
+    ["supply","po","PO number — text, not a link","data"],
+    ["bill","supply","billed","hub"],
+    ["letter","person","addressed to — free text","build"],
+    ["letter","asset","about an asset","build"],
+    ["letter","contract","authorises a renewal","build"],
+    ["loan","doc","the original lent","build"],
+    ["loan","person","lent to","build"],
+    ["doc","site","IMB, floor plan","build"],
+  ],
+}
+const MENUS = [
+  {id:"map", label:"Map", note:"<b>Map</b> — every GA record and what points at what. Hover a box to see its links; click it to open its menu. A solid line is shown in the hub today, a dashed one is only in the data, a dotted one is still to build."},
+  {hr:true},
+  {id:"supplies", label:"Supply Requests", types:["supply"]},
+  {id:"repairs", label:"Repairs", types:["repair","replacement"]},
+  {id:"schedule", label:"Service Schedule", types:["task","insp"]},
+  {hr:true},
+  {id:"assets", label:"Assets", types:["asset","disposal"]},
+  {id:"contracts", label:"Contracts", types:["contract","claim"]},
+  {id:"sites", label:"Sites", types:["site"]},
+  {id:"suppliers", label:"Suppliers", types:["supplier"]},
+  {hr:true},
+  {id:"letters", label:"Letters", types:["letter"]},
+  {id:"files", label:"Files", types:["doc"]},
+]
+const MENU_NOTES = {"supplies": "<b>Supply Requests</b> — consumables for a site. Steps follow the supplies prototype: one blue button per step, the last one sends the bill and marks Billed.", "repairs": "<b>Repairs</b> — for an asset or for a place with no asset. Replacements live here too: the answer \"do not repair it\", ending with a new asset.", "schedule": "<b>Service Schedule</b> — recurring care for an asset or a place, and the inspections each visit records. A finding can become a repair.", "assets": "<b>Assets</b> — one register, its kind decides the form. The detail gathers everything filed against the thing. Disposal is its exit, GA asks and Finance posts.", "contracts": "<b>Contracts</b> — one record for every deal with a window: 6 groups, 17 types, one lifecycle. Insurance claims are new: they hang off a policy and an asset.", "sites": "<b>Sites</b> — GA's card of a place and everything at it. The site itself is made in Setup › Add store.", "suppliers": "<b>Suppliers</b> — GA's operating vendors. Today the sheet shows none of their contracts or repairs.", "letters": "<b>Letters</b> — 10 forms GA writes. Today they are free text: a letter cannot point at the person, asset or contract it is about.", "files": "<b>Files</b> — one paper, linked to many records; its date drives the reminders. Paper loans are new: who has the original BPKB right now."}
+MENUS.forEach((m) => { if (MENU_NOTES[m.id]) m.note = MENU_NOTES[m.id] })
+MENUS.find((m) => m.id === "files").types = ["doc","loan"]
+draw()
+</script>
+</body>
+</html>

@@ -1,5 +1,6 @@
-//! Finance Connect routes: EDC terminals, MDR rates, Finance settings,
-//! "Tambah bank", the sale-day exception queue and the MDR variance review.
+//! Finance Connect routes: EDC terminals and the shops' EDC machines, MDR
+//! rates, Finance settings, "Tambah bank", the sale-day exception queue and
+//! the MDR variance review.
 //!
 //! All of it is Finance head-office work, so every route asks for ADMIN.
 
@@ -10,13 +11,15 @@ use crate::cloud::{
     domain::{role_allows, Role},
     postgres::{
         self as infrastructure, AcquirerFeeRate, AcquirerSettlementRow, AddBankOutcome,
-        AddBankRequest, EdcTerminal, FinanceSetting, ResolveSalesExceptionRequest,
-        SalesPostingDocument, SetAcquirerFeeRateRequest, SetFinanceSettingRequest,
-        UpsertEdcTerminalRequest,
+        AddBankRequest, EdcMachine, EdcMachineBook, EdcTerminal, FinanceSetting,
+        ResolveSalesExceptionRequest, SalesPostingDocument, SaveEdcMachineRequest,
+        SetAcquirerFeeRateRequest, SetFinanceSettingRequest, SetShopOtherMethodsRequest,
+        SitePaymentMethod, UpsertEdcTerminalRequest,
     },
 };
 use axum::{
     extract::{Path, State},
+    http::StatusCode,
     routing::{get, post, put},
     Extension, Json, Router,
 };
@@ -48,6 +51,52 @@ pub async fn upsert_edc_terminal(
     allowed(&principal, "register an EDC terminal")?;
     Ok(Json(
         infrastructure::upsert_edc_terminal(&state.db, &request, &principal.username).await?,
+    ))
+}
+
+/// Every shop's EDC machines, the banks one can be of, and the accounts one
+/// can settle to (0989).
+pub async fn edc_machine_book(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+) -> Result<Json<EdcMachineBook>, AppError> {
+    allowed(&principal, "read the shops' EDC machines")?;
+    Ok(Json(infrastructure::edc_machine_book(&state.db).await?))
+}
+
+pub async fn save_edc_machine(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path((site, bank)): Path<(String, String)>,
+    Json(request): Json<SaveEdcMachineRequest>,
+) -> Result<Json<EdcMachine>, AppError> {
+    allowed(&principal, "set a shop's EDC machine")?;
+    Ok(Json(
+        infrastructure::save_edc_machine(&state.db, &site, &bank, &request, &principal.username)
+            .await?,
+    ))
+}
+
+pub async fn remove_edc_machine(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path((site, bank)): Path<(String, String)>,
+) -> Result<StatusCode, AppError> {
+    allowed(&principal, "remove a shop's EDC machine")?;
+    infrastructure::remove_edc_machine(&state.db, &site, &bank, &principal.username).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn set_shop_other_methods(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(site): Path<String>,
+    Json(request): Json<SetShopOtherMethodsRequest>,
+) -> Result<Json<Vec<SitePaymentMethod>>, AppError> {
+    allowed(&principal, "set a shop's payment methods")?;
+    Ok(Json(
+        infrastructure::set_shop_other_methods(&state.db, &site, &request, &principal.username)
+            .await?,
     ))
 }
 
@@ -184,6 +233,15 @@ pub fn finance_setup_routes(router: Router<AppState>) -> Router<AppState> {
         .route(
             "/api/v1/finance/edc-terminals",
             get(edc_terminals).post(upsert_edc_terminal),
+        )
+        .route("/api/v1/finance/edc-machines", get(edc_machine_book))
+        .route(
+            "/api/v1/finance/sites/{site}/edc-machines/{bank}",
+            put(save_edc_machine).delete(remove_edc_machine),
+        )
+        .route(
+            "/api/v1/finance/sites/{site}/other-methods",
+            put(set_shop_other_methods),
         )
         .route(
             "/api/v1/finance/acquirer-fee-rates",

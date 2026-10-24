@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HO return pools · options</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<style>
+:root{
+  --ink:#1d1d1f;--body:#424245;--mute:#6e6e73;--faint:#aeaeb2;
+  --line:#e8e8ec;--band:#fafafb;--soft:#f5f5f7;--accent:#2f5fe0;--accent-bg:#eef2fd;
+  --warn:#b26a00;--warn-bg:#fff6e5;--bad:#c4321c;--ok:#1f7a3d;
+  --r-card:10px;--r-inner:7px;
+}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.4 Inter,system-ui,sans-serif;color:var(--ink);background:#f6f6f7}
+.wrap{max-width:1040px;margin:0 auto;padding:24px 16px 64px}
+.page{background:#fff;border:1px solid var(--line);border-radius:12px;padding:24px 28px 32px}
+h1{font-size:22px;font-weight:600;margin:0 0 20px}
+.opts{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px}
+.opts button{font:inherit;font-size:15px;border:1px solid var(--line);background:#fff;color:var(--body);border-radius:999px;padding:8px 14px;cursor:pointer}
+.opts button[aria-pressed=true]{border-color:var(--accent);background:var(--accent-bg);color:var(--accent);font-weight:600}
+.flow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 18px;font-size:15px;color:var(--body)}
+.flow b{font-weight:600;color:var(--ink)}
+.chip{border:1px solid var(--line);border-radius:var(--r-inner);padding:4px 10px;background:var(--band)}
+.chip.new{border-color:var(--accent);background:var(--accent-bg);color:var(--accent)}
+.arrow{color:var(--faint)}
+.tabs{display:flex;gap:24px;border-bottom:1px solid var(--line);margin-bottom:16px}
+.tabs span{padding:10px 0;font-size:15px;color:var(--mute)}
+.tabs span.on{color:var(--ink);font-weight:600;box-shadow:inset 0 -2px 0 var(--ink)}
+.card{border:1px solid var(--line);border-radius:var(--r-card);overflow:hidden;background:#fff}
+table{width:100%;border-collapse:collapse;table-layout:fixed}
+th{height:48px;background:var(--band);color:var(--mute);font-weight:500;text-align:left;padding:0 16px;font-size:15px}
+td{height:56px;padding:12px 16px;border-top:1px solid var(--line)}
+th.n,td.n{text-align:right;width:120px}
+td.dim{color:var(--faint)}
+tr.g td:first-child{font-weight:600}
+tr.g td.n{font-weight:600}
+tr.l1 td:first-child{padding-left:40px}
+tr.l2 td:first-child{padding-left:64px;color:var(--body)}
+tr.new td{background:#fbfcff}
+tr.new td:first-child::after{content:"new";margin-left:8px;font-size:15px;font-weight:500;color:var(--accent)}
+tr.total td{font-weight:600;background:var(--band)}
+.tag{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:1px 10px;font-size:15px;color:var(--body);font-weight:400}
+.tag::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--faint)}
+.tag.rj::before{background:var(--bad)} .tag.od::before{background:var(--warn)} .tag.ho::before{background:var(--accent)}
+.side{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:20px;align-items:start}
+.sheet{border:1px solid var(--line);border-radius:var(--r-card);padding:20px 22px}
+.sheet h3{margin:0 0 4px;font-size:18px;font-weight:600}
+.sheet .cap{color:var(--mute);margin:0 0 16px}
+.sheet table td{height:52px;padding:10px 0}
+.sheet table td.n{width:70px}
+.pros{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:20px}
+.pros div{border:1px solid var(--line);border-radius:var(--r-card);padding:14px 16px}
+.pros h4{margin:0 0 6px;font-size:15px;font-weight:600}
+.pros ul{margin:0;padding-left:18px;color:var(--body)}
+.pros li{margin:2px 0}
+.rec{color:var(--ok);font-weight:600}
+@media (max-width:820px){.side,.pros{grid-template-columns:1fr}.page{padding:18px 16px}th.n,td.n{width:72px}}
+</style>
+</head>
+<body>
+<div class="wrap"><div class="page">
+  <h1>Ops › Stock</h1>
+  <div class="opts" role="group" aria-label="Option">
+    <button data-o="a" aria-pressed="true">A · One pool per store ★</button>
+    <button data-o="b">B · Pool per reason</button>
+    <button data-o="c">C · Store, then reason</button>
+    <button data-o="d">D · Waiting check + HO reject</button>
+  </div>
+  <div id="view"></div>
+</div></div>
+
+<script>
+const T = (rows) => `<div class="card"><table>
+<thead><tr><th>Pool</th><th class="n">On Hand</th><th class="n">Seen</th><th class="n">Last Count</th></tr></thead>
+<tbody>${rows.map(r => `<tr class="${r[0]}"><td>${r[1]}</td><td class="n">${r[2] ?? ""}</td><td class="n ${r[3]==null?"":"dim"}">${r[3] ?? ""}</td><td class="n dim">${r[4] ?? ""}</td></tr>`).join("")}</tbody></table></div>`
+
+const head = [
+  ["g","On order","654","—","—"],
+  ["g","Unidentified","170","0","—"],
+  ["g","Unallotted","49","0","17 Oct"],
+  ["g","Allotted","56"],
+  ["l1","Unpicked","45"],["l1","Picked","11"],["l1","Packed","—"],["l1","Dispatch","—"],
+]
+const transit = [
+  ["g new","In transit","22"],
+  ["l1","Out · to stores","14"],
+  ["l2","Store 04","8"],["l2","Store 05","6"],
+  ["l1","In · from stores","8"],
+  ["l2","Store 01","5"],["l2","Store 05","3"],
+]
+const tail = [
+  ["g","To supplier","11"],
+  ["l1","Over-delivery","11"],["l1","Returns","—"],
+  ["total","Total","311"],
+]
+const flow = (steps) => `<div class="flow">${steps.map(s => s==="→" ? `<span class="arrow">→</span>` : s).join("")}</div>`
+const pros = (good, bad) => `<div class="pros"><div><h4>Good</h4><ul>${good.map(x=>`<li>${x}</li>`).join("")}</ul></div><div><h4>Watch out</h4><ul>${bad.map(x=>`<li>${x}</li>`).join("")}</ul></div></div>`
+const tabs = `<div class="tabs"><span class="on">Stock</span><span>Missing · 7</span></div>`
+
+const O = {
+  a: () => tabs + flow([
+      `<span class="chip">Store sends</span>`,"→",`<span class="chip new">In transit · In</span>`,"→",
+      `<span class="chip"><b>Return · Store 01</b></span>`,"→",`<span class="chip">Check</span>`,"→",
+      `<span class="chip">Unallotted</span>`,`<span class="arrow">or</span>`,`<span class="chip">HO Reject</span>`]) +
+    `<div class="side">${T([...head, ...transit,
+      ["g","Return stock","9","0","—"],
+      ["l1","Store 01","6"],["l1","Store 04","3"],
+      ...tail])}
+    <div class="sheet"><h3>Return · Store 01</h3><p class="cap">6 pcs · reason rides on each return</p>
+      <table><tbody>
+        <tr><td>Kaos Basic Katun · White L<br><span class="tag rj">Reject item</span></td><td class="n">2</td></tr>
+        <tr><td>Sandal Slide Karet · XL<br><span class="tag od">Over delivery</span></td><td class="n">1</td></tr>
+        <tr><td>Celana Chino Slim · 32<br><span class="tag ho">HO request</span></td><td class="n">3</td></tr>
+      </tbody></table></div></div>` +
+    pros(["Same pools as today: one Return per store", "The check pre-fills where pieces go: Reject item → HO Reject, the rest → Unallotted", "A store with nothing to return has one empty row, not three"],
+         ["You see the reason only after opening a store's row"]),
+
+  b: () => tabs + flow([
+      `<span class="chip">Store sends</span>`,"→",`<span class="chip new">In transit · In</span>`,"→",
+      `<span class="chip"><b>Return reject · Store 01</b></span>`,`<span class="chip"><b>Return over delivery · Store 01</b></span>`,`<span class="chip"><b>Return HO request · Store 01</b></span>`]) +
+    T([...head, ...transit,
+      ["g","Return stock","9","0","—"],
+      ["l1","Reject item","4"],["l2","Store 01","2"],["l2","Store 04","2"],
+      ["l1","Over delivery","1"],["l2","Store 01","1"],
+      ["l1","HO request","4"],["l2","Store 01","3"],["l2","Store 04","1"],
+      ...tail]) +
+    pros(["The reason shows in the table, no need to open a row", "Each pool is one kind of work"],
+         ["3 pools for every store (30 stores → 90 pools)", "A koli with mixed reasons has to be split into 3 pools when it arrives", "The check is still needed: an HO request piece can turn out damaged"]),
+
+  c: () => tabs + flow([
+      `<span class="chip">Store sends</span>`,"→",`<span class="chip new">In transit · In</span>`,"→",
+      `<span class="chip"><b>Return · Store 01</b></span>`,`<span class="arrow">shown split by reason</span>`]) +
+    T([...head, ...transit,
+      ["g","Return stock","9","0","—"],
+      ["l1","Store 01","6"],["l2","Reject item","2"],["l2","Over delivery","1"],["l2","HO request","3"],
+      ["l1","Store 04","3"],["l2","Reject item","2"],["l2","HO request","1"],
+      ...tail]) +
+    pros(["One pool per store, as in A", "The reason still shows in the table, as a sub-row", "Only reasons a store actually has get a row"],
+         ["A longer table: up to 4 rows per store"]),
+
+  d: () => tabs + flow([
+      `<span class="chip">Store sends</span>`,"→",`<span class="chip new">In transit · In</span>`,"→",
+      `<span class="chip"><b>Waiting check · Store 01</b></span>`,"→",`<span class="chip">Check</span>`,"→",
+      `<span class="chip">Unallotted</span>`,`<span class="arrow">or</span>`,`<span class="chip new"><b>HO Reject</b></span>`]) +
+    T([...head, ...transit,
+      ["g","Return stock","9","0","—"],
+      ["l1","Waiting check","6"],["l2","Store 01","4"],["l2","Store 04","2"],
+      ["l1 new","HO Reject","3"],
+      ...tail]) +
+    pros(["Return stock reads as two jobs: pieces to check, and pieces that are truly reject", "HO Reject (damaged, can't be sold) gets its own row; today it is hidden inside Return", "The reason stays a tag, as in A"],
+         ["Pieces confirmed reject lose which store they came from in the table (still in the ledger)"]),
+}
+
+const view = document.getElementById("view")
+const buttons = document.querySelectorAll(".opts button")
+function show(o){ view.innerHTML = O[o](); buttons.forEach(b => b.setAttribute("aria-pressed", String(b.dataset.o===o))) }
+buttons.forEach(b => b.addEventListener("click", () => show(b.dataset.o)))
+show("a")
+</script>
+</body>
+</html>

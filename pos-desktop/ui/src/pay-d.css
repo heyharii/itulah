@@ -1,0 +1,344 @@
+/* ── Pay, look A · Chip of pos-classic-prototype.html (owner 23 Oct 2026:
+   "ini pay kenapa belum berubah"). Every method a row — the machines as chips
+   in the row, the amount on its right — the bill on top, what is paid and
+   what is short at the bottom; the F1–F4 amounts, the keypad and Bayar on the
+   right. Then the change dialog. Ported rule for rule from the prototype's
+   `.pay.p2` and `.chg`, scoped under .payd with the prototype's own tokens,
+   the way till-d.css scopes the counter under .tilld. ── */
+
+.payd{
+  --ink:#1d1d1f;--body:#6e6e73;--faint:#c7c7cc;--line-ico:#8e8e93;--canvas:#fff;--soft:#fafafb;--soft-2:#f2f2f5;--soft-3:#f5f5f7;
+  --row-line:#eeeef1;--hairline:#e8e8ec;--hairline-2:#dcdce1;
+  --accent:#2862dc;--accent-bg:#eef3fc;--cta:var(--accent);--cta-hover:#2055c7;--cta-fg:#fff;
+  --ok:#36b827;--ok-bg:#d9f4d2;--ok-fg:#248a3d;--warn:#c9892e;--warn-bg:#faeacd;--warn-fg:#a66c1f;--bad:#d70015;--bad-bg:#fbeaea;--bad-fg:#d70015;
+  --scrim:rgba(208,208,213,.48);
+  --segment-track:#f2f2f4;--shadow-segment:0 1px 3px rgba(0,0,0,.12);
+  --shadow-sheet:0 0 0 1px rgba(0,0,0,.05),0 2px 8px rgba(0,0,0,.05),0 24px 64px rgba(0,0,0,.14);
+  --shadow-primary:0 1px 2px rgba(20,50,100,.1);
+  --shadow-focus:0 0 0 2px rgba(40,98,220,.12);
+  --icon-gap:6px;--control:36px;--r-inner:8px;--r-chip:6px;--r-full:999px;
+  --t-press:120ms;--ease-out:cubic-bezier(.23,1,.32,1);
+  --font-sans:"Inter Variable",Inter,system-ui,-apple-system,"Segoe UI",sans-serif;
+  position:fixed;inset:0;z-index:50;display:grid;place-items:center;padding:24px;overflow:auto;
+  background:var(--scrim);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);
+  color:var(--ink);font-family:var(--font-sans);font-size:15px;line-height:1.45;letter-spacing:normal;
+  -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+.payd.top{z-index:60}
+/* A pointer gets the fade and the pop; F12 and Enter get the dialog at once. */
+/* Bayar and Kembalian: a tap pops them in (pos.css posPop); F12 and Enter show them at once. */
+.payd.enter{animation:posFade var(--t-panel) var(--ease-out)}
+.payd.enter>.pay,.payd.enter>.chg{animation:posPop var(--t-panel) var(--ease-out)}
+@media (prefers-reduced-motion:reduce){
+  .payd.enter>.pay,.payd.enter>.chg{animation:posFade 150ms var(--ease-out)}
+  .payd :active{scale:none!important}
+}
+@keyframes pdBlink{50%{opacity:0}}
+@keyframes pdSpin{to{transform:rotate(360deg)}}
+
+:where(.payd) *{box-sizing:border-box}
+:where(.payd) :where(p,h2,h3){margin:0}
+:where(.payd) :where(button,input){font:inherit;color:inherit}
+:where(.payd) button{-webkit-tap-highlight-color:transparent;border:0;background:none;padding:0;cursor:pointer}
+:where(.payd) input{outline:none;min-width:0}
+.payd input:focus-visible{outline:none}
+.payd button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.payd button:active:not(:disabled){transform:none}
+/* pos.css greys every disabled button with !important; here a disabled
+   control keeps its own look, faded, as the prototype draws it. */
+.payd button:disabled{cursor:default!important;background:transparent!important;border-color:transparent!important;color:inherit!important;box-shadow:none!important}
+.payd .ds-btn--primary:disabled{background:var(--cta)!important;color:var(--cta-fg)!important}
+.payd .ds-btn--tint:disabled{background:var(--accent-bg)!important;color:var(--accent)!important}
+.payd .q2b:disabled{background:var(--accent-bg)!important;color:var(--accent)!important;opacity:.5}
+.payd .key:disabled{background:#fff!important;box-shadow:inset 0 0 0 1px var(--hairline-2)!important}
+.payd .key.fn:disabled{color:var(--body)!important}
+.payd .mchip:disabled{background:#fff!important;box-shadow:inset 0 0 0 1px var(--hairline-2)!important;opacity:.5}
+.payd .mchip.on:disabled{background:var(--accent)!important;color:#fff!important;box-shadow:none!important}
+.payd .x-btn:disabled,.payd .mx:disabled{opacity:.4}
+:where(.payd) svg{flex:none;display:block}
+.payd .icon{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.payd .num{font-variant-numeric:tabular-nums}
+.payd .sp{flex:1}
+
+/* shared bits */
+.payd .ttl{font-size:17px;line-height:24px;font-weight:600;letter-spacing:-.3px}
+.payd .cap{color:var(--body)}
+.payd .kbd{display:inline-grid;place-items:center;min-width:26px;height:22px;padding:0 5px;border-radius:5px;background:var(--soft-3);box-shadow:inset 0 0 0 1px var(--hairline-2);font-size:15px;line-height:1;font-weight:500;color:var(--body);font-variant-numeric:tabular-nums;white-space:nowrap}
+.payd .k7-k{display:inline-grid;place-items:center;min-width:30px;height:22px;padding:0 6px;border-radius:5px;background:#fff;box-shadow:inset 0 0 0 1px var(--hairline-2),0 1px 0 var(--hairline-2);font-size:15px;line-height:1;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.payd .x-btn{display:grid;place-items:center;flex:none;width:36px;height:36px;margin:-6px -8px 0 0;border-radius:var(--r-inner);color:var(--ink);transition:background-color var(--t-press) ease,scale var(--t-press) var(--ease-out)}
+.payd .x-btn:active:not(:disabled),.payd .mx:active:not(:disabled){scale:.94}
+.payd .x-btn .icon{width:17px;height:17px}
+.payd .x-btn:disabled{opacity:.4}
+@media (hover:hover) and (pointer:fine){.payd .x-btn:not(:disabled):hover{background:var(--soft-2)}}
+.payd .tag{display:inline-flex;align-items:center;height:22px;margin-left:8px;padding:0 7px;border-radius:var(--r-chip);background:var(--soft-2);color:var(--body);font-size:15px;font-weight:500;vertical-align:2px}
+.payd .tag.warn{background:var(--warn-bg);color:var(--warn-fg)}
+.payd .spin{display:inline-block;width:15px;height:15px;border-radius:50%;border:2px solid var(--hairline-2);border-top-color:var(--accent);animation:pdSpin 600ms linear infinite;flex:none}
+
+/* Button (button.tsx · button-style.ts) */
+.payd .ds-btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--icon-gap);flex:none;height:var(--control);padding:0 10px;border:1px solid transparent;border-radius:var(--r-inner);background:transparent;color:var(--ink);font-size:15px;line-height:20px;font-weight:500;white-space:nowrap;cursor:pointer;
+  transition:color var(--t-press) var(--ease-out),background-color var(--t-press) var(--ease-out),box-shadow var(--t-press) var(--ease-out),scale var(--t-press) var(--ease-out)}
+.payd .ds-btn:active:not(:disabled){scale:.97}
+.payd .ds-btn--primary{background:var(--cta);color:var(--cta-fg);font-weight:600;box-shadow:var(--shadow-primary)}
+.payd .ds-btn--primary .kbd{background:rgba(255,255,255,.16);box-shadow:inset 0 0 0 1px rgba(255,255,255,.25);color:#fff}
+.payd .ds-btn--tint{padding:0 14px;background:var(--accent-bg);color:var(--accent);font-weight:600}
+.payd .ds-btn:disabled{opacity:.4}
+@media (hover:hover) and (pointer:fine){
+  .payd .ds-btn--primary:not(:disabled):hover{background:var(--cta-hover)}
+  .payd .ds-btn--tint:not(:disabled):hover{background:color-mix(in srgb,var(--accent) 15%,transparent)}
+}
+
+/* Segmented control, kept for parity with the prototype's dialog */
+.payd .ds-seg{display:inline-flex;gap:2px;padding:3px;border-radius:9px;background:var(--segment-track)}
+.payd .ds-seg-item{height:28px;padding:0 10px;border-radius:6px;color:var(--body);font-size:15px;font-weight:500;white-space:nowrap}
+.payd .ds-seg-item.is-on{border-radius:7px;background:var(--canvas);color:var(--ink);box-shadow:var(--shadow-segment)}
+
+/* ── Pay ──────────────────────────────────────────────────────────────── */
+.payd .pay{position:relative;width:1240px;max-width:100%;max-height:100%;border-radius:16px;background:#fff;box-shadow:var(--shadow-sheet);display:grid;grid-template-columns:minmax(0,1fr) 500px;grid-template-rows:auto minmax(0,1fr);overflow:hidden;outline:none}
+.payd .pay-head{grid-column:1/-1;display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:20px 24px 14px 28px;border-bottom:1px solid var(--hairline)}
+.payd .pay-l{display:flex;flex-direction:column;padding:16px 28px 22px;min-width:0;min-height:0;overflow-y:auto}
+.payd .pay-r{display:flex;flex-direction:column;gap:10px;min-height:560px;padding:16px 22px 22px;background:#fff;border-left:1px solid var(--hairline)}
+
+.payd .bill{display:grid;grid-template-columns:1fr auto;align-items:baseline;row-gap:4px}
+.payd .bill .k{color:var(--body)}
+.payd .bill .v{text-align:right;font-variant-numeric:tabular-nums}
+.payd .bill .gk{font-size:17px;font-weight:600}
+.payd .bill .gv{font-size:30px;line-height:38px;font-weight:600;letter-spacing:-.035em;text-align:right;font-variant-numeric:tabular-nums}
+
+.payd .methods{margin-top:12px;padding-top:6px;border-top:1px solid var(--hairline)}
+.payd .mrow{display:grid;grid-template-columns:76px minmax(0,1fr) 164px;align-items:center;column-gap:10px;row-gap:8px;min-height:52px;padding:6px 8px;margin:0 -8px;border-radius:var(--r-inner);cursor:pointer}
+.payd .mrow.on{background:var(--accent-bg)}
+.payd .mrow .ml{font-weight:500;line-height:18px}
+.payd .mrow.on .ml{color:var(--accent);font-weight:600}
+.payd .mrow.off .ml{color:var(--body)}
+.payd .mmid{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0}
+.payd .acct-static{color:var(--body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.payd .mchips{display:inline-flex;flex:0 1 auto;flex-wrap:wrap;gap:4px;min-width:0}
+.payd .mchip{height:34px;padding:0 10px;border-radius:8px;box-shadow:inset 0 0 0 1px var(--hairline-2);background:#fff;font-weight:500;white-space:nowrap;transition:background-color 150ms ease,color 150ms ease,scale var(--t-press) var(--ease-out)}
+.payd .mchip:active:not(:disabled){scale:.96}
+.payd .mchip.on{background:var(--accent);color:#fff;box-shadow:none}
+.payd .mchips.bad .mchip:not(.on){box-shadow:inset 0 0 0 1px var(--bad)}
+@media (hover:hover) and (pointer:fine){.payd .mchip:not(.on):not(:disabled):hover{background:var(--soft-2)}}
+.payd .minput{flex:1 1 140px;height:40px;padding:0 12px;border:1px solid var(--hairline-2);border-radius:8px;background:#fff;min-width:0;width:100%;transition:border-color 120ms ease,box-shadow 120ms ease}
+.payd .minput:focus{border-color:var(--accent);box-shadow:var(--shadow-focus)}
+.payd .minput[aria-invalid="true"]{border-color:var(--bad);box-shadow:0 0 0 2px rgb(215 0 21/10%)}
+.payd .minput::placeholder{color:var(--line-ico)}
+.payd .minput:read-only{background:var(--soft);color:var(--body)}
+.payd .vinfo{flex:none;color:var(--body);white-space:nowrap;font-variant-numeric:tabular-nums;max-width:220px;overflow:hidden;text-overflow:ellipsis}
+.payd .vinfo.ok{color:var(--ok-fg);font-weight:500}
+.payd .mx{display:grid;place-items:center;flex:none;width:32px;height:32px;border-radius:var(--r-inner);color:var(--body);transition:background-color var(--t-press) ease,color var(--t-press) ease,scale var(--t-press) var(--ease-out)}
+.payd .mx .icon{width:16px;height:16px}
+@media (hover:hover) and (pointer:fine){.payd .mx:not(:disabled):hover{background:var(--soft-2);color:var(--ink)}}
+.payd .amt{display:flex;align-items:center;justify-content:flex-end;height:44px;padding:0 12px;border:1px solid var(--hairline-2);border-radius:8px;background:#fff;font-size:17px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.payd .amt.zero{color:var(--faint);font-weight:500}
+.payd .amt.auto{color:var(--accent)}
+.payd .amt.on{border-color:var(--accent);box-shadow:var(--shadow-focus)}
+.payd .amt.on::after{content:"";width:2px;height:22px;margin-left:3px;border-radius:1px;background:var(--accent);animation:pdBlink 1.06s steps(1) infinite}
+.payd .amt.held{background:var(--soft);color:var(--ink)}
+.payd .amt.held::after{display:none}
+/* Rp inside every amount, the prototype's .amt .cur */
+.payd .amt .cur{margin-right:auto;font-size:15px;font-weight:500;color:var(--body)}
+.payd .amt.zero .cur{color:var(--faint)}
+
+/* "Kartu BCA?" Ya Y / Bukan T — On us / Off us asked as the cashier thinks of
+   it (owner, 23 Oct 2026); amber until answered, red when Bayar needs it. */
+.payd .ask{display:inline-flex;align-items:center;gap:6px;padding:3px 4px 3px 10px;border-radius:9px;background:var(--warn-bg);color:var(--warn-fg);white-space:nowrap}
+.payd .ask-q{font-weight:600}
+.payd .ask.done{background:var(--segment-track);color:var(--body)}
+.payd .ask.bad{box-shadow:inset 0 0 0 1.5px var(--bad-fg);background:var(--bad-bg);color:var(--bad-fg)}
+.payd .ask-b{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 8px;border-radius:7px;background:#fff;color:var(--ink);font-weight:500;transition:scale var(--t-press) var(--ease-out),background-color 150ms ease,color 150ms ease}
+.payd .ask-b:active:not(:disabled){scale:.96}
+.payd .ask-b.on{background:var(--accent);color:#fff}
+.payd .ask-b.on .kbd{background:rgba(255,255,255,.16);box-shadow:inset 0 0 0 1px rgba(255,255,255,.25);color:#fff}
+.payd .ask-b .kbd{height:20px;min-width:22px}
+
+.payd .paybox{margin-top:auto;padding-top:12px;border-top:1px solid var(--hairline);display:grid;grid-template-columns:1fr auto;align-items:baseline;row-gap:4px}
+.payd .paybox .k{color:var(--body)}
+.payd .paybox .v{text-align:right;font-variant-numeric:tabular-nums}
+.payd .paybox .ck{font-size:17px;font-weight:600}
+.payd .paybox .cv{font-size:30px;line-height:38px;font-weight:600;letter-spacing:-.035em;text-align:right;font-variant-numeric:tabular-nums}
+.payd .paybox .cv.due{color:var(--body)}
+.payd .pay-err{grid-column:1/-1;margin-top:4px;color:var(--bad-fg)}
+.payd .pay-note{grid-column:1/-1;margin-top:4px;color:var(--body)}
+
+/* F1–F4: the amounts a cashier is most likely handed */
+.payd .q2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.payd .q2b{display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto auto;column-gap:10px;row-gap:0;align-items:center;min-width:0;height:70px;padding:8px 14px;border-radius:var(--r-inner);background:var(--accent-bg);color:var(--accent);text-align:left;overflow:hidden;transition:scale 120ms var(--ease-out),background-color 150ms ease}
+.payd .q2b:active:not(:disabled){scale:.97}
+.payd .q2b b,.payd .q2b .q2s{max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.payd .q2b b{font-size:22px;line-height:26px;letter-spacing:-.02em;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.payd .q2b .q2s{font-size:15px;line-height:18px;font-variant-numeric:tabular-nums}
+.payd .q2b .k7-k{grid-row:1/3;min-width:30px;height:24px;font-size:15px}
+@media (hover:hover) and (pointer:fine){.payd .q2b:not(:disabled):hover{background:color-mix(in srgb,var(--accent) 15%,transparent)}}
+
+.payd .keys{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.payd .key{position:relative;height:56px;border-radius:var(--r-inner);background:#fff;box-shadow:inset 0 0 0 1px var(--hairline-2);font-size:22px;font-weight:500;font-variant-numeric:tabular-nums;display:grid;place-items:center;transition:scale 120ms var(--ease-out),background-color 150ms ease}
+/* The keyboard's "." types 000; the key says so in its corner. */
+.payd .key .kh{position:absolute;right:8px;bottom:4px;font-size:15px;line-height:1;font-weight:500;color:var(--line-ico)}
+/* 7Soft's Ribuan: +500 … +1 add whole thousands to the amount. */
+.payd .rib{display:grid;grid-template-columns:auto repeat(6,minmax(0,1fr));gap:6px;align-items:center}
+.payd .rib-l{color:var(--body);padding-right:4px}
+.payd .key.rib-k{height:40px;font-size:15px;font-weight:600;color:var(--accent);background:var(--accent-bg);box-shadow:none}
+.payd .key.rib-k:disabled{background:var(--accent-bg)!important;box-shadow:none!important;opacity:.5}
+@media (hover:hover) and (pointer:fine){.payd .key.rib-k:not(:disabled):hover{background:color-mix(in srgb,var(--accent) 15%,transparent)}}
+.payd .key:active:not(:disabled){scale:.95}
+.payd .key.fn{font-size:17px;font-weight:600;color:var(--body)}
+.payd .key .icon{width:22px;height:22px}
+.payd .key:disabled{opacity:.35}
+@media (hover:hover) and (pointer:fine){.payd .key:not(:disabled):hover{background:var(--soft-2)}}
+.payd .pay-go{margin-top:auto;height:56px;border-radius:var(--r-inner);justify-content:space-between;padding:0 14px 0 20px;font-size:17px}
+
+/* A narrower counter screen keeps the keypad, a little slimmer. */
+@media (max-width:1099px){
+  .payd .pay{grid-template-columns:minmax(0,1fr) 400px}
+  .payd .pay-l{padding:16px 20px 20px}
+}
+
+/* ── Change ───────────────────────────────────────────────────────────── */
+.payd .chg{width:460px;max-width:100%;border-radius:16px;background:#fff;box-shadow:var(--shadow-sheet);padding:30px 28px 24px;display:flex;flex-direction:column;align-items:center;text-align:center}
+.payd .chg-flag{display:inline-flex;align-items:center;gap:6px;height:28px;margin-bottom:14px;padding:0 10px;border-radius:var(--r-chip);background:var(--warn-bg);color:var(--warn-fg);font-weight:600}
+.payd .chg-flag.bad{background:var(--bad-bg);color:var(--bad-fg)}
+.payd .chg-flag .icon{width:16px;height:16px}
+.payd .chg-k{color:var(--body);font-size:17px}
+.payd .chg-v{margin-top:4px;font-size:56px;line-height:60px;font-weight:600;letter-spacing:-.045em}
+.payd .chg-notes{margin:24px auto 0;display:flex;flex-direction:column;gap:8px;width:320px}
+.payd .chg-note{display:grid;text-align:left;grid-template-columns:44px 1fr auto;align-items:center;gap:14px;height:52px;padding:0 18px 0 14px;border-radius:10px;box-shadow:inset 0 0 0 1px var(--hairline-2);font-size:22px;font-weight:600;font-variant-numeric:tabular-nums}
+.payd .chg-note b{text-align:right;font-weight:600}
+.payd .chg-note .x{color:var(--body);font-weight:500}
+.payd .chg-note i{width:44px;height:26px;border-radius:4px}
+.payd .chg-note i.coin{width:26px;height:26px;border-radius:50%;justify-self:center}
+.payd .chg-sub{margin-top:16px;color:var(--body)}
+.payd .chg-warn{width:100%;margin-top:16px;padding:12px 14px;border-radius:var(--r-inner);background:var(--warn-bg);color:var(--warn-fg);text-align:left}
+.payd .chg-warn+.chg-warn{margin-top:8px}
+.payd .chg-print{margin-top:12px;display:flex;align-items:center;justify-content:center;gap:8px;color:var(--body);min-height:22px}
+.payd .chg-print.ok{color:var(--ok-fg)}
+.payd .chg-print.bad{color:var(--bad-fg)}
+.payd .chg-print .icon{width:16px;height:16px}
+.payd .chg-id{margin-top:2px;color:var(--faint);font-size:15px}
+.payd .chg-acts{margin-top:16px;display:flex;gap:8px;width:100%}
+.payd .chg-acts .ds-btn{flex:1;height:44px}
+.payd .chg-acts .icon{width:16px;height:16px}
+.payd .chg-go{margin-top:22px;width:100%;height:52px;border-radius:var(--r-inner);justify-content:space-between;padding:0 14px 0 20px;font-size:17px}
+.payd .chg-acts+.chg-go{margin-top:10px}
+
+/* ── Pay, look D · Mesin (owner, 23 Oct 2026): the machine as numbered tiles,
+   then Debit / Kredit / QRIS, whose card it is, and the amount; the payments
+   so far as a list on the left. Ported from the prototype's .led, .stp*,
+   .amt.big, .p2-hint, .stp-done, .hold-red, .chg-no. ── */
+.payd .pay-r{overflow-y:auto}
+.payd .mute{color:var(--body)}
+.payd .bill .v.ok{color:var(--ok-fg)}
+.payd .t-x{display:grid;place-items:center;width:28px;height:28px;border-radius:8px;color:var(--line-ico);transition:background-color var(--t-press) ease,color var(--t-press) ease,scale var(--t-press) var(--ease-out)}
+.payd .t-x:active:not(:disabled){scale:.94}
+.payd .t-x .icon{width:16px;height:16px}
+.payd .t-x:disabled{opacity:.4}
+@media (hover:hover) and (pointer:fine){.payd .t-x:not(:disabled):hover{background:var(--soft-2);color:var(--ink)}}
+.payd .t-none{padding:20px 12px;color:var(--body)}
+.payd .led{margin-top:12px;padding-top:8px;border-top:1px solid var(--hairline);display:flex;flex-direction:column;gap:2px}
+.payd .led-k{color:var(--body);font-weight:500;margin-bottom:4px}
+.payd .led-row{display:grid;grid-template-columns:minmax(0,1fr) auto 28px;align-items:center;gap:8px;min-height:40px;border-bottom:1px solid var(--row-line)}
+.payd .led-n{font-weight:500;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.payd .led-v{font-weight:600;font-variant-numeric:tabular-nums}
+.payd .stp-k{font-size:17px;line-height:24px;font-weight:600}
+.payd .stp-list{display:flex;flex-direction:column;gap:6px}
+.payd .stp-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.payd .stp{display:flex;align-items:center;gap:12px;min-height:54px;padding:8px 12px;border-radius:var(--r-inner);box-shadow:inset 0 0 0 1px var(--hairline);background:#fff;text-align:left;transition:background-color 150ms ease,scale 120ms var(--ease-out)}
+.payd .stp:active:not(:disabled){scale:.98}
+@media (hover:hover) and (pointer:fine){.payd .stp:not(:disabled):hover{background:var(--soft)}}
+.payd .stp:disabled{background:#fff!important;box-shadow:inset 0 0 0 1px var(--hairline)!important;opacity:.5}
+.payd .stp .k7-k{flex:none}
+.payd .stp-t{display:flex;flex-direction:column;min-width:0;line-height:20px}
+.payd .stp-t b{font-weight:600}
+.payd .stp-t span{color:var(--body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.payd .amt.big{height:56px;font-size:28px;letter-spacing:-.02em}
+.payd .amt.big .cur{font-size:17px}
+.payd .p2code{height:44px}
+.payd .p2-hint{color:var(--body);font-size:15px;line-height:20px}
+.payd .stp-done{display:flex;flex-direction:column;align-items:center;gap:6px;padding:40px 0 20px;text-align:center}
+.payd .stp-done b{font-size:17px}
+.payd .stp-done span:last-child{color:var(--body)}
+.payd .stp-ok{display:grid;place-items:center;width:52px;height:52px;border-radius:50%;background:var(--ok-bg);color:var(--ok-fg)}
+.payd .stp-ok .icon{width:24px;height:24px}
+.payd .pay-acts{display:flex;gap:8px;margin-top:auto}
+.payd .pay-acts .pay-go{flex:1;margin-top:0}
+.payd .ds-btn.hold-red{height:40px;padding:0 12px;align-self:center;background:var(--red,#d70015)!important;color:#fff!important;font-weight:600;box-shadow:none}
+.payd .ds-btn.hold-red:active{scale:.97}
+.payd .ds-btn.hold-red .kbd{background:rgba(255,255,255,.18);box-shadow:inset 0 0 0 1px rgba(255,255,255,.35);color:#fff}
+.payd .ds-btn--sm{height:28px;padding:0 8px}
+.payd .ben{display:flex;align-items:center;gap:14px}
+.payd .ben-t{display:flex;flex-direction:column;align-items:flex-start;gap:6px;min-width:0}
+.payd .ben-sim{display:flex;flex-wrap:wrap;gap:6px}
+
+/* The employee's finger: ported from the door's sensor (.pdoor .fp in pos.css). */
+.payd .fp{position:relative;flex:none;width:96px;height:96px;border-radius:50%;display:grid;place-items:center;background:var(--soft-2);isolation:isolate;transition:scale 160ms var(--ease-out),background-color 200ms ease}
+.payd .fp:active{scale:.98}
+.payd .fp::before{content:"";position:absolute;inset:0;border-radius:50%;box-shadow:inset 0 0 0 1px var(--hairline-2);transition:box-shadow 200ms ease;z-index:0}
+.payd .fp.idle::after{content:"";position:absolute;inset:0;border-radius:50%;animation:pd-breathe 2.8s cubic-bezier(.77,0,.175,1) infinite}
+.payd .fp-glyph{position:relative;z-index:1;width:58px;height:58px}
+.payd .fp-glyph path{fill:none;stroke-width:1.05;stroke-linecap:round;stroke-linejoin:round}
+.payd .fp-base path{stroke:var(--faint)}
+.payd .fp-ink path{stroke:var(--accent);stroke-dasharray:1;stroke-dashoffset:1;opacity:0}
+.payd .fp.reading::before{box-shadow:inset 0 0 0 2px var(--accent)}
+.payd .fp.reading .fp-ink path{animation:pd-draw 440ms var(--ease-out) both;animation-delay:calc(var(--o) * 70ms + 60ms)}
+.payd .fp.done .fp-ink path,.payd .fp.no .fp-ink path{stroke-dashoffset:0;opacity:1}
+.payd .fp-clip{position:absolute;inset:0;border-radius:50%;overflow:hidden;pointer-events:none;z-index:2}
+.payd .fp-beam{position:absolute;left:0;right:0;top:-40px;height:40px;opacity:0;background:linear-gradient(180deg,rgb(40 98 220/0) 0%,rgb(40 98 220/.08) 55%,rgb(40 98 220/.42) 96%,rgb(40 98 220/0) 100%)}
+.payd .fp.reading .fp-beam{animation:pd-beam 940ms cubic-bezier(.77,0,.175,1) forwards}
+.payd .fp-fill{position:absolute;inset:0;border-radius:50%;background:var(--accent);opacity:0;transform:scale(.55);z-index:3}
+.payd .fp.done .fp-fill{animation:pd-fill 340ms var(--ease-out) forwards}
+.payd .fp.done .fp-glyph{animation:pd-fadeBlur 220ms var(--ease-out) forwards}
+.payd .fp-check{position:absolute;z-index:4;width:40px;height:40px;opacity:0}
+.payd .fp.done .fp-check{opacity:1}
+.payd .fp-check path{fill:none;stroke:#fff;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:1;stroke-dashoffset:1}
+.payd .fp.done .fp-check path{animation:pd-draw 320ms var(--ease-out) 170ms both}
+.payd .fp.no::before{box-shadow:inset 0 0 0 2px var(--bad)}
+.payd .fp.no .fp-ink path{stroke:var(--bad)}
+.payd .fp.no{animation:pd-shake 400ms var(--ease-out)}
+@media (prefers-reduced-motion:reduce){
+  .payd .fp.no,.payd .fp.idle::after,.payd .fp.reading .fp-beam{animation:none}
+  .payd .fp.reading .fp-ink path{animation-duration:200ms;animation-delay:0ms}
+}
+
+/* The change dialog's top label, number, and the final row. */
+.payd .chg-k.top{font-size:17px;font-weight:600;color:var(--ink);margin-bottom:2px}
+.payd .chg-no{color:var(--body);margin-bottom:14px;font-variant-numeric:tabular-nums}
+.payd .chg-acts.final{gap:10px;margin-top:22px}
+.payd .chg-acts.final .ds-btn{height:52px}
+.payd .chg-acts.final .ds-btn--tint{flex:none;padding:0 14px}
+.payd .chg-acts.final .chg-go{flex:1;margin:0;width:auto}
+.payd .chg-added{flex:none;display:inline-flex;align-items:center;gap:6px;color:var(--ok-fg);font-weight:500;max-width:200px}
+.payd .chg-added .icon{width:16px;height:16px}
+.payd .chg-print+.chg-acts,.payd .chg-warn+.chg-acts{margin-top:16px}
+/* Diskon karyawan: the amount box opened by the employee's finger comes in once
+   from a blur, the prototype's .amt.reveal (client, 24 Oct 2026). Rare — a few
+   times a day — so it may move. */
+.payd .amt.reveal{animation:pdAmtIn 220ms var(--ease-out) both}
+@keyframes pdAmtIn{from{opacity:0;filter:blur(4px);transform:scale(.97)}}
+@keyframes pdAmtFade{from{opacity:0}}
+@media (prefers-reduced-motion:reduce){.payd .amt.reveal{animation:pdAmtFade 160ms ease both}}
+
+/* ── Pay, look E · Chip EDC (client, 24 Oct 2026): one row per way to pay; the
+   amount column is empty until the row is verified — an EDC's three answers, a
+   voucher's code, the employee's finger, the member app's code. Ported from the
+   prototype's .mrow.edc, .edc-*, .amt-*, .amt.fixed and .pad-tog. ── */
+.payd .mrow.edc{height:auto;min-height:56px;padding-top:8px;padding-bottom:8px;align-items:center}
+.payd .mrow.edc .ml{align-self:start;padding-top:8px}
+.payd .mrow.edc .amt{align-self:start}
+.payd .edc-grid{display:grid;grid-template-columns:52px auto;align-items:center;column-gap:10px;row-gap:8px;min-width:0}
+.payd .edc-k{color:var(--body)}
+.payd .edc-k.need{color:var(--warn-fg);font-weight:600}
+.payd .edc-k.bad{color:var(--bad-fg);font-weight:600}
+.payd .edc-grid .mchip .kbd{margin-left:4px}
+.payd .edc-grid .mchip.on .kbd{background:rgba(255,255,255,.18);box-shadow:inset 0 0 0 1px rgba(255,255,255,.35);color:#fff}
+.payd .edc-tok{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 8px 0 10px;border-radius:8px;background:var(--accent);color:#fff;font-weight:500;white-space:nowrap;transition:scale var(--t-press) var(--ease-out)}
+.payd .edc-tok:active:not(:disabled){scale:.97}
+.payd .edc-tok .icon{width:14px;height:14px;opacity:.8}
+.payd .edc-tok:disabled{background:var(--accent)!important;color:#fff!important;opacity:.5}
+.payd .edc-keys{display:inline-flex;align-items:center;gap:3px;margin-left:6px}
+/* An unverified row shows no box and no lock; a code sits where the money will. */
+.payd .amt-none{height:44px}
+.payd .amt-code{height:44px;text-align:right;font-variant-numeric:tabular-nums;letter-spacing:.06em}
+.payd .amt-code::placeholder{letter-spacing:0}
+.payd .amt-vcode{letter-spacing:0;text-transform:uppercase}
+.payd .amt-vcode::placeholder{text-transform:none}
+.payd .amt.fixed{background:var(--segment-track);border-color:transparent;color:var(--ink)}
+.payd .mmid .vinfo{flex:0 1 auto;max-width:none;min-width:0}
+.payd .pad-tog{align-self:stretch;justify-content:space-between;height:40px}

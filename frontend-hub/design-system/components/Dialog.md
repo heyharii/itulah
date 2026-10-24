@@ -73,6 +73,7 @@ The card scales in from 0.96 with opacity over `t-panel` (200ms) on `ease-out`, 
 | `children` | `ReactNode` | What the act will do. |
 | `confirm` | `ReactNode` | The act's verb. |
 | `cancel` | `ReactNode` | Default `Cancel`. |
+| `cancelTint` | `boolean` | The way out as a `TintButton` (accent wash) instead of the quiet button that "Cancel" turns red. For a question that is not a warning, where leaving is as fair an answer as the act: "Match this sale?" in Sales › Unmatched sales. Ignored with `tone="danger"`. |
 | `tone` | `"primary" \| "danger"` | `danger` for anything that cannot be walked back. |
 | `pending` | `boolean` | The act's word becomes its participle. |
 | `reason` | `{ label?, hint?, optional? }` | Required unless `optional`. |

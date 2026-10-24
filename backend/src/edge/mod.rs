@@ -39,6 +39,9 @@ pub mod payment_methods;
 /// what it buys. Never the drawer — see the module note for the three pots.
 pub mod petty;
 pub mod pin;
+/// What head office stopped on this node's POS: the store, one person, or
+/// a till (postgres 0990, sqlite 0087).
+pub mod pos_stop;
 pub mod power;
 pub mod pricing;
 pub mod printing;
@@ -53,6 +56,7 @@ pub mod status;
 pub mod store_returns;
 pub mod sync;
 pub mod till;
+pub mod unmatched;
 pub mod update;
 #[cfg(windows)]
 pub mod winservice;

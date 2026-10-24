@@ -1,0 +1,2092 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pack sheet options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#1d1d1f;--body:#6e6e73;--faint:#c7c7cc;--canvas:#fff;--soft:#fafafb;
+  --hair:#e8e8ec;--row:#eeeef1;--scrim:rgb(208 208 213 / 48%);
+  --accent:#2862dc;--accent-bg:#eef3fc;--ok:#248a3d;--ok-bg:#eaf6ee;--bad:#d70015;--warn:#a66c1f;
+  --ease-out:cubic-bezier(.23,1,.32,1);--ease-io:cubic-bezier(.77,0,.175,1);
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:#f2f2f5;color:var(--ink);font:15px/1.4 Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.num{font-variant-numeric:tabular-nums}
+
+/* proto bar */
+.bar{position:sticky;top:0;z-index:50;display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center;padding:10px 16px;background:#fff;border-bottom:1px solid var(--hair)}
+.bar b{font-weight:600;margin-right:4px}
+.seg{display:inline-flex;gap:2px;padding:2px;border-radius:9px;background:#f0f0f3}
+.seg button{padding:5px 11px;border-radius:7px;color:var(--body)}
+.seg button[aria-pressed=true]{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgb(0 0 0/8%)}
+.grp{display:flex;align-items:center;gap:6px}
+.grp>span{color:var(--body)}
+
+/* stage + board ghost */
+.stage{display:flex;justify-content:center;padding:24px 16px 60px}
+.frame{position:relative;width:1180px;height:820px;border-radius:16px;overflow:hidden;background:#fff;box-shadow:0 0 0 1px rgb(0 0 0/5%),0 8px 30px rgb(0 0 0/6%)}
+.frame.phone{width:414px;height:896px;border-radius:40px}
+.frame.tablet{width:820px;height:1180px;border-radius:28px}
+.tablet .sheet{top:20px;bottom:20px;width:760px}
+.ghost{position:absolute;inset:0;padding:20px;display:grid;grid-template-columns:repeat(3,1fr);gap:12px;filter:saturate(.6)}
+.ghost .lane{background:#f5f6f8;border-radius:14px;padding:12px}
+.ghost .lane i{display:block;height:84px;border-radius:12px;background:#fff;margin-top:10px}
+.phone .ghost{grid-template-columns:1fr}
+.scrim{position:absolute;inset:0;background:var(--scrim)}
+
+/* sheet */
+.sheet{position:absolute;left:50%;top:24px;bottom:24px;width:760px;transform:translateX(-50%);background:#fff;border-radius:18px;display:flex;flex-direction:column;box-shadow:0 20px 60px rgb(0 0 0/14%);overflow:hidden}
+.phone .sheet{left:0;right:0;width:auto;top:56px;bottom:0;transform:none;border-radius:18px 18px 0 0}
+.head{display:flex;align-items:flex-start;gap:12px;padding:20px 24px 16px;border-bottom:1px solid var(--hair)}
+.phone .head{padding:16px 16px 14px}
+.head .crumb{color:var(--body)}
+.head h2{margin:2px 0 0;font-size:19px;font-weight:600}
+.head .fig{margin-left:auto;text-align:right}
+.head .fig strong{display:block;font-size:24px;font-weight:700;line-height:1.1}
+.head .fig span{color:var(--body)}
+.head .x{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;color:var(--body);flex:none}
+.head .x:hover{background:#f2f2f5}
+.body{flex:1;overflow:auto;padding:18px 24px 24px;overscroll-behavior:contain}
+.phone .body{padding:14px 16px 20px}
+.foot{display:flex;align-items:center;gap:12px;padding:14px 24px calc(14px + var(--safe,0px));border-top:1px solid var(--hair)}
+.phone .foot{--safe:20px;padding-left:16px;padding-right:16px}
+.foot .grow{flex:1}
+
+.btn{white-space:nowrap;height:40px;padding:0 18px;border-radius:10px;background:var(--accent);color:#fff;font-weight:600;transition:transform 160ms var(--ease-out),opacity 150ms}
+.btn:active{transform:scale(.97)}
+.btn.red{background:var(--bad)}
+.btn[disabled]{opacity:.35;pointer-events:none}
+.phone .foot .btn.main{flex:1;height:48px}
+.link{color:var(--accent);font-weight:500;padding:6px 0}
+.link.red{color:var(--bad)}
+.link:active{opacity:.6}
+
+/* article + rows */
+.art{display:flex;gap:12px;align-items:center;padding:4px 0 12px}
+.ph{width:46px;height:46px;border-radius:9px;background:#f2f2f5;display:grid;place-items:center;flex:none}
+.art b{display:block;font-weight:600}
+.art span{color:var(--body)}
+.dot{width:10px;height:10px;border-radius:50%;flex:none}
+.rowl{display:flex;align-items:center;gap:12px;min-height:60px;border-top:1px solid var(--row)}
+.nm{flex:1;min-width:0}
+.nm b{font-weight:500;display:block}
+.nm span{color:var(--body)}
+.step{display:flex;gap:6px;align-items:center}
+.step button{width:38px;height:38px;border-radius:9px;border:1px solid var(--hair);display:grid;place-items:center;font-size:19px;transition:transform 120ms var(--ease-out)}
+.step button:active{transform:scale(.94)}
+.step button[disabled]{color:var(--faint);pointer-events:none}
+.step output{width:50px;height:38px;border:1px solid var(--hair);border-radius:9px;display:grid;place-items:center}
+.box{border:1.5px solid var(--accent);border-radius:14px;padding:12px 16px 4px}
+.boxhd{display:flex;align-items:center;gap:8px;padding-bottom:8px}
+.boxhd b{font-weight:600}
+.muted{color:var(--body)}
+.add{width:100%;margin-top:12px;height:46px;border:1.5px dashed var(--hair);border-radius:12px;color:var(--accent);font-weight:500}
+.sec{margin:20px 0 8px;color:var(--body)}
+
+/* packed strip */
+.packed{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+.pk{display:flex;align-items:center;gap:8px;height:38px;padding:0 12px;border-radius:10px;background:var(--soft);border:1px solid var(--hair);transition:transform 160ms var(--ease-out),background 150ms}
+.pk:active{transform:scale(.97)}
+.pk svg{color:var(--ok)}
+.pk[aria-expanded=true]{background:var(--accent-bg);border-color:transparent}
+.pk.new{animation:land 420ms var(--ease-out)}
+@keyframes land{from{transform:translateY(-14px) scale(.96);opacity:0}}
+.pkdetail{width:100%;padding:10px 14px;border-radius:10px;background:var(--soft);margin-top:-4px}
+.pkdetail div{display:flex;justify-content:space-between;padding:3px 0}
+
+/* rolling number */
+.roll{display:inline-block}
+.roll.bump{animation:bump 220ms var(--ease-out)}
+@keyframes bump{from{transform:translateY(5px);opacity:.3}}
+
+/* A · tap to drop */
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+.phone .two{grid-template-columns:1fr}
+.pile{border-radius:14px;background:var(--soft);padding:6px 14px}
+.pile .rowl:first-child{border-top:0}
+.tap{width:100%;text-align:left;display:flex;align-items:center;gap:12px;min-height:58px;border-top:1px solid var(--row);transition:transform 120ms var(--ease-out)}
+.tap:first-of-type{border-top:0}
+.tap:active{transform:scale(.98)}
+.tap .n{min-width:34px;height:34px;border-radius:17px;background:#fff;box-shadow:0 0 0 1px var(--hair);display:grid;place-items:center;font-weight:600}
+.tap[disabled]{opacity:.35;pointer-events:none}
+.zone{border:1.5px solid var(--accent);border-radius:14px;padding:12px 14px;min-height:180px;position:sticky;top:0;background:#fff}
+.phone .zone{position:static}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.chip{display:flex;align-items:center;gap:8px;height:36px;padding:0 12px;border-radius:18px;background:var(--accent-bg);color:var(--ink);transition:transform 120ms var(--ease-out)}
+.chip:active{transform:scale(.95)}
+.chip.pop{animation:pop 260ms var(--ease-out)}
+@keyframes pop{from{transform:scale(.85);opacity:0}}
+.empty{color:var(--body);padding:28px 0;text-align:center}
+.fly{position:fixed;z-index:99;pointer-events:none;padding:4px 10px;border-radius:14px;background:var(--accent);color:#fff;font-weight:600}
+
+/* B · tabs */
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.tab{height:38px;padding:0 14px;border-radius:10px;border:1px solid var(--hair);display:flex;align-items:center;gap:8px;transition:transform 120ms var(--ease-out)}
+.tab:active{transform:scale(.97)}
+.tab[aria-pressed=true]{border-color:var(--accent);background:var(--accent-bg)}
+.tab.plus{color:var(--accent);border-style:dashed}
+.lft{width:74px;text-align:right}
+.lft b{font-weight:600}
+.lft.zero{color:var(--ok)}
+
+/* D · count in */
+.cnt{width:100%;display:flex;align-items:center;gap:12px;min-height:64px;border-top:1px solid var(--row);text-align:left}
+.cnt .of{font-weight:600;min-width:64px;text-align:right}
+.cnt .of span{color:var(--body);font-weight:400}
+.cnt.full .nm b,.cnt.full .of{color:var(--ok)}
+.plusbig{width:44px;height:44px;border-radius:12px;background:var(--accent);color:#fff;display:grid;place-items:center;font-size:22px;transition:transform 120ms var(--ease-out)}
+.plusbig:active{transform:scale(.92)}
+.plusbig[disabled]{background:var(--ok-bg);color:var(--ok);pointer-events:none}
+.minus{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;color:var(--body);font-size:20px}
+.minus[disabled]{visibility:hidden}
+
+/* C · leftover line */
+.wait{display:flex;align-items:center;gap:10px;margin-top:12px;padding:12px 14px;border-radius:12px;background:var(--soft)}
+.wait b{font-weight:600}
+
+/* done + toast */
+.done{display:grid;place-items:center;text-align:center;padding:70px 0 40px}
+.done .ok{width:56px;height:56px;border-radius:50%;background:var(--ok-bg);color:var(--ok);display:grid;place-items:center;margin-bottom:12px}
+.done b{font-size:19px;font-weight:600}
+.toast{position:absolute;left:50%;bottom:92px;transform:translateX(-50%);display:flex;align-items:center;gap:16px;padding:12px 16px;border-radius:12px;background:#1d1d1f;color:#fff;box-shadow:0 8px 24px rgb(0 0 0/20%);transition:transform 260ms var(--ease-out),opacity 200ms;white-space:nowrap;z-index:20}
+.toast[hidden]{display:flex;opacity:0;transform:translate(-50%,10px);pointer-events:none}
+.toast button{color:#8ab4ff;font-weight:600}
+.koli-out{animation:out 300ms var(--ease-io) forwards}
+@keyframes out{to{transform:translateY(-24px) scale(.97);opacity:0}}
+
+@media (prefers-reduced-motion:reduce){*{animation-duration:1ms!important}.fly{display:none}}
+@media (hover:hover) and (pointer:fine){.tap:hover{background:rgb(0 0 0/2%)}.chip:hover{background:#e3ebfa}}
+
+/* E · boxes */
+.shelf{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:10px;margin-bottom:6px}
+.phone .shelf{grid-template-columns:repeat(3,1fr)}
+.kt{position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-height:86px;padding:12px;border-radius:14px;border:1.5px solid var(--hair);background:#fff;text-align:left;transition:transform 160ms var(--ease-out),border-color 150ms,background 150ms}
+.kt:active{transform:scale(.97)}
+.kt b{font-weight:600}
+.kt .muted{font-size:15px}
+.kt svg.ic{color:var(--body);margin-bottom:4px}
+.kt.active{border-color:var(--accent);background:var(--accent-bg)}
+.kt.active svg.ic{color:var(--accent)}
+.kt.target{border-color:rgb(40 98 220/45%)}
+.kt.target svg.ic{color:var(--accent)}
+.kt.sealed{background:var(--soft)}
+.kt.sealed svg.ic{color:var(--ok)}
+.kt.sealed[aria-expanded=true]{border-color:var(--ink)}
+.kt.add{width:auto;height:auto;margin-top:0;border-style:dashed;color:var(--accent);justify-content:center;align-items:center;font-weight:600}
+.kt.add.first{grid-column:1/-1;min-height:110px;font-size:17px}
+.kt.born{animation:born 320ms var(--ease-out)}
+@keyframes born{from{transform:scale(.9);opacity:0}}
+.kt.hit{animation:hit 220ms var(--ease-out)}
+@keyframes hit{40%{transform:scale(1.04)}}
+.kt.seal svg.ic{animation:pop 300ms var(--ease-out)}
+.kt .tag{position:absolute;top:10px;right:10px;color:var(--body)}
+.inside{margin:10px 0 0;padding:12px 14px;border-radius:12px;background:var(--accent-bg)}
+.inside.sealedbox{background:var(--soft)}
+.inside .hd{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.inside .hd b{font-weight:600}
+.inside .chips{margin-top:4px}
+.inside .chip{background:#fff}
+.inside .ln{display:flex;justify-content:space-between;padding:3px 0}
+.grouphd{display:flex;gap:12px;align-items:center;padding:16px 0 8px}
+.grouphd b{display:block;font-weight:600}
+.grouphd span{color:var(--body)}
+.put{display:flex;align-items:center;gap:12px;min-height:60px;border-top:1px solid var(--row);cursor:pointer}
+.put .left{font-weight:600;min-width:36px;text-align:right;font-size:17px}
+.put.zero{opacity:.4}
+.put .all{color:var(--accent);font-weight:500;padding:8px 4px}
+.put .all[disabled]{visibility:hidden}
+.tabletitle{display:flex;align-items:baseline;gap:8px;margin-top:18px}
+.tabletitle b{font-weight:600;font-size:17px}
+.swatch{border:1px solid rgb(0 0 0/12%)}
+
+.pad{position:absolute;inset:0;z-index:30;display:flex;align-items:flex-end;justify-content:center;background:rgb(0 0 0/18%);animation:fade 160ms ease-out}
+@keyframes fade{from{opacity:0}}
+.padc{width:380px;margin-bottom:40px;background:#fff;border-radius:18px;padding:18px;box-shadow:0 20px 60px rgb(0 0 0/20%);animation:rise 240ms var(--ease-out)}
+.phone .padc{width:100%;margin:0;border-radius:18px 18px 0 0;padding-bottom:38px}
+@keyframes rise{from{transform:translateY(16px);opacity:0}}
+.padc .t{display:flex;justify-content:space-between;align-items:baseline}
+.padc .t b{font-weight:600}
+.padc .big{font-size:40px;font-weight:700;text-align:center;padding:10px 0 2px}
+.padc .of{text-align:center;color:var(--body);margin-bottom:12px}
+.keys{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.keys button{height:52px;border-radius:12px;background:#f2f2f5;font-size:20px;font-weight:500;transition:transform 100ms var(--ease-out)}
+.keys button:active{transform:scale(.95);background:#e6e6eb}
+.padc .btn{width:100%;height:48px;margin-top:12px}
+.amt{min-width:56px;height:40px;padding:0 10px;border-radius:10px;border:1px solid var(--hair);display:grid;place-items:center;font-weight:600;font-size:17px;background:#fff}
+.amt:active{transform:scale(.96)}
+
+.kt .rd{position:absolute;top:12px;right:12px;width:20px;height:20px;border-radius:50%;border:1.6px solid var(--faint);transition:border-color 150ms,border-width 150ms}
+.kt.on{border-color:var(--accent);background:var(--accent-bg)}
+.kt.on .rd{border:6px solid var(--accent)}
+.kt.on svg.ic{color:var(--accent)}
+.kt.sealed svg.ic,.kt.sealed.on svg.ic{color:var(--ok)}
+.kt.sealed .tag{top:auto;bottom:12px}
+.kt.zero b,.kt.zero .muted{opacity:.5}
+.into{display:flex;align-items:center;gap:10px;margin-top:18px}
+.into .seg{flex-wrap:wrap}
+.into .seg button{min-height:34px;padding:0 14px;border-radius:7px;color:var(--body);font-weight:500;transition:transform 120ms var(--ease-out)}
+.into .seg button:active{transform:scale(.97)}
+.into .seg button[aria-pressed=true]{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgb(0 0 0/8%)}
+.put.calm{transition:background 150ms}
+.put.calm.asking{background:var(--soft)}
+.put.hrow{cursor:default}
+.ph.skuph{width:44px;height:44px;transition:transform 120ms var(--ease-out),box-shadow 150ms}
+.ph.skuph:active{transform:scale(.95)}
+@media (hover:hover) and (pointer:fine){.ph.skuph:hover{box-shadow:0 0 0 1.5px var(--accent)}}
+.dlg.ipvw{z-index:45}
+.dlgc.ipv{position:relative;width:420px;padding:16px}
+.dlgc.ipv .prtx{position:absolute;top:12px;right:12px}
+.ipvimg{height:320px;border-radius:12px;background:#f2f2f5;display:grid;place-items:center}
+.ipvimg svg{width:180px;height:180px}
+.dlgc.ipv .pdh{margin-top:12px}
+.ph.skuph svg{width:24px;height:24px}
+.ask{display:flex;gap:8px;flex-wrap:wrap;padding:4px 0 14px;animation:askin 180ms var(--ease-out)}
+@keyframes askin{from{opacity:0;transform:translateY(-4px)}}
+.ask button{height:40px;padding:0 18px;border-radius:10px;background:var(--accent-bg);color:var(--accent);font-weight:600;transition:transform 120ms var(--ease-out)}
+.ask button:active{transform:scale(.97)}
+.qty{min-width:40px;text-align:right;font-weight:600;font-size:17px}
+.put.calm button.go{width:40px;height:40px;border-radius:10px;color:var(--body);transition:background 150ms,color 150ms,transform 120ms var(--ease-out)}
+.put.calm button.go:active{transform:scale(.94)}
+@media (hover:hover) and (pointer:fine){.put.calm button.go:hover{background:#fff;color:var(--accent);box-shadow:0 0 0 1px var(--hair)}}
+.put.calm.asking button.go{color:var(--accent)}
+.pop{position:absolute;z-index:40;width:220px;padding:6px;background:#fff;border-radius:12px;box-shadow:0 0 0 1px rgb(0 0 0/6%),0 12px 32px rgb(0 0 0/16%);animation:popin 160ms var(--ease-out)}
+@keyframes popin{from{opacity:0;transform:scale(.96)}}
+.popq{display:flex;align-items:center;gap:10px;padding:6px 6px 10px}
+.popq input.amt{width:72px;height:40px;border:1px solid var(--hair);border-radius:10px}
+.pop .pgo{width:100%;height:40px;border-radius:9px;background:var(--accent);color:#fff;font-weight:600;transition:transform 120ms var(--ease-out)}
+.pop .pk2{display:flex;align-items:center;justify-content:space-between;width:100%;height:42px;padding:0 12px;border-radius:8px;transition:background 120ms,transform 120ms var(--ease-out)}
+.pop .pk2 b{font-weight:600}
+.pop button:active{transform:scale(.97)}
+@media (hover:hover) and (pointer:fine){.pop .pk2:hover{background:var(--soft)}}
+.dlgc.putd{width:480px}
+.dlg.keep,.dlgc.putd.keep{animation:none}
+.pdbody.stepped{animation:stepin 180ms var(--ease-out)}
+@keyframes stepin{from{opacity:0;transform:translateX(10px)}}
+.pdbody.stepped.back{animation-name:stepback}
+@keyframes stepback{from{opacity:0;transform:translateX(-10px)}}
+.pdk{display:flex;align-items:center;gap:8px;margin-top:18px;padding:10px 12px;border-radius:12px;background:var(--accent-bg)}
+.pdk svg{color:var(--accent)}
+.pdk b{font-weight:600}
+.pdk .link{margin-left:auto}
+@media (hover:hover) and (pointer:fine){.kt.mini.pick:hover{border-color:var(--accent)}.kt.mini.pick:hover svg.ic{color:var(--accent)}}
+.pdh b{display:block;font-size:19px;font-weight:600}
+.pdh .muted{display:block;margin-top:2px}
+.pdl{margin:18px 0 8px;color:var(--body)}
+.ktiles{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.kt.mini{min-height:76px;padding:10px 12px}
+.kt.mini.add{min-height:76px}
+.kt.mini.add.on{border-style:solid;background:var(--accent-bg)}
+.pdq{display:flex;align-items:center;gap:12px}
+.pdq input.amt{width:96px;height:48px;border:1px solid var(--hair);border-radius:10px;font-size:19px}
+.putd .acts .btn{min-width:180px}
+.phone .dlg:has(.putd){align-items:end}
+.phone .dlgc.putd{width:100%;max-width:100%;border-radius:18px 18px 0 0;padding-bottom:34px}
+.phone .putd .acts .btn{flex:1;height:48px}
+.phone .putd .acts>div{display:none}
+.pop .pk2{margin-top:6px;gap:10px;justify-content:flex-start;background:var(--accent-bg);color:var(--accent)}
+.pop .pk2 svg{flex:none}
+.pop .pk2 .num{margin-left:auto;color:var(--accent);opacity:.75}
+.kl.calm{transition:background 150ms}
+.kl button.go{width:40px;height:40px;flex:none;border-radius:10px;display:grid;place-items:center;color:var(--body);transition:background 150ms,color 150ms,transform 120ms var(--ease-out)}
+.kl button.go:active{transform:scale(.94)}
+@media (hover:hover) and (pointer:fine){.kl button.go:hover{background:#fff;color:var(--accent);box-shadow:0 0 0 1px var(--hair)}}
+.kph{width:46px;height:46px;flex:none;border-radius:9px;background:#f2f2f5;display:grid;place-items:center;color:var(--body);transition:color 150ms,transform 120ms var(--ease-out)}
+.kph.sm{width:34px;height:34px;border-radius:8px}
+.kph:active{transform:scale(.95)}
+.kname{display:block;text-align:left;font-weight:600}
+@media (hover:hover) and (pointer:fine){.kph:hover{color:var(--accent)}.kname:hover{text-decoration:underline}}
+.dlgc.kinfo{width:520px}
+.kinrows{margin-top:6px}
+.rk{display:flex;align-items:center;gap:10px;padding:6px 0 6px 14px}
+.rk .muted{margin-left:auto}
+
+.dlgc.dbk{width:560px}
+.kl.pickrow{cursor:pointer}
+.dcb{width:22px;height:22px;flex:none;border-radius:6px;border:1.6px solid var(--faint);display:grid;place-items:center;color:#fff;transition:background 120ms,border-color 120ms}
+.kl.pickrow.on .dcb{background:var(--bad);border-color:var(--bad)}
+.kacts{gap:16px}
+.sealtag{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px 0 8px;border-radius:9px;background:var(--ok-bg);color:var(--ok);font-weight:600}
+.sealtag .num{color:var(--ok)}
+.a5.pl{font-size:11px;gap:10px}
+.a5.pl .plt{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:8px;border-bottom:2px solid #111}
+.a5.pl .plt b{display:block;font-size:17px;letter-spacing:.02em}
+.a5.pl .plt span{color:#555}
+.a5.pl .pld{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;margin:0}
+.a5.pl .pld dt{color:#555}.a5.pl .pld dd{margin:0}
+.a5.pl .pmx td:nth-child(n+3){width:auto}
+.a5.pl .pmx td:last-child,.a5.pl .pmx th:last-child{text-align:right}
+.toprint{display:inline-flex;align-items:center;gap:6px;height:36px;color:var(--accent);font-weight:600}
+.toprint svg{color:var(--accent)}
+.dlgc.prt{width:448px}
+.prth{display:flex;align-items:center;gap:12px}
+.prth b{font-size:19px;font-weight:600}
+.prtx{margin-left:auto;width:36px;height:36px;border-radius:50%;display:grid;place-items:center;color:var(--body)}
+.prtx:hover{background:#f2f2f5}
+.prtbox{margin-top:16px;height:15.5rem;display:grid;place-items:center;border-radius:7px;background:#f0f0f3}
+.prtpage{display:flex;flex-direction:column;gap:6px;padding:12px;overflow:hidden;background:#fff;box-shadow:0 1px 3px rgb(0 0 0/12%);transition:width 220ms var(--ease-out),height 220ms var(--ease-out)}
+.prtpage i{display:block;height:6px;border-radius:2px;background:var(--hair);flex:none}
+.prtpage i:first-child{background:#d6d6dc}
+.prtpaper{position:absolute;left:0;top:0;transform-origin:top left}
+.prtpaper .a5{aspect-ratio:auto;height:100%;box-shadow:none;border-radius:0;font-size:13px;padding:32px}
+.prtopts{margin-top:16px;display:grid;grid-template-columns:auto 1fr;gap:12px 16px;align-items:center}
+.choice{display:flex;justify-content:flex-end;gap:8px}
+.choice button{height:36px;padding:0 16px;border-radius:7px;border:1px solid transparent;color:var(--body);transition:color 150ms,border-color 150ms}
+.choice button[aria-pressed=true]{border-color:var(--accent);color:var(--accent);font-weight:600}
+.prtacts{margin-top:20px;display:flex;align-items:center;gap:8px}
+.tofile{display:inline-flex;align-items:center;gap:6px;height:40px;padding:0 8px;border-radius:10px;color:var(--bad);font-weight:600}
+.prtacts .btn{margin-left:auto;display:inline-flex;align-items:center;gap:8px;padding:0 20px}
+.phone .dlg:has(.prt){align-items:end}
+.phone .dlgc.prt{width:100%;max-width:100%;border-radius:18px 18px 0 0;padding-bottom:34px}
+.sclk{cursor:pointer;border-radius:6px;margin:0 -6px;padding:2px 6px!important}
+.sclk>span:first-child{text-decoration:underline;text-decoration-color:var(--faint);text-underline-offset:3px}
+@media (hover:hover) and (pointer:fine){.sclk:hover{background:#fff}.sclk:hover>span:first-child{text-decoration-color:currentColor}}
+.pxhd{display:flex;align-items:center;gap:12px;padding:6px 0;color:var(--body)}
+.pxhd .pxsz{flex:1;padding-left:38px}
+.pxc{width:56px;flex:none;text-align:right}
+.pxhd .pxt{min-width:64px;text-align:center}
+.ck .pxc{font-weight:600}
+.ck .pxc.none{color:var(--faint);font-weight:400}
+.ck .pxc.ok{color:var(--ok)}
+.ck .pxc.part{color:var(--warn)}
+.phone .pxc{width:44px}
+.psttabs{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 8px}
+.psttab{height:38px;padding:0 14px;border-radius:10px;border:1px solid var(--hair);display:inline-flex;align-items:center;gap:6px;transition:transform 120ms var(--ease-out),border-color 150ms,background 150ms}
+.psttab:active{transform:scale(.97)}
+.psttab .num{color:var(--body)}
+.psttab svg{color:var(--ok);width:15px;height:15px}
+.psttab.on{border-color:var(--accent);background:var(--accent-bg)}
+.pststore{color:var(--body);margin:8px 0 2px}
+button.pxc.cell{height:36px;border-radius:9px;border:1px solid var(--hair);background:#fff;font-weight:600;text-align:center;transition:background 150ms,border-color 150ms,color 150ms,transform 120ms var(--ease-out)}
+button.pxc.cell:active{transform:scale(.95)}
+button.pxc.cell.full{background:var(--accent);border-color:var(--accent);color:#fff}
+button.pxc.cell.part{background:#fdf5e8;border-color:var(--warn);color:var(--warn)}
+button.pxc.colhd{height:30px;border-radius:7px;text-align:center;color:var(--body)}
+@media (hover:hover) and (pointer:fine){button.pxc.colhd:hover{color:var(--accent)}}
+button.pxc.colhd.ok{color:var(--ok);font-weight:600}
+.pxhd .pxc{text-align:center}
+.ck .tot{min-width:64px;text-align:center;font-weight:600}
+.ck.full .tot{opacity:.5}
+.ck.nesthd{border-top:1px solid var(--hair)}
+.ck.sub{padding-left:38px;min-height:52px;border-top-color:var(--row)}
+.ck.sub .nm b{font-weight:500}
+.sortblk{border:1px solid var(--hair);border-radius:12px;padding:2px 12px 6px;margin-top:10px;transition:background 150ms,border-color 150ms}
+.sortblk.ok{border-color:var(--ok);background:var(--ok-bg)}
+.sorthd{display:flex;align-items:center;gap:12px;padding:10px 0}
+.cb2{width:26px;height:26px;flex:none;border-radius:8px;border:1.6px solid var(--faint);display:grid;place-items:center;color:#fff;background:#fff;transition:background 150ms,border-color 150ms}
+.cb2.on{background:var(--ok);border-color:var(--ok)}
+.srow{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:48px;border-top:1px solid var(--row)}
+.srow .amt.short{color:var(--warn)}
+.stneed{display:flex;flex-wrap:wrap;gap:2px 14px;margin-top:2px}
+.stneed em{font-style:normal;color:var(--body)}
+.stneed em b{display:inline;font-weight:600;color:var(--ink)}
+.stneed em.ok,.stneed em.ok b{color:var(--ok)}
+.stneed em.part,.stneed em.part b{color:var(--warn)}
+.pmx.gx th,.pmx.gx td{text-align:right}
+.pmx.gx th:first-child,.pmx.gx td:first-child{text-align:left}
+[data-rg=gap] .artgrp+.artgrp{margin-top:16px}
+[data-rg=gap] .artgrp+.artgrp>:first-child{border-top:1.5px solid #cfcfd6}
+[data-rg=card] .artgrp,[data-rg=cardh] .artgrp{border:1px solid var(--hair);border-radius:12px;padding:0 12px;margin-top:10px}
+[data-rg=cardh] .artgrp>:first-child{border-top:0}
+.arthd{display:flex;align-items:center;gap:12px;padding:12px 0 10px}
+.arthd .nm b{font-weight:600}
+[data-rg=cardh] .arthd{border-bottom:1px solid var(--row);margin:0 -12px;padding:12px;background:var(--soft);border-radius:12px 12px 0 0}
+[data-rg=cardh] .arthd+*{border-top:0}
+[data-rg=head] .artgrp+.artgrp{margin-top:14px}
+[data-rg=head] .arthd+*{border-top:1px solid var(--hair)}
+[data-rg=head] .arthd .ph.skuph{width:36px;height:36px}
+[data-rg=card] .artgrp>:first-child{border-top:0}
+[data-rg=once] .artgrp>:not(:first-child){border-top-color:transparent;min-height:52px}
+[data-rg=once] .artgrp>:not(:first-child) .skuph{visibility:hidden}
+[data-rg=once] .artgrp+.artgrp{margin-top:6px}
+.frame.bdlg .scrim{display:none}
+.frame.bdlg .sheet{left:0;right:0;top:0;bottom:0;width:auto;transform:none;border-radius:0;background:transparent;box-shadow:none}
+.frame.bdlg .sheet>.head,.frame.bdlg .sheet>.body,.frame.bdlg .sheet>.foot{display:none}
+[data-rg=stack] .artgrp.stk{margin-top:10px;border:1px solid var(--hair);border-radius:12px;background:#fff;padding:0 12px;transition:box-shadow 200ms var(--ease-out),margin 200ms var(--ease-out)}
+[data-rg=stack] .artgrp.stk.shut{margin-bottom:18px;box-shadow:0 12px 0 -8px #fff,0 13px 0 -7px #d2d2d8,0 23px 0 -14px #fff,0 24px 0 -13px #dedee3}
+[data-rg=stack] .artgrp.stk .arthd{display:flex;align-items:center;gap:12px;padding:12px 0}
+[data-rg=stack] .artgrp.stk:not(.shut) .arthd{border-bottom:1px solid var(--row)}
+[data-rg=stack] .stkrows>:first-child{border-top:0}
+.arthd.fold{cursor:pointer}
+.stkn{margin-left:auto;color:var(--body);white-space:nowrap}
+.stkchev{display:grid;color:var(--body);transition:transform 200ms var(--ease-out),color 150ms}
+.artgrp.stk:not(.shut) .stkchev{transform:rotate(90deg)}
+@media (hover:hover) and (pointer:fine){.arthd.fold:hover .stkchev{color:var(--accent)}}
+.stkrows.in>*{animation:stkin 220ms var(--ease-out) both}
+.stkrows.in>:nth-child(2){animation-delay:35ms}.stkrows.in>:nth-child(3){animation-delay:70ms}.stkrows.in>:nth-child(4){animation-delay:105ms}.stkrows.in>:nth-child(n+5){animation-delay:140ms}
+@keyframes stkin{from{opacity:0;transform:translateY(-6px)}}
+@media (prefers-reduced-motion:reduce){.stkrows.in>*{animation:none}}
+.tstore{border:1px solid var(--hair);border-radius:12px;padding:12px 14px;margin-top:12px}
+.tsh{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.tsh b{font-weight:600;font-size:17px}
+.pill{margin-left:auto;padding:3px 10px;border-radius:999px;background:#f2f2f5;color:var(--body);font-size:15px}
+.pill.ok{background:var(--ok-bg);color:var(--ok)}
+.pill.warn{background:#fdf5e8;color:var(--warn)}
+.tstore .kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:10px}
+.tstore .kpi{padding:0 14px;border-left:1px solid var(--hair)}
+.tstore .kpi:first-child{padding-left:0;border-left:0}
+.tstore .kpi .l{color:var(--body)}
+.tstore .kpi .v{font-size:17px;font-weight:600}
+.tstore .kpi .v.bad,.tdiff td.bad{color:var(--bad)}
+.kchips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.kchip{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 10px;border-radius:9px;border:1px solid var(--hair);color:var(--ink)}
+.kchip svg{width:18px;height:18px;color:var(--body)}
+@media (hover:hover) and (pointer:fine){.kchip:hover{border-color:var(--accent)}}
+.tdiff{width:100%;border-collapse:collapse}
+.tdiff tr.tart{cursor:pointer}
+.tdiff tr.tart td:first-child b{font-weight:600}
+.tdiff tr.tart td:first-child::before{content:"›";display:inline-block;width:16px;color:var(--body);transition:transform 150ms var(--ease-out)}
+.tdiff tr.tart.open td:first-child::before{transform:rotate(90deg)}
+.tdiff tr.tart td:first-child b,.tdiff tr.tart td:first-child span{display:inline}
+.tdiff tr.tart td:first-child span{margin-left:8px}
+.tdiff tr.tart.diff{background:#fdf5e8}
+.tdiff tr.tsku td:first-child{padding-left:16px}
+.tdiff tr.off td:first-child b{color:var(--warn)}
+.ttag{display:inline-block;margin-left:8px;padding:1px 8px;border-radius:999px;background:#fdf5e8;color:var(--warn);font-style:normal}
+.tdiff th{text-align:right;color:var(--body);font-weight:400;padding:6px 0;border-bottom:1px solid var(--hair)}
+.tdiff th:first-child,.tdiff td:first-child{text-align:left}
+.tdiff td{text-align:right;padding:8px 0;border-top:1px solid var(--row)}
+.tdiff td:not(:first-child){width:84px}
+.tdiff td b{display:block;font-weight:500}
+.tdiff td span{color:var(--body)}
+.phone .tstore .kpis{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 0}
+/* every action looks like a button (client, 18 Oct 2026: no text that does not look pressable) */
+.sheet .link,.dlgc .link,.pop .link,.layer .link,.tray .link,.boardhd .link{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 14px;border-radius:9px;background:var(--accent-bg);color:var(--accent);font-weight:600;white-space:nowrap;transition:transform 120ms var(--ease-out),background 150ms}
+.sheet .link.red,.dlgc .link.red{background:#fdf0f1;color:var(--bad)}
+.sheet .link:active,.dlgc .link:active{transform:scale(.97)}
+.sheet .link[disabled]{opacity:.4;pointer-events:none}
+.toprint{height:36px;padding:0 14px;border-radius:9px;background:var(--accent-bg)}
+.put .to,.kl .to{height:36px;padding:0 12px!important;border-radius:9px;background:var(--accent-bg);font-weight:600}
+.put .to.red,.kl .to.red{background:#fdf0f1}
+.put.calm button.go,.kl button.go,.arthd button.go{width:auto!important;height:38px;padding:0 12px;gap:6px;display:inline-flex!important;align-items:center;border-radius:9px;background:var(--accent-bg);color:var(--accent)!important;font-weight:600;white-space:nowrap}
+.put.calm button.go svg,.kl button.go svg,.arthd button.go svg{width:18px;height:18px}
+.arthd button.go{margin-left:8px}
+.kchipi{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:999px;background:var(--accent-bg);color:var(--accent);font-weight:600;white-space:nowrap}
+.kchipi svg{width:16px;height:16px}
+.pdk2{margin-top:16px}
+#popmax.bad{color:var(--bad)}
+.amt.over{color:var(--bad);border-color:var(--bad)}
+.strip.bad{background:#fdf0f1;color:var(--bad)}
+.strip .link{margin-left:auto}
+.lscrim{position:absolute;inset:0;z-index:18;background:rgb(0 0 0/22%);animation:fade 200ms ease-out}
+.layer{position:absolute;left:14px;right:14px;top:86px;bottom:0;z-index:19;display:flex;flex-direction:column;background:#fff;border-radius:16px 16px 0 0;box-shadow:0 -10px 40px rgb(0 0 0/16%)}
+.layer.in{animation:layerin 260ms var(--ease-out)}
+@keyframes layerin{from{transform:translateY(32px);opacity:0}}
+.layer .head{align-items:center}
+.layer .lfig{color:var(--body);margin-right:12px}
+.phone .layer{left:0;right:0;top:76px}
+.phone .layer .lfig{display:none}
+.padks{display:flex;gap:8px;flex-wrap:wrap}.padks .btn{flex:1}
+.padks .btn.new,.ask button.new{background:#fff;color:var(--accent);box-shadow:inset 0 0 0 1.5px var(--hair)}
+input.amt{width:56px;text-align:center;font:inherit;font-weight:600;font-size:17px;color:var(--ink);outline:none}
+input.amt:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.dlgc .rowl .nm{font-size:15px}
+.dlgc{max-height:calc(100% - 48px);overflow:auto}
+.none{padding:10px 0 4px}
+.tabletitle.fromp{margin-top:28px}
+.put.calm .go{color:var(--faint);display:grid;place-items:center;width:28px;transition:color 150ms}
+@media (hover:hover) and (pointer:fine){.put.calm:not(.hrow):hover{background:var(--soft)}}
+.put .to.red,.kl .to.red{color:var(--bad)}
+.put .to{color:var(--accent);font-weight:500;white-space:nowrap;padding:8px 0 8px 4px}
+.put.still{cursor:default}
+
+/* Dispatch */
+.kt .ck{position:absolute;top:12px;right:12px;width:22px;height:22px;border-radius:7px;border:1.6px solid var(--faint);display:grid;place-items:center;color:#fff;transition:background 150ms,border-color 150ms}
+.kt .ck.all{background:var(--accent);border-color:var(--accent)}
+.kt .ck.part{background:var(--accent);border-color:var(--accent)}
+.kt.out b,.kt.out .muted{opacity:.5}
+.kl{display:flex;align-items:center;gap:14px;min-height:76px;border-top:1px solid var(--row);cursor:pointer;transition:background 150ms}
+.kl:first-of-type{border-top:0}
+.kl .box{width:24px;height:24px;border-radius:7px;border:1.6px solid var(--faint);display:grid;place-items:center;color:#fff;flex:none;padding:0;transition:background 150ms,border-color 150ms,transform 120ms var(--ease-out)}
+.kl.on .box{background:var(--accent);border-color:var(--accent)}
+.kl:active .box{transform:scale(.9)}
+.kl.offrow .nm,.kl.offrow .ph,.kl.offrow .left{opacity:.45}
+.kl .ph{width:52px;height:52px}
+.kl .left{font-weight:600;font-size:17px;min-width:60px;text-align:right}
+.kl .chev{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;color:var(--body);transition:transform 200ms var(--ease-out)}
+.kl .chev[aria-expanded=true]{transform:rotate(90deg)}
+.kin{padding:4px 14px 10px 38px;margin:-4px 0 6px 38px;border-radius:12px;background:var(--soft)}
+.kin .grouphd{padding:10px 0 4px}
+.kin .ln{display:flex;align-items:center;gap:10px;min-height:38px}
+.kin .ln span.n{margin-left:auto;font-weight:600}
+.listhd{display:flex;align-items:baseline;gap:8px;margin:18px 0 4px}
+.listhd b{font-weight:600;font-size:17px}
+.trip{margin-top:22px}
+.trip label{display:block;color:var(--body);margin-bottom:6px}
+.trip textarea{width:100%;min-height:76px;resize:vertical;border:1px solid var(--hair);border-radius:12px;padding:10px 14px;font:inherit;color:inherit;outline:none;transition:border-color 150ms,box-shadow 150ms}
+.trip textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.foot .sum{color:var(--body)}
+.phone .foot .sum{display:none}
+
+/* Pick */
+.kt.bad svg.ic{color:var(--bad)}
+.kt.bad.on{border-color:var(--bad);background:#fdf0f1}
+.kt.bad.on .rd{border-color:var(--bad)}
+.strip{display:flex;align-items:center;gap:10px;margin-bottom:14px;padding:10px 14px;border-radius:12px;background:#fdf5e8;color:var(--warn)}
+.strip b{font-weight:600}
+.dlg{position:absolute;inset:0;z-index:30;display:grid;place-items:center;background:rgb(0 0 0/18%);animation:fade 160ms ease-out}
+.dlgc{width:440px;max-width:calc(100% - 32px);background:#fff;border-radius:18px;padding:20px;box-shadow:0 20px 60px rgb(0 0 0/20%);animation:rise 240ms var(--ease-out)}
+.dlgc h3{margin:0 0 10px;font-size:19px;font-weight:600}
+.dlgc .ln{display:flex;justify-content:space-between;padding:6px 0;border-top:1px solid var(--row)}
+.dlgc .ln:first-of-type{border-top:0}
+.dlgc .ln b{color:var(--bad);font-weight:600}
+.dlgc .acts{display:flex;align-items:center;gap:16px;margin-top:16px}
+.foot .left-note{color:var(--body)}
+.phone .foot .left-note{display:none}
+.pool{display:flex;align-items:center;gap:8px;color:var(--body);margin:14px 0 0}
+.pool select{font:inherit;color:var(--ink);border:1px solid var(--hair);border-radius:10px;height:36px;padding:0 10px;background:#fff}
+
+/* Pick board */
+.frame.live .ghost{filter:none;display:block;padding:20px;overflow:auto}
+.frame.closed .scrim,.frame.closed .sheet{display:none}
+.lanes{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;align-items:start}
+.phone .lanes{grid-template-columns:1fr}
+.phone .frame.live .ghost,.frame.phone.live .ghost{padding:56px 14px 20px}
+.lanes section{background:#f5f6f8;border-radius:14px;padding:12px}
+.lanes h4{margin:0 0 4px;font-size:15px;font-weight:600}
+.bc{display:flex;flex-direction:column;align-items:stretch;gap:2px;width:100%;margin-top:10px;padding:12px;border-radius:12px;background:#fff;text-align:left;overflow:hidden;box-shadow:0 0 0 1px rgb(0 0 0/4%);transition:transform 160ms var(--ease-out)}
+button.bc:active{transform:scale(.98)}
+.bc .bt{display:flex;justify-content:space-between;gap:8px}
+.bc .bt b{font-weight:600}
+.bc .bt .num{font-weight:600}
+.bc .bstrip{margin:-12px -12px 8px;padding:6px 12px;background:#fdf5e8;color:var(--warn);font-weight:600}
+.bc .thumbs{display:flex;gap:6px;margin-top:8px}
+.ph.sm{width:36px;height:36px;border-radius:8px}
+.ph.sm svg{width:22px;height:22px}
+.bc .ln{display:flex;justify-content:space-between;color:var(--ink)}
+.bc .bad{color:var(--bad)}
+.bc .note{margin:4px 0 2px;color:var(--ink)}
+.bc .link{align-self:flex-start;margin-top:4px}
+.lanes .empty{padding:18px 0}
+
+/* Pick matrix */
+.mx{width:100%;border-collapse:collapse;margin-bottom:6px}
+.mx th{font-weight:400;color:var(--body);text-align:right;padding:6px 8px;border-bottom:1px solid var(--row)}
+.mx th:first-child{text-align:left;padding-left:0}
+.mx td{padding:8px;text-align:right;border-top:1px solid var(--row);white-space:nowrap}
+.mx td:first-child{text-align:left;padding-left:0;white-space:normal}
+.mx td:last-child{padding-right:0}
+.mx tr[data-prow]{cursor:pointer}
+.mx .cs{display:flex;align-items:center;gap:10px}
+.mx .cs b{display:block;font-weight:500}
+.mx .amt{display:inline-grid;min-width:48px}
+.mx .tot{font-weight:600;font-size:17px}
+.phone .mx .muted.num{display:none}
+.phone .mx td,.phone .mx th{padding:8px 4px}
+.phone .mx .amt{min-width:40px;padding:0 6px}
+.phone .mx .to{font-size:0}
+.phone .mx .to::after{content:"›";font-size:20px}
+.sub{margin-top:10px;font-weight:600}
+.dlgc .sub+.ln{border-top:0}
+.dlgc.wide{width:720px}
+.paper{border:1px solid var(--hair);border-radius:4px;padding:22px 24px;max-height:520px;overflow:auto;font-size:15px}
+.paper .pt{display:flex;justify-content:space-between;padding-bottom:12px;border-bottom:2px solid var(--ink)}
+.paper .pt b{font-size:19px}
+.paper .pa{margin:14px 0 6px}
+.pmx{width:100%;border-collapse:collapse}
+.pmx th,.pmx td{border:1px solid #bbb;padding:6px 8px;text-align:right}
+.pmx th:first-child,.pmx td:first-child{text-align:left}
+.pmx th{font-weight:600;background:#f6f6f8}
+.pmx td:last-child{width:70px}
+.psig{display:flex;justify-content:space-between;margin-top:22px;color:var(--body)}
+.bc .sub{margin-top:6px;font-weight:500}
+
+.dlgc.wide{width:calc(100% - 32px);max-width:none;min-width:0}
+.a5grid>*{min-width:0}
+.dlgc .seg{flex-wrap:wrap}
+.ph3{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:12px}
+.ph3 h3{margin:0}
+.a5grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;max-height:520px;overflow:auto;padding:4px;background:#f2f2f5;border-radius:12px;padding:14px}
+.a5{aspect-ratio:148/210;background:#fff;border-radius:3px;box-shadow:0 1px 3px rgb(0 0 0/12%);padding:16px;display:flex;flex-direction:column;gap:8px;font-size:12px;overflow:hidden}
+.a5t{display:flex;justify-content:space-between;border-bottom:1.5px solid var(--ink);padding-bottom:6px}
+.a5t b{font-size:14px}
+.a5s{font-size:19px;font-weight:700}
+.a5a{display:flex;gap:8px;align-items:center}
+.a5a .ph{width:34px;height:34px}
+.a5a .ph svg{width:22px;height:22px}
+.a5a b{display:block;font-size:13px}
+.a5 .pmx th,.a5 .pmx td{padding:4px 6px}
+.a5 .pmx td:nth-child(n+3){width:44px}
+.a5 .pmx tfoot td{font-weight:600}
+.a5 .sku{color:var(--body);font-size:11px}
+.a5f{margin-top:auto;display:flex;flex-direction:column;gap:6px;color:var(--body)}
+.phone .dlgc.wide .a5grid{grid-template-columns:1fr;max-height:480px}
+
+/* Pick per article card */
+.alhd{display:flex;align-items:baseline;gap:8px;margin:14px 0 -2px}
+.alhd:first-of-type{margin-top:6px}
+.bcrow{display:flex;align-items:center;gap:10px}
+.bcrow .nm b{font-weight:600}
+.bcrow .bq{font-weight:600;white-space:nowrap}
+.pkhd{display:flex;align-items:center;gap:12px}
+.pkhd .fig strong{font-size:24px;font-weight:700}
+.pkhd .fig .muted{font-weight:500;font-size:17px}
+.ck{display:flex;align-items:center;gap:12px;min-height:64px;border-top:1px solid var(--row);cursor:pointer}
+.ck .cb{width:26px;height:26px;border-radius:8px;border:1.6px solid var(--faint);display:grid;place-items:center;color:#fff;flex:none;transition:background 150ms,border-color 150ms,transform 120ms var(--ease-out)}
+.ck:active .cb{transform:scale(.9)}
+.ck.full .cb{background:var(--accent);border-color:var(--accent)}
+.ck.part .cb{background:var(--warn);border-color:var(--warn)}
+.ck.full .nm,.ck.full .amt{opacity:.5}
+.ck .amt{min-width:64px}
+.dlgc.one{width:380px}
+.a5grid.single{grid-template-columns:1fr}
+
+.pkhd b{display:block;font-weight:600}
+.pkhd span{color:var(--body)}
+.lanes.four{grid-template-columns:repeat(4,1fr)}
+.phone .lanes.four{grid-template-columns:1fr}
+.lanebtn{width:100%;margin-top:10px;height:40px}
+.mdlane{background:#fbf6ee!important}
+
+.padc .padback{display:block;width:100%;text-align:center;margin-top:8px;padding:10px 0}
+.padc .padback[disabled]{opacity:.35;pointer-events:none}
+
+.boardhd{display:flex;align-items:center;margin-bottom:12px}
+.boardhd b{font-size:19px;font-weight:600}
+.ghostbtn{display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 14px;border-radius:10px;font-weight:500;color:var(--ink)}
+.ghostbtn:hover{background:#ececf0}
+.bc .bstep{align-self:flex-end;margin-top:6px;color:var(--accent);font-weight:600}
+
+.kgroup{margin-top:8px;background:#fff;border-radius:12px;box-shadow:0 0 0 1px rgb(0 0 0/4%);overflow:hidden}
+.krow{display:flex;align-items:center;gap:10px;width:100%;padding:10px 12px;text-align:left;border-top:1px solid var(--row)}
+.krow:first-child{border-top:0}
+.krow .nm b{font-weight:600}
+.krow:active{background:#f6f6f8}
+.kt:has(.ck) b{padding-right:28px}
+
+.kinact{display:flex;justify-content:flex-end;margin:-2px 0 8px}
+.kl .to{color:var(--accent);font-weight:500;white-space:nowrap}
+.kl.still{cursor:default}
+.grouphd b{display:block;font-weight:600}
+
+/* toast as frontend-hub components/ui/toast.tsx: bottom right, 20px offset, 320px card */
+.toast{left:auto;right:20px;bottom:20px;transform:none;width:320px;white-space:normal;gap:10px;padding:10px 12px;border-radius:12px;background:#fff;color:var(--ink);border:1px solid var(--hair);box-shadow:0 8px 28px rgb(0 0 0/12%)}
+.toast[hidden]{transform:translateY(10px)}
+.toast .tic{color:var(--ok);display:flex;flex:none}
+.toast .tct{flex:1;min-width:0;display:flex;flex-direction:column}
+.toast .tct b{font-weight:500;line-height:1.35}
+.toast .tct span{color:var(--body);line-height:1.35}
+.toast .tct span:empty{display:none}
+.toast button{flex:none;border-radius:999px;background:var(--accent-bg);color:var(--accent);padding:2px 10px;font-weight:500}
+.phone .toast{left:12px;right:12px;width:auto;bottom:76px}
+.tablet .toast{bottom:96px}
+/* lane head with its one small button */
+.lanes h4.lh{display:flex;align-items:center;gap:6px;min-height:32px}
+.lanes h4.lh .grow{flex:1}
+.btn.sm{height:32px;padding:0 14px;border-radius:9px;font-size:15px}
+
+/* Dispatch: store rail */
+.dsplit{display:grid;grid-template-columns:240px 1fr;gap:20px;align-items:start}
+.phone .dsplit{grid-template-columns:1fr;gap:14px}
+.drail{border:1px solid var(--hair);border-radius:14px;overflow:hidden;position:sticky;top:0}
+.phone .drail{position:static}
+.drhd{display:flex;justify-content:space-between;align-items:baseline;padding:12px 14px;border-bottom:1px solid var(--hair)}
+.drhd b{font-weight:600}
+.drow{display:flex;align-items:center;gap:12px;width:100%;padding:12px 14px;text-align:left;border-top:1px solid var(--row);transition:background 150ms}
+.drow:first-of-type{border-top:0}
+.drow.on{background:var(--accent-bg)}
+.drow .nm b{font-weight:500}
+.drow.out .nm{opacity:.5}
+.drow .ck{flex:none;width:22px;height:22px;border-radius:7px;border:1.6px solid var(--faint);display:grid;place-items:center;color:#fff}
+.drow .ck.all,.drow .ck.part{background:var(--accent);border-color:var(--accent)}
+.dmain{min-width:0}
+
+.sheet.wide{width:1000px}
+.dsplit{grid-template-columns:220px 1fr;margin-top:16px}
+.drow{min-height:56px}
+.drow[disabled]{pointer-events:none}
+
+/* Dispatch rail = a thin filter beside the tiles and the list */
+.dsplit{grid-template-columns:128px 1fr;gap:24px;margin-top:0}
+.drail{border:0;border-radius:0;overflow:visible;display:flex;flex-direction:column;gap:2px}
+.drow{min-height:40px;padding:8px 12px;border-radius:10px;border-top:0!important;color:var(--body);font-weight:500;text-align:left}
+.drow:hover{background:#f4f4f7}
+.drow.on{background:var(--accent-bg);color:var(--accent)}
+.dmain .lhd{margin-top:18px}
+.phone .dsplit{grid-template-columns:1fr;gap:12px}
+.phone .drail{flex-direction:row;flex-wrap:wrap;gap:6px}
+.phone .drow{min-height:36px;padding:6px 12px}
+
+.dsplit{margin-top:18px;align-items:start}
+.dmain .lhd{margin-top:0;min-height:40px;align-items:center}
+
+/* board as the live hub (step-card.tsx): trays with dot · name · count, chevrons between, StepCards */
+.trays{display:grid;grid-template-columns:minmax(0,1fr) 14px minmax(0,1fr) 14px minmax(0,1fr) 14px minmax(0,1fr);gap:4px;align-items:start}
+.phone .trays{grid-template-columns:1fr}
+.tablet .trays{grid-template-columns:1fr}
+.trays:not([data-show=all])>.tchev{display:none}
+.trays[data-show=pick]>.tray:not(:nth-of-type(1)),.trays[data-show=picked]>.tray:not(:nth-of-type(2)),.trays[data-show=packed]>.tray:not(:nth-of-type(3)),.trays[data-show=transit]>.tray:not(:nth-of-type(4)){display:none}
+.tablet .tray .tbody{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-content:start}
+.tablet .tray .tbody>.alhd,.tablet .tray .tbody>.empty{grid-column:1/-1}
+.lanebar{display:flex;gap:6px;margin:0 0 12px;flex-wrap:wrap}
+.lanetab{flex:1;height:44px;border-radius:11px;border:1px solid var(--hair);background:#fff;display:inline-flex;align-items:center;justify-content:center;gap:8px;font-weight:600;color:var(--ink);transition:transform 120ms var(--ease-out),border-color 150ms,background 150ms}
+.lanetab:active{transform:scale(.97)}
+.lanetab .num{color:var(--body);font-weight:500}
+.lanetab.on{border-color:var(--accent);background:var(--accent-bg);color:var(--accent)}
+.phone .lanetab{flex:1 1 40%}
+.phone .tchev{display:none}
+.tchev{color:var(--faint);font-weight:700;text-align:center;padding-top:14px}
+.tray{background:#f5f6f8;border-radius:14px;display:flex;flex-direction:column}
+.tray header{display:flex;align-items:center;gap:10px;padding:14px 14px 10px;min-height:52px}
+.tray header b{font-weight:600}
+.tray .tn{margin-left:auto;font-weight:500;color:var(--body)}
+.tray header .btn.sm{margin-left:8px}
+.tdot{width:8px;height:8px;border-radius:50%;flex:none}
+.tdot.mute{background:#8e8e93}.tdot.warn{background:#c98a2b}.tdot.info{background:var(--accent)}.tdot.ok{background:var(--ok)}
+.tbody{display:flex;flex-direction:column;gap:8px;padding:0 8px 8px}
+.tbody .empty{padding:24px 0}
+.tbody .alhd{margin:6px 6px 0}
+.sc{display:flex;flex-direction:column;width:100%;overflow:hidden;border-radius:14px;border:1px solid var(--hair);background:#fff;text-align:left;transition:transform 160ms var(--ease-out),box-shadow 150ms}
+button.sc:active{transform:scale(.985)}
+@media (hover:hover){button.sc:hover{box-shadow:0 2px 10px rgb(0 0 0/6%)}}
+.scstrip{display:flex;align-items:center;height:28px;padding:0 16px;color:#fff;font-weight:600;background:var(--accent)}
+.scstrip.warn{background:#b7791f}.scstrip.bad{background:var(--bad)}
+.scbody{display:flex;flex-direction:column;padding:14px 16px}
+.sctop{display:flex;gap:10px;align-items:center}
+.sct{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.sctl{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.sctl>b{font-size:17px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sctl .num{white-space:nowrap;color:var(--body)}
+.sctl .num b{color:var(--ink);font-weight:600}
+.scsub{color:var(--body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sclines{display:flex;flex-direction:column;gap:2px;margin-top:8px;padding-top:8px;border-top:1px dashed var(--hair);color:var(--body)}
+.sclines>span{display:flex;justify-content:space-between;gap:12px}
+.scfoot{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:10px;min-height:30px}
+.scstep{color:var(--accent);font-weight:600;white-space:nowrap}
+.scstep.bad{color:var(--bad)}
+
+/* MD changes on the board */
+.sc.off .scbody>*:not(.stampw):not(.scfoot){opacity:.5;filter:grayscale(1)}
+.sc.off{background:repeating-linear-gradient(135deg,#fff 0 10px,#f6f6f8 10px 20px)}
+.stampw{display:flex;justify-content:center;padding:10px 0 2px}
+.dstamp{border:2px solid #8e8e93;color:#8e8e93;border-radius:6px;padding:2px 10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;transform:rotate(-4deg)}
+.owe{font-style:normal;color:var(--bad);font-weight:500;margin-right:8px}
+.tagw{color:var(--warn);font-weight:500}
+.tagw s{color:var(--body);font-weight:400}
+.strip.info{background:var(--accent-bg);color:var(--accent)}
+.strip.info s{color:var(--body)}
+
+.btn.sm.ok{background:var(--ok)}
+.rtrip{border:1px solid var(--hair);border-radius:14px;padding:12px 16px;margin-bottom:10px}
+.rth{display:flex;justify-content:space-between;align-items:baseline;padding-bottom:6px}
+.rth b{font-weight:600;font-size:17px}
+.rln{display:grid;grid-template-columns:1fr auto 120px;gap:12px;align-items:center;padding:8px 0;border-top:1px solid var(--row)}
+.rs{justify-self:end;font-weight:500}
+.rs.ok{color:var(--ok)}.rs.short{color:var(--bad)}.rs.road{color:var(--body)}
+</style>
+</head>
+<body>
+<div class="bar">
+  <div class="grp"><b>Sheet</b><div class="seg" id="sheetSeg"></div></div>
+  <div class="grp" id="optGrp"><b>Pack</b>
+    <div class="seg" id="opt"></div></div>
+  <div class="grp" id="dlGrp"><span>Pictures</span><div class="seg" id="dlSeg"></div></div>
+  <div class="grp" id="mdGrp"><span>MD does</span><button class="link" data-md="edit">Edit AL-014</button><button class="link" data-md="cancel">Cancel AL-015</button><button class="link" data-md="cont">Continue short pick</button><button class="link" data-md="close">Close short pick</button><button class="link" data-md="recv">Store receives</button><button class="link" data-md="recvshort">Store receives short</button><button class="link" data-md="recvwrong">Store receives wrong</button></div>
+  <div class="grp" id="tdGrp"><span>Trip detail</span><div class="seg" id="tdSeg"></div></div>
+  <div class="grp" id="pickGrp"><span>Start</span><div class="seg" id="pstart"></div></div>
+  <div class="grp" id="puGrp"><span>Pick card</span><div class="seg" id="puSeg"></div></div>
+  <div class="grp" id="pnGrp"><span>Confirm</span><div class="seg" id="pnSeg"></div></div>
+  <div class="grp" id="rgGrp"><span>Articles</span><div class="seg" id="rgSeg"></div></div>
+  <div class="grp" id="askGrp"><span>Ask</span><div class="seg" id="askSeg"></div></div>
+  <div class="grp" id="startGrp"><span>Start</span><div class="seg" id="start"></div></div>
+  <div class="grp" id="storeGrp"><span>Store</span><div class="seg" id="store"></div></div>
+  <div class="grp"><span>Device</span><div class="seg" id="dev"></div></div>
+  <button class="link" id="reset">Reset</button>
+</div>
+<div class="stage"><div class="frame" id="frame">
+  <div class="ghost" data-ghost="1"><div class="lane"><i></i></div><div class="lane"><i></i><i></i></div><div class="lane"><i></i></div></div>
+  <div class="scrim"></div>
+  <div class="sheet" id="sheet"></div>
+  <div class="toast" id="toast" hidden><span class="tic"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/><path d="M7.5 12.5l3 3 6-6.5" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="tct"><b id="toastTitle"></b><span id="toastText"></span></span><button id="undo">Undo</button></div>
+</div></div>
+
+
+<script>
+const OPTS=[["h","H · Ask only if 2 open ★"],["e","E · Boxes"],["now","Now"],["a","A · Tap to drop"],["b","B · Koli tabs"],["c","C · One koli at a time"],["d","D · Count in"]];
+const STARTS=[["none","No koli yet"],["some","2 koli packed"]];
+const STORES=[["c001","C001 · Cikupa"],["c005","C005 · Jambi"]];
+const SHEETS=[["pick","Full flow"],["pack","Pack options"],["dispatch","Dispatch only"]];
+const DEVS=[["desk","Desk"],["tablet","Tablet ★"],["phone","Phone"]];
+const COL={HITAM:"#1d1d1f",NAVY:"#26324d","BROKEN WHITE":"#ece6d8",OLIVE:"#6b7046"};
+const ART={
+  "87167":{name:"87167 Jaket",code:"00000004",div:"Ladies",ico:"jacket"},
+  "2562":{name:"2562 Rok",code:"00000005",div:"Ladies",ico:"skirt"},
+  "87175":{name:"87175 Jaket",code:"00000003",div:"Ladies",ico:"jacket"},
+};
+// sku, article, colour, size, pieces picked for the store
+const CAT={
+  c001:{name:"C001 · Cikupa",lines:[
+    ["5101","2562","BROKEN WHITE","XXL",30],["5102","2562","OLIVE","XL",25],
+    ["3003","87175","HITAM","M",1],["3004","87175","HITAM","L",1],
+    ["4003","87167","HITAM","M",1],["4004","87167","HITAM","L",1],["4005","87167","HITAM","XL",1],
+    ["4103","87167","NAVY","M",2],["4104","87167","NAVY","L",3],["4105","87167","NAVY","XL",2]]},
+  c009:{name:"C009 · Serang",lines:[["5101","2562","BROKEN WHITE","XXL",12],["4104","87167","NAVY","L",4],["4105","87167","NAVY","XL",4]]},
+  c005:{name:"C005 · Jambi",lines:[["4003","87167","HITAM","M",1],["4005","87167","HITAM","XL",2],["4105","87167","NAVY","XL",2]]},
+};
+const PACKED_SOME={c001:[{no:1,code:"A00002",items:{"5101":30,"5102":25}},{no:2,code:"A00003",items:{"3003":1,"3004":1}}],c005:[]};
+
+const q=new URLSearchParams(location.search);
+let S={pics:q.get("pics")||"off",sheet:q.get("sheet")||"pack",pstart:q.get("pstart")||"new",opt:q.get("opt")||"h",td:q.get("td")||"art",pn:q.get("pn")||"cols",pc:q.get("pc")||"tabs",rg:q.get("rg")||"single",pu:q.get("pu")||"store",ask:q.get("ask")||"dlg",start:q.get("start")||"none",store:q.get("store")||"c001",dev:q.get("dev")||"desk"};
+let W, hist=[], openPk=null, toastT, pad=null, fx={};
+
+const L=()=>S.sheet==="pick"&&P&&P.card?card().lines:S.sheet==="pick"&&F.open?.kind==="pack"?PB.plines[S.store]:CAT[S.store].lines;
+const line=sku=>L().find(l=>l[0]===sku);
+const sum=o=>Object.values(o).reduce((a,b)=>a+b,0);
+const inKoli=sku=>W.koli.reduce((a,k)=>a+(k.items[sku]||0),0);
+const free=sku=>(W.left[sku]||0)-inKoli(sku)-((W.back||{})[sku]||0);
+const totalLeft=()=>sum(W.left);
+const onTable=()=>L().reduce((a,l)=>a+Math.max(0,free(l[0])),0);
+const live=()=>L().filter(l=>(W.left[l[0]]||0)>0);
+const nextNo=()=>Math.max(0,...W.packed.map(p=>p.no),...W.koli.map(k=>k.no))+1;
+const save=()=>{hist.push(JSON.stringify(W));if(hist.length>60)hist.shift()};
+let ask=null,typed={},typedOut={},bdlg=null,adding=null,pp=null,layerIn=false,plist=null,kinfo=null,kpl=null,prt=null,ipv=null,prtPaper={size:"A5",way:"portrait"};
+const pcs=n=>n===1?"1 pc":`${n} pcs`;
+
+function fresh(){
+  const packed=S.start==="some"?(PACKED_SOME[S.store]||[]).map(p=>({...p,items:{...p.items}})):[];
+  const left={};L().forEach(l=>left[l[0]]=l[4]);
+  packed.forEach(p=>Object.entries(p.items).forEach(([k,n])=>left[k]-=n));
+  Object.keys(left).forEach(k=>{if(left[k]<=0)delete left[k]});
+  W={left,packed,koli:[],active:0,code:2+packed.length,view:"p"};
+  if(!isE()){ // the older options open the first koli by themselves
+    const all={};live().forEach(l=>all[l[0]]=W.left[l[0]]);
+    W.koli=[{no:nextNo(),items:(S.opt==="now"||S.opt==="c")?all:{}}];
+  }
+  hist=[];openPk=null;pad=null;ask=null;openArt=new Set();typed={};typedOut={};bdlg=null;adding=null;pp=null;
+}
+
+/* ---------- pieces ---------- */
+const ICO={
+  jacket:`<svg width="28" height="28" viewBox="0 0 24 24"><path d="M8 3l4 2 4-2 4 3-1 14h-4V9.5L12 11l-3-1.5V20H5L4 6z" fill="#1d1d1f"/></svg>`,
+  skirt:`<svg width="28" height="28" viewBox="0 0 24 24"><path d="M8 4h8l1 3 3 13H4L7 7z" fill="#6b7046"/></svg>`};
+const svgCheck=`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`;
+const svgX=`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>`;
+const svgBox=`<svg class="ic" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M3 7.5L12 3l9 4.5v9L12 21l-9-4.5z"/><path d="M3 7.5L12 12l9-4.5M12 12v9"/></svg>`;
+const svgSealed=`<svg class="ic" width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M3 7.5L12 3l9 4.5v9L12 21l-9-4.5z" opacity=".18"/><path d="M8 12.5l3 3 5.5-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const bare=c=>String(c).replace(/^0+(?=\d)/,"");
+/// H: a picked row shows its quantity and a put-in button (owner, 18 Oct 2026: "ga usah ada input … cukup quantity saja").
+const skuName=l=>`${ART[l[1]].name} · ${l[2]} · ${l[3]}`;
+const artOnce=()=>S.rg==="stack";
+let openArt=new Set(),unstack=null;
+const skuNm=l=>artOnce()?`<div class="nm"><b>${l[2]} · ${l[3]}</b><span class="num">${bare(l[0])}</span></div>`:`<button class="ph skuph" data-ipv="${l[0]}" aria-label="Picture of ${skuName(l)}">${ICO[ART[l[1]].ico]}</button><div class="nm"><b>${skuName(l)}</b><span class="num">${bare(l[0])}</span></div>`;
+const artHd=l=>artOnce()?`<div class="arthd"><button class="ph skuph" data-ipv="${l[0]}" aria-label="Picture of ${ART[l[1]].name}">${ICO[ART[l[1]].ico]}</button><div class="nm"><b>${ART[l[1]].name}</b><span class="num">${bare(ART[l[1]].code)} · ${ART[l[1]].div}</span></div></div>`:"";
+/// By article: each article is a stacked card — its head, the SKUs folded under it; a press
+/// opens the stack. Single: one row per SKU. In a dialog the stack is always open.
+const skuRows=(rows,fn,o={})=>{
+  if(S.rg!=="stack")return rows.map(fn).join("");
+  const by=[];rows.forEach(l=>{const g=by.find(x=>x.art===l[1]);g?g.rows.push(l):by.push({art:l[1],rows:[l]})});
+  return by.map(g=>{const l=g.rows[0],n=g.rows.length,tot=o.qty?g.rows.reduce((a,r)=>a+(o.qty(r)||0),0):null;
+    const key=(o.ctx||"")+"|"+g.art,fold=o.fold!==false&&n>1,open=!fold||openArt.has(key);
+    const hd=`<div class="arthd${fold?" fold":""}"${fold?` data-art="${key}" role="button" aria-expanded="${open}"`:""}><button class="ph skuph" data-ipv="${l[0]}" aria-label="Picture of ${ART[g.art].name}">${ICO[ART[g.art].ico]}</button><div class="nm"><b>${ART[g.art].name}</b><span class="num">${bare(ART[g.art].code)} · ${ART[g.art].div}</span></div><span class="stkn num">${n} ${n===1?"SKU":"SKUs"}${tot!==null?` · ${pcs(tot)}`:""}</span>${fold?`<span class="stkchev">${svgChev}</span>`:""}${o.artPut&&!open?`<button class="go" data-goart="${g.art}" aria-label="Put all of ${ART[g.art].name} in">${svgInto}<span>Put all in</span></button>`:""}</div>`;
+    return `<div class="artgrp stk${fold&&!open?" shut":""}">${hd}${open?`<div class="stkrows${unstack===key?" in":""}">${g.rows.map(fn).join("")}</div>`:""}</div>`}).join("");
+};
+/// The picture, large: the SKU's own, else the article's.
+function ipvDlg(){
+  if(!ipv)return"";
+  const l=lineAny(ipv)||line(ipv);
+  return `<div class="dlg ipvw" data-padclose><div class="dlgc ipv"><button class="prtx" data-ipvclose aria-label="Close">${svgX}</button><div class="ipvimg">${ICO[ART[l[1]].ico]}</div><div class="pdh"><b>${skuName(l)}</b><span class="muted num">${bare(l[0])}</span></div></div></div>`;
+}
+function ipvClick(t,e){
+  if(!t){if(ipv&&e.target.closest(".ipvw")===e.target){ipv=null;render();return true}return false}
+  if(t.dataset.ipv){ipv=t.dataset.ipv;render();return true}
+  if(t.dataset.ipvclose!==undefined){ipv=null;render();return true}
+  return false;
+}
+const hRow=l=>`<div class="put calm hrow${pp&&pp.for===l[0]?" asking":""}" data-put="${l[0]}">${skuNm(l)}<span class="qty num">${free(l[0])}</span><button class="go" data-go="${l[0]}">${svgInto}<span>Put in</span></button></div>`;
+const typedOf=sku=>Math.min(free(sku),typed[sku]??free(sku));
+const isE=()=>"efghi".includes(S.opt);
+/// G/I: the koli you open is the koli you fill. F/G/H: the target tile wears a ring on Picked.
+const fillsOpen=()=>S.opt==="g"||S.opt==="i";
+const artHead=a=>`<div class="ph">${ICO[ART[a].ico]}</div><div><b>${ART[a].name}</b><span>${bare(ART[a].code)} · ${ART[a].div}</span></div>`;
+const article=a=>`<div class="art">${artHead(a)}</div>`;
+const dot=c=>`<span class="dot${c==="BROKEN WHITE"?" swatch":""}" style="background:${COL[c]}"></span>`;
+const nm=l=>`<div class="nm"><b>${l[2]} · ${l[3]}</b><span class="num">${bare(l[0])}</span></div>`;
+const short=sku=>{const l=line(sku);return `${l[1]} · ${l[2]} · ${l[3]}`};
+/// Rows grouped by article, header once per article.
+function grouped(rows,fn,hd=article){let h="",last=null;rows.forEach(l=>{if(l[1]!==last){h+=hd(l[1]);last=l[1]}h+=fn(l)});return h}
+
+function head(fig){
+  return `<div class="head"><div><div class="crumb">Allotment</div><h2>Pack · ${CAT[S.store].name}</h2></div>
+  ${fig?`<div class="fig"><strong class="num roll" id="fig">${fig[0]}</strong><span>${fig[1]}</span></div>`:"<div style='flex:1'></div>"}
+  <button class="x" aria-label="Close">${svgX}</button></div>`;
+}
+function packedStrip(){
+  if(!W.packed.length)return"";
+  let h=`<div class="packed">`+W.packed.map(p=>`<button class="pk" data-pk="${p.no}" aria-expanded="${openPk===p.no}">${svgCheck}<span>Koli ${p.no}</span><span class="muted num">${pcs(sum(p.items))}</span></button>`).join("");
+  const o=W.packed.find(p=>p.no===openPk);
+  if(o)h+=`<div class="pkdetail"><div><span class="muted">${o.code}</span><button class="link red" data-unpack="${o.no}">Unpack</button></div>${Object.entries(o.items).map(([k,n])=>`<div><span>${short(k)}</span><span class="num">${n}</span></div>`).join("")}</div>`;
+  return h+`</div>`;
+}
+const doneBody=()=>`<div class="done"><div class="ok">${svgCheck}</div><b>Everything packed</b><span class="muted">${W.packed.length} koli · ${pcs(W.packed.reduce((a,p)=>a+sum(p.items),0))}</span></div>`;
+const backLink=`<button class="link red" data-back>Back to Pick</button><div class="grow"></div>`;
+
+/* ---------- E · Boxes ---------- */
+const svgBackIc=`<svg class="ic" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 010 11H11"/></svg>`;
+const svgInto=`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v9m0 0l-3.5-3.5M12 12l3.5-3.5"/><path d="M4 13.5V19a2 2 0 002 2h12a2 2 0 002-2v-5.5"/></svg>`;
+const svgPile=`<svg class="ic" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M4 9l8-4 8 4-8 4z"/><path d="M4 13l8 4 8-4M4 17l8 4 8-4"/></svg>`;
+/// One big radio: Picked, then every koli.
+function tile(id,label,sub,on,cls,ico,tag){
+  return `<button class="kt ${cls}${on?" on":""}${fx.born==id?" born":""}${fx.hit==id?" hit":""}${fx.seal==id?" seal":""}" role="radio" aria-checked="${on}" data-view="${id}" id="kt${id}"><span class="rd"></span>${ico}<b>${label}</b><span class="muted num">${sub}</span>${tag?`<span class="tag num">${tag}</span>`:""}</button>`;
+}
+function vE(){
+  const act=W.koli[W.active];
+  const view=W.view??"p";
+  const pk=onTable();
+  const into=act?act.no:nextNo();
+  const all=[...W.packed.map(p=>({s:1,no:p.no,items:p.items,code:p.code})),...W.koli.map(k=>({s:0,no:k.no,items:k.items}))].sort((a,b)=>a.no-b.no);
+  let h=`<div class="shelf" role="radiogroup">`+(S.opt==="i"?"":tile("p","Picked",pcs(pk),view==="p",pk?"":"zero",svgPile));
+  const ring=("fg".includes(S.opt)||(S.opt==="h"&&W.koli.length===1))&&view==="p";
+  all.forEach(t=>h+=tile(t.no,`Koli ${t.no}`,pcs(sum(t.items)),view==t.no,t.s?"sealed":ring&&act&&t.no===act.no?"target":"",t.s?svgSealed:svgBox));
+  const bk=sum(W.back||{});
+  if(bk)h+=tile("b","Back to Pick",pcs(bk),view==="b","bad",svgBackIc);
+  if(pk>0)h+=`<button class="kt add" data-newkoli>+ Koli ${nextNo()}</button>`;
+  h+=`</div>`;
+
+  const cur=all.find(t=>t.no==view);
+  // Calm rows: no verb on the row; the row is the press, the number opens the keypad.
+  const askRow=sku=>`<div class="ask">${W.koli.map((k,i)=>`<button data-askk="${i}" data-sku="${sku}">Koli ${k.no}</button>`).join("")}</div>`;
+  const calm=rows=>grouped(rows,l=>`<div class="put calm${ask===l[0]?" asking":""}" data-put="${l[0]}">${nm(l)}<button class="amt num" data-amt="${l[0]}" aria-label="How many">${free(l[0])}</button><span class="go" aria-hidden="true">${svgInto}</span></div>`+(ask===l[0]?askRow(l[0]):""),
+    a=>`<div class="grouphd">${artHead(a)}</div>`);
+  const left=live().filter(l=>free(l[0])>0);
+  // H: nothing goes into a koli by itself; every put says which (owner, 18 Oct 2026).
+  if(view==="p"&&S.opt==="h"){
+    if(left.length){
+      h+=`<div class="tabletitle"><div style="flex:1"></div><button class="link" data-askall>All in</button></div>`;
+      h+=skuRows(left,hRow,{qty:l=>free(l[0]),ctx:"p",artPut:true});
+    }else if(W.koli.length)h+=`<div class="empty">Nothing left</div>`;
+    else h+=doneBody();
+  }else if(cur&&!cur.s&&S.opt==="h"){
+    // A koli tab shows only what is in it; "Add to Koli N" brings the picked rows (owner, 18 Oct 2026).
+    const rows=L().filter(l=>cur.items[l[0]]);
+    {
+      h+=`<div class="inkoli"><div class="tabletitle kacts"><div style="flex:1"></div>${pk>0?`<button class="link" data-addto="${cur.no}">+ Add to Koli ${cur.no}</button>`:""}</div>`;
+      h+=(rows.length?skuRows(rows,l=>`<div class="put still">${skuNm(l)}<span class="qty num">${cur.items[l[0]]}</span><button class="to red" data-out="${l[0]}">Take out</button></div>`,{qty:l=>cur.items[l[0]],ctx:"k"+cur.no}):`<div class="empty">Empty</div>`)+`</div>`;
+    }
+  }else if(view==="b"){
+    h+=`<div style="height:6px"></div>`+grouped(L().filter(l=>(W.back||{})[l[0]]),l=>`<div class="put still">${nm(l)}<span class="left num">${W.back[l[0]]}</span><button class="to red" data-bout="${l[0]}">Take out</button></div>`,a=>`<div class="grouphd">${artHead(a)}</div>`);
+  }else if(view==="p"){
+    const rows=live().filter(l=>free(l[0])>0);
+    if(rows.length){
+      if(S.opt==="f"){
+        // Which koli the rows go into, said once (owner, 18 Oct 2026: "kalau mau masukin ke koli 3 gimana dari picked?").
+        const opts=W.koli.length?W.koli.map((k,i)=>`<button data-into="${i}" aria-pressed="${i===W.active}">Koli ${k.no}</button>`).join(""):`<button aria-pressed="true">Koli ${into}</button>`;
+        h+=`<div class="into"><span class="muted">Into</span><div class="seg">${opts}</div><div style="flex:1"></div><button class="link" data-everything>All in</button></div>`+calm(rows);
+      }else if(S.opt==="i"){
+        h+=`<div class="tabletitle"><b>Picked</b><span class="muted num">${pcs(pk)}</span><div style="flex:1"></div><button class="link" data-everything>All in Koli ${into}</button></div>`+calm(rows);
+      }else if(S.opt==="g"||S.opt==="h"){
+        h+=`<div class="tabletitle"><div style="flex:1"></div><button class="link" data-everything>All in Koli ${into}</button></div>`+calm(rows);
+      }else{
+      h+=`<div class="tabletitle"><div style="flex:1"></div><button class="link" data-everything>Everything into Koli ${into}</button></div>`;
+      h+=grouped(rows,l=>`<div class="put" data-put="${l[0]}">${nm(l)}<button class="amt num" data-amt="${l[0]}" aria-label="How many">${free(l[0])}</button><span class="to">Koli ${into} ›</span></div>`,
+        a=>`<div class="grouphd">${artHead(a)}<div style="flex:1"></div><button class="link" data-artall="${a}">All in</button></div>`);
+      }
+    }else if(W.koli.length)h+=`<div class="empty">Nothing left</div>`;
+    else h+=doneBody();
+  }else if(cur&&!cur.s&&fillsOpen()){
+    const rows=L().filter(l=>cur.items[l[0]]);
+    h+=`<div class="tabletitle"><b>In Koli ${cur.no}</b><span class="muted num">${pcs(sum(cur.items))}</span></div>`;
+    h+=rows.length?grouped(rows,l=>`<div class="put still">${nm(l)}<button class="amt num" data-amtout="${l[0]}" aria-label="How many">${cur.items[l[0]]}</button><button class="to" data-out="${l[0]}">Take out</button></div>`,
+      a=>`<div class="grouphd">${artHead(a)}</div>`):`<div class="none muted">Empty</div>`;
+    if(left.length)h+=`<div class="tabletitle fromp"><b>Picked</b><span class="muted num">${pcs(pk)}</span><div style="flex:1"></div><button class="link" data-everything>All in</button></div>`+calm(left);
+  }else if(cur&&!cur.s){
+    const rows=L().filter(l=>cur.items[l[0]]);
+    h+=rows.length?`<div style="height:6px"></div>`+grouped(rows,l=>`<div class="put still">${nm(l)}<button class="amt num" data-amtout="${l[0]}" aria-label="How many">${cur.items[l[0]]}</button><button class="to" data-out="${l[0]}">Take out</button></div>`,
+      a=>`<div class="grouphd">${artHead(a)}</div>`):`<div class="empty">Empty</div>`;
+  }else if(cur&&S.opt==="h"){
+    h+=`<div class="tabletitle"><span class="sealtag">${svgCheck}Sealed · <span class="num">${cur.code}</span></span><div style="flex:1"></div>${printWord(`data-plist="${cur.no}"`)}<button class="link red" data-unpack="${cur.no}" style="margin-left:16px">Unpack</button></div>`;
+    h+=skuRows(L().filter(l=>cur.items[l[0]]),l=>`<div class="put still">${skuNm(l)}<span class="qty num">${cur.items[l[0]]}</span></div>`,{qty:l=>cur.items[l[0]],ctx:"s"+cur.no});
+  }else if(cur){
+    h+=`<div class="tabletitle"><span class="muted num">${cur.code}</span><div style="flex:1"></div><button class="link" data-reprint>Reprint label</button><button class="link red" data-unpack="${cur.no}" style="margin-left:16px">Unpack</button></div>`;
+    h+=grouped(L().filter(l=>cur.items[l[0]]),l=>`<div class="put still">${nm(l)}<span class="left num">${cur.items[l[0]]}</span></div>`,a=>`<div class="grouphd">${artHead(a)}</div>`);
+  }
+
+  // One Submit for everything in the sheet: every open koli sealed, every put-back sent to Pick.
+  const openK=W.koli.filter(k=>sum(k.items)),openP=openK.reduce((a,k)=>a+sum(k.items),0);
+  let foot;
+  if(openP||bk){
+    const parts=[openK.length?`${openK.length} koli · ${pcs(openP)}`:"",bk?`${pcs(bk)} back to Pick`:""].filter(Boolean).join(" · ");
+    foot=`<span class="sum num">${parts}</span><div class="grow"></div><button class="btn main" data-submitall>Submit</button>`;
+  }else foot=`<div class="grow"></div><button class="btn main" disabled>Submit</button>`;
+  if(S.opt==="h"){
+    const sealedN=W.packed.length,openN=W.koli.filter(k=>sum(k.items)).length;
+    const said=[openN?`${openN} koli open · ${pcs(openP)}`:"",sealedN?`${sealedN} sealed`:""].filter(Boolean).join(" · ");
+    const here=cur&&!cur.s&&sum(cur.items)?cur:!pk?W.koli.find(k=>sum(k.items)):null;
+    foot=(pk>0?`<button class="link red" data-backdlg>Back to Pick</button>`:"")+`<span class="sum num">${said}</span><div class="grow"></div>`+
+      (here?`<button class="link" data-pdone>Done</button><button class="btn main" data-sealone="${here.no}">Seal & print Koli ${here.no}</button>`:`<button class="btn main" data-pdone>Done</button>`);
+  }
+  fx={};
+  return [head(),h,foot];
+}
+
+/* ---------- older options ---------- */
+function vNow(){
+  const k=W.koli[W.active];
+  let b=`<div class="box"><div class="boxhd"><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8.5" fill="none" stroke="#2862dc" stroke-width="1.6"/><circle cx="10" cy="10" r="4.5" fill="#2862dc"/></svg><b>Koli ${k.no}</b><span class="muted num">${pcs(sum(k.items))}</span></div>`;
+  b+=grouped(live().filter(l=>k.items[l[0]]||free(l[0])),l=>{const n=k.items[l[0]]||0;
+    return `<div class="rowl">${nm(l)}<div class="step"><button data-k="${l[0]}" data-d="-1" ${n?"":"disabled"}>−</button><output class="num">${n}</output><button data-k="${l[0]}" data-d="1" ${free(l[0])?"":"disabled"}>+</button></div></div>`});
+  b+=`</div><button class="add" data-newkoli>+ Add koli</button>`;
+  if(onTable())b+=`<div class="sec">Not in a koli · ${pcs(onTable())}</div>`;
+  if(W.packed.length)b+=`<div class="sec">Packed · ${W.packed.length} koli</div>`+W.packed.map(p=>`<div class="rowl"><span class="muted">›</span><div class="nm"><b>Koli ${p.no} <span class="muted" style="display:inline">${p.code}</span></b></div><span class="muted">${pcs(sum(p.items))}</span></div>`).join("");
+  return [head(),b,`<div class="grow"></div><button class="btn red" data-back>↶ Back to Pick</button><button class="btn" data-pack ${sum(k.items)?"":"disabled"}>Submit</button>`];
+}
+function vA(){
+  const k=W.koli[0];
+  let pile=`<div class="sec" style="margin-top:0">On the table</div><div class="pile">`+grouped(live(),l=>`<button class="tap" data-drop="${l[0]}" ${free(l[0])?"":"disabled"}>${nm(l)}<span class="n num">${free(l[0])}</span></button>`,a=>`<div class="art" style="padding-top:10px">${artHead(a)}</div>`)+`</div>`;
+  let zone=`<div class="zone" id="zone"><div class="boxhd"><b>Koli ${k.no}</b><span class="muted num" style="margin-left:auto">${pcs(sum(k.items))}</span></div>`;
+  const items=L().filter(l=>k.items[l[0]]);
+  zone+=items.length?`<div class="chips">${items.map(l=>`<button class="chip" data-takeout="${l[0]}">${dot(l[2])}${short(l[0])}<b class="num">×${k.items[l[0]]}</b></button>`).join("")}</div>`:`<div class="empty">Tap a row to put 1 pc in</div>`;
+  return [head([totalLeft(),"pcs to pack"]),packedStrip()+`<div class="two"><div>${pile}</div>${zone}</div></div>`,backLink+`<button class="btn main" data-pack ${sum(k.items)?"":"disabled"}>Pack koli ${k.no} · ${pcs(sum(k.items))}</button>`];
+}
+function vB(){
+  const k=W.koli[W.active];
+  let b=`<div class="tabs">${W.koli.map((x,i)=>`<button class="tab" data-tab="${i}" aria-pressed="${i===W.active}">Koli ${x.no}<span class="muted num">${sum(x.items)}</span></button>`).join("")}<button class="tab plus" data-newkoli>+ Koli</button></div>`;
+  b+=grouped(live(),l=>{const n=k.items[l[0]]||0,f=free(l[0]);
+    return `<div class="rowl">${nm(l)}<div class="step"><button data-k="${l[0]}" data-d="-1" ${n?"":"disabled"}>−</button><output class="num">${n}</output><button data-k="${l[0]}" data-d="1" ${f?"":"disabled"}>+</button></div><span class="lft num ${f?"":"zero"}"><b>${f||"✓"}</b></span></div>`});
+  if(onTable())b+=`<button class="link" data-everything>Rest into Koli ${k.no}</button>`;
+  return [head([onTable(),"pcs left"]),packedStrip()+b,backLink+`<button class="btn main" data-pack ${sum(k.items)?"":"disabled"}>Pack koli ${k.no} · ${pcs(sum(k.items))}</button>`];
+}
+function vC(){
+  const k=W.koli[0];
+  let b=`<div class="box"><div class="boxhd"><b>Koli ${k.no}</b><span class="muted num" style="margin-left:auto">${pcs(sum(k.items))}</span></div>`+grouped(live(),l=>{const n=k.items[l[0]]||0;
+    return `<div class="rowl">${nm(l)}<div class="step"><button data-k="${l[0]}" data-d="-1" ${n?"":"disabled"}>−</button><output class="num">${n}</output><button data-k="${l[0]}" data-d="1" ${free(l[0])?"":"disabled"}>+</button></div></div>`})+`</div>`;
+  if(onTable())b+=`<div class="wait"><span class="muted">Next koli</span><b class="num" style="margin-left:auto">${pcs(onTable())}</b></div>`;
+  return [head([totalLeft(),"pcs to pack"]),packedStrip()+b,backLink+`<button class="btn main" data-pack ${sum(k.items)?"":"disabled"}>Pack koli ${k.no} · ${pcs(sum(k.items))}</button>`];
+}
+function vD(){
+  const k=W.koli[0];
+  let b=`<div class="boxhd" style="padding:0 0 4px"><b style="font-size:17px">Koli ${k.no}</b><span class="muted num" style="margin-left:auto">${sum(k.items)} in · ${onTable()} left</span></div>`;
+  b+=grouped(live(),l=>{const n=k.items[l[0]]||0,t=W.left[l[0]];
+    return `<div class="cnt${n===t?" full":""}" data-row="${l[0]}">${nm(l)}<button class="minus" data-k="${l[0]}" data-d="-1" ${n?"":"disabled"}>−</button><span class="of num"><span class="roll" id="r${l[0]}">${n}</span> <span>of ${t}</span></span><button class="plusbig" data-k="${l[0]}" data-d="1" ${n<t?"":"disabled"}>${n<t?"+":svgCheck}</button></div>`});
+  if(onTable())b+=`<button class="link" data-everything style="margin-top:8px">All left into Koli ${k.no}</button>`;
+  return [head([totalLeft(),"pcs to pack"]),packedStrip()+b,backLink+`<button class="btn main" data-pack ${sum(k.items)?"":"disabled"}>Pack koli ${k.no} · ${pcs(sum(k.items))}</button>`];
+}
+
+/* ---------- amount pad (same on desk and phone) ---------- */
+function padHtml(){
+  if(!pad)return"";
+  const act=W.koli[W.active],out=pad.mode==="out";
+  const ko=out?W.koli.find(k=>k.no==W.view):null;
+  const max=out?(ko?.items[pad.sku]||0):free(pad.sku);
+  const v=pad.v===""?0:+pad.v,ok=v>0&&v<=max;
+  const k=`1 2 3 4 5 6 7 8 9 · 0 ⌫`.split(" ").map(x=>x==="·"?`<button data-key="max">All</button>`:`<button data-key="${x}">${x}</button>`).join("");
+  return `<div class="pad" data-padclose><div class="padc"><div class="t"><b>${short(pad.sku)}</b>${out?`<span class="kchipi">${svgBox}Koli ${ko.no} → Picked</span>`:S.opt==="h"&&adding===null&&W.koli.length>=2&&pad.k===undefined?`<span class="muted">Put in</span>`:`<span class="kchipi">${svgBox}Into Koli ${act?act.no:nextNo()}</span>`}</div>
+  <div class="big num">${pad.v||0}</div><div class="of num">of ${max}</div><div class="keys">${k}</div>
+  ${S.opt==="h"&&!out&&adding===null&&W.koli.length>=2&&pad.k===undefined?`<div class="padks">${W.koli.map((k,i)=>`<button class="btn" data-padput data-padk="${i}" ${ok?"":"disabled"}>Koli ${k.no}</button>`).join("")}</div>`:`<button class="btn" data-padput ${ok?"":"disabled"}>${out?`Take ${v||""} out`:`Put ${v||""} in Koli ${S.opt==="h"&&adding!==null?adding:S.opt==="h"&&W.koli.length===1?W.koli[0].no:act?act.no:nextNo()}`}</button>`}${out||S.opt==="h"?"":`<button class="link red padback" data-padback ${ok?"":"disabled"}>${v||""} back to Pick</button>`}</div></div>`;
+}
+
+
+const dkDefault=()=>adding!==null?W.koli.findIndex(k=>k.no===adding):W.koli[W.active]?W.active:W.koli.length?W.koli.length-1:"new";
+/// H: the small popover at a row's button. Desk: how many + which koli. A row
+/// tapped with two koli open: which koli only (owner, 18 Oct 2026: "popup kecil di tempat icon itu").
+/// Dialog: the item, then the koli as tiles like the shelf's, then how many, and one
+/// button that says what it will do (owner, 18 Oct 2026: "ini ga kelihatan bisa dipilih kolinya").
+const ppTarget=()=>pp.k==="new"?nextNo():W.koli[pp.k]?.no??nextNo();
+const dgoMax=()=>pp.mode==="out"?(W.koli.find(x=>x.no==W.view)?.items[pp.for]||0):pp.for==="all"?onTable():free(pp.for);
+const dgoOk=()=>{if(pp.for==="all"||String(pp.for).startsWith("art:"))return true;const n=+String(pp.v).replace(/\D/g,"")||0;return n>0&&n<=dgoMax()};
+const dgoLabel=()=>{const n=+String(pp.v).replace(/\D/g,"")||0;
+  if(pp.mode==="out")return `Take ${n?pcs(n):""} out`.replace("  "," ");
+  return `Put ${pp.for==="all"?pcs(onTable()):pcs(n)} in Koli ${ppTarget()}`};
+function putDlg(){
+  const out=pp.mode==="out",all=pp.for==="all";
+  const max=out?(W.koli.find(x=>x.no==W.view)?.items[pp.for]||0):all?onTable():String(pp.for).startsWith("art:")?0:free(pp.for);
+  const art=String(pp.for).startsWith("art:")?pp.for.slice(4):null;
+  const l=all||art?null:line(pp.for);
+  const artPcs=art?live().filter(x=>x[1]===art).reduce((a,x)=>a+Math.max(0,free(x[0])),0):0;
+  const title=all?"All picked":art?ART[art].name:skuName(l),sub=all?pcs(max):art?pcs(artPcs):`${bare(pp.for)} · ${pcs(max)}`;
+  let body;
+  if(pp.step===1){
+    body=`<div class="pdl">Koli</div><div class="ktiles">${W.koli.map((k,i)=>`<button class="kt mini pick" data-dk="${i}">${svgBox}<b>Koli ${k.no}</b><span class="muted num">${pcs(sum(k.items))}</span></button>`).join("")}<button class="kt mini add" data-dk="new">+ Koli ${nextNo()}</button></div>
+    <div class="acts"><div style="flex:1"></div><button class="link" data-dcancel>Cancel</button></div>`;
+  }else{
+    body=`<div class="pdk2"><span class="kchipi">${svgBox}${out?`Koli ${W.view} → Picked`:`Into Koli ${ppTarget()}`}</span></div>
+    <div class="pdl">Quantity</div><div class="pdq"><input class="amt num" id="popv" value="${pp.v}" inputmode="numeric" aria-label="Quantity"><span class="muted num" id="popmax">max ${max}</span></div>
+    <div class="acts"><div style="flex:1"></div><button class="link" data-dback>Back</button><button class="btn${out?" red":""}" data-dgo ${dgoOk()?"":"disabled"}>${dgoLabel()}</button></div>`;
+  }
+  const first=!pp.seen;pp.seen=true;const dir=pp.dir;pp.dir=null;
+  return `<div class="dlg${first?"":" keep"}" data-padclose><div class="dlgc putd${first?"":" keep"}" id="pop"><div class="pdh"><b>${title}</b><span class="muted">${sub}</span></div><div class="pdbody${first?"":dir==="back"?" stepped back":" stepped"}">${body}</div></div></div>`;
+}
+/// The koli an icon press already knows: the Add dialog's, the only open one, or a first new one.
+const known=()=>adding!==null?W.koli.findIndex(k=>k.no===adding):W.koli.length===1?0:W.koli.length===0?"new":null;
+/// Step 2: desk types into the box; phone and tablet get the keypad (owner, 18 Oct 2026).
+function toQty(s,k,from1){
+  if(S.dev!=="desk"){
+    if(k==="new"&&from1){W.koli.push({no:nextNo(),items:{}});k=W.koli.length-1;fx.born=W.koli[k].no}
+    if(k!=="new")W.active=k;
+    pp=null;pad={sku:s,v:String(free(s)),fresh:true,k:from1?k:undefined};return render()}
+  pp={for:s,step:2,k,from1,v:pp?.for===s&&pp.v!==undefined?pp.v:String(free(s)),seen:!!from1};return render()
+}
+function popHtml(){
+  if(!pp)return"";
+  if(S.ask==="dlg")return putDlg();
+  const field=max=>`<div class="popq"><input class="amt num" id="popv" value="${pp.v}" inputmode="numeric" aria-label="How many"><span class="muted num">of ${max}</span></div>`;
+  if(pp.mode==="out"){const k=W.koli.find(x=>x.no==W.view);return `<div class="pop" id="pop">${field(k?.items[pp.for]||0)}<button class="pgo" data-popgo>Take out</button></div>`}
+  const one=adding!==null||W.koli.length<2,no=adding!==null?adding:W.koli.length===1?W.koli[0].no:nextNo();
+  const btns=one?`<button class="pgo" data-popgo>Put in Koli ${no}</button>`:W.koli.map((k,i)=>`<button class="pk2" data-popk="${i}">${svgBox}<b>Koli ${k.no}</b><span class="num">${pcs(sum(k.items))}</span></button>`).join("");
+  return `<div class="pop" id="pop">${pp.amt?field(free(pp.for)):""}${btns}</div>`;
+}
+function placePop(){
+  const el=document.getElementById("pop");if(!el)return;
+  if(S.ask==="dlg"){const v=document.getElementById("popv");if(v&&document.activeElement!==v){v.focus({preventScroll:true});v.select()}return}
+  const sheet=document.getElementById("sheet");
+  const a=pp.mode==="out"?document.querySelector(`[data-out="${pp.for}"]`):pp.for==="all"?document.querySelector("[data-askall]"):document.querySelector(`[data-go="${pp.for}"]`);
+  if(!a){pp=null;el.remove();return}
+  const sr=sheet.getBoundingClientRect(),r=a.getBoundingClientRect(),below=r.bottom+el.offsetHeight+8<sr.bottom-8;
+  el.style.right=`${Math.max(8,sr.right-r.right)}px`;
+  if(below){el.style.top=`${r.bottom-sr.top+6}px`;el.style.transformOrigin="top right"}
+  else{el.style.top=`${r.top-sr.top-el.offsetHeight-6}px`;el.style.transformOrigin="bottom right"}
+  const v=document.getElementById("popv");if(v&&document.activeElement!==v){v.focus({preventScroll:true});v.select()}
+}
+/// H: "Add to Koli N" is a second layer over the Pack sheet, its head saying it is
+/// Picked, so the rows read as the pile and not the koli (owner, 18 Oct 2026:
+/// "bagusan transisinya another layer dialog kali ya biar terlihat bedanya").
+function closeLayer(){
+  const l=document.querySelector(".layer"),sc=document.querySelector(".lscrim");
+  const done=()=>{adding=null;pp=null;render()};
+  if(!l||matchMedia("(prefers-reduced-motion:reduce)").matches)return done();
+  l.style.transition="transform 200ms var(--ease-out),opacity 200ms var(--ease-out)";l.style.transform="translateY(24px)";l.style.opacity="0";
+  if(sc){sc.style.transition="opacity 200ms";sc.style.opacity="0"}
+  setTimeout(done,190);
+}
+function layerHtml(){
+  if(adding===null||S.opt!=="h")return"";
+  const rows=live().filter(l=>free(l[0])>0),k=W.koli.find(x=>x.no===adding);
+  return `<div class="lscrim" data-adddone></div><div class="layer${layerIn?" in":""}">
+  <div class="head"><div><div class="crumb">Picked · ${pcs(onTable())}</div><h2>Add to Koli ${adding}</h2></div><div style="flex:1"></div><span class="lfig num">Koli ${adding} · ${pcs(sum(k?.items||{}))}</span><button class="btn sm" data-adddone>Done</button></div>
+  <div class="body">${rows.length?skuRows(rows,hRow,{qty:l=>free(l[0]),ctx:"L"+adding,artPut:true}):`<div class="empty">Nothing left</div>`}</div></div>`;
+}
+
+/// Seal one koli: it takes its code, the tile turns green, its packing list prints.
+function sealOne(no){
+  const i=W.koli.findIndex(x=>x.no==no),k=W.koli[i];const n=sum(k?.items||{});if(!n)return;
+  save();
+  Object.entries(k.items).forEach(([s,c])=>{W.left[s]-=c;if(W.left[s]<=0)delete W.left[s]});
+  const code=S.sheet==="pick"?"A"+String(PB.code++).padStart(5,"0"):"A0000"+W.code++;
+  W.packed.push({no:k.no,code,at:"10:"+String(30+(W.packed.length*3)%30).padStart(2,"0"),items:{...k.items}});
+  W.koli.splice(i,1);W.active=Math.max(0,W.koli.length-1);
+  fx.seal=k.no;W.view=k.no;
+  // Sealed, then the print dialog for its packing list, as the PO prints (owner, 18 Oct 2026).
+  prt={k:W.packed[W.packed.length-1],store:S.sheet==="pick"?S.store:S.store};render("fig");
+  toast(`Koli ${k.no} sealed · ${code}`,true);
+}
+/// The packing list as the hub prints it (PackingListPaper, A5, inside the box; Indonesian).
+const svgQr=`<svg viewBox="0 0 21 21" width="64" height="64" shape-rendering="crispEdges"><path fill="#111" d="M0 0h7v7H0zM1 1v5h5V1zM2 2h3v3H2zM14 0h7v7h-7zM15 1v5h5V1zM16 2h3v3h-3zM0 14h7v7H0zM1 15v5h5v-5zM2 16h3v3H2zM8 0h2v2H8zM11 1h2v3h-2zM8 4h3v2H8zM9 8h3v2H9zM0 8h2v2H0zM3 9h3v2H3zM14 8h2v3h-2zM17 9h4v2h-4zM8 11h2v3H8zM12 12h3v2h-3zM16 13h2v3h-2zM19 14h2v4h-2zM9 16h3v2H9zM13 17h3v4h-3zM8 19h2v2H8zM17 19h2v2h-2z"/></svg>`;
+function plPaper(k,store=S.store){
+  const rows=Object.entries(k.items),tot=rows.reduce((a,[,n])=>a+n,0);
+  return `<div class="a5 pl"><div class="plt"><div><b>PACKING LIST</b><span>Gudang · DC Cikupa</span></div>${svgQr}</div>
+  <dl class="pld"><dt>No. koli</dt><dd class="num"><b>${k.code}</b></dd><dt>Toko</dt><dd><b>${CAT[store].name}</b></dd><dt>Tanggal</dt><dd>18 Okt 2026, ${k.at}</dd><dt>Dikemas</dt><dd>candra</dd></dl>
+  <table class="pmx"><thead><tr><th>No</th><th>Artikel</th><th>Warna / Ukuran</th><th>SKU</th><th>Qty</th></tr></thead><tbody>${rows.map(([sku,n],i)=>{const l=lineOf(store,sku);return `<tr><td>${i+1}</td><td>${ART[l[1]].name}</td><td>${l[2]} / ${l[3]}</td><td class="num">${bare(sku)}</td><td><b>${n}</b></td></tr>`}).join("")}</tbody><tfoot><tr><td colspan="4">Total</td><td><b>${tot} pcs</b></td></tr></tfoot></table></div>`;
+}
+const svgPrinter=`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><path d="M6 14h12v8H6z"/></svg>`;
+const svgDownload=`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><path d="M7 10l5 5 5-5M12 15V3"/></svg>`;
+/// The blue word that opens the print dialog (blue goes to the printer, red is a file).
+const printWord=(attr)=>`<button class="toprint" ${attr}>${svgPrinter}Print packing list</button>`;
+function prtDlg(){
+  if(!prt)return"";
+  const {size,way}=prtPaper,[lg,sh]=size==="A4"?[220,156]:[156,110],[w,h]=way==="landscape"?[lg,sh]:[sh,lg];
+  const ch=(key,list,val)=>`<div class="choice">${list.map(([v,l])=>`<button aria-pressed="${v===val}" data-${key}="${v}">${l}</button>`).join("")}</div>`;
+  return `<div class="dlg" data-padclose><div class="dlgc prt"><div class="prth"><b>Print packing list ${prt.k.code}</b><button class="prtx" data-prtclose aria-label="Close">${svgX}</button></div>
+  <div class="prtbox"><div class="prtpage" aria-hidden="true" style="width:${w}px;height:${h}px"><i style="width:40%;height:8px"></i><i style="width:75%"></i><i style="margin-top:4px"></i><i></i><i></i><i style="width:75%"></i><i></i></div></div>
+  <div class="prtopts"><span>Paper</span>${ch("prtsize",[["A5","A5"],["A4","A4"]],size)}<span>Layout</span>${ch("prtway",[["landscape","Landscape"],["portrait","Portrait"]],way)}</div>
+  <div class="prtacts"><button class="tofile" data-prtpdf>${svgDownload}Download PDF</button><button class="btn" data-prtgo>${svgPrinter}Print</button></div></div></div>`;
+}
+function prtClick(t,e){
+  if(!prt)return false;
+  if(!t){if(e.target.closest("[data-padclose]")===e.target){prt=null;render();return true}return false}
+  const d=t.dataset;
+  if(d.prtsize){prtPaper.size=d.prtsize;render();return true}
+  if(d.prtway){prtPaper.way=d.prtway;render();return true}
+  if(d.prtclose!==undefined){prt=null;render();return true}
+  if(d.prtgo!==undefined){const c=prt.k.code;prt=null;render();toast(`Packing list printing · ${c} · ${prtPaper.size}`,false);return true}
+  if(d.prtpdf!==undefined){const c=prt.k.code;prt=null;render();toast(`PDF downloaded · ${c}.pdf`,false);return true}
+  return false;
+}
+function plDlg(){
+  if(prt)return prtDlg();
+  if(plist===null)return"";
+  const k=W.packed.find(x=>x.no==plist);if(!k)return"";
+  return `<div class="dlg" data-padclose><div class="dlgc one"><h3>Packing list · Koli ${k.no}</h3><div class="a5grid single">${plPaper(k)}</div><div class="acts"><span class="muted">A5</span><div style="flex:1"></div><button class="link" data-plclose>Close</button><button class="btn" data-plprint>Print</button></div></div></div>`;
+}
+
+/// H: which picked pieces go back to Pick (damaged or wrong). Steppers, same on every device.
+function backDlg(){
+  if(!bdlg)return"";
+  const rows=live().filter(l=>free(l[0])>0),n=sum(bdlg);
+  return `<div class="dlg" data-padclose><div class="dlgc"><h3>Back to Pick</h3>${skuRows(rows,l=>{const v=bdlg[l[0]]||0;
+    return `<div class="rowl">${skuNm(l)}<div class="step"><button data-bstep="${l[0]}" data-bd="-1" ${v?"":"disabled"}>−</button><output class="num">${v}</output><button data-bstep="${l[0]}" data-bd="1" ${v<free(l[0])?"":"disabled"}>+</button></div></div>`},{qty:l=>free(l[0]),fold:false})}
+  <div class="acts"><div style="flex:1"></div><button class="link" data-bkeep>Keep</button><button class="btn red" data-bgo ${n?"":"disabled"}>Back to Pick${n?` ${pcs(n)}`:""}</button></div></div></div>`;
+}
+
+/* ---------- Dispatch (E style) ---------- */
+// sealed koli waiting at the dock, per store
+const DOCK={
+  c001:[{no:1,code:"A00002",at:"09:39",items:{"5101":30,"5102":25}},{no:2,code:"A00003",at:"09:40",items:{"3003":1,"3004":1}}],
+  c009:[{no:1,code:"A00011",at:"10:05",items:{"5101":12}},{no:2,code:"A00012",at:"10:11",items:{"4104":4,"4105":4}}],
+  c005:[{no:1,code:"A00013",at:"10:20",items:{"4003":1,"4005":2,"4105":2}}],
+};
+let D;
+const svgStore=`<svg class="ic" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M4 9.5L5.5 4h13L20 9.5M4 9.5h16M4 9.5V20h16V9.5"/><path d="M9.5 20v-5h5v5"/></svg>`;
+const svgChev=`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>`;
+const svgDash=`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 12h12"/></svg>`;
+const svgTick=`<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`;
+/// Dispatch works like Pack: packed koli are the pile, trips are the boxes. A store rail on the left picks
+/// whose koli the list shows; Trip 1, Trip 2 … each its own truck and Trip data; one Submit sends them all.
+function freshD(fromPack){
+  const dock={};Object.entries(DOCK).forEach(([k,v])=>dock[k]=v.map(x=>({...x,items:{...x.items}})));
+  if(fromPack&&W.packed.length)dock[S.store]=W.packed.map((p,i)=>({no:p.no,code:p.code,at:"10:"+String(30+i).padStart(2,"0"),items:{...p.items}}));
+  D={dock,trips:[],active:null,view:"p",back:[],open:null,done:null,tseq:12,store:"all",ask:null,adding:null,bsel:null};dhist=[];
+}
+let dhist=[];
+const dsave=()=>dhist.push(JSON.stringify(D));
+const lineOf=(store,sku)=>CAT[store].lines.find(l=>l[0]===sku)||lineAny(sku);
+const koliPh=(store,x)=>{const a=lineOf(store,Object.keys(x.items)[0])[1];return `<div class="ph">${ICO[ART[a].ico]}</div>`};
+const dAll=()=>Object.entries(D.dock).flatMap(([k,v])=>v.map(x=>({...x,store:k})));
+const dK=code=>dAll().find(x=>x.code===code);
+const inTrip=code=>D.trips.some(t=>t.codes.includes(code));
+const onDock=()=>dAll().filter(x=>!inTrip(x.code)&&!D.back.includes(x.code));
+const dPcs=list=>list.reduce((a,x)=>a+sum(x.items),0);
+const tripNo=()=>Math.max(0,...D.trips.map(t=>t.no))+1;
+const svgTruckIc=`<svg class="ic" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M2 6h12v10H2zM14 9h4l4 4v3h-8z"/><circle cx="6" cy="17.5" r="1.8"/><circle cx="17" cy="17.5" r="1.8"/></svg>`;
+function byStore(list,row,hd){let h="",last=null;list.forEach(x=>{if(x.store!==last){last=x.store;h+=hd(x.store,list.filter(y=>y.store===x.store))}h+=row(x)});return h}
+function contents(x){
+  return `<div class="kin">`+grouped(Object.keys(x.items).map(s=>lineOf(x.store,s)),l=>`<div class="ln"><span>${l[2]} · ${l[3]}</span><span class="n num">${x.items[l[0]]}</span></div>`,a=>`<div class="grouphd">${artHead(a)}</div>`)+`</div>`;
+}
+/// What the chosen tile holds: Packed, a trip, or Back to Pick.
+function viewList(){
+  if(D.view==="p")return onDock();
+  if(D.view==="b")return D.back.map(dK);
+  const t=D.trips.find(t=>t.no==D.view);return t?t.codes.map(dK):[];
+}
+function vDispatch(){
+  const head=`<div class="head"><div><div class="crumb">Operations</div><h2>Dispatch</h2></div><div style="flex:1"></div><button class="x" aria-label="Close">${svgX}</button></div>`;
+  if(D.done)return [head,`<div class="done"><div class="ok">${svgCheck}</div><b>${D.done.trips.length} ${D.done.trips.length===1?"trip":"trips"} on the road</b>${D.done.trips.map(t=>`<span class="muted">${t.trip} · ${t.stores} · ${t.koli} koli</span>`).join("")}${D.done.back?`<span class="muted">${D.done.back} koli back to Pick</span>`:""}</div>`,`<div class="grow"></div><button class="btn" data-dreset>Close</button>`];
+  const dock=onDock(),act=D.trips.find(t=>t.no===D.active),into=act?act.no:tripNo(),view=D.view;
+  const nst=l=>new Set(l.map(x=>x.store)).size;
+  let h=`<div class="shelf" role="radiogroup">`+tile("p","Packed",`${dock.length} koli`,view==="p",dock.length?"":"zero",svgPile);
+  D.trips.forEach(t=>{const l=t.codes.map(dK);h+=tile(t.no,`Trip ${t.no}`,`${l.length} koli · ${nst(l)} ${nst(l)===1?"store":"stores"}`,view==t.no,"",svgTruckIc)});
+  if(D.back.length)h+=tile("b","Back to Pick",`${D.back.length} koli`,view==="b","bad",svgBackIc);
+  if(dock.length)h+=`<button class="kt add" data-newtrip>+ Trip ${tripNo()}</button>`;
+  h+=`</div>`;
+  // the rail: every store with koli here, counted for the chosen tile
+  const list=viewList(),stores=Object.keys(D.dock).filter(k=>D.dock[k].length);
+  if(D.store!=="all"&&!list.some(x=>x.store===D.store))D.store="all";
+  // The rail is a filter: All stores, then store codes; only stores with koli in the chosen tile.
+  const rail=`<div class="drail" role="radiogroup"><button class="drow${D.store==="all"?" on":""}" data-dstore="all">All stores</button>`+
+    stores.filter(k=>list.some(x=>x.store===k)).map(k=>`<button class="drow${D.store===k?" on":""}" data-dstore="${k}">${code(k)}</button>`).join("")+`</div>`;
+  const shown=D.store==="all"?list:list.filter(x=>x.store===D.store);
+  const nStores=new Set(list.map(x=>x.store)).size;
+  const hd=(k,l)=>D.store!=="all"?"":`<div class="grouphd"><div><b>${CAT[k].name}</b><span class="num">${l.length} koli · ${pcs(dPcs(l))}</span></div><div style="flex:1"></div>${view==="p"&&nStores>1?`<button class="link" data-dstoreall="${k}">All in</button>`:""}</div>`;
+  const chev=x=>"";
+  const base=x=>`<button class="kph" data-kinfo="${x.code}" aria-label="What is inside Koli ${x.no}">${svgBox}</button><div class="nm"><button class="kname" data-kinfo="${x.code}">Koli ${x.no} · <span class="num">${x.code}</span></button><span class="num">Packed ${x.at||"10:30"}</span></div><span class="left num">${pcs(sum(x.items))}</span>`;
+  let m="";
+  if(view==="p"){
+    m+=shown.length?`<div class="tabletitle lhd"><span class="muted num">${D.store==="all"?"":CAT[D.store].name+" · "}${shown.length} koli · ${pcs(dPcs(shown))}</span><div style="flex:1"></div><button class="link" data-deverything>All in</button></div>`+
+      byStore(shown,x=>`<div class="kl calm" data-dput="${x.code}">${base(x)}<button class="go" data-dsend="${x.code}">${svgInto}<span>Put on trip</span></button></div>`,hd)
+      :`<div class="empty">Every koli is on a trip</div>`;
+  }else if(view==="b"){
+    m+=byStore(shown,x=>`<div class="kl still">${base(x)}<button class="to red" data-dbout="${x.code}">Take out</button></div>`,hd);
+  }else{
+    const t=D.trips.find(t=>t.no==view);
+    m+=`<div class="tabletitle"><div style="flex:1"></div>${dock.length?`<button class="link" data-daddto="${t.no}">+ Add to Trip ${t.no}</button>`:""}</div>`;
+    m+=shown.length?byStore(shown,x=>`<div class="kl still">${base(x)}<button class="to red" data-dout="${x.code}">Take out</button>${chev(x)}</div>`+(D.open===x.code?contents(x):""),hd):`<div class="empty">Empty</div>`;
+    m+=`<div class="trip"><label for="tripNote">Trip data · Trip ${t.no}</label><textarea id="tripNote" rows="2">${t.note}</textarea></div>`;
+  }
+  // Tiles across the top; below them the filter starts on the same line as the koli.
+  h+=`<div class="dsplit">${rail}<div class="dmain">${m}</div></div>`;
+  const full=D.trips.filter(t=>t.codes.length);
+  const parts=[full.length?`${full.length} ${full.length===1?"trip":"trips"} · ${full.reduce((a,t)=>a+t.codes.length,0)} koli`:"",D.back.length?`${D.back.length} koli back to Pick`:""].filter(Boolean).join(" · ");
+  const nT=full.length;
+  const ft=(dock.length?`<button class="link red" data-dbackdlg>Back to Pick</button>`:"")+`<span class="sum num">${parts}</span><div class="grow"></div><button class="btn main" data-dgo ${parts?"":"disabled"}>${nT?`Dispatch ${nT} ${nT===1?"trip":"trips"}`:"Dispatch"}</button>`;
+  DV.base=base;DV.chev=chev;
+  fx={};
+  return [head,h,ft];
+}
+const DV={};let dLayerIn=false;
+const dHd=(k,l)=>`<div class="grouphd"><div><b>${CAT[k].name}</b><span class="num">${l.length} koli · ${pcs(dPcs(l))}</span></div></div>`;
+function dOverlay(){
+  if(!D)return"";
+  let h="";
+  if(D.adding!=null){
+    const dock=onDock(),t=D.trips.find(x=>x.no===D.adding);
+    h+=`<div class="lscrim dscrim"></div><div class="layer${dLayerIn?" in":""}"><div class="head"><div><div class="crumb">Packed · ${dock.length} koli</div><h2>Add to Trip ${D.adding}</h2></div><div style="flex:1"></div><span class="lfig num">Trip ${D.adding} · ${t?.codes.length||0} koli</span><button class="btn sm" data-dadddone>Done</button></div>
+    <div class="body">${dock.length?byStore(dock,x=>`<div class="kl calm" data-dput="${x.code}">${DV.base(x)}<button class="go" data-dsend="${x.code}">${svgInto}<span>Put on trip</span></button></div>`,dHd):`<div class="empty">Every koli is on a trip</div>`}</div></div>`;
+  }
+  if(D.ask){
+    const one=D.ask.codes.length===1?dK(D.ask.codes[0]):null,ks=D.ask.codes.map(dK);
+    h+=`<div class="dlg" data-padclose><div class="dlgc putd"><div class="pdh"><b>${one?`Koli ${one.no} · ${one.code}`:"All in"}</b><span class="muted">${one?`${CAT[one.store].name} · ${pcs(sum(one.items))}`:`${ks.length} koli · ${pcs(dPcs(ks))}`}</span></div>
+    <div class="pdl">Trip</div><div class="ktiles">${D.trips.map(t=>`<button class="kt mini pick" data-dtrip="${t.no}">${svgTruckIc}<b>Trip ${t.no}</b><span class="muted num">${t.codes.length} koli</span></button>`).join("")}<button class="kt mini add" data-dtrip="new">+ Trip ${tripNo()}</button></div>
+    <div class="acts"><div style="flex:1"></div><button class="link" data-dcancel2>Cancel</button></div></div></div>`;
+  }
+  if(D.bsel){
+    const dock=onDock(),n=D.bsel.length;
+    h+=`<div class="dlg" data-padclose><div class="dlgc dbk"><h3>Back to Pick</h3>${byStore(dock,x=>`<div class="kl pickrow${D.bsel.includes(x.code)?" on":""}" data-dbt="${x.code}"><span class="dcb">${D.bsel.includes(x.code)?svgTick:""}</span>${DV.base(x)}</div>`,dHd)}
+    <div class="acts"><div style="flex:1"></div><button class="link" data-dbkeep>Keep</button><button class="btn red" data-dbgo ${n?"":"disabled"}>Back to Pick${n?` ${n} koli`:""}</button></div></div></div>`;
+  }
+  return h+kinfoDlg();
+}
+function kinfoDlg(){
+  if(prt)return prtDlg();
+  if(!kinfo)return"";
+  const k=kinfo,ls=Object.keys(k.items).map(s=>lineOf(k.store,s));
+  return `<div class="dlg" data-padclose><div class="dlgc kinfo"><div class="pdh"><b>Koli ${k.no} · <span class="num">${k.code}</span></b><span class="muted">${CAT[k.store].name} · Packed ${k.at||"10:30"} · ${pcs(sum(k.items))}</span></div>
+  <div class="kinrows">${skuRows(ls,l=>`<div class="put still">${skuNm(l)}<span class="qty num">${k.items[l[0]]}</span></div>`,{qty:l=>k.items[l[0]],fold:false})}</div>
+  <div class="acts">${printWord("data-kpl")}<div style="flex:1"></div><button class="btn" data-kinfoclose>Close</button></div></div></div>`+ipvDlg();
+}
+/// The koli-contents presses, shared by Dispatch and the on-the-road view.
+function kinfoClick(t,e){
+  if(ipvClick(t,e)||prtClick(t,e))return true;
+  if(!t){if((kinfo||kpl)&&e.target.closest("[data-padclose]")===e.target){if(kpl)kpl=null;else kinfo=null;render();return true}return false}
+  const d=t.dataset;
+  if(d.kinfo){const k=dK(d.kinfo);if(k){kinfo={...k};render()}return true}
+  if(d.rk){const [ti,li,ki]=d.rk.split(".").map(Number);kinfo={...PB.road[ti].lines[li].list[ki]};render();return true}
+  if(d.kinfoclose!==undefined){kinfo=null;render();return true}
+  if(d.kpl!==undefined){prt={k:kinfo,store:kinfo.store};render();return true}
+  if(d.kplclose!==undefined){kpl=null;render();return true}
+  if(d.kplprint!==undefined){kpl=null;render();toast("Packing list printing",false);return true}
+  return false;
+}
+function dCloseLayer(){
+  const l=document.querySelector(".layer"),sc=document.querySelector(".lscrim");
+  const done=()=>{D.adding=null;D.open=null;render()};
+  if(!l||matchMedia("(prefers-reduced-motion:reduce)").matches)return done();
+  l.style.transition="transform 200ms var(--ease-out),opacity 200ms var(--ease-out)";l.style.transform="translateY(24px)";l.style.opacity="0";
+  if(sc){sc.style.transition="opacity 200ms";sc.style.opacity="0"}
+  setTimeout(done,190);
+}
+/// Which trip a press goes on: the Add layer's, the only one open, else ask (two or more).
+function dSend(codes,src){
+  if(D.adding!=null){D.active=D.adding;return dPut(codes,src)}
+  if(D.trips.length>=2){D.ask={codes};return render()}
+  if(D.trips.length===1)D.active=D.trips[0].no;
+  dPut(codes,src);
+}
+function dPut(codes,src){
+  codes=codes.filter(c=>!inTrip(c)&&!D.back.includes(c));if(!codes.length)return;
+  dsave();
+  if(!D.trips.find(t=>t.no===D.active)){const no=tripNo();D.trips.push({no,codes:[],note:""});D.active=no;fx.born=no}
+  D.trips.find(t=>t.no===D.active).codes.push(...codes);fx.hit=D.active;D.open=null;if(D.adding==null)D.view="p";
+  render();fly(src,document.getElementById("kt"+D.active),"+"+codes.length);
+}
+function dclick(t,e){
+  if(kinfoClick(t,e))return true;
+  if(!t){
+    if(e.target.closest(".dscrim")){dCloseLayer();return true}
+    if(e.target.closest("[data-padclose]")===e.target){D.ask=null;D.bsel=null;render();return true}
+    const b=e.target.closest("[data-dbt]");if(b){const c=b.dataset.dbt;D.bsel=D.bsel.includes(c)?D.bsel.filter(x=>x!==c):[...D.bsel,c];render();return true}
+    return false}
+  const d=t.dataset;
+  if(d.dsend){dSend([d.dsend],t.closest("[data-dput]")?.getBoundingClientRect());return true}
+  if(d.dtrip){const c=D.ask.codes;D.ask=null;
+    if(d.dtrip==="new"){const no=tripNo();D.trips.push({no,codes:[],note:""});D.active=no;fx.born=no}else D.active=+d.dtrip;
+    dPut(c,document.querySelector(`[data-dput="${c[0]}"]`)?.getBoundingClientRect());return true}
+  if(d.dcancel2!==undefined){D.ask=null;render();return true}
+  if(d.daddto){D.adding=+d.daddto;D.open=null;dLayerIn=true;render();dLayerIn=false;return true}
+  if(d.dadddone!==undefined){dCloseLayer();return true}
+  if(d.dbackdlg!==undefined){D.bsel=[];render();return true}
+  if(d.dbkeep!==undefined){D.bsel=null;render();return true}
+  if(d.dbgo!==undefined){dsave();D.back.push(...D.bsel);D.bsel=null;fx.hit="b";render();return true}
+  if(d.view){D.ask=null;D.adding=null;D.bsel=null;D.view=d.view==="p"||d.view==="b"?d.view:+d.view;if(typeof D.view==="number")D.active=D.view;D.open=null;render();return true}
+  if(d.dstore){D.store=d.dstore;D.open=null;render();return true}
+  if(d.newtrip!==undefined){dsave();const no=tripNo();D.trips.push({no,codes:[],note:""});D.active=no;fx.born=no;if(D.view!=="p")D.view=no;render();return true}
+  if(d.dopen){D.open=D.open===d.dopen?null:d.dopen;render();return true}
+  if(d.dstoreall){dSend(onDock().filter(x=>x.store===d.dstoreall).map(x=>x.code),t.getBoundingClientRect());return true}
+  if(d.deverything!==undefined){dSend(onDock().filter(x=>D.store==="all"||x.store===D.store).map(x=>x.code),t.getBoundingClientRect());return true}
+  if(d.dout){dsave();const tr=D.trips.find(x=>x.no==D.view);tr.codes=tr.codes.filter(c=>c!==d.dout);render();return true}
+  if(d.dback){dsave();D.back.push(d.dback);D.open=null;fx.hit="b";render();return true}
+  if(d.dbout){dsave();D.back=D.back.filter(c=>c!==d.dbout);if(!D.back.length)D.view="p";render();return true}
+  if(d.dgo!==undefined){dsave();
+    const trips=D.trips.filter(t=>t.codes.length).map(t=>{const st=[...new Set(t.codes.map(c=>dK(c).store))];return {trip:"T00"+D.tseq++,stores:st.length===1?CAT[st[0]].name:st.map(code).join(", "),koli:t.codes.length,codes:t.codes}});
+    const backK=D.back.map(dK);
+    if(S.sheet==="pick"){trips.forEach(t=>{const ks=t.codes.map(dK),st=[...new Set(ks.map(x=>x.store))];PB.road.unshift({trip:t.trip,stores:t.stores,koli:t.koli,pcs:dPcs(ks),at:"10:"+(45+PB.road.length),lines:st.map(k=>({name:CAT[k].name,koli:ks.filter(x=>x.store===k).length,list:ks.filter(x=>x.store===k).map(x=>({...x,items:{...x.items}}))}))})});backK.forEach(x=>backFromDispatch(x))}
+    const gone=new Set([...trips.flatMap(t=>t.codes),...D.back]);
+    Object.keys(D.dock).forEach(k=>D.dock[k]=D.dock[k].filter(x=>!gone.has(x.code)));
+    D.done={trips,back:backK.length};D.trips=[];D.back=[];D.active=null;D.view="p";
+    // No done screen anywhere: the toast answers; the board (or the sheet's own leftovers) is what remains.
+    D.done=null;D.store="all";if(S.sheet==="pick")F.open=null;
+    render();toast(`${trips.length} ${trips.length===1?"trip":"trips"} dispatched · surat jalan printing${backK.length?` · ${backK.length} koli back to Pick`:""}`,true);return true}
+  if(d.dreset!==undefined){freshD(false);render();return true}
+  if(t.id==="undo"&&S.sheet!=="pack"){const s=dhist.pop();if(s){D=JSON.parse(s);render()}document.getElementById("toast").hidden=true;return true}
+  return false;
+}
+document.addEventListener("input",e=>{if(e.target.id==="tripNote"){const t=D.trips.find(t=>t.no==D.view);if(t)t.note=e.target.value}});
+
+
+/* ---------- Pick — one card = one article × one allotment × one store (= one A5 paper) ---------- */
+const PSTARTS=[["new","New picklists"],["back","Back from Pack"]];
+// the backend's picklists: one allotment × one store
+const PLISTS=[
+  {id:"14-c001",al:"AL-2610-014",store:"c001",lines:[["5101","2562","BROKEN WHITE","XXL",30],["5102","2562","OLIVE","XL",25],["3003","87175","HITAM","M",1],["3004","87175","HITAM","L",1]]},
+  {id:"14-c005",al:"AL-2610-014",store:"c005",lines:[["5101","2562","BROKEN WHITE","XXL",6],["5102","2562","OLIVE","XL",4],["3003","87175","HITAM","M",1]]},
+  {id:"14-c009",al:"AL-2610-014",store:"c009",lines:[["5101","2562","BROKEN WHITE","XXL",12],["3004","87175","HITAM","L",2]]},
+  {id:"15-c001",al:"AL-2610-015",store:"c001",lines:[["4003","87167","HITAM","M",1],["4004","87167","HITAM","L",1],["4005","87167","HITAM","XL",1],["4103","87167","NAVY","M",2],["4104","87167","NAVY","L",3],["4105","87167","NAVY","XL",2]]},
+  {id:"15-c009",al:"AL-2610-015",store:"c009",lines:[["4104","87167","NAVY","L",4],["4105","87167","NAVY","XL",4]]},
+];
+let P,PB,phist=[];
+const psave=()=>phist.push(JSON.stringify({PB,P}));
+const lineAny=sku=>PLISTS.flatMap(x=>x.lines).find(l=>l[0]===sku);
+const cShort=sku=>{const l=lineAny(sku);return `${l[1]} · ${l[2]} · ${l[3]}`};
+const code=k=>CAT[k].name.split(" · ")[0];
+const card=()=>typeof P.card==="string"&&P.card.startsWith("G:")?gCard(P.card.slice(2)):PB.cards.find(c=>c.id===P.card);
+const storeOrder=k=>Object.keys(CAT).indexOf(k);
+const gCards=key=>PB.cards.filter(c=>!c.cancelled&&c.al+"|"+c.art===key).sort((a,b)=>code(a.store).localeCompare(code(b.store)));
+/// The article × allotment card, made of its stores' cards.
+function gCard(key){
+  const cs=gCards(key);if(!cs.length)return null;
+  const left={},lines=[];
+  cs.forEach(c=>c.lines.forEach(l=>{if(c.left[l[0]]){left[l[0]]=(left[l[0]]||0)+c.left[l[0]];if(!lines.some(x=>x[0]===l[0]))lines.push(l)}}));
+  const sh=cs.filter(c=>c.short),bk=cs.find(c=>c.back);
+  return {id:"G:"+key,al:cs[0].al,art:cs[0].art,store:cs[0].store,group:cs,lines,left,short:sh.length?{note:sh[0].short.note,at:sh[0].short.at}:null,back:bk?.back||null,backFrom:bk?.backFrom};
+}
+/// N found of a SKU fill the stores in order, the first store first.
+function gSplit(cs,sku,n){const o={};cs.forEach(c=>{const m=Math.min(c.left[sku]||0,n);if(m){o[c.store]=m;n-=m}});return o}
+function openGroup(key){
+  const eds=gCards(key).flatMap(c=>{const l=c.edit?.lines||[];delete c.edit;return l});
+  P={edit:eds.length?{lines:eds}:null,card:"G:"+key,got:{},gs:{},st:"all",step:1,tot:{},sorted:[],pad:null,dlg:false,note:"",done:null,print:null};
+}
+function freshP(){
+  const cards=[];
+  PLISTS.forEach(x=>{[...new Set(x.lines.map(l=>l[1]))].forEach(art=>{const lines=x.lines.filter(l=>l[1]===art),left={};lines.forEach(l=>left[l[0]]=l[4]);
+    cards.push({id:x.id+"-"+art,al:x.al,store:x.store,art,lines,left,short:null,back:null})})});
+  PB={cards,packW:{},plines:{},code:2,road:[]};F={open:null};
+  if(S.pstart==="back"){const c=cards.find(c=>c.id==="15-c001-87167");c.left={"4104":1,"4105":1};c.back="Koli 3 · 2 pcs";PB.cards=[c,...cards.filter(x=>x!==c&&x.al!=="AL-2610-015")]}
+  P={card:null};phist=[];
+}
+function openCard(id){const c0=PB.cards.find(c=>c.id===id),ed=c0.edit?{...c0.edit}:null;delete c0.edit;P={edit:ed,card:id,got:{},pad:null,dlg:false,note:"",done:null,print:null}}
+const als=()=>[...new Set(PB.cards.map(c=>c.al))];
+
+/// A card as the live board's StepCard: strip, title + pieces, sub, dashed lines, foot = fact · step ›.
+/// Pictures only when the bar says so (live: no pictures, owner 17 Oct).
+function sc({attr="",strip,title,pieces,from,sub,lines,meta,step,pic,stamp}){
+  const tag=attr?"button":"div";
+  return `<${tag} class="sc${stamp?" off":""}" ${attr}>${strip?`<span class="scstrip ${strip.tone||""}">${strip.label}</span>`:""}<span class="scbody">
+    <span class="sctop">${pic?`<span class="ph sm">${ICO[ART[pic].ico]}</span>`:""}<span class="sct"><span class="sctl"><b>${title}</b><span class="num">${from!==undefined?`${from} → `:""}<b>${pieces}</b> ${pieces===1?"pc":"pcs"}</span></span>${sub?`<span class="scsub">${sub}</span>`:""}</span></span>
+    ${lines&&lines.length?`<span class="sclines">${lines.map(l=>`<span${l[3]?` class="sclk" ${l[3]}`:""}><span>${l[0]}</span><span class="num">${l[2]?`<em class="owe">take out ${l[2]}</em>`:""}${l[1]}</span></span>`).join("")}</span>`:""}
+    ${stamp?`<span class="stampw"><span class="dstamp">${stamp}</span></span>`:""}
+    ${meta||step?`<span class="scfoot"><span class="muted">${meta||""}</span>${step?`<span class="scstep ${step.bad?"bad":""}">${step.label} ›</span>`:""}</span>`:""}</span></${tag}>`;
+}
+function lane(title,tone,n,body,empty,extra=""){
+  return `<section class="tray"><header><span class="tdot ${tone}"></span><b>${title}</b><span class="tn num">${n}</span>${extra}</header><div class="tbody">${n?body:`<div class="empty">${empty}</div>`}</div></section>`;
+}
+function board(){
+  const pick=als().map(al=>{const cs=PB.cards.filter(c=>c.al===al);
+    if(S.pu==="art"){
+      const arts=[...new Set(cs.filter(c=>!c.cancelled).map(c=>c.art))];
+      return `<div class="alhd"><b class="num">${al}</b><span class="muted num">${arts.length}</span><div style="flex:1"></div><button class="link" data-pprintal="${al}">Print all</button></div>`+
+      cs.filter(c=>c.cancelled).map(c=>sc({attr:`data-pok="${c.id}"`,strip:{label:"Cancelled by MD",tone:"bad"},title:ART[c.art].name,pieces:0,from:sum(c.left),sub:CAT[c.store].name,step:{label:"OK"},pic:c.art,stamp:"Cancelled"})).join("")+
+      arts.map(art=>{const g=gCard(al+"|"+art),sh=g.group.filter(x=>x.short),ed=g.group.some(x=>x.edit),ct=g.group.some(x=>x.cont);
+        return sc({attr:`data-pgroup="${al}|${art}"`,strip:sh.length?{label:`Short pick · ${pcs(sh.reduce((a,x)=>a+sum(x.left),0))}`,tone:"warn"}:g.back?{label:g.backFrom||"Back from Pack",tone:"warn"}:ct?{label:"MD: continue picking",tone:""}:ed?{label:"Edited by MD",tone:""}:null,
+          title:ART[art].name,pieces:sum(g.left),sub:g.group.map(x=>code(x.store)).join(" · "),meta:`${g.group.length} ${g.group.length===1?"store":"stores"} · ${Object.keys(g.left).length} ${Object.keys(g.left).length===1?"size":"sizes"}`,step:{label:"Pick"},pic:art})}).join("")}
+    return `<div class="alhd"><b class="num">${al}</b><span class="muted num">${cs.length}</span><div style="flex:1"></div><button class="link" data-pprintal="${al}">Print all</button></div>`+
+    cs.map(c=>c.cancelled
+      // MD cancelled it while it was still to pick: it stays until the Gudang says OK
+      ?sc({attr:`data-pok="${c.id}"`,strip:{label:"Cancelled by MD",tone:"bad"},title:ART[c.art].name,pieces:0,from:sum(c.left),sub:CAT[c.store].name,step:{label:"OK"},pic:c.art,stamp:"Cancelled"})
+      :sc({attr:`data-pcard="${c.id}"`,strip:c.short?{label:`Short pick · ${pcs(sum(c.left))}`,tone:"warn"}:c.cont?{label:"MD: continue picking",tone:""}:c.edit?{label:"Edited by MD",tone:""}:null,
+      title:ART[c.art].name,pieces:sum(c.left),sub:CAT[c.store].name,meta:c.edit?`<span class="tagw"><s>${c.edit.was}</s> → ${c.edit.now}</span>`:`${Object.keys(c.left).length} ${Object.keys(c.left).length===1?"size":"sizes"}`,step:{label:"Pick"},pic:c.art})).join("")}).join("");
+  const nPack=Object.values(PB.packW).filter(w=>sum(w.left)).length,nDis=Object.values(PB.packW).filter(w=>w.packed.length).length,nRoad=PB.road.filter(r=>!r.received).length;
+  return `<div class="boardhd"><b>Board</b><div style="flex:1"></div></div>
+  ${S.dev==="desk"?"":`<div class="lanebar" role="tablist">${[["pick","Pick",S.pu==="art"?new Set(PB.cards.map(c=>c.al+"|"+(c.cancelled?c.id:c.art))).size:PB.cards.length],["picked","Picked",nPack],["packed","Packed",nDis],["transit","In transit",PB.road.length]].map(([k,l,n])=>`<button class="lanetab${(S.lane||"pick")===k?" on":""}" role="tab" aria-selected="${(S.lane||"pick")===k}" data-lane="${k}">${l}<span class="num">${n}</span></button>`).join("")}</div>`}
+  <div class="trays" data-show="${S.dev==="desk"?"all":S.lane||"pick"}">${lane("Pick","mute",S.pu==="art"?new Set(PB.cards.map(c=>c.al+"|"+(c.cancelled?c.id:c.art))).size:PB.cards.length,pick,"Nothing to pick")}<span class="tchev">›</span>${lane("Picked","warn",nPack,packLane(),"Nothing picked")}<span class="tchev">›</span>${lane("Packed","info",nDis,dispatchLane(),"Nothing packed",nDis?`<button class="btn sm" data-fdispatch>Dispatch</button>`:"")}<span class="tchev">›</span>${lane("In transit","ok",PB.road.length,roadLane(),"Nothing on the road")}</div>`;
+}
+
+function vPick(){
+  const c=card()||P.snap;
+  const head=`<div class="head"><div><div class="crumb"><span class="num">${c.al}</span> · ${c.group?c.group.map(x=>code(x.store)).join(" · "):CAT[c.store].name}</div><h2>Pick · ${ART[c.art].name}</h2></div><div style="flex:1"></div><button class="x" data-pshut aria-label="Close">${svgX}</button></div>`;
+  if(P.done)return [head,`<div class="done"><div class="ok">${svgCheck}</div><b>${pcs(P.done.got)} to Pack</b>${P.done.short?`<span class="muted">${pcs(P.done.short)} left on <span class="num">${c.al}</span></span>`:""}</div>`,`<div class="grow"></div><button class="btn" data-pshut>Close</button>`];
+  if(c.group)return vPickG(c,head);
+  const want=sum(c.left),got=sum(P.got),rows=c.lines.filter(l=>c.left[l[0]]||P.got[l[0]]);
+  const over=Object.entries(P.got).reduce((a,[s,n])=>a+Math.max(0,n-(c.left[s]||0)),0);
+  let h="";
+  if(c.cancelled)h+=`<div class="strip bad"><b>MD cancelled this picklist</b><span>${got?`Put the ${pcs(got)} you took back on the rack`:"Nothing to pick"}</span></div>`;
+  else if(over)h+=`<div class="strip"><b>MD changed this picklist</b><span class="num">${Object.entries(P.got).filter(([s,n])=>n>(c.left[s]||0)).map(([s,n])=>`${lineAny(s)[2]} · ${lineAny(s)[3]} now ${c.left[s]||0}, put back ${n-(c.left[s]||0)}`).join(" · ")}</span><button class="link" data-pfit>Done, put back ${over}</button></div>`;
+  if(P.edit)h+=`<div class="strip info"><b>MD changed this picklist</b><span class="num">${P.edit.lines.map(([sku,a,b])=>`${lineAny(sku)[2]} · ${lineAny(sku)[3]} <s>${a}</s> → ${b}`).join(" · ")}</span></div>`;
+  if(c.short)h+=`<div class="strip"><b>Short pick</b><span class="num">${pcs(want)}${c.short.note?` · “${c.short.note}”`:""} · Candra ${c.short.at}</span></div>`;
+  else if(c.back)h+=`<div class="strip"><b>${c.backFrom||"Back from Pack"}</b><span>${c.back}</span></div>`;
+  h+=`<div class="pkhd">${artHead(c.art)}<div style="flex:1"></div><div class="fig"><strong class="num roll" id="fig">${got}<span class="muted"> / ${want}</span></strong></div></div>`;
+  h+=`<div class="tabletitle" style="margin-top:12px"><div style="flex:1"></div>${got<want?`<button class="link" data-pall>All picked</button>`:""}</div>`;
+  const cols=c.group&&S.pn==="cols";
+  if(cols)h+=`<div class="pxhd"><span class="pxsz">Colour · Size</span>${c.group.map(x=>`<span class="pxc num">${code(x.store)}</span>`).join("")}<span class="pxt">Total</span></div>`;
+  h+=rows.map(l=>{const q=c.left[l[0]],g=P.got[l[0]]||0,st=g===q?"full":g?"part":"";
+    return `<div class="ck ${st}" data-prow="${l[0]}"><span class="cb">${g===q?svgTick:g?svgDash:""}</span><div class="nm"><b>${l[2]} · ${l[3]}</b><span class="num">${bare(l[0])}</span>${c.group&&!cols?storeNeed(c,l[0]):""}</div>${cols?storeCols(c,l[0]):""}<button class="amt num${g>q?" over":""}" data-pamt="${l[0]}" aria-label="How many found">${g&&g!==q?`${g} of ${q}`:q}</button></div>`}).join("");
+  const ft=c.cancelled?`<div class="grow"></div><button class="btn red main" data-pxl>${got?`Put back ${pcs(got)}`:"OK"}</button>`:
+    (got<want?`<button class="link red" data-pcannot>Cannot pick</button>`:"")+`<div class="grow"></div><button class="link" data-pprint>Print</button><button class="btn main" data-psubmit ${got&&!over?"":"disabled"}>${over?`Put back ${over} first`:got?`Submit ${pcs(got)}`:"Submit"}</button>`;
+  return [head,h,ft];
+}
+const gsOf=(x,s)=>P.gs?.[x.store]?.[s]||0;
+const storeDone=x=>Object.keys(x.left).every(s=>gsOf(x,s)>=x.left[s]);
+const tickOf=(g,q)=>g>=q?svgTick:g?svgDash:"";
+const figOf=(g,q)=>g&&g<q?`${g} of ${q}`:q;
+function vPickG(c,head){
+  const G=c.group,want=sum(c.left),v=S.pc,step=v==="sort"?(P.step||1):0;
+  const got=step===1?sum(P.tot||{}):sum(P.got),rows=c.lines.filter(l=>c.left[l[0]]);
+  let h="";
+  if(P.edit)h+=`<div class="strip info"><b>MD changed this picklist</b><span class="num">${P.edit.lines.map(([sku,a,b])=>`${lineAny(sku)[2]} · ${lineAny(sku)[3]} <s>${a}</s> → ${b}`).join(" · ")}</span></div>`;
+  if(c.short)h+=`<div class="strip"><b>Short pick</b><span class="num">${pcs(want)}${c.short.note?` · “${c.short.note}”`:""} · Candra ${c.short.at}</span></div>`;
+  else if(c.back)h+=`<div class="strip"><b>${c.backFrom||"Back from Pack"}</b><span>${c.back}</span></div>`;
+  h+=`<div class="pkhd">${artHead(c.art)}<div style="flex:1"></div><div class="fig"><strong class="num roll" id="fig">${got}<span class="muted"> / ${want}</span></strong></div></div>`;
+  const allLink=got<want&&step!==2?`<button class="link" data-pall>All picked</button>`:"";
+  const cell=(x,sku)=>{const need=x.left[sku]||0,g=gsOf(x,sku);return need?`<button class="pxc cell num ${g>=need?"full":g?"part":""}" data-pcell="${x.store}|${sku}" aria-label="${code(x.store)} ${need}">${g&&g<need?`${g}/${need}`:need}</button>`:`<span class="pxc none">–</span>`};
+  const colHd=`<div class="pxhd"><span class="pxsz">Colour · Size</span>${G.map(x=>`<button class="pxc colhd num${storeDone(x)?" ok":""}" data-pcol="${x.store}">${code(x.store)}</button>`).join("")}<span class="pxt">Total</span></div>`;
+  const rowAll=l=>{const q=c.left[l[0]],g=P.got[l[0]]||0;return `<div class="ck ${g>=q?"full":g?"part":""}" data-prow="${l[0]}" data-pst="all"><span class="cb">${tickOf(g,q)}</span><div class="nm"><b>${l[2]} · ${l[3]}</b><span class="num">${bare(l[0])}</span></div>${G.map(x=>cell(x,l[0])).join("")}<span class="tot num">${figOf(g,q)}</span></div>`};
+  const rowStore=(x,l)=>{const q=x.left[l[0]],g=gsOf(x,l[0]);return `<div class="ck ${g>=q?"full":g?"part":""}" data-prow="${l[0]}" data-pst="${x.store}"><span class="cb">${tickOf(g,q)}</span><div class="nm"><b>${l[2]} · ${l[3]}</b><span class="num">${bare(l[0])}</span></div><button class="amt num" data-pamt="${l[0]}" data-pstore="${x.store}" aria-label="How many found for ${code(x.store)}">${figOf(g,q)}</button></div>`};
+  h+=`<div class="tabletitle" style="margin-top:12px"><div style="flex:1"></div>${allLink}</div>`;
+  if(v==="tabs"){
+    const st=P.st||"all";
+    h+=`<div class="psttabs" role="tablist">${[["all","All",null],...G.map(x=>[x.store,code(x.store),x])].map(([k,l,x])=>`<button class="psttab${st===k?" on":""}${x&&storeDone(x)?" done":""}" role="tab" aria-selected="${st===k}" data-pst2="${k}">${l}${x?`<span class="num">${sum(x.left)}</span>${storeDone(x)?svgTick:""}`:""}</button>`).join("")}</div>`;
+    if(st==="all")h+=colHd+rows.map(rowAll).join("");
+    else{const x=G.find(y=>y.store===st);h+=`<div class="pststore">${CAT[x.store].name}</div>`+x.lines.filter(l=>x.left[l[0]]).map(l=>rowStore(x,l)).join("")}
+  }else if(v==="cells"){
+    h+=colHd+rows.map(rowAll).join("");
+  }else if(v==="nest"){
+    h+=rows.map(l=>{const q=c.left[l[0]],g=P.got[l[0]]||0;
+      return `<div class="ck nesthd ${g>=q?"full":g?"part":""}" data-prow="${l[0]}" data-pst="all"><span class="cb">${tickOf(g,q)}</span><div class="nm"><b>${l[2]} · ${l[3]}</b><span class="num">${bare(l[0])}</span></div><span class="tot num">${figOf(g,q)}</span></div>`+
+      G.filter(x=>x.left[l[0]]).map(x=>{const qq=x.left[l[0]],gg=gsOf(x,l[0]);return `<div class="ck sub ${gg>=qq?"full":gg?"part":""}" data-prow="${l[0]}" data-pst="${x.store}"><span class="cb">${tickOf(gg,qq)}</span><div class="nm"><b>${CAT[x.store].name}</b></div><button class="amt num" data-pamt="${l[0]}" data-pstore="${x.store}">${figOf(gg,qq)}</button></div>`}).join("")}).join("");
+  }else if(step===1){
+    h+=rows.map(l=>{const q=c.left[l[0]],g=P.tot?.[l[0]]||0;return `<div class="ck ${g>=q?"full":g?"part":""}" data-prow="${l[0]}" data-pst="tot"><span class="cb">${tickOf(g,q)}</span><div class="nm"><b>${l[2]} · ${l[3]}</b><span class="num">${bare(l[0])}</span></div><button class="amt num" data-pamt="${l[0]}" data-ptot="1">${figOf(g,q)}</button></div>`}).join("");
+  }else{
+    h+=G.map(x=>{const ok=(P.sorted||[]).includes(x.store);
+      return `<div class="sortblk${ok?" ok":""}"><div class="sorthd"><button class="cb2${ok?" on":""}" data-psort="${x.store}" aria-label="${code(x.store)} sorted">${ok?svgTick:""}</button><div class="nm"><b>${CAT[x.store].name}</b><span class="num">${pcs(sum(P.gs[x.store]||{}))} of ${pcs(sum(x.left))}</span></div></div>`+
+      x.lines.filter(l=>x.left[l[0]]).map(l=>{const qq=x.left[l[0]],gg=gsOf(x,l[0]);return `<div class="srow"><span>${l[2]} · ${l[3]}</span><button class="amt num${gg<qq?" short":""}" data-pamt="${l[0]}" data-pstore="${x.store}">${gg<qq?`${gg} of ${qq}`:gg}</button></div>`}).join("")+`</div>`}).join("");
+  }
+  let ft;
+  if(step===1)ft=`<div class="grow"></div><button class="link" data-pprint>Print</button><button class="btn main" data-pnext ${got?"":"disabled"}>Next · sort to stores</button>`;
+  else if(step===2){const all=G.every(x=>(P.sorted||[]).includes(x.store));ft=`<button class="link" data-pback1>Back</button>${got<want?`<button class="link red" data-pcannot>Cannot pick</button>`:""}<div class="grow"></div><button class="btn main" data-psubmit ${all&&got?"":"disabled"}>${all?`Submit ${pcs(got)}`:`Sort ${G.filter(x=>!(P.sorted||[]).includes(x.store)).length} more`}</button>`}
+  else ft=(got<want?`<button class="link red" data-pcannot>Cannot pick</button>`:"")+`<div class="grow"></div><button class="link" data-pprint>Print</button><button class="btn main" data-psubmit ${got?"":"disabled"}>${got?`Submit ${pcs(got)}`:"Submit"}</button>`;
+  return [head,h,ft];
+}
+/// Presses on an article × allotment sheet; what is picked is kept per store (P.gs).
+function pclickG(c,t,e){
+  const G=c.group,xs=k=>k==="all"?G:G.filter(x=>x.store===k);
+  const sync=()=>{P.got={};G.forEach(x=>Object.entries(P.gs[x.store]||{}).forEach(([s,n])=>P.got[s]=(P.got[s]||0)+n))};
+  const setGs=(x,s,n)=>{P.gs[x.store]??={};if(n>0)P.gs[x.store][s]=Math.min(n,x.left[s]||0);else delete P.gs[x.store][s]};
+  const toggle=(list,skus)=>{const pairs=[];list.forEach(x=>skus.forEach(s=>{if(x.left[s])pairs.push([x,s])}));if(!pairs.length)return true;
+    const full=pairs.every(([x,s])=>gsOf(x,s)>=x.left[s]);psave();pairs.forEach(([x,s])=>setGs(x,s,full?0:x.left[s]));sync();render("fig");return true};
+  if(!t){const r=e.target.closest("[data-prow]");if(!r)return false;const s=r.dataset.prow,k=r.dataset.pst;
+    if(k==="tot"){psave();P.tot??={};P.tot[s]=(P.tot[s]||0)>=c.left[s]?0:c.left[s];if(!P.tot[s])delete P.tot[s];render("fig");return true}
+    return toggle(xs(k),[s])}
+  const d=t.dataset;
+  if(d.pcell){const [k,s]=d.pcell.split("|");return toggle(xs(k),[s])}
+  if(d.pcol)return toggle(xs(d.pcol),c.lines.map(l=>l[0]));
+  if(d.pst2){P.st=d.pst2;render();return true}
+  if(d.pall!==undefined){psave();
+    if(S.pc==="sort"&&(P.step||1)===1){P.tot={...c.left};render("fig");return true}
+    xs(S.pc==="tabs"?(P.st||"all"):"all").forEach(x=>Object.keys(x.left).forEach(s=>setGs(x,s,x.left[s])));sync();render("fig");return true}
+  if(d.pamt){P.pad={sku:d.pamt,v:"",store:d.pstore||null,tot:d.ptot!==undefined};render();return true}
+  if(d.pkey){const max=padMax(c);if(d.pkey==="⌫")P.pad.v=P.pad.v.slice(0,-1);else if(d.pkey==="max")P.pad.v=String(max);else if(P.pad.v.length<4)P.pad.v=String(Math.min(max,+(P.pad.v+d.pkey)));render();return true}
+  if(d.ppadgo!==undefined){psave();const p=P.pad;P.pad=null;const n=+p.v||0;
+    if(p.tot){P.tot??={};if(n)P.tot[p.sku]=n;else delete P.tot[p.sku]}
+    else if(p.store){setGs(G.find(x=>x.store===p.store),p.sku,n);sync()}
+    render("fig");return true}
+  if(d.pnext!==undefined){psave();P.gs={};Object.entries(P.tot||{}).forEach(([s,n])=>Object.entries(gSplit(G,s,n)).forEach(([k,m])=>{P.gs[k]??={};P.gs[k][s]=m}));sync();P.step=2;P.sorted=[];render("fig");return true}
+  if(d.pback1!==undefined){P.step=1;render();return true}
+  if(d.psort){P.sorted=(P.sorted||[]).includes(d.psort)?P.sorted.filter(x=>x!==d.psort):[...(P.sorted||[]),d.psort];render();return true}
+  return false;
+}
+const padMax=c=>P.pad.store?(c.group.find(x=>x.store===P.pad.store)?.left[P.pad.sku]||0):c.left[P.pad.sku];
+/// One A5: one article for one store of one allotment.
+function a5(c,i,n){
+  if(c.group){
+    const rows=c.lines.filter(l=>c.left[l[0]]),st=c.group;
+    return `<div class="a5"><div class="a5t"><b>Picklist</b><span class="num">${c.al}${n>1?` · ${i+1}/${n}`:""}</span></div>
+    <div class="a5a"><span class="ph">${ICO[ART[c.art].ico]}</span><div><b>${ART[c.art].name}</b><span class="num">${bare(ART[c.art].code)} · ${ART[c.art].div}</span></div></div>
+    <table class="pmx gx"><thead><tr><th>Colour · Size</th>${st.map(x=>`<th class="num">${code(x.store)}</th>`).join("")}<th>Total</th><th>Picked</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${r[2]} · ${r[3]}<div class="sku num">${bare(r[0])}</div></td>${st.map(x=>`<td class="num">${x.left[r[0]]||""}</td>`).join("")}<td><b>${c.left[r[0]]}</b></td><td></td></tr>`).join("")}</tbody><tfoot><tr><td>Total</td>${st.map(x=>`<td class="num">${sum(x.left)}</td>`).join("")}<td><b>${sum(c.left)}</b></td><td></td></tr></tfoot></table>
+    <div class="a5f"><span>From Main · 18 Oct 10:30</span><span>Picked by ______________</span></div></div>`;
+  }
+  const rows=c.lines.filter(l=>c.left[l[0]]),tot=sum(c.left);
+  return `<div class="a5"><div class="a5t"><b>Picklist</b><span class="num">${c.al}${n>1?` · ${i+1}/${n}`:""}</span></div>
+  <div class="a5s">${CAT[c.store].name}</div>
+  <div class="a5a"><span class="ph">${ICO[ART[c.art].ico]}</span><div><b>${ART[c.art].name}</b><span class="num">${bare(ART[c.art].code)} · ${ART[c.art].div}</span></div></div>
+  <table class="pmx"><thead><tr><th>Colour · Size</th><th>Qty</th><th>Picked</th><th>Short</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${r[2]} · ${r[3]}<div class="sku num">${bare(r[0])}</div></td><td><b>${c.left[r[0]]}</b></td><td></td><td></td></tr>`).join("")}</tbody><tfoot><tr><td>Total</td><td><b>${tot}</b></td><td></td><td></td></tr></tfoot></table>
+  <div class="a5f"><span>From Main · 18 Oct 10:30</span><span>Picked by ______________</span></div></div>`;
+}
+function printDlg(list,grid){
+  return `<div class="dlg" data-pclose><div class="dlgc ${grid?"wide":"one"}"><h3>${list.length===1?"Print picklist":`Print ${list.length} picklists`}</h3><div class="a5grid${grid?"":" single"}">${list.map((c,i)=>a5(c,i,list.length)).join("")}</div><div class="acts"><span class="muted">A5</span><div style="flex:1"></div><button class="link" data-pkeep>Close</button><button class="btn" data-pprintgo>Print${list.length>1?` ${list.length}`:""}</button></div></div></div>`;
+}
+function pOverlay(){
+  if(!P.card&&P.printAl)return printDlg(S.pu==="art"?[...new Set(PB.cards.filter(c=>c.al===P.printAl&&!c.cancelled).map(c=>c.art))].map(a=>gCard(P.printAl+"|"+a)):PB.cards.filter(c=>c.al===P.printAl),true);
+  if(!P.card)return "";
+  const c=card();
+  if(P.print)return printDlg([c],false);
+  if(P.pad){const q=c.group?padMax(c):c.left[P.pad.sku],v=P.pad.v===""?0:+P.pad.v,ok=v>=0&&v<=q&&P.pad.v!=="";
+    const kk=`1 2 3 4 5 6 7 8 9 · 0 ⌫`.split(" ").map(x=>x==="·"?`<button data-pkey="max">All</button>`:`<button data-pkey="${x}">${x}</button>`).join("");
+    return `<div class="pad" data-pclose><div class="padc"><div class="t"><b>${cShort(P.pad.sku)}</b><span class="muted">${P.pad.store?`Found for ${code(P.pad.store)}`:"Found"}</span></div><div class="big num">${P.pad.v||0}</div><div class="of num">of ${q}</div><div class="keys">${kk}</div><button class="btn" data-ppadgo ${ok?"":"disabled"}>${v} found</button></div></div>`}
+  if(P.dlg&&c.group){
+    const rows=[];c.lines.forEach(l=>c.group.forEach(x=>{const n=(x.left[l[0]]||0)-gsOf(x,l[0]);if(n>0)rows.push([x.store,l,n])}));
+    return `<div class="dlg" data-pclose><div class="dlgc"><h3 style="margin-bottom:2px">Cannot pick ${pcs(sum(c.left)-sum(P.got))}?</h3><div class="muted" style="margin-bottom:6px"><span class="num">${c.al}</span> · ${ART[c.art].name}</div>${rows.map(([k,l,n])=>`<div class="ln"><span><b class="num">${code(k)}</b> · ${l[2]} · ${l[3]}</span><b class="num">−${n}</b></div>`).join("")}
+    <div class="trip" style="margin-top:14px"><label for="pnote">Note</label><textarea id="pnote" rows="2">${P.note}</textarea></div>
+    <div class="acts"><div style="flex:1"></div><button class="link" data-pkeep>Keep</button><button class="btn red" data-pcgo>Cannot pick</button></div></div></div>`}
+  if(P.dlg){const rows=c.lines.filter(l=>(c.left[l[0]]||0)-(P.got[l[0]]||0)>0);
+    return `<div class="dlg" data-pclose><div class="dlgc"><h3 style="margin-bottom:2px">Cannot pick ${pcs(sum(c.left)-sum(P.got))}?</h3><div class="muted" style="margin-bottom:6px"><span class="num">${c.al}</span> · ${ART[c.art].name} · ${CAT[c.store].name}</div>${rows.map(l=>`<div class="ln"><span>${l[2]} · ${l[3]}</span><b class="num">−${c.left[l[0]]-(P.got[l[0]]||0)}</b></div>`).join("")}
+    <div class="trip" style="margin-top:14px"><label for="pnote">Note</label><textarea id="pnote" rows="2">${P.note}</textarea></div>
+    <div class="acts"><div style="flex:1"></div><button class="link" data-pkeep>Keep</button><button class="btn red" data-pcgo>Cannot pick</button></div></div></div>`}
+  return "";
+}
+/// Picked part to the store's Pack card; what is left stays on this article × allotment × store card.
+/// Under a size: each store's need; the found pieces fill them in order.
+function storeNeed(c,sku){
+  const sp=gSplit(c.group,sku,P.got[sku]||0);
+  return `<span class="stneed">${c.group.filter(x=>x.left[sku]).map(x=>{const need=x.left[sku],got=sp[x.store]||0;
+    return `<em class="${got>=need?"ok":got?"part":""}">${code(x.store)} <b class="num">${got&&got<need?`${got}/${need}`:need}</b></em>`}).join("")}</span>`;
+}
+function storeCols(c,sku){
+  const sp=gSplit(c.group,sku,P.got[sku]||0);
+  return c.group.map(x=>{const need=x.left[sku]||0,got=sp[x.store]||0;
+    return `<span class="pxc num ${!need?"none":got>=need?"ok":got?"part":""}">${!need?"–":got&&got<need?`${got}/${need}`:need}</span>`}).join("");
+}
+function finishPick(short){
+  const g=card();
+  if(g?.group){
+    const got=sum(P.got);P.snap={al:g.al,store:g.store,art:g.art};
+    g.group.forEach(x=>{const mine={...(P.gs?.[x.store]||{})};
+      if(sum(mine))toPack(x.store,mine,x.lines);
+      Object.entries(mine).forEach(([s,n])=>{x.left[s]-=n;if(x.left[s]<=0)delete x.left[s]});
+      x.back=null;if(short&&sum(x.left))x.short={note:P.note.trim(),at:"10:42"};
+      if(!sum(x.left))PB.cards=PB.cards.filter(y=>y!==x)});
+    P.done={got,short:sum(g.left)-got};return;
+  }
+  const c=card(),got=sum(P.got);P.snap={al:c.al,store:c.store,art:c.art};if(got)toPack(c.store,P.got,c.lines);
+  Object.entries(P.got).forEach(([s,n])=>{c.left[s]-=n;if(c.left[s]<=0)delete c.left[s]});
+  c.back=null;if(short&&sum(c.left))c.short={note:P.note.trim(),at:"10:42"};
+  P.done={got,short:sum(c.left)};
+  if(!sum(c.left))PB.cards=PB.cards.filter(x=>x!==c);
+}
+function pclick(t,e){
+  if(!P.card){
+    if(t?.dataset.pcard){openCard(t.dataset.pcard);render();return true}
+    if(t?.dataset.pgroup){openGroup(t.dataset.pgroup);render();return true}
+    if(t?.dataset.pprintal){P={card:null,printAl:t.dataset.pprintal};render();return true}
+    if(P.printAl&&(t?.dataset.pkeep!==undefined||(!t&&e.target.closest("[data-pclose]")===e.target))){P={card:null};render();return true}
+    if(P.printAl&&t?.dataset.pprintgo!==undefined){const n=S.pu==="art"?new Set(PB.cards.filter(c=>c.al===P.printAl).map(c=>c.art)).size:PB.cards.filter(c=>c.al===P.printAl).length,al=P.printAl;P={card:null};render();toast(`${n} A5 papers printing · ${al}`,false);return true}
+    if(t?.dataset.pcloseRem){psave();const c=PB.cards.find(x=>x.id===t.dataset.pcloseRem);PB.cards=PB.cards.filter(x=>x!==c);render();toast(`${c.al} · ${ART[c.art].name} · ${code(c.store)} closed short`,true);return true}
+    if(t?.id==="undo"){const s=phist.pop();if(s){const o=JSON.parse(s);PB=o.PB;P=o.P;render()}document.getElementById("toast").hidden=true;return true}
+    return false}
+  const c=card();
+  if(c?.group&&pclickG(c,t,e))return true;
+  if(!t){const r=e.target.closest("[data-prow]");if(r){const sku=r.dataset.prow;psave();P.got[sku]=(P.got[sku]||0)===c.left[sku]?0:c.left[sku];if(!P.got[sku])delete P.got[sku];render("fig");return true}
+    if(e.target.closest("[data-pclose]")===e.target){P.pad=null;P.dlg=false;P.print=null;render();return true}return false}
+  const d=t.dataset;
+  if(d.pfit!==undefined){psave();Object.keys(P.got).forEach(s=>{P.got[s]=Math.min(P.got[s],c.left[s]||0);if(!P.got[s])delete P.got[s]});render("fig");return true}
+  if(d.pxl!==undefined){psave();const n=sum(P.got);PB.cards=PB.cards.filter(x=>x.id!==c.id);P={card:null};render();if(n)toast(`${pcs(n)} back on the rack · ${c.al} cancelled`,true);return true}
+  if(d.pamt){P.pad={sku:d.pamt,v:String(Math.min(P.got[d.pamt]||c.left[d.pamt]||0,c.left[d.pamt]||0)),fresh:true};render();return true}
+  if(d.pkey){const max=c.left[P.pad.sku];if(P.pad.fresh&&d.pkey!=="max"){P.pad.v="";P.pad.fresh=false;if(d.pkey==="⌫"){render();return true}}
+    if(d.pkey==="⌫")P.pad.v=P.pad.v.slice(0,-1);else if(d.pkey==="max")P.pad.v=String(max);else if(P.pad.v.length<4)P.pad.v=String(Math.min(max,+(P.pad.v+d.pkey)));render();return true}
+  if(d.ppadgo!==undefined){psave();const p=P.pad;P.pad=null;if(+p.v)P.got[p.sku]=+p.v;else delete P.got[p.sku];render("fig");return true}
+  if(d.pall!==undefined){psave();c.lines.forEach(l=>{if(c.left[l[0]])P.got[l[0]]=c.left[l[0]]});render("fig");return true}
+  if(d.pcannot!==undefined){P.dlg=true;render();return true}
+  if(d.pkeep!==undefined){P.dlg=false;P.print=null;render();return true}
+  if(d.pprint!==undefined){P.print=true;render();return true}
+  if(d.pprintgo!==undefined){P.print=null;render();toast(`A5 picklist printing · ${ART[c.art].name} · ${c.group?c.al:code(c.store)}`,false);return true}
+  // Done: back to the board, the toast is the only answer (no done screen).
+  if(d.pcgo!==undefined){psave();P.dlg=false;finishPick(true);const n=P.done.short;P={card:null};render();toast(`${pcs(n)} short on ${c.al} · MD sees it`,true);return true}
+  if(d.psubmit!==undefined){psave();finishPick(false);const n=P.done.got;P={card:null};render();toast(`${pcs(n)} picked · on the Pack lane`,true);return true}
+  if(d.pshut!==undefined){P={card:null};render();return true}
+  if(t.id==="undo"){const s=phist.pop();if(s){const o=JSON.parse(s);PB=o.PB;P=o.P;render()}document.getElementById("toast").hidden=true;return true}
+  return false;
+}
+document.addEventListener("input",e=>{if(e.target.id==="pnote")P.note=e.target.value});
+
+
+/* ---------- full flow: Pick → Pack → Dispatch on one board ---------- */
+let F={open:null};
+function packW(store){return PB.packW[store]??=({left:{},packed:[],koli:[],active:0,code:2,view:"p"})}
+/// Picked pieces land on the store's Pack card (one per store, every allotment together).
+function toPack(store,got,lines){
+  const w=packW(store),pl=PB.plines[store]??=[];
+  Object.entries(got).forEach(([s,n])=>{if(!n)return;w.left[s]=(w.left[s]||0)+n;if(!pl.some(l=>l[0]===s)){const l=lines.find(l=>l[0]===s);pl.push([l[0],l[1],l[2],l[3],0])}});
+}
+const toPackPcs=k=>{const w=PB.packW[k];return w?sum(w.left)-w.koli.reduce((a,x)=>a+0,0):0};
+const oweLoose=k=>sum(PB.owe?.loose?.[k]||{});
+const oweKoli=code=>sum(PB.owe?.koli?.[code]||{});
+function packLane(){
+  return Object.keys(PB.packW).filter(k=>sum(PB.packW[k].left)).map(k=>{const w=PB.packW[k],n=sum(w.left),o=oweLoose(k);
+    const arts=[...new Set(Object.keys(w.left).map(s=>lineAny(s)[1]))];
+    // MD took pieces out of a picked pile: Put back first (all of it = stamped CANCELLED)
+    if(o)return sc({attr:`data-pputback="${k}"`,strip:o>=n?null:{label:`Cancelled −${o}`,tone:"bad"},title:CAT[k].name,pieces:o>=n?n:n-o,from:o>=n?undefined:n,sub:arts.map(a=>ART[a].name).join(", "),meta:`${pcs(o)} to put back`,step:{label:`Put back ${o}`,bad:true},stamp:o>=n?"Cancelled":null});
+    return sc({attr:`data-fpack="${k}"`,title:CAT[k].name,pieces:n,sub:arts.map(a=>ART[a].name).join(", "),meta:w.packed.length?`${w.packed.length} koli packed`:"No koli yet",step:{label:"Pack"}})}).join("");
+}
+/// One card per store, its koli as lines; the lane's one Dispatch button sends them (one trip, many stores).
+function dispatchLane(){
+  return Object.keys(PB.packW).filter(k=>PB.packW[k].packed.length).map(k=>{const w=PB.packW[k];
+    const owed=w.packed.reduce((a,x)=>a+oweKoli(x.code),0);
+    const tot=w.packed.reduce((a,x)=>a+sum(x.items),0),all=owed&&owed>=tot;
+    return sc({attr:owed?`data-pkputback="${k}"`:"",strip:owed&&!all?{label:`Cancelled −${owed}`,tone:"bad"}:null,stamp:all?"Cancelled":null,title:CAT[k].name,pieces:all||!owed?tot:tot-owed,from:owed&&!all?tot:undefined,lines:w.packed.map(x=>[`Koli ${x.no} · ${x.code}`,pcs(sum(x.items)),oweKoli(x.code),`data-bkoli="${k}|${x.code}"`]),meta:`${w.packed.length} koli`,step:owed?{label:`Put back ${owed}`,bad:true}:null})}).join("");
+}
+/// Trips on the road until the store receives them (receiving is the store's step, not a lane press).
+const lineSent=l=>{const o={};(l.list||[]).forEach(x=>Object.entries(x.items).forEach(([s,n])=>o[s]=(o[s]||0)+n));return o};
+const lineDiffs=l=>{const se=lineSent(l),rv=l.rcv||{};let short=0,extra=0;new Set([...Object.keys(se),...Object.keys(rv)]).forEach(k=>{const d=(rv[k]||0)-(se[k]||0);if(d<0)short-=d;else extra+=d});return {short,extra}};
+const lineDiff=l=>{if(!l.rcv)return 0;const {short,extra}=lineDiffs(l);return short+extra};
+const lineState=l=>{if(l.got===undefined)return ["In transit",""];const {short,extra}=lineDiffs(l);if(!short&&!extra)return ["Received","ok"];return [[short?`Short −${short}`:"",extra?`Extra +${extra}`:""].filter(Boolean).join(" · ")+" · MD reviews","warn"]};
+const minus=n=>n<0?"−"+(-n):n>0?"+"+n:"";
+let tOpen=new Set(),tShut=new Set();
+function roadLane(){
+  return PB.road.map((r,i)=>{const sh=(r.lines||[]).filter(l=>lineDiff(l)).length,wait=(r.lines||[]).filter(l=>l.got===undefined).length;
+    return sc({attr:`data-ftrip="${i}"`,strip:sh?{label:`${sh} ${sh===1?"store":"stores"} short · MD reviews`,tone:"warn"}:!wait?{label:"Received",tone:"ok"}:null,title:r.trip,pieces:r.pcs||0,lines:(r.lines||[]).map(l=>[l.name,lineState(l)[0]]),meta:`${r.koli} koli · left ${r.at||"10:45"}`,step:{label:"Open"}})}).join("");
+}
+/// A store's lines on a trip. Every SKU sent or received; a piece that was never this store's
+/// says so ("Meant for C009" when another store on the trip was sent it).
+function tripTable(r,l,li){
+  const sent=lineSent(l),got=l.got!==undefined,rv=l.rcv||{};
+  const skus=[...new Set([...Object.keys(sent),...Object.keys(rv)])];
+  const tag=k=>{if(sent[k])return"";const o=r.lines.find(x=>x!==l&&lineSent(x)[k]);return `<em class="ttag">${o?`Meant for ${o.name.split(" · ")[0]}`:"Not on this delivery"}</em>`};
+  const cells=(n,g)=>`<td class="num">${n}</td><td class="num">${got?g:"–"}</td><td class="num${got&&g-n?" bad":""}">${got?minus(g-n):""}</td>`;
+  const skuRow=(k,short)=>{const ln=lineAny(k)||line(k);return `<tr class="${short?"tsku":""}${got&&(rv[k]||0)!==(sent[k]||0)?" off":""}"><td><b>${short?`${ln[2]} · ${ln[3]}`:skuName(ln)}</b><span class="num">${bare(k)}</span>${tag(k)}</td>${cells(sent[k]||0,rv[k]||0)}</tr>`};
+  const hd=`<thead><tr><th>${S.td==="art"?"Article":"SKU"}</th><th>Sent</th><th>Received</th><th>Diff</th></tr></thead>`;
+  if(S.td!=="art")return `<table class="tdiff">${hd}<tbody>${skus.map(k=>skuRow(k,false)).join("")}</tbody></table>`;
+  const arts=[...new Set(skus.map(k=>(lineAny(k)||line(k))[1]))];
+  return `<table class="tdiff">${hd}<tbody>${arts.map(a=>{const ks=skus.filter(k=>(lineAny(k)||line(k))[1]===a),n=ks.reduce((x,k)=>x+(sent[k]||0),0),g=ks.reduce((x,k)=>x+(rv[k]||0),0),diff=got&&ks.some(k=>(rv[k]||0)!==(sent[k]||0));
+    const key=`${F.open.i}.${li}|${a}`,open=tOpen.has(key)||(diff&&!tShut.has(key));
+    return `<tr class="tart${diff?" diff":""}${open?" open":""}" data-tart="${key}" data-tdiff="${diff?1:0}"><td><b>${ART[a].name}</b><span class="num">${ks.length} ${ks.length===1?"SKU":"SKUs"}</span></td>${cells(n,g)}</tr>`+(open?ks.map(k=>skuRow(k,true)).join(""):"")}).join("")}</tbody></table>`;
+}
+/// One dispatch, read back per store the way MD reviews a delivery: Sent · Received · Difference.
+function vTrip(){
+  const r=PB.road[F.open.i];
+  const head=`<div class="head"><div><div class="crumb">Surat jalan · <span class="num">${r.trip}</span></div><h2>Trip ${r.trip}</h2></div><div style="flex:1"></div><button class="x" aria-label="Close">${svgX}</button></div>`;
+  let b=`<div class="muted num" style="margin-bottom:6px">Left ${r.at||"10:45"} · ${(r.lines||[]).length} ${(r.lines||[]).length===1?"store":"stores"} · ${r.koli} koli · ${pcs(r.pcs||0)}</div>`;
+  (r.lines||[]).forEach((l,li)=>{const sent=lineSent(l),got=l.got!==undefined,rv=l.rcv||{},[st,tone]=lineState(l),d=lineDiff(l);
+    b+=`<section class="tstore"><div class="tsh"><b>${l.name}</b><span class="pill ${tone}">${st}</span></div>
+    <div class="kpis"><div class="kpi"><div class="l">Sent</div><div class="v num">${sum(sent)}</div></div><div class="kpi"><div class="l">Received</div><div class="v num">${got?sum(rv):"–"}</div></div><div class="kpi"><div class="l">Difference</div><div class="v num${d?" bad":""}">${got?([lineDiffs(l).short?`−${lineDiffs(l).short}`:"",lineDiffs(l).extra?`+${lineDiffs(l).extra}`:""].filter(Boolean).join(" ")||"0"):"–"}</div></div><div class="kpi"><div class="l">Koli</div><div class="v num">${l.koli}</div></div></div>
+    <div class="kchips">${(l.list||[]).map((x,ki)=>`<button class="kchip" data-rk="${F.open.i}.${li}.${ki}">${svgBox}Koli ${x.no} · <span class="num">${x.code}</span></button>`).join("")}</div>
+    ${tripTable(r,l,li)}</section>`});
+  return [head,b,`<button class="toprint" data-tprint>${svgPrinter}Print surat jalan</button><div class="grow"></div><button class="btn main x">Close</button>`];
+}
+
+function syncDispatch(){
+  Object.keys(D.dock).forEach(k=>{const w=packW(k),held=w.packed.filter(x=>oweKoli(x.code));w.packed=[...held,...D.dock[k].map(x=>({no:x.no,code:x.code,at:x.at,items:{...x.items}}))]});
+}
+function flowDispatch(){
+  // A koli MD took pieces out of cannot go until they are put back.
+  const dock={};Object.entries(PB.packW).forEach(([k,w])=>{const free=w.packed.filter(x=>!oweKoli(x.code));if(free.length)dock[k]=free.map(x=>({...x,at:x.at||"10:30",items:{...x.items}}))});
+  D={dock,trips:[],active:null,view:"p",back:[],open:null,done:null,tseq:12+PB.road.length,store:"all",ask:null,adding:null,bsel:null};dhist=[];F.open={kind:"dispatch"};
+}
+/// A koli sent back from Dispatch returns as Pick cards per article × allotment.
+function backFromDispatch(x){
+  Object.entries(x.items).forEach(([s,n])=>{const l=lineAny(s),pl=PLISTS.find(p=>p.store===x.store&&p.lines.some(q=>q[0]===s));const id=`${pl.id}-${l[1]}-back`;let c=PB.cards.find(c=>c.id===id);
+    if(!c){c={id,al:pl.al,store:x.store,art:l[1],lines:pl.lines.filter(q=>q[1]===l[1]),left:{},short:null,back:`Koli ${x.no} · ${x.code}`,backFrom:"Back from Dispatch"};PB.cards.unshift(c)}c.left[s]=(c.left[s]||0)+n});
+}
+/// Pieces put back at Pack return as Pick cards per article × allotment, marked Back from Pack.
+function backToPickFromPack(store,back){
+  Object.entries(back).forEach(([s,n])=>{const l=lineAny(s),pl=PLISTS.find(p=>p.store===store&&p.lines.some(q=>q[0]===s));const id=`${pl.id}-${l[1]}-packback`;let c=PB.cards.find(c=>c.id===id);
+    if(!c){c={id,al:pl.al,store,art:l[1],lines:pl.lines.filter(q=>q[1]===l[1]),left:{},short:null,back:"Put back at Pack",backFrom:"Back from Pack"};PB.cards.unshift(c)}c.left[s]=(c.left[s]||0)+n});
+}
+const svgTruck=`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M2 6h12v10H2zM14 9h4l4 4v3h-8z"/><circle cx="6" cy="17.5" r="1.8" fill="#fff"/><circle cx="17" cy="17.5" r="1.8" fill="#fff"/></svg>`;
+/// Trips by day and what each store received (live: the Dispatched sheet), behind In transit's green Received button.
+function vRoad(){
+  const head=`<div class="head"><div><div class="crumb">In transit</div><h2>Received</h2></div><div style="flex:1"></div><button class="x" aria-label="Close">${svgX}</button></div>`;
+  const st=(l)=>l.got===undefined?`<span class="rs road">In transit</span>`:l.got<l.koli?`<span class="rs short">${l.got} of ${l.koli} koli</span>`:`<span class="rs ok">Received</span>`;
+  const b=PB.road.length?`<div class="sec" style="margin-top:0">Today</div>`+PB.road.map((r,ri)=>`<div class="rtrip"><div class="rth"><b class="num">${r.trip}</b><span class="muted num">${pcs(r.pcs||0)} · left ${r.at||"10:45"}</span></div>${(r.lines||[]).map((l,li)=>`<div class="rln"><span>${l.name}</span><span class="muted num">${l.koli} koli</span>${st(l)}</div>`+(l.list||[]).map((x,ki)=>`<div class="rk"><button class="kph sm" data-rk="${ri}.${li}.${ki}" aria-label="What is inside Koli ${x.no}">${svgBox}</button><button class="kname" data-rk="${ri}.${li}.${ki}">Koli ${x.no} · <span class="num">${x.code}</span></button><span class="muted num">${pcs(sum(x.items))}</span></div>`).join("")).join("")}</div>`).join(""):`<div class="empty">No trips today</div>`;
+  return [head,b,""];
+}
+/// What MD does from the allotment screens, as the Gudang sees it on the board.
+/// Edit = move only, and only what is still to pick (18 Oct). Cancel = everything not sent.
+function mdDoes(what){
+  if(what==="edit"){
+    const from=PB.cards.find(c=>c.id==="14-c009-2562"&&!c.cancelled&&(c.left["5101"]||0)>=4);
+    if(!from)return toast("Nothing left to move · C009 2562 already picked",false);
+    psave();const n=4;let to=PB.cards.find(c=>c.id==="14-c005-2562"&&!c.cancelled);
+    if(!to){const pl=PLISTS.find(p=>p.id==="14-c005");to={id:"14-c005-2562",al:pl.al,store:"c005",art:"2562",lines:pl.lines.filter(l=>l[1]==="2562"),left:{},short:null,back:null};PB.cards.push(to)}
+    const fw=from.left["5101"],tw=to.left["5101"]||0;
+    from.left["5101"]-=n;if(!from.left["5101"])delete from.left["5101"];to.left["5101"]=tw+n;
+    from.edit={was:sum(from.left)+n,now:sum(from.left),lines:[["5101",fw,fw-n]]};to.edit={was:sum(to.left)-n,now:sum(to.left),lines:[["5101",tw,tw+n]]};
+    if(!sum(from.left))PB.cards=PB.cards.filter(c=>c!==from);
+    render();return toast("AL-2610-014 edited by MD · 4 pcs moved C009 → C005",false);
+  }
+  if(what==="cancel"){
+    psave();const al="AL-2610-015",skus=new Set(PLISTS.filter(p=>p.al===al).flatMap(p=>p.lines.map(l=>l[0])));
+    PB.cards.filter(c=>c.al===al).forEach(c=>c.cancelled=true);
+    PB.owe=PB.owe||{loose:{},koli:{}};
+    Object.entries(PB.packW).forEach(([k,w])=>{
+      Object.entries(w.left).forEach(([sku,n])=>{if(!skus.has(sku))return;const inK=0;(PB.owe.loose[k]??={})[sku]=n});
+      w.packed.forEach(x=>Object.entries(x.items).forEach(([sku,n])=>{if(skus.has(sku))(PB.owe.koli[x.code]??={})[sku]=n}));
+    });
+    render();return toast(`${al} cancelled by MD · put back what was picked`,false);
+  }
+  if(what==="recv"||what==="recvshort"||what==="recvwrong"){
+    const r=[...PB.road].reverse().find(r=>!r.received);if(!r)return toast("Nothing on the road · dispatch a trip first",false);
+    psave();const l=r.lines.find(l=>l.got===undefined);l.got=l.koli;
+    const sent={};(l.list||[]).forEach(x=>Object.entries(x.items).forEach(([s,n])=>sent[s]=(sent[s]||0)+n));
+    l.rcv={...sent};if(what==="recvshort"){const s0=Object.keys(sent).pop();l.rcv[s0]=Math.max(0,sent[s0]-2)}
+    // a piece that was never this store's: the other store's on this trip if there is one, else off the delivery
+    if(what==="recvwrong"){const other=r.lines.filter(x=>x!==l).flatMap(x=>Object.keys(lineSent(x))).find(k=>!sent[k])||["4104","4105","3003"].find(k=>!sent[k]);l.rcv[other]=(l.rcv[other]||0)+1}
+    if(r.lines.every(x=>x.got!==undefined))r.received=true;
+    render();const [st]=lineState(l);return toast(`${l.name} · ${st} · ${r.trip}`,false);
+  }
+  const sh=PB.cards.find(c=>c.short);
+  if(!sh)return toast("No short pick on the board · use Cannot pick first",false);
+  psave();
+  if(what==="cont"){sh.cont=sh.short.note||"Stock found";sh.short=null;render();return toast(`MD: continue picking · ${ART[sh.art].name} · ${code(sh.store)}`,false)}
+  PB.cards=PB.cards.filter(c=>c!==sh);render();return toast(`${sh.al} · ${ART[sh.art].name} · ${code(sh.store)} closed short by MD`,false);
+}
+/// Board clicks and the hand-offs between the three sheets.
+function fclick(t,e){
+  const d=t?.dataset||{};
+  if(F.open?.kind==="pack"){
+    if(t?.classList.contains("x")){F.open=null;render();return true}
+    if(d.dispatch!==undefined){flowDispatch(S.store);render();return true}
+    return false}
+  if(F.open?.kind==="road"){if(t?.classList.contains("x")){F.open=null;render();return true}return kinfoClick(t,e)}
+  if(F.open?.kind==="trip"){if(t?.classList.contains("x")){F.open=null;render();return true}if(t?.dataset.tprint!==undefined){toast(`Surat jalan printing · ${PB.road[F.open.i].trip}`,false);return true}
+    {const a=e.target.closest("[data-tart]");if(a){const k=a.dataset.tart,open=a.classList.contains("open");if(open){tOpen.delete(k);tShut.add(k)}else{tShut.delete(k);tOpen.add(k)}render();return true}}
+    return kinfoClick(t,e)}
+  if(F.open?.kind==="dispatch"){
+    if(t?.classList.contains("x")||d.dreset!==undefined){F.open=null;render();return true}
+    if(dclick(t,e)){syncDispatch();render();return true}
+    return false}
+  if(P.card)return false;
+  if((kinfo||prt||ipv)&&kinfoClick(t,e))return true;
+  {const bk=e.target.closest("[data-bkoli]");if(bk){const [k,c]=bk.dataset.bkoli.split("|"),x=packW(k).packed.find(y=>y.code===c);if(x){kinfo={...x,store:k};render()}return true}}
+  if(d.pok){psave();const c=PB.cards.find(x=>x.id===d.pok);PB.cards=PB.cards.filter(x=>x!==c);render();toast(`${ART[c.art].name} · ${code(c.store)} removed · cancelled by MD`,true);return true}
+  if(d.pputback){psave();const k=d.pputback,w=packW(k),o=PB.owe.loose[k];let n=0;
+    Object.entries(o).forEach(([sku,q])=>{w.left[sku]-=q;n+=q;if(w.left[sku]<=0)delete w.left[sku];w.koli.forEach(x=>{if(x.items[sku]){x.items[sku]=Math.max(0,x.items[sku]-q);if(!x.items[sku])delete x.items[sku]}})});
+    delete PB.owe.loose[k];render();toast(`${pcs(n)} put back · back in stock`,true);return true}
+  if(d.pkputback){psave();const w=packW(d.pkputback);let n=0,opened=[];
+    w.packed.forEach(x=>{const o=PB.owe.koli[x.code];if(!o)return;Object.entries(o).forEach(([sku,q])=>{x.items[sku]-=q;n+=q;if(x.items[sku]<=0)delete x.items[sku]});opened.push(x.code);delete PB.owe.koli[x.code]});
+    w.packed=w.packed.filter(x=>sum(x.items));render();toast(`${opened.length} koli opened · ${pcs(n)} back in stock · labels reprinted`,true);return true}
+  if(d.fpack){S.store=d.fpack;W=packW(d.fpack);openPk=null;pad=null;hist=[];W.view="p";F.open={kind:"pack"};render();return true}
+  if(d.froad!==undefined){F.open={kind:"road"};render();return true}
+  if(d.ftrip!==undefined){F.open={kind:"trip",i:+d.ftrip};render();return true}
+  if(d.fdispatch!==undefined){if(!Object.values(PB.packW).some(w=>w.packed.some(x=>!oweKoli(x.code))))return toast("Put back what MD took out before a koli can go",false),true;flowDispatch();render();return true}
+  return false;
+}
+
+/* ---------- render ---------- */
+function render(bumpId){
+  const f=document.getElementById("frame");f.classList.toggle("phone",S.dev==="phone");f.classList.toggle("tablet",S.dev==="tablet");f.dataset.rg=S.rg;
+  let h,b,ft;
+  if(S.sheet==="dispatch")[h,b,ft]=vDispatch();
+  else if(S.sheet==="pick"&&P.card)[h,b,ft]=vPick();
+  else if(S.sheet==="pick"&&F.open?.kind==="pack"){PB.packW[S.store]=W;[h,b,ft]=vE()}
+  else if(S.sheet==="pick"&&F.open?.kind==="dispatch")[h,b,ft]=vDispatch();
+  else if(S.sheet==="pick"&&F.open?.kind==="road")[h,b,ft]=vRoad();
+  else if(S.sheet==="pick"&&F.open?.kind==="trip")[h,b,ft]=vTrip();
+  else if(S.sheet==="pick")[h,b,ft]=["","",""];
+  else if(!isE()&&totalLeft()===0)[h,b,ft]=[head(),packedStrip()+doneBody(),`<div class="grow"></div><button class="btn main" data-dispatch>Dispatch ${W.packed.length} koli</button>`];
+  else [h,b,ft]=({g:vE,h:vE,i:vE,f:vE,e:vE,now:vNow,a:vA,b:vB,c:vC,d:vD})[S.opt]();
+  const scroll=document.querySelector(".body")?.scrollTop||0;
+  document.getElementById("sheet").classList.toggle("wide",S.sheet==="dispatch"||(S.sheet==="pick"&&F.open?.kind==="dispatch"));
+  document.getElementById("sheet").innerHTML=h+`<div class="body">${b}</div><div class="foot">${ft}</div>`+(S.sheet==="pick"?(F.open?.kind==="pack"?layerHtml()+popHtml()+padHtml()+backDlg()+plDlg()+ipvDlg():F.open?.kind==="dispatch"?dOverlay():F.open?.kind==="road"||F.open?.kind==="trip"?kinfoDlg():F.open?"":pOverlay()+kinfoDlg()):S.sheet==="pack"?layerHtml()+popHtml()+padHtml()+backDlg()+plDlg()+ipvDlg():S.sheet==="dispatch"?dOverlay():"");
+  document.querySelector(".body").scrollTop=scroll;
+  const onBoard=S.sheet==="pick";f.classList.toggle("live",onBoard);f.classList.toggle("closed",onBoard&&!P.card&&!P.printAl&&!F.open&&!kinfo&&!prt&&!ipv);f.classList.toggle("bdlg",onBoard&&!P.card&&!F.open&&!!(P.printAl||kinfo||prt||ipv));
+  const g=f.querySelector(".ghost");if(onBoard){g.innerHTML=board()}else if(g.dataset.ghost!=="1"){g.innerHTML=`<div class="lane"><i></i></div><div class="lane"><i></i><i></i></div><div class="lane"><i></i></div>`}g.dataset.ghost=onBoard?"0":"1";
+  if(bumpId)[bumpId,"fig"].forEach(id=>{const e=document.getElementById(id);if(e){e.classList.remove("bump");void e.offsetWidth;e.classList.add("bump")}});
+  unstack=null;
+  placePop();
+  drawBar();
+}
+const seg=(id,list,key)=>document.getElementById(id).innerHTML=list.map(([v,l])=>`<button data-${key}="${v}" aria-pressed="${S[key]===v}">${l}</button>`).join("");
+function drawBar(){seg("sheetSeg",SHEETS,"sheet");["optGrp","startGrp"].forEach(id=>document.getElementById(id).style.display=S.sheet==="pack"?"":"none");document.getElementById("storeGrp").style.display=S.sheet==="pack"?"":"none";document.getElementById("pickGrp").style.display=S.sheet==="pick"?"":"none";seg("pstart",PSTARTS,"pstart");seg("tdSeg",[["art","By article ★"],["sku","By SKU"]],"td");document.getElementById("tdGrp").style.display=S.sheet==="pick"?"":"none";seg("puSeg",[["art","Article × allotment ★"],["store","× store"]],"pu");seg("pnSeg",[["tabs","Tabs + cells ★"],["cells","Cells"],["nest","Nested"],["sort","Sort after"]],"pc");document.getElementById("pnGrp").style.display="none";document.getElementById("puGrp").style.display="none";seg("dlSeg",[["off","Off"],["on","On"]],"pics");document.getElementById("dlGrp").style.display="none";document.getElementById("mdGrp").style.display=S.sheet==="pick"?"":"none";seg("opt",OPTS,"opt");seg("askSeg",[["dlg","Dialog ★"],["pop","Popup"]],"ask");seg("rgSeg",[["single","Single ★"],["stack","By article"]],"rg");document.getElementById("rgGrp").style.display=S.sheet!=="pick"||F.open?"":"";document.getElementById("askGrp").style.display=S.sheet==="pack"&&S.opt==="h"?"":"none";seg("start",STARTS,"start");seg("store",STORES,"store");seg("dev",DEVS,"dev");
+  const u=new URL(location);Object.entries(S).forEach(([k,v])=>u.searchParams.set(k,v));window.history.replaceState(null,"",u)}
+function toast(t,undo){
+  // Hub format: title = what happened, description = the facts joined by " · ".
+  const el=document.getElementById("toast"),i=t.indexOf(" · ");
+  document.getElementById("toastTitle").textContent=i<0?t:t.slice(0,i);document.getElementById("toastText").textContent=i<0?"":t.slice(i+3);
+  document.getElementById("undo").style.display=undo?"":"none";el.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>el.hidden=true,4000);
+}
+function fly(rect,dst,text){
+  if(!rect||!dst||matchMedia("(prefers-reduced-motion:reduce)").matches)return;
+  const z=dst.getBoundingClientRect(),el=document.createElement("div");el.className="fly num";el.textContent=text;document.body.appendChild(el);
+  el.animate([{transform:`translate(${rect.right-70}px,${rect.top+rect.height/2-14}px)`,opacity:1},{transform:`translate(${z.left+z.width/2-20}px,${z.top+z.height/2-14}px) scale(.85)`,opacity:.25}],{duration:320,easing:"cubic-bezier(.77,0,.175,1)"}).onfinish=()=>el.remove();
+}
+
+/// E: put n pieces of a row into the active koli; the first put opens Koli 1 by itself.
+function put(sku,n,srcRect){
+  n=Math.min(n,free(sku));if(n<=0)return;
+  save();
+  if(!W.koli[W.active]){W.koli.push({no:nextNo(),items:{}});W.active=W.koli.length-1;fx.born=W.koli[W.active].no}
+  const k=W.koli[W.active];k.items[sku]=(k.items[sku]||0)+n;
+  fx.hit=k.no;fx.chip=sku;openPk=null;
+  if(adding!==null){}else if(S.opt==="i")W.view=k.no;else if(S.opt!=="g")W.view=S.opt==="h"&&onTable()===0?k.no:"p";
+  render("fig");
+  fly(srcRect,document.getElementById("kt"+k.no),"+"+n);
+}
+function putMany(skus,src){
+  const rect=src?.getBoundingClientRect();
+  const list=skus.filter(s=>free(s)>0);if(!list.length)return;
+  save();
+  if(!W.koli[W.active]){W.koli.push({no:nextNo(),items:{}});W.active=W.koli.length-1;fx.born=W.koli[W.active].no}
+  const k=W.koli[W.active];let n=0;
+  list.forEach(s=>{const f=free(s);k.items[s]=(k.items[s]||0)+f;n+=f});
+  fx.hit=k.no;openPk=null;if(S.opt==="i"||(S.opt==="h"&&adding===null&&onTable()===0))W.view=k.no;render("fig");
+  if(isE())fly(rect,document.getElementById("kt"+k.no),"+"+n);
+}
+/// Submit: every open koli packed and sealed (labels print), every put-back off to Pick.
+function submitAll(){
+  save();
+  const sealed=[],back={...(W.back||{})},bk=sum(back);
+  W.koli.filter(k=>sum(k.items)).forEach(k=>{
+    Object.entries(k.items).forEach(([s,c])=>{W.left[s]-=c;if(W.left[s]<=0)delete W.left[s]});
+    W.packed.push({no:k.no,code:S.sheet==="pick"?"A"+String(PB.code++).padStart(5,"0"):"A0000"+W.code++,at:"10:"+String(30+(S.sheet==="pick"?PB.code:W.code)%30).padStart(2,"0"),items:{...k.items}});sealed.push(k.no)});
+  Object.entries(back).forEach(([s,c])=>{W.left[s]-=c;if(W.left[s]<=0)delete W.left[s]});
+  W.koli=[];W.active=0;W.back={};
+  if(bk&&S.sheet==="pick")backToPickFromPack(S.store,back);
+  // Submitted: back to the board in the full flow (the koli wait on the Dispatch lane), else back on Picked.
+  W.view="p";if(S.sheet==="pick")F.open=null;
+  render("fig");
+  toast([sealed.length?`${sealed.length} koli sealed · ${sealed.length===1?"packing list":"packing lists"} printing`:"",bk?`${pcs(bk)} back to Pick`:""].filter(Boolean).join(" · "),true);
+}
+function pack(no){
+  if(no)W.active=W.koli.findIndex(x=>x.no==no);
+  const k=W.koli[W.active];const n=sum(k.items);if(!n)return;
+  save();
+  Object.entries(k.items).forEach(([s,c])=>{W.left[s]-=c;if(W.left[s]<=0)delete W.left[s]});
+  W.packed.push({no:k.no,code:S.sheet==="pick"?"A"+String(PB.code++).padStart(5,"0"):"A0000"+W.code++,at:"10:"+String(30+PB.code%30).padStart(2,"0"),items:{...k.items}});
+  W.koli.splice(W.active,1);W.active=Math.max(0,W.koli.length-1);
+  if(!isE()&&totalLeft()>0&&!W.koli.length){
+    const rest={};live().forEach(l=>{if(free(l[0])>0)rest[l[0]]=free(l[0])});
+    W.koli=[{no:nextNo(),items:(S.opt==="now"||S.opt==="c")?rest:{}}];W.active=0;
+  }
+  fx.seal=k.no;if(isE())W.view=k.no;render("fig");
+  toast(`Koli ${k.no} packed · ${pcs(n)} · label printing`,true);
+}
+
+document.addEventListener("click",e=>{
+  const t=e.target.closest("button");
+  if(t?.dataset.sheet){S.sheet=t.dataset.sheet;if(S.sheet==="dispatch")freshD(false);if(S.sheet==="pick")freshP();return render()}
+  if(t?.dataset.md&&S.sheet==="pick"){mdDoes(t.dataset.md);return}
+  if(t?.dataset.pics){S.pics=t.dataset.pics;return render()}
+  if(t?.dataset.pstart){S.pstart=t.dataset.pstart;freshP();return render()}
+  if(t?.dataset.rg){S.rg=t.dataset.rg;return render()}
+  if(t?.dataset.pn){S.pn=t.dataset.pn;return render()}
+  if(t?.dataset.pc){S.pc=t.dataset.pc;if(P.card&&String(P.card).startsWith("G:"))Object.assign(P,{gs:{},got:{},st:"all",step:1,tot:{},sorted:[]});return render()}
+  if(t?.dataset.lane){S.lane=t.dataset.lane;return render()}
+  if(t?.dataset.td){S.td=t.dataset.td;return render()}
+  if(t?.dataset.pu){S.pu=t.dataset.pu;P={card:null};return render()}
+
+  if(S.sheet==="pick"&&t?.id==="reset"){freshP();return render()}
+  if(S.sheet==="pick"&&!e.target.closest(".bar")&&fclick(t,e))return;
+  if(S.sheet==="pick"&&!F.open&&!e.target.closest(".bar")&&pclick(t,e))return;
+  if(S.sheet==="dispatch"&&!e.target.closest(".bar")&&dclick(t,e))return;
+  if(!e.target.closest(".bar")&&(ipvClick(t,e)||prtClick(t,e)))return;
+  if(S.sheet==="dispatch"&&t?.id==="reset"){freshD(false);return render()}
+  // E: a row is the press — the whole row goes in
+  if(!t){if(e.target.closest("input"))return;
+    if(pp&&!e.target.closest("#pop")){pp=null;render();return}
+    if(e.target.closest(".lscrim"))return closeLayer();
+    {const ah=e.target.closest("[data-art]");if(ah){const k=ah.dataset.art;if(openArt.has(k))openArt.delete(k);else{openArt.add(k);unstack=k}render();return}}
+    const r=e.target.closest(".put");if(r){const s=r.dataset.put;
+      if(S.opt==="h")return;
+      put(s,free(s),r.getBoundingClientRect())}
+    const c=e.target.closest(".cnt");if(c)c.querySelector(".plusbig:not([disabled])")?.click();
+    if(e.target.closest("[data-padclose]")===e.target){if(pad)pad=null;else if(pp)pp=null;else if(plist!==null)plist=null;else{bdlg=null;adding=null}render()}return}
+  const d=t.dataset;
+  if(pp&&!t.closest("#pop")&&d.ask===undefined&&d.go===undefined&&d.askall===undefined&&!(d.out&&S.opt==="h")){pp=null;render()}
+  if(d.go&&S.ask==="dlg"){const s=d.go,k=known();if(k===null){pp={for:s,step:1,whole:false};return render()}return toQty(s,k,false)}
+  if(d.out&&S.opt==="h"&&S.ask==="dlg"){const k=W.koli.find(k=>k.no==W.view);if(S.dev!=="desk"){pad={sku:d.out,v:String(k.items[d.out]),fresh:true,mode:"out"};return render()}pp={for:d.out,mode:"out",step:2,v:String(k.items[d.out])};return render()}
+  if(d.dk!==undefined){const k=d.dk==="new"?"new":+d.dk;
+    if(pp.whole){
+      if(k==="new"){W.koli.push({no:nextNo(),items:{}});W.active=W.koli.length-1;fx.born=W.koli[W.active].no}else W.active=k;
+      const f=pp.for;pp=null;
+      if(f==="all")return putMany(live().map(l=>l[0]),document.querySelector("[data-askall]"));
+      if(f.startsWith("art:"))return putMany(live().filter(l=>l[1]===f.slice(4)&&free(l[0])>0).map(l=>l[0]),document.querySelector(`[data-goart="${f.slice(4)}"]`));
+      return put(f,free(f),document.querySelector(`[data-put="${f}"]`)?.getBoundingClientRect())}
+    return toQty(pp.for,k,true)}
+  if(d.dback!==undefined){if(pp.from1){pp.step=1;pp.dir="back"}else pp=null;return render()}
+  if(d.dcancel!==undefined){pp=null;return render()}
+  if(d.dgo!==undefined){
+    const f=pp.for,n=Math.max(0,+String(pp.v).replace(/\D/g,"")||0);
+    if(pp.mode==="out"){const k=W.koli.find(x=>x.no==W.view);const m=Math.min(n,k.items[f]||0);pp=null;if(!m)return render();save();k.items[f]-=m;if(k.items[f]<=0)delete k.items[f];return render()}
+    if(f!=="all"&&!(n>0&&n<=free(f)))return;
+    if(pp.k==="new"){W.koli.push({no:nextNo(),items:{}});W.active=W.koli.length-1;fx.born=W.koli[W.active].no}else W.active=pp.k;
+    pp=null;
+    if(f==="all")return putMany(live().map(l=>l[0]),document.querySelector("[data-askall]"));
+    const m=Math.min(n,free(f));if(!m)return render();
+    return put(f,m,document.querySelector(`[data-put="${f}"]`)?.getBoundingClientRect())}
+  if(d.ask){S.ask=d.ask;pp=null;return render()}
+  if(d.go){const s=d.go;if(S.dev!=="desk"){pp=null;if(adding!==null)W.active=W.koli.findIndex(k=>k.no===adding);pad={sku:s,v:String(free(s)),fresh:true};return render()}
+    pp=pp&&pp.for===s?null:{for:s,amt:true,v:String(free(s))};return render()}
+  if(d.out&&S.opt==="h"){const k=W.koli.find(k=>k.no==W.view);if(S.dev!=="desk"){pad={sku:d.out,v:"",mode:"out"};return render()}
+    pp=pp&&pp.for===d.out?null:{for:d.out,mode:"out",amt:true,v:String(k.items[d.out])};return render()}
+  if(d.popk!==undefined||d.popgo!==undefined){
+    const f=pp.for,n=pp.amt?+(document.getElementById("popv")?.value||"").replace(/\D/g,"")||0:null;
+    if(pp.mode==="out"){const k=W.koli.find(x=>x.no==W.view);const m=Math.min(n,k.items[f]||0);pp=null;if(!m)return render();save();k.items[f]-=m;if(k.items[f]<=0)delete k.items[f];return render()}
+    if(d.popk!==undefined)W.active=+d.popk;else if(adding!==null)W.active=W.koli.findIndex(k=>k.no===adding);else if(W.koli.length===1)W.active=0;
+    pp=null;
+    if(f==="all")return putMany(live().map(l=>l[0]),document.querySelector("[data-askall]"));
+    const m=Math.min(n??free(f),free(f));if(!m)return render();
+    return put(f,m,document.querySelector(`[data-put="${f}"]`)?.getBoundingClientRect())}
+  if(d.sealone){return sealOne(+d.sealone)}
+  if(d.plist){prt={k:W.packed.find(x=>x.no==d.plist),store:S.store};return render()}
+  if(d.plclose!==undefined){plist=null;return render()}
+  if(d.plprint!==undefined){plist=null;render();return toast("Packing list printing",false)}
+  if(d.addto){adding=+d.addto;pp=null;layerIn=true;render();layerIn=false;return}
+  if(d.adddone!==undefined){return closeLayer()}
+  if(d.view){ask=null;typedOut={};pp=null;adding=null;plist=null;W.view=d.view==="p"||d.view==="b"?d.view:+d.view;const i=W.koli.findIndex(k=>k.no==W.view);if(i>=0)W.active=i;pad=null;return render()}
+  if(d.padback!==undefined){save();W.back=W.back||{};W.back[pad.sku]=(W.back[pad.sku]||0)+(+pad.v);pad=null;W.view="b";fx.hit="b";return render("fig")}
+  if(d.bout){save();delete W.back[d.bout];if(!sum(W.back))W.view="p";return render()}
+  if(d.submitall!==undefined)return submitAll();
+  if(d.amtout){pad={sku:d.amtout,v:"",mode:"out"};return render()}
+  if(d.out){const k=W.koli.find(k=>k.no==W.view);save();const n=Math.min(k.items[d.out],typedOut[d.out]??k.items[d.out]);delete typedOut[d.out];k.items[d.out]-=n;if(k.items[d.out]<=0)delete k.items[d.out];return render()}
+  if(d.reprint!==undefined)return toast("Label printing",false);
+  if(d.opt){S.opt=d.opt;fresh();return render()}
+  if(d.start){S.start=d.start;fresh();return render()}
+  if(d.store){S.store=d.store;fresh();return render()}
+  if(d.dev){S.dev=d.dev;return render()}
+  if(t.id==="reset"){fresh();return render()}
+  if(t.id==="undo"){const s=hist.pop();if(s){W=JSON.parse(s);render("fig")}document.getElementById("toast").hidden=true;return}
+  if(d.amt){pad={sku:d.amt,v:""};return render()}
+  if(d.key){const max=pad.mode==="out"?(W.koli.find(k=>k.no==W.view)?.items[pad.sku]||0):free(pad.sku);if(pad.fresh&&d.key!=="max"){pad.v="";pad.fresh=false;if(d.key==="⌫")return render()}if(d.key==="⌫")pad.v=pad.v.slice(0,-1);else if(d.key==="max")pad.v=String(max);else if(pad.v.length<4)pad.v=String(Math.min(max,+(pad.v+d.key)));return render()}
+  if(d.padput!==undefined&&pad.mode==="out"){const k=W.koli.find(k=>k.no==W.view);save();k.items[pad.sku]-=+pad.v;if(k.items[pad.sku]<=0)delete k.items[pad.sku];pad=null;return render()}
+  if(d.padput!==undefined){if(d.padk!==undefined)W.active=+d.padk;else if(S.opt==="h"&&adding!==null)W.active=W.koli.findIndex(k=>k.no===adding);else if(S.opt==="h"&&W.koli.length===1)W.active=0;const p=pad;pad=null;const row=document.querySelector(`[data-put="${p.sku}"]`)?.getBoundingClientRect();return put(p.sku,+p.v,row)}
+  if(d.pk){openPk=openPk==+d.pk?null:+d.pk;return render()}
+  if(d.unpack){save();const p=W.packed.find(x=>x.no==d.unpack);W.packed=W.packed.filter(x=>x!==p);
+    Object.entries(p.items).forEach(([s,n])=>W.left[s]=(W.left[s]||0)+n);openPk=null;W.view="p";toast(`Koli ${p.no} unpacked`,true);return render("fig")}
+  if(d.k){const k=W.koli[W.active],sku=d.k,dd=+d.d;
+    if(dd>0&&free(sku)<=0)return;if(dd<0&&!(k.items[sku]>0))return;
+    save();k.items[sku]=(k.items[sku]||0)+dd;if(!k.items[sku])delete k.items[sku];return render("r"+sku)}
+  if(d.drop){const k=W.koli[0];if(free(d.drop)<=0)return;save();const r=t.getBoundingClientRect();k.items[d.drop]=(k.items[d.drop]||0)+1;render("fig");return fly(r,document.getElementById("zone"),"+1")}
+  if(d.takeout){const k=W.koli[W.active];save();
+    if(isE())delete k.items[d.takeout];else{k.items[d.takeout]--;if(!k.items[d.takeout])delete k.items[d.takeout]}
+    return render("fig")}
+  if(d.everything!==undefined)return putMany(live().map(l=>l[0]),t);
+  if(d.artall)return putMany(live().filter(l=>l[1]===d.artall).map(l=>l[0]),t);
+  if(d.tab){W.active=+d.tab;openPk=null;return render()}
+  if(d.into!==undefined){W.active=+d.into;return render()}
+  if(d.askk!==undefined){
+    if(d.askk==="new"){W.koli.push({no:nextNo(),items:{}});W.active=W.koli.length-1;fx.born=W.koli[W.active].no}else W.active=+d.askk;
+    const f=d.for;ask=null;
+    if(f==="all")return putMany(live().map(l=>l[0]),document.querySelector("[data-askall]"));
+    const n=typedOf(f);delete typed[f];return put(f,n,document.querySelector(`[data-put="${f}"]`)?.getBoundingClientRect())}
+  if(d.goart){const skus=live().filter(l=>l[1]===d.goart&&free(l[0])>0).map(l=>l[0]);
+    if(adding!==null){W.active=W.koli.findIndex(k=>k.no===adding);return putMany(skus,t)}
+    if(W.koli.length<2){if(W.koli.length===1)W.active=0;return putMany(skus,t)}
+    pp={for:"art:"+d.goart,step:1,whole:true};return render()}
+  if(d.askall!==undefined){if(W.koli.length<2){if(W.koli.length===1)W.active=0;return putMany(live().map(l=>l[0]),t)}pp=S.ask==="dlg"?{for:"all",step:1,whole:true}:pp&&pp.for==="all"?null:{for:"all",amt:false};return render()}
+  if(d.backdlg!==undefined){bdlg={};ask=null;return render()}
+  if(d.bkeep!==undefined){bdlg=null;return render()}
+  if(d.bstep){const s=d.bstep,v=(bdlg[s]||0)+(+d.bd);if(v<0||v>free(s))return;bdlg[s]=v;if(!v)delete bdlg[s];return render()}
+  if(d.bgo!==undefined&&S.opt==="h"){save();const back={...bdlg};
+    Object.entries(back).forEach(([s,n])=>{W.left[s]-=n;if(W.left[s]<=0)delete W.left[s]});
+    if(S.sheet==="pick")backToPickFromPack(S.store,back);
+    bdlg=null;render("fig");return toast(`${pcs(sum(back))} back to Pick`,true)}
+  if(d.pdone!==undefined){if(S.sheet==="pick"){F.open=null;return render()}return toast("Closed · everything is saved",false)}
+  if(d.bgo!==undefined){save();W.back=W.back||{};Object.entries(bdlg).forEach(([s,n])=>W.back[s]=(W.back[s]||0)+n);bdlg=null;fx.hit="b";return render("fig")}
+  if(d.newkoli!==undefined){save();const no=nextNo();W.koli.push({no,items:{}});W.active=W.koli.length-1;fx.born=no;openPk=null;if(S.opt==="i"||(isE()&&W.view!=="p"))W.view=no;ask=null;return render()}
+  if(d.pack!==undefined)return pack(+d.pack||0);
+  if(d.back!==undefined)return toast("Back to Pick · opens the move-back dialog",false);
+  if(d.dispatch!==undefined){S.sheet="dispatch";freshD(true);return render()}
+});
+document.addEventListener("input",e=>{
+  const i=e.target.closest?.("[data-typed],[data-typedout]");if(!i)return;
+  const v=+i.value.replace(/\D/g,"")||0;
+  if(i.dataset.typed){const s=i.dataset.typed;typed[s]=Math.min(free(s),v)}
+  else{const s=i.dataset.typedout,k=W.koli.find(k=>k.no==W.view);typedOut[s]=Math.min(k?.items[s]||0,v)}
+});
+document.addEventListener("input",e=>{if(pp&&e.target.id==="popv"){pp.v=e.target.value;const b=document.querySelector("[data-dgo]");if(b){b.textContent=dgoLabel();b.disabled=!dgoOk()}
+  const m=document.getElementById("popmax"),n=+String(pp.v).replace(/\D/g,"")||0;if(m){m.textContent=n>dgoMax()?`Only ${dgoMax()} here`:`max ${dgoMax()}`;m.classList.toggle("bad",n>dgoMax())}}});
+document.addEventListener("focusin",e=>{if(e.target.matches?.("[data-typed],[data-typedout]"))e.target.select()});
+document.addEventListener("keydown",e=>{
+  if(pp&&e.key==="Escape"){pp=null;render();return}
+  if(pp&&e.key==="Enter"&&e.target.id==="popv"){document.querySelector("#pop [data-dgo],#pop [data-popgo],#pop [data-popk]")?.click();return}
+  if(e.key==="Enter"&&e.target.matches?.("[data-typedout]")){document.querySelector(`[data-out="${e.target.dataset.typedout}"]`)?.click();return}
+  if(S.sheet==="pick"&&P.pad){if(/^[0-9]$/.test(e.key))document.querySelector(`[data-pkey="${e.key}"]`)?.click();else if(e.key==="Backspace")document.querySelector(`[data-pkey="⌫"]`)?.click();else if(e.key==="Enter")document.querySelector("[data-ppadgo]:not([disabled])")?.click();else if(e.key==="Escape"){P.pad=null;render()}return}
+  if(!pad)return;
+  if(/^[0-9]$/.test(e.key))document.querySelector(`[data-key="${e.key}"]`)?.click();
+  else if(e.key==="Backspace")document.querySelector(`[data-key="⌫"]`)?.click();
+  else if(e.key==="Enter")document.querySelector("[data-padput]:not([disabled])")?.click();
+  else if(e.key==="Escape"){pad=null;render()}
+});
+fresh();freshD(false);freshP();render();
+</script>
+</body>
+</html>

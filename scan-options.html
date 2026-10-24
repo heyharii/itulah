@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ops scan</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet" />
+<style>
+/* Ops › Allotment: scan a piece, see what it is owed (owner, 21 Oct 2026:
+   "helper di operations harusnya bisa scan product terus bisa tau itu di pick
+   berapa pack berapa"). Label barcode = "8" + SKU, QR = "R1:" + SKU, or the
+   SKU typed. Same shell as allotment-ops-table.html E. */
+:root{
+  --ink:#1d1d1f; --body:#6e6e73; --mute:#6e6e73; --faint:#c7c7cc;
+  --soft:#fafafb; --soft-2:#f2f2f5; --soft-3:#f5f5f7;
+  --hairline:#e8e8ec; --hairline-2:#dcdce1; --row-line:#eeeef1; --band:#fafafb;
+  --accent:#2862dc; --accent-bg:#eef3fc; --cta:#2862dc;
+  --ok-fg:#248a3d; --ok-bg:#e8f5ec; --warn-fg:#b25000; --warn-bg:#fdf1e3; --bad:#d05151; --bad-bg:#fbeaea;
+  --r-card:10px; --r-inner:8px;
+  --ease-out:cubic-bezier(.23,1,.32,1);
+  --font:"Inter",system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font-family:var(--font);font-size:15px;color:var(--ink);background:#e9e9ec;letter-spacing:-.006em;-webkit-font-smoothing:antialiased;overflow:hidden}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+input{font:inherit;color:inherit}
+.i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+
+.proto{height:50px;overflow-x:auto;background:#141518;color:#fff;display:flex;align-items:center;gap:12px;padding:0 14px 0 18px}
+.proto .t{font-weight:600;white-space:nowrap}
+.seg{display:flex;gap:2px;background:#24262b;border-radius:9px;padding:3px}
+.seg button{height:32px;padding:0 11px;border-radius:7px;font-size:15px;color:#b9bcc3;white-space:nowrap;transition:background-color .15s ease,color .15s ease,transform .16s ease-out}
+.seg button:active{transform:scale(.97)}
+.seg button b{font-weight:600;color:#fff;margin-right:5px}
+.seg button.on{background:#fff;color:var(--ink)} .seg button.on b{color:var(--ink)}
+.seg .star{color:#f4b740;margin-left:4px}
+.proto .sp{flex:1}
+.note{min-height:36px;background:#1c1e22;color:#a7abb3;font-size:15px;line-height:24px;padding:6px 18px;border-top:1px solid #26282d}
+.note b{color:#fff;font-weight:500}
+.stagewrap{height:calc(100vh - 86px);overflow:hidden;display:flex;justify-content:center}
+
+.app{height:100%;width:100%;display:grid;grid-template-columns:68px 232px minmax(0,1fr);background:var(--soft-3);position:relative;overflow:hidden}
+.rail{display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:4px}
+.logo{width:28px;height:28px;border-radius:7px;background:var(--ink);color:#fff;display:grid;place-items:center;font-weight:600;margin-bottom:10px}
+.rail .ri{width:40px;height:36px;border-radius:8px;display:grid;place-items:center;color:#3a3a3c}
+.rail .ri.on{background:#fff;box-shadow:0 0 0 1px var(--hairline)}
+.dept{background:#fff;margin:8px 0;border-radius:12px;display:flex;flex-direction:column}
+.dept h2{margin:0;height:52px;display:flex;align-items:center;padding:0 18px;font-size:17px;font-weight:600}
+.rows{padding:2px 10px;display:flex;flex-direction:column;gap:2px}
+.row{height:38px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-radius:8px;color:#3a3a3c;width:100%}
+.row.on{background:var(--accent-bg);color:var(--accent);font-weight:500}
+.main{margin:8px;background:#fff;border-radius:12px;overflow-y:auto;min-width:0;position:relative}
+.head{height:52px;display:flex;align-items:center;gap:10px;padding:0 28px;border-bottom:1px solid var(--hairline)}
+.head h1{margin:0;font-size:17px;font-weight:600;flex:1}
+.page{padding:20px 28px 48px}
+.tabs{display:flex;gap:22px;border-bottom:1px solid var(--hairline);margin-bottom:16px}
+.tab{height:42px;color:var(--body);position:relative;display:flex;align-items:center;gap:7px;white-space:nowrap}
+.tab .c{color:var(--mute)}
+.tab.on{color:var(--ink);font-weight:500}
+.tab.on::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--ink);border-radius:2px}
+.bar{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+.search{width:280px;height:40px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);display:flex;align-items:center;gap:8px;padding:0 12px;color:var(--mute)}
+
+/* the scan field: one input, a camera button, Enter submits */
+.scan{display:flex;align-items:center;gap:8px;height:44px;border-radius:22px;background:var(--soft-2);padding:0 6px 0 16px;border:1px solid transparent;transition:border-color .15s ease,background-color .15s ease;min-width:0}
+.scan:focus-within{border-color:var(--accent);background:#fff}
+.scan.bad{border-color:var(--bad);background:var(--bad-bg)}
+.scan input{flex:1;min-width:0;border:0;background:none;outline:none;font-family:"JetBrains Mono",ui-monospace,monospace;font-size:15px}
+.scan input::placeholder{font-family:var(--font);color:var(--mute)}
+.cam{height:34px;padding:0 12px;border-radius:17px;background:#fff;box-shadow:0 0 0 1px var(--hairline-2);display:inline-flex;align-items:center;gap:6px;font-weight:500;white-space:nowrap;transition:transform .16s ease-out}
+.cam:active{transform:scale(.97)}
+.try{display:flex;gap:6px;flex-wrap:wrap;color:var(--mute);align-items:center}
+.try button{height:30px;padding:0 10px;border-radius:15px;border:1px dashed var(--hairline-2);font-family:"JetBrains Mono",monospace;font-size:15px;color:var(--body)}
+.problem{color:var(--bad);margin-top:6px}
+
+.tbox{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden}
+table{border-collapse:collapse;width:100%;table-layout:fixed}
+th{height:40px;background:var(--band);color:var(--body);font-weight:500;text-align:left;padding:0 16px;border-bottom:1px solid var(--hairline);white-space:nowrap}
+td{padding:0 16px;height:60px;white-space:nowrap;border-top:1px solid var(--row-line);vertical-align:middle;overflow:hidden}
+tbody tr:first-child td{border-top:0}
+tr.hit td{background:#fffbea}
+tr.dim td{opacity:.35}
+.r{text-align:right}
+.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+.nm{font-weight:500;color:var(--ink)}
+.m{color:var(--mute)}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:15px;letter-spacing:0}
+.two{display:flex;flex-direction:column;gap:4px;min-width:0}
+.two .b{color:var(--mute)}
+.trunc{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.art{display:flex;align-items:center;gap:12px;min-width:0}
+.ph{width:40px;height:40px;border-radius:7px;flex:none;background:linear-gradient(160deg,#2d3a5c,#1c2540)}
+.ph.big{width:64px;height:64px;border-radius:10px}
+.btn{height:36px;display:inline-flex;align-items:center;gap:6px;padding:0 14px;border-radius:var(--r-inner);font-weight:500;white-space:nowrap;transition:transform .16s ease-out,background-color .15s ease}
+.btn:active{transform:scale(.97)}
+.btn.p{background:var(--cta);color:#fff}
+.btn.t{background:var(--accent-bg);color:var(--accent);font-weight:600}
+.btn.sm{height:32px;padding:0 12px}
+.dash{color:var(--faint)}
+.pill{display:inline-flex;align-items:center;height:26px;padding:0 10px;border-radius:13px;font-weight:500;white-space:nowrap}
+.pill.pick{background:var(--accent-bg);color:var(--accent)}
+.pill.pack{background:var(--warn-bg);color:var(--warn-fg)}
+.pill.done{background:var(--ok-bg);color:var(--ok-fg)}
+
+/* the SKU head every option shares */
+.who{display:flex;gap:14px;align-items:center}
+.who h3{margin:0;font-size:19px;font-weight:600}
+.who .sub{color:var(--mute);margin-top:4px}
+.three{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--hairline);border-radius:var(--r-card);margin:18px 0}
+.three div{padding:14px 18px;border-left:1px solid var(--hairline)}
+.three div:first-child{border-left:0}
+.three .l{color:var(--body)}
+.three .v{font-size:24px;font-weight:600;margin-top:4px;font-variant-numeric:tabular-nums}
+.three .v.z{color:var(--faint)}
+
+/* A sheet */
+.scrim{position:absolute;inset:0;background:rgb(0 0 0/.18);opacity:0;pointer-events:none;transition:opacity .2s var(--ease-out);z-index:10}
+.sheet{position:absolute;top:8px;right:8px;bottom:8px;width:min(760px,calc(100% - 16px));background:#fff;border-radius:12px;box-shadow:0 20px 60px rgb(0 0 0/.18);transform:translateX(calc(100% + 16px));transition:transform .28s var(--ease-out);z-index:11;display:flex;flex-direction:column}
+.app.sheeted .scrim{opacity:1;pointer-events:auto}
+.app.sheeted .sheet{transform:none}
+.sh{padding:16px 28px;border-bottom:1px solid var(--hairline);display:flex;gap:12px;align-items:center}
+.sh .scan{flex:1}
+.sb{padding:22px 36px;overflow:auto;flex:1}
+.x{width:36px;height:36px;border-radius:8px;display:grid;place-items:center;flex:none}
+.x:hover{background:var(--soft-2)}
+
+/* B strip */
+.strip{display:flex;align-items:center;gap:16px;padding:12px 16px;border-radius:var(--r-card);background:var(--soft-3);margin-bottom:14px;flex-wrap:wrap}
+.strip .who h3{font-size:17px}
+.strip .figs{display:flex;gap:22px;margin-left:auto}
+.strip .figs b{font-size:17px;font-variant-numeric:tabular-nums}
+.strip .figs span{color:var(--body);margin-right:6px}
+
+/* C scan page */
+.cpage{max-width:720px;margin:0 auto;padding:24px 28px 48px}
+.cpage .scan{height:56px;border-radius:28px;padding-left:20px}
+.cpage .scan input{font-size:17px}
+.answer{margin-top:22px}
+.cards{display:flex;flex-direction:column;gap:10px;margin-top:6px}
+.card{border:1px solid var(--hairline);border-radius:12px;padding:14px 16px;display:flex;align-items:center;gap:14px}
+.card .store{font-size:17px;font-weight:600}
+.card .alt{color:var(--mute);margin-top:3px}
+.card .big{margin-left:auto;text-align:right}
+.card .big .n{font-size:28px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1}
+.card .big .w{color:var(--body);margin-top:4px}
+.card.pick .n{color:var(--accent)}
+.card.pack .n{color:var(--warn-fg)}
+.card.done .n{color:var(--ok-fg)}
+.card.done{background:var(--soft)}
+.recent{margin-top:28px}
+.recent h4{margin:0 0 8px;font-size:15px;font-weight:500;color:var(--body)}
+.rec{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--row-line);width:100%;text-align:left}
+.rec .t{margin-left:auto;color:var(--mute)}
+.flash{animation:flash .5s var(--ease-out)}
+@keyframes flash{from{transform:scale(.985);opacity:.4}to{transform:none;opacity:1}}
+.empty{border:1px dashed var(--hairline-2);border-radius:12px;padding:28px;text-align:center;color:var(--body)}
+.empty b{display:block;color:var(--ink);font-size:17px;margin-bottom:4px}
+
+/* camera */
+.camwrap{position:absolute;inset:0;background:rgb(0 0 0/.86);z-index:30;display:none;flex-direction:column;align-items:center;justify-content:center;gap:18px;color:#fff}
+.camwrap.on{display:flex}
+.vf{width:min(320px,80%);aspect-ratio:1.4;border-radius:16px;position:relative;background:linear-gradient(135deg,#2a2c31,#16171a)}
+.vf::before{content:"";position:absolute;inset:18%;border:2px solid rgb(255 255 255/.85);border-radius:10px}
+.vf::after{content:"";position:absolute;left:20%;right:20%;top:50%;height:2px;background:#ff4d4d;box-shadow:0 0 12px #ff4d4d;animation:sweep 1.2s ease-in-out infinite alternate}
+@keyframes sweep{from{transform:translateY(-34px)}to{transform:translateY(34px)}}
+.camwrap .btn{background:#fff;color:var(--ink)}
+
+.narrow .app{grid-template-columns:minmax(0,1fr)}
+.narrow .rail,.narrow .dept{display:none}
+.narrow .stagewrap .app{width:414px}
+.narrow .hide-n{display:none!important}
+.narrow .page{padding:16px}
+.narrow .head{padding:0 16px}
+.narrow table{table-layout:auto}
+.narrow td{white-space:normal;height:auto;padding:12px}
+.narrow th{padding:0 12px}
+.narrow .sheet{width:calc(100% - 16px)}
+.narrow .sh{padding:12px 16px}
+.narrow .sb{padding:16px}
+.narrow .search{width:100%}
+.narrow .bar .scan{width:100%!important}
+.narrow .tabs{gap:16px}
+.narrow .tab .lbl{display:none}
+.narrow .strip .figs{margin-left:0;width:100%;justify-content:space-between}
+.narrow .cpage{padding:16px}
+.narrow .three .v{font-size:20px}
+.narrow .three div{padding:12px}
+</style>
+</head>
+<body>
+<div class="proto">
+  <span class="t">Ops scan</span>
+  <div class="seg" id="opts">
+    <button data-o="A"><b>A</b>Scan → sheet<span class="star">★</span></button>
+    <button data-o="B"><b>B</b>Scan filters the tab</button>
+    <button data-o="C"><b>C</b>Scan page</button>
+  </div>
+  <div class="seg" id="devs">
+    <button data-d="desk">Desk</button>
+    <button data-d="phone">Phone 414</button>
+  </div>
+  <span class="sp"></span>
+</div>
+<div class="note" id="note"></div>
+<div class="stagewrap"><div class="app" id="app"></div></div>
+
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-scan" viewBox="0 0 24 24"><path d="M4 7V5a1 1 0 0 1 1-1h2M17 4h2a1 1 0 0 1 1 1v2M20 17v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2M8 8v8M11 8v8M14 8v8M17 8v8"/></symbol>
+  <symbol id="i-cam" viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></symbol>
+  <symbol id="i-bag" viewBox="0 0 24 24"><path d="M5 8h14l-1 12H6zM9 8V6a3 3 0 0 1 6 0v2"/></symbol>
+  <symbol id="i-box" viewBox="0 0 24 24"><path d="M3 7l9-4 9 4v10l-9 4-9-4zM3 7l9 4 9-4M12 11v10"/></symbol>
+  <symbol id="i-truck" viewBox="0 0 24 24"><path d="M3 6h11v10H3zM14 9h4l3 3v4h-7"/><circle cx="7" cy="18" r="1.6"/><circle cx="17" cy="18" r="1.6"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></symbol>
+</svg>
+
+<script>
+const q = new URLSearchParams(location.search)
+let opt = (q.get("o") || "A").toUpperCase()
+let dev = q.get("dev") || "desk"
+let tab = "picklist"
+let current = null      // the SKU on screen
+let problem = ""
+const recent = []
+
+const NOTES = {
+  A: "<b>A · Scan → sheet ★</b> The scan field sits in the board's bar on every tab. A scan opens one sheet for that piece: what each store still needs it picked, what is picked and waiting for Pack, and which koli already hold it. The sheet keeps its own scan field, so the next piece replaces it without closing.",
+  B: "<b>B · Scan filters the tab</b> The scan works like a search: the tab you are on keeps only the rows holding that SKU, a strip on top says To pick · To pack · Packed for it, and the tab counts change with it. Clear brings the board back.",
+  C: "<b>C · Scan page</b> A fourth page next to the board, made for the floor: one big scan field, one card per store with the one number that matters (Pick N / Pack N / Packed), sorted by what is left. Recent scans stay underneath.",
+}
+
+/* the board's data, as the hub reads it: picklists (per allotment × store × SKU), picked piles, sealed koli */
+const ART = {
+  "00002562": { name: "Rok Plisket", div: "Women · Skirt", grad: "linear-gradient(160deg,#2d3a5c,#1c2540)" },
+  "00087175": { name: "Jaket Denim", div: "Men · Outer", grad: "linear-gradient(160deg,#5a7fa8,#2f4c6e)" },
+}
+const SKUS = {
+  "00002562103": { art: "00002562", colour: "Navy", size: "M" },
+  "00002562104": { art: "00002562", colour: "Navy", size: "L" },
+  "00087175202": { art: "00087175", colour: "Light blue", size: "S" },
+  "00087175301": { art: "00087175", colour: "Black", size: "XS" },
+}
+// one row per allotment × store × SKU: wanted, picked (incl. packed), packed with koli
+const LINES = [
+  { sku: "00002562103", store: "C001", name: "Grand Indonesia", alt: "ALT-41", want: 6, picked: 2, koli: [] },
+  { sku: "00002562103", store: "C003", name: "Plaza Senayan", alt: "ALT-41", want: 4, picked: 4, koli: [{ n: "Koli 2", p: 3 }] },
+  { sku: "00002562103", store: "C005", name: "Kota Kasablanka", alt: "ALT-42", want: 3, picked: 0, koli: [] },
+  { sku: "00002562103", store: "C009", name: "Summarecon Bekasi", alt: "ALT-40", want: 2, picked: 2, koli: [{ n: "Koli 1", p: 2 }] },
+  { sku: "00002562104", store: "C001", name: "Grand Indonesia", alt: "ALT-41", want: 5, picked: 5, koli: [] },
+  { sku: "00002562104", store: "C005", name: "Kota Kasablanka", alt: "ALT-42", want: 2, picked: 0, koli: [] },
+  { sku: "00087175202", store: "C003", name: "Plaza Senayan", alt: "ALT-43", want: 8, picked: 8, koli: [{ n: "Koli 3", p: 5 }, { n: "Koli 4", p: 3 }] },
+  { sku: "00087175202", store: "C009", name: "Summarecon Bekasi", alt: "ALT-43", want: 4, picked: 1, koli: [] },
+]
+const TRY = [
+  ["800002562103", "Barcode · Rok Navy M"],
+  ["R1:00087175202", "QR · Jaket S"],
+  ["00002562·104", "Typed"],
+  ["800087175301", "Not on any picklist"],
+]
+
+const fmtSku = (s) => s.slice(0, 8) + "·" + s.slice(8)
+/// The label's barcode is "8" + SKU, its QR "R1:" + SKU; a typed SKU may carry the dot.
+function read(raw) {
+  let v = raw.trim().replace(/[·.\s-]/g, "")
+  if (/^R1:/i.test(v)) v = v.slice(3)
+  if (/^8\d{11}$/.test(v)) v = v.slice(1)
+  return /^\d{11}$/.test(v) ? v : null
+}
+const packed = (l) => l.koli.reduce((a, k) => a + k.p, 0)
+const toPick = (l) => l.want - l.picked
+const toPack = (l) => l.picked - packed(l)
+const linesOf = (sku) => LINES.filter((l) => l.sku === sku)
+const sums = (ls) => ({
+  pick: ls.reduce((a, l) => a + toPick(l), 0),
+  pack: ls.reduce((a, l) => a + toPack(l), 0),
+  packed: ls.reduce((a, l) => a + packed(l), 0),
+})
+
+function scan(raw) {
+  const sku = read(raw)
+  if (!sku) { problem = `"${raw}" is not a label we print`; current = null; render(); return }
+  if (!SKUS[sku]) { problem = `${fmtSku(sku)} is not in the catalogue`; current = null; render(); return }
+  problem = ""
+  current = sku
+  const s = sums(linesOf(sku))
+  recent.unshift({ sku, s, at: new Date() })
+  recent.splice(6)
+  render(true)
+  setTimeout(() => document.querySelector("[data-scan]")?.focus(), 0)
+}
+
+const icon = (id, cls = "i") => `<svg class="${cls}"><use href="#i-${id}"/></svg>`
+
+function scanField(big) {
+  return `<form class="scanf" onsubmit="event.preventDefault();const f=this.querySelector('input');scan(f.value);f.value=''">
+    <label class="scan ${problem ? "bad" : ""}" style="${big ? "" : "width:400px"}">
+      ${icon("scan")}
+      <input data-scan autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Scan or type a SKU" />
+      <button type="button" class="cam" onclick="camera()">${icon("cam")}<span class="hide-n">Camera</span></button>
+    </label>
+    ${problem ? `<div class="problem">${problem}</div>` : ""}
+  </form>`
+}
+function tryRow() {
+  return `<div class="try">Try: ${TRY.map(([v, l]) => `<button title="${l}" onclick="scan('${v}')">${v}</button>`).join("")}</div>`
+}
+
+function who(sku, big) {
+  const s = SKUS[sku], a = ART[s.art]
+  return `<div class="who"><div class="ph ${big ? "big" : ""}" style="background:${a.grad}"></div>
+    <div class="two"><h3>${a.name}</h3><div class="sub"><span class="mono">${fmtSku(sku)}</span> · ${s.colour} · ${s.size} · <span class="mono">${s.art}</span></div></div></div>`
+}
+function three(s) {
+  const c = (v) => `v ${v ? "" : "z"}`
+  return `<div class="three"><div><div class="l">To pick</div><div class="${c(s.pick)}">${s.pick} pcs</div></div>
+    <div><div class="l">To pack</div><div class="${c(s.pack)}">${s.pack} pcs</div></div>
+    <div><div class="l">Packed</div><div class="${c(s.packed)}">${s.packed} pcs</div></div></div>`
+}
+const koliWords = (l) => l.koli.length ? l.koli.map((k) => `${k.n} · ${k.p}`).join(", ") : '<span class="dash">—</span>'
+function next(l) {
+  if (toPick(l)) return `<button class="btn t sm">Pick ${l.alt}</button>`
+  if (toPack(l)) return `<button class="btn t sm">Pack ${l.store}</button>`
+  return `<span class="pill done">All packed</span>`
+}
+const n0 = (v) => v ? v : '<span class="dash">0</span>'
+
+/* ---------- shell ---------- */
+function shell(body, sheet = "") {
+  return `
+  <div class="rail hide-n"><div class="logo">C</div>
+    ${["list", "bag", "box", "truck"].map((x, i) => `<div class="ri ${i === 0 ? "on" : ""}">${icon(x)}</div>`).join("")}</div>
+  <div class="dept hide-n"><h2>Operations</h2><div class="rows">
+    ${["Allotment", "Receiving", "Stock", "Tagging", "Returns"].map((x, i) => `<div class="row ${i === 0 ? "on" : ""}">${x}</div>`).join("")}</div></div>
+  <div class="main">${body}</div>
+  ${sheet}
+  <div class="camwrap" id="camwrap"><div class="vf"></div><div>Point at the label's barcode or QR</div><button class="btn" onclick="closeCam()">Cancel</button></div>`
+}
+
+const TABS = [
+  ["picklist", "list", "Picklist"], ["picked", "bag", "Picked"], ["packed", "box", "Packed"], ["transit", "truck", "In transit"],
+]
+function tabsHtml(counts) {
+  return `<div class="tabs">${TABS.map(([id, ic, l]) => `<button class="tab ${tab === id ? "on" : ""}" onclick="tab='${id}';render()">${icon(ic)}<span class="lbl">${l}</span><span class="c">${counts[id]}</span></button>`).join("")}</div>`
+}
+
+/* the board table for a tab, optionally narrowed to one SKU (B) */
+function tableFor(only) {
+  const ls = only ? linesOf(only) : LINES
+  if (tab === "picklist") {
+    const rows = ls.filter((l) => toPick(l))
+    return { n: rows.length, html: `<div class="tbox"><table><thead><tr><th>Article</th><th class="hide-n" style="width:150px">Store</th><th class="hide-n" style="width:110px">Allotment</th><th class="r" style="width:90px">Qty</th><th style="width:130px"></th></tr></thead><tbody>
+      ${rows.map((l) => { const s = SKUS[l.sku], a = ART[s.art]; return `<tr class="${only ? "hit" : ""}"><td><div class="art"><div class="ph" style="background:${a.grad}"></div><div class="two"><span class="nm trunc">${a.name} · ${s.colour} ${s.size}</span><span class="b mono">${fmtSku(l.sku)}</span></div></div></td><td class="hide-n">${l.store}</td><td class="hide-n mono">${l.alt}</td><td class="r num">${toPick(l)}</td><td class="r"><button class="btn p sm">Pick</button></td></tr>` }).join("") || `<tr><td colspan="5" class="m">Nothing to pick</td></tr>`}
+      </tbody></table></div>` }
+  }
+  if (tab === "picked") {
+    const rows = ls.filter((l) => toPack(l))
+    return { n: rows.length, html: `<div class="tbox"><table><thead><tr><th>Article</th><th style="width:150px">Store</th><th class="r" style="width:100px">Picked</th></tr></thead><tbody>
+      ${rows.map((l) => { const s = SKUS[l.sku], a = ART[s.art]; return `<tr class="${only ? "hit" : ""}"><td><div class="art"><div class="ph" style="background:${a.grad}"></div><div class="two"><span class="nm trunc">${a.name} · ${s.colour} ${s.size}</span><span class="b mono">${fmtSku(l.sku)}</span></div></div></td><td>${l.store}</td><td class="r num">${toPack(l)}</td></tr>` }).join("") || `<tr><td colspan="3" class="m">Nothing waiting for Pack</td></tr>`}
+      </tbody></table></div>` }
+  }
+  if (tab === "packed") {
+    const rows = ls.flatMap((l) => l.koli.map((k) => ({ l, k })))
+    return { n: rows.length, html: `<div class="tbox"><table><thead><tr><th>Koli</th><th style="width:150px">Store</th><th class="r" style="width:120px">${only ? "This SKU" : "Pcs"}</th></tr></thead><tbody>
+      ${rows.map(({ l, k }) => `<tr class="${only ? "hit" : ""}"><td class="nm">${k.n} <span class="m mono hide-n">· KOLI-HO-GUDANG-00${k.n.slice(-1)}</span></td><td>${l.store}</td><td class="r num">${k.p}</td></tr>`).join("") || `<tr><td colspan="3" class="m">In no koli yet</td></tr>`}
+      </tbody></table></div>` }
+  }
+  return { n: 0, html: `<div class="tbox"><table><tbody><tr><td class="m">No trips on the road</td></tr></tbody></table></div>` }
+}
+function counts(only) {
+  const keep = tab
+  const c = {}
+  for (const [id] of TABS) { tab = id; c[id] = tableFor(only).n }
+  tab = keep
+  return c
+}
+
+/* ---------- A ---------- */
+function viewA() {
+  const t = tableFor(null)
+  const body = `<div class="head"><h1>Allotment</h1></div><div class="page">
+    ${tabsHtml(counts(null))}
+    <div class="bar"><div class="search hide-n">${icon("search")}Search article or store</div>${scanField()}</div>
+    ${tryRow()}<div style="height:14px"></div>
+    ${t.html}</div>`
+  let sheet = `<div class="scrim" onclick="current=null;problem='';render()"></div><div class="sheet">`
+  if (current) {
+    const ls = linesOf(current)
+    sheet += `<div class="sh">${scanField(true)}<button class="x" onclick="current=null;render()">${icon("x")}</button></div>
+    <div class="sb flash">${who(current, true)}${three(sums(ls))}
+    ${ls.length ? `<div class="tbox"><table><thead><tr><th>Store</th><th class="r" style="width:${dev === "phone" ? 64 : 84}px">Pick</th><th class="r" style="width:${dev === "phone" ? 64 : 84}px">Pack</th><th class="hide-n" style="width:150px">In koli</th><th class="hide-n" style="width:140px"></th></tr></thead><tbody>
+      ${ls.map((l) => `<tr><td><div class="two"><span class="nm">${l.store} · ${l.name}</span><span class="b mono">${l.alt} · ${l.want} pcs</span></div></td><td class="r num nm">${n0(toPick(l))}</td><td class="r num nm">${n0(toPack(l))}</td><td class="hide-n">${koliWords(l)}</td><td class="hide-n r">${next(l)}</td></tr>`).join("")}
+    </tbody></table></div>` : `<div class="empty"><b>On no picklist</b>No allotment in progress wants this piece.</div>`}
+    </div>`
+  }
+  sheet += `</div>`
+  return shell(body, sheet)
+}
+
+/* ---------- B ---------- */
+function viewB() {
+  const t = tableFor(current)
+  const s = current && sums(linesOf(current))
+  const body = `<div class="head"><h1>Allotment</h1></div><div class="page">
+    ${tabsHtml(counts(current))}
+    <div class="bar">${scanField()}${current ? `<button class="btn t" onclick="current=null;render()">Clear</button>` : ""}</div>
+    ${tryRow()}<div style="height:14px"></div>
+    ${current ? `<div class="strip flash">${who(current)}<div class="figs"><div><span>To pick</span><b>${s.pick}</b></div><div><span>To pack</span><b>${s.pack}</b></div><div><span>Packed</span><b>${s.packed}</b></div></div></div>` : ""}
+    ${t.html}</div>`
+  return shell(body)
+}
+
+/* ---------- C ---------- */
+function viewC() {
+  let ans = ""
+  if (current) {
+    const ls = linesOf(current)
+    const rank = (l) => toPick(l) ? 0 : toPack(l) ? 1 : 2
+    const cards = [...ls].sort((a, b) => rank(a) - rank(b) || (toPick(b) + toPack(b)) - (toPick(a) + toPack(a))).map((l) => {
+      const k = rank(l)
+      const [cls, n, w] = k === 0 ? ["pick", toPick(l), "to pick"] : k === 1 ? ["pack", toPack(l), "to pack"] : ["done", packed(l), "packed"]
+      return `<div class="card ${cls}"><div><div class="store">${l.store} · ${l.name}</div><div class="alt"><span class="mono">${l.alt}</span> · ${l.want} wanted${l.koli.length ? ` · ${l.koli.map((x) => x.n).join(", ")}` : ""}</div></div><div class="big"><div class="n">${n}</div><div class="w">${w}</div></div></div>`
+    }).join("")
+    ans = `<div class="answer flash">${who(current, true)}${three(sums(ls))}${ls.length ? `<div class="cards">${cards}</div>` : `<div class="empty"><b>On no picklist</b>No allotment in progress wants this piece.</div>`}</div>`
+  } else {
+    ans = `<div class="answer"><div class="empty"><b>Scan a piece</b>Its barcode, its QR, or type the SKU.</div></div>`
+  }
+  const rec = recent.length ? `<div class="recent"><h4>Recent</h4>${recent.map((r) => { const s = SKUS[r.sku], a = ART[s.art]; return `<button class="rec" onclick="current='${r.sku}';render(true)"><div class="ph" style="background:${a.grad}"></div><div class="two"><span class="nm">${a.name} · ${s.colour} ${s.size}</span><span class="b mono">${fmtSku(r.sku)}</span></div><span class="t">Pick ${r.s.pick} · Pack ${r.s.pack}</span></button>` }).join("")}</div>` : ""
+  const body = `<div class="head"><h1>Allotment</h1></div>
+    <div class="page" style="padding-bottom:0"><div class="tabs" style="margin-bottom:0">${TABS.map(([id, ic, l]) => `<span class="tab">${icon(ic)}<span class="lbl">${l}</span></span>`).join("")}<span class="tab on">${icon("scan")}<span class="lbl">Scan</span></span></div></div>
+    <div class="cpage">${scanField(true)}<div style="height:10px"></div>${tryRow()}${ans}${rec}</div>`
+  return shell(body)
+}
+
+let camTimer
+function camera() {
+  document.getElementById("camwrap").classList.add("on")
+  camTimer = setTimeout(() => { closeCam(); scan("800002562103") }, 1400)
+}
+function closeCam() { clearTimeout(camTimer); document.getElementById("camwrap")?.classList.remove("on") }
+
+function render(flash) {
+  const app = document.getElementById("app")
+  document.body.classList.toggle("narrow", dev === "phone")
+  app.className = "app" + (opt === "A" && current ? " sheeted" : "")
+  app.innerHTML = opt === "A" ? viewA() : opt === "B" ? viewB() : viewC()
+  if (opt === "A" && current) app.classList.add("sheeted")
+  document.getElementById("note").innerHTML = NOTES[opt]
+  for (const b of document.querySelectorAll("#opts button")) b.classList.toggle("on", b.dataset.o === opt)
+  for (const b of document.querySelectorAll("#devs button")) b.classList.toggle("on", b.dataset.d === dev)
+  const u = new URL(location); u.searchParams.set("o", opt); u.searchParams.set("dev", dev); history.replaceState(null, "", u)
+}
+document.getElementById("opts").onclick = (e) => { const b = e.target.closest("button"); if (b) { opt = b.dataset.o; render() } }
+document.getElementById("devs").onclick = (e) => { const b = e.target.closest("button"); if (b) { dev = b.dataset.d; render() } }
+render()
+</script>
+</body>
+</html>

@@ -211,6 +211,12 @@ fn is_public(path: &str) -> bool {
     if path.starts_with("/api/v1/sync/benefit/") {
         return true;
     }
+    // The store app's read of its own unmatched sales, relayed by its node
+    // (owner, 23 Oct 2026): same shape, the `x-sync-key` checked in the
+    // handler (`http::unmatched_sales`).
+    if path == "/api/v1/sync/unmatched" {
+        return true;
+    }
     // Finance's expense code (0822), used by a shop's node: same shape, same
     // per-origin `x-sync-key` check inside the handler.
     if path.starts_with("/api/v1/sync/expense-codes/") {
@@ -222,6 +228,12 @@ fn is_public(path: &str) -> bool {
     // proving which shop it is — guarded per-origin by `x-sync-key` inside the
     // handler, exactly like `/sync/vouchers/`.
     if path.starts_with("/api/v1/sync/points/redeem-requests") {
+        return true;
+    }
+    // The member look-up and enrolment a till reaches through its own node
+    // (F5 / Shift+F5, 23 Oct 2026): same shape as the voucher check, proven
+    // per origin by `x-sync-key` in the handler (`relay_member_site`).
+    if path.starts_with("/api/v1/sync/members/") {
         return true;
     }
     // Opening a join link and accepting it (0634). The person has no account

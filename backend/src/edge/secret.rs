@@ -53,7 +53,10 @@ pub fn unseal_environment() -> Result<(), String> {
     Ok(())
 }
 
+// DPAPI exists only as FFI. `input` borrows `data` for the call, and
+// `output` is the system's to fill; `take` frees it.
 #[cfg(windows)]
+#[allow(unsafe_code)]
 fn protect(data: &[u8]) -> Result<Vec<u8>, String> {
     use windows_sys::Win32::Security::Cryptography::{
         CryptProtectData, CRYPTPROTECT_LOCAL_MACHINE, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
@@ -81,6 +84,7 @@ fn protect(data: &[u8]) -> Result<Vec<u8>, String> {
 }
 
 #[cfg(windows)]
+#[allow(unsafe_code)]
 fn unprotect(data: &[u8]) -> Result<Vec<u8>, String> {
     use windows_sys::Win32::Security::Cryptography::{
         CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
@@ -107,7 +111,9 @@ fn unprotect(data: &[u8]) -> Result<Vec<u8>, String> {
     take(ok, output)
 }
 
+// The blob DPAPI allocated: read while it is still ours, then freed once.
 #[cfg(windows)]
+#[allow(unsafe_code)]
 fn take(
     ok: i32,
     output: windows_sys::Win32::Security::Cryptography::CRYPT_INTEGER_BLOB,

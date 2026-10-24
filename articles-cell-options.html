@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Articles cell options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet" />
+<style>
+/* Master › Articles — division and tags move into the Article cell,
+   Colors and Sizes become plain text with commas (owner, 17 Oct).
+   Stock, Price Range and Status stay as they are.
+   Tokens: frontend-hub/src/styles/white.css (All white). */
+:root{
+  --ink:#1d1d1f; --body:#6e6e73; --mute:#6e6e73; --faint:#c7c7cc;
+  --soft:#fafafb; --soft-2:#f2f2f5; --soft-3:#f5f5f7;
+  --hairline:#e8e8ec; --hairline-2:#dcdce1; --row-line:#eeeef1; --band:#fafafb;
+  --accent:#2862dc; --accent-bg:#eef3fc;
+  --ok-fg:#248a3d;
+  --r-card:10px; --r-inner:8px;
+  --ease-out:cubic-bezier(.23,1,.32,1);
+  --font:"Inter",system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font-family:var(--font);font-size:15px;color:var(--ink);background:#e9e9ec;letter-spacing:-.006em;-webkit-font-smoothing:antialiased;overflow:hidden}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+.i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+
+/* prototype chrome */
+.proto{height:50px;overflow-x:auto;background:#141518;color:#fff;display:flex;align-items:center;gap:12px;padding:0 14px 0 18px}
+.proto .t{font-weight:600;white-space:nowrap}
+.seg{display:flex;gap:2px;background:#24262b;border-radius:9px;padding:3px}
+.seg button{height:32px;padding:0 11px;border-radius:7px;font-size:15px;color:#b9bcc3;white-space:nowrap;transition:background-color .15s ease,color .15s ease,transform .16s ease-out}
+.seg button:active{transform:scale(.97)}
+.seg button b{font-weight:600;color:#fff;margin-right:5px}
+.seg button.on{background:#fff;color:var(--ink)} .seg button.on b{color:var(--ink)}
+.seg .star{color:#f4b740;margin-left:4px}
+.proto .sp{flex:1}
+.note{min-height:36px;background:#1c1e22;color:#a7abb3;font-size:15px;line-height:24px;padding:6px 18px;border-top:1px solid #26282d}
+.note b{color:#fff;font-weight:500}
+.stagewrap{height:calc(100vh - 50px - var(--nh,36px));overflow:hidden;display:flex;justify-content:center}
+
+/* hub shell */
+.app{height:100%;display:grid;grid-template-columns:68px 232px minmax(0,1fr);background:var(--soft-3);flex:none}
+.rail{display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:4px}
+.logo{width:28px;height:28px;border-radius:7px;background:var(--ink);color:#fff;display:grid;place-items:center;font-weight:600;margin-bottom:10px}
+.rail .ri{width:40px;height:36px;border-radius:8px;display:grid;place-items:center;color:#3a3a3c}
+.rail .ri.on{background:#fff;box-shadow:0 0 0 1px var(--hairline)}
+.dept{background:#fff;margin:8px 0;border-radius:12px;display:flex;flex-direction:column}
+.dept h2{margin:0;height:52px;display:flex;align-items:center;padding:0 18px;font-size:17px;font-weight:600}
+.rows{padding:2px 10px;display:flex;flex-direction:column;gap:2px}
+.row{height:38px;display:flex;align-items:center;padding:0 10px;border-radius:8px;color:#3a3a3c;width:100%}
+.row.on{background:var(--accent-bg);color:var(--accent);font-weight:500}
+.main{margin:8px;background:#fff;border-radius:12px;overflow-y:auto;min-width:0}
+.head{height:52px;display:flex;align-items:center;padding:0 28px;border-bottom:1px solid var(--hairline)}
+.head h1{margin:0;font-size:17px;font-weight:600}
+.page{padding:20px 28px 48px}
+.figs{display:flex;margin-bottom:24px}
+.fig{padding:0 26px 0 20px;border-left:1px solid var(--hairline)}
+.fig:first-child{border-left:0;padding-left:0}
+.fig .l{color:var(--body);white-space:nowrap}
+.fig .v{font-size:17px;font-weight:600;margin-top:4px;font-variant-numeric:tabular-nums}
+.tabs{display:flex;gap:18px;border-bottom:1px solid var(--hairline);margin-bottom:16px}
+.tab{height:38px;color:var(--body);position:relative}
+.tab .c{margin-left:5px;color:var(--mute)}
+.tab.on{color:var(--ink);font-weight:500}
+.tab.on::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--ink);border-radius:2px}
+.bar{display:flex;gap:8px;align-items:center;margin-bottom:10px}
+.search{width:260px;height:36px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);display:flex;align-items:center;gap:8px;padding:0 12px;color:var(--mute)}
+.sel{width:118px;height:36px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);display:flex;align-items:center;justify-content:space-between;padding:0 10px 0 12px;color:var(--body)}
+.bar2{display:flex;justify-content:flex-end;gap:6px;margin-bottom:10px}
+.ghost{height:36px;display:flex;align-items:center;gap:6px;padding:0 12px;border-radius:var(--r-inner);color:var(--ink)}
+
+/* table */
+.tbox{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden}
+table{border-collapse:collapse;width:100%;table-layout:fixed}
+th{height:40px;background:var(--band);color:var(--body);font-weight:500;text-align:left;padding:0 14px;border-bottom:1px solid var(--hairline);white-space:nowrap}
+td{padding:0 14px;border-top:1px solid var(--row-line);vertical-align:middle;overflow:hidden}
+tbody tr:first-child td{border-top:0}
+tbody tr{transition:background-color .12s ease}
+@media (hover:hover){tbody tr:not(.grp):hover td{background:#fafafb}}
+.r{text-align:right}
+.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+.thumb{border-radius:8px;background:#fff;border:1px solid var(--hairline);display:grid;place-items:center;flex:none}
+.thumb svg{width:62%;height:62%}
+.nm{font-weight:500;color:var(--ink)}
+.m{color:var(--mute)}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:15px;letter-spacing:0}
+.trunc{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block;min-width:0}
+.art{display:flex;align-items:center;gap:12px;min-width:0}
+.art .tx{min-width:0;flex:1}
+.tagchip{display:inline-flex;align-items:center;height:26px;padding:0 8px;border:1px solid var(--hairline-2);border-radius:6px;color:var(--body);max-width:100%}
+.sw{display:inline-flex;gap:4px;vertical-align:middle}
+.sw i{width:14px;height:14px;border-radius:50%;box-shadow:inset 0 0 0 1px rgb(0 0 0/.14)}
+.status{color:var(--ok-fg);white-space:nowrap}
+.status::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:currentColor;margin:0 8px 2px 0;vertical-align:middle}
+.list{display:block;min-width:0}
+.lists-cut .list{white-space:nowrap;overflow:hidden}
+.lists-wrap .list{white-space:normal}
+.lists-wrap td{padding-top:12px;padding-bottom:12px}
+table.grid td{vertical-align:top;padding-top:16px;padding-bottom:16px;line-height:22px}
+table.grid .art{align-items:flex-start}
+table.grid .thumb{margin-top:1px}
+/* I · the hub's own rules: ghost buttons, Status = dot + ink word, 16px cell sides, › on hover */
+.gb{height:36px;display:flex;align-items:center;gap:6px;padding:0 12px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);font-weight:500;transition:background-color .15s ease,transform .16s ease-out}
+.gb:active{transform:scale(.97)}
+@media (hover:hover){.gb:hover{background:var(--soft-2)}}
+.fpanel{position:absolute;left:288px;top:44px;width:300px;background:#fff;border-radius:10px;box-shadow:0 0 0 1px var(--hairline),0 12px 32px rgb(0 0 0/.12);padding:6px;opacity:0;transform:scale(.97);transform-origin:top left;pointer-events:none;transition:opacity .16s var(--ease-out),transform .16s var(--ease-out);z-index:5}
+.fpanel.open{opacity:1;transform:none;pointer-events:auto}
+.fpanel .fr{height:40px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-radius:8px}
+@media (hover:hover){.fpanel .fr:hover{background:var(--soft)}}
+.fpanel .fr span{color:var(--mute)}
+table.clean th,table.clean td{padding-left:16px;padding-right:16px}
+table.clean .status{color:var(--ink)}
+table.clean .status::before{background:var(--ok-fg)}
+table.clean tbody tr{cursor:pointer}
+table.clean td:last-child{position:relative}
+@media (hover:hover){table.clean tbody tr:hover td:last-child::after{content:"";position:absolute;right:18px;top:24px;width:7px;height:7px;border-right:1.6px solid var(--mute);border-top:1.6px solid var(--mute);transform:rotate(45deg)}}
+.grp td{height:44px;background:var(--band);font-weight:500;border-top:1px solid var(--hairline)}
+.grp + tr td{border-top:1px solid var(--hairline)}
+.idcell{font-variant-numeric:tabular-nums;color:var(--body)}
+</style>
+</head>
+<body>
+<div class="proto">
+  <div class="t">Articles · Article cell</div>
+  <div class="seg" id="opts"></div>
+  <div class="sp"></div>
+  <div class="seg" id="lists"></div>
+  <div class="seg" id="widths"></div>
+</div>
+<div class="note" id="note"></div>
+<div class="stagewrap" id="stagewrap">
+  <div class="app" id="app">
+    <nav class="rail">
+      <div class="logo">C</div>
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></div>
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><path d="M6 6h15l-2 8H8z"/><circle cx="9" cy="20" r="1"/><circle cx="18" cy="20" r="1"/></svg></div>
+      <div class="ri on"><svg class="i" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/></svg></div>
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><path d="M4 21V9l8-6 8 6v12"/></svg></div>
+    </nav>
+    <aside class="dept">
+      <h2>Master</h2>
+      <div class="rows">
+        <button class="row on">Articles</button><button class="row">Divisions</button><button class="row">Tags</button><button class="row">Colors</button><button class="row">Sizes</button><button class="row">Units</button>
+      </div>
+    </aside>
+    <main class="main"><div class="head"><h1>Articles</h1></div><div class="page" id="page"></div></main>
+  </div>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s)
+const HEX = {Black:"#1d1d1f", White:"#ffffff", Khaki:"#b5a679", Navy:"#22315a", Brown:"#6b4128", Cream:"#e9dcc4", Olive:"#6b6b3a", Maroon:"#6e1f2a"}
+// silhouettes, filled with the first colourway
+const G = {
+  tee:'<path d="M8 3 3 6l2 4 2-1v12h10V9l2 1 2-4-5-3c-.5 1.5-2 2.5-4 2.5S8.5 4.5 8 3z"/>',
+  bag:'<path d="M5 8h14l-1 13H6z"/><path d="M9 8V6a3 3 0 0 1 6 0v2" fill="none" stroke-width="1.6"/>',
+  shoe:'<path d="M2 16c3 0 6-2 7-6l4 3c2 1 5 2 9 2v3H2z"/>',
+  slide:'<path d="M3 17h18v2H3z"/><path d="M6 17c1-4 4-6 6-6s5 2 6 6z"/>',
+  pants:'<path d="M6 3h12l1 18h-5l-2-11-2 11H5z"/>',
+  dress:'<path d="M9 3h6l-1 5 5 13H5l5-13z"/>',
+}
+const thumb = (a, px) => {
+  const c = HEX[a.colours[0]] || "#1d1d1f"
+  return `<span class="thumb" style="width:${px}px;height:${px}px"><svg viewBox="0 0 24 24" fill="${c}" stroke="${c==="#ffffff"?"#8e8e93":c}" stroke-width=".8">${G[a.g]}</svg></span>`
+}
+const rp = (n) => "Rp " + n.toLocaleString("id-ID")
+const price = (a) => a.lo === a.hi ? rp(a.lo) : `${rp(a.lo)}–${a.hi.toLocaleString("id-ID")}`
+const SIZE_ORDER = ["XS","S","M","L","XL","XXL","XXXL"]
+const range = (s) => s.length === 1 ? s[0] : `${s[0]}–${s[s.length-1]}`
+
+// the demo rig's twelve, newest first, plus two from a real catalogue: a long
+// name with four tags and six colours, and a kids' shoe in eight numeric sizes
+const ARTS = [
+  {id:"00000014", name:"Dress Midi Linen Premium Edisi Lebaran Kolaborasi", div:"Wanita", tags:["Dress","Lebaran","Linen","Premium"], g:"dress", colours:["Black","White","Navy","Olive","Maroon","Cream"], sizes:["XS","S","M","L","XL","XXL"], stock:240, lo:1249000, hi:1399000},
+  {id:"00000013", name:"Sneakers Anak Velcro", div:"Anak Laki-laki", tags:["Sepatu","Sekolah"], g:"shoe", colours:["Black","White","Navy"], sizes:["28","29","30","31","32","33","34","35"], stock:64, lo:189000, hi:209000},
+  {id:"00000012", name:"Kaos Uji Uj16", div:"Pria", tags:[], g:"tee", colours:["Black","White"], sizes:["M","L"], stock:8, lo:99000, hi:99000},
+  {id:"00000011", name:"Kaos Uji UJ16", div:"Pria", tags:[], g:"tee", colours:["Black","White"], sizes:["M","L"], stock:0, lo:99000, hi:99000},
+  {id:"00000010", name:"Tas Selempang Kanvas", div:"Tas", tags:["Tas","Kanvas"], g:"bag", colours:["Black","Khaki"], sizes:["No Size"], stock:54, lo:219000, hi:219000},
+  {id:"00000009", name:"Sneakers Kanvas Low", div:"Sandal dan Sepatu", tags:["Sepatu","Kanvas"], g:"shoe", colours:["Black","White"], sizes:["L","XL","XXL"], stock:98, lo:329000, hi:329000},
+  {id:"00000008", name:"Sandal Slide Karet", div:"Sandal dan Sepatu", tags:["Sandal"], g:"slide", colours:["Black","Navy"], sizes:["L","XL","XXL"], stock:105, lo:99000, hi:99000},
+  {id:"00000007", name:"Loafers Kulit Sintetis", div:"Sandal dan Sepatu", tags:["Sepatu","Formal"], g:"shoe", colours:["Black","Brown"], sizes:["XL","XXL","XXXL"], stock:93, lo:399000, hi:399000},
+  {id:"00000006", name:"Flat Shoes Wanita", div:"Sandal dan Sepatu", tags:["Sepatu"], g:"shoe", colours:["Black","Cream"], sizes:["M","L","XL"], stock:54, lo:279000, hi:279000},
+  {id:"00000005", name:"Kemeja Oxford Lengan Panjang", div:"Pria", tags:["Kemeja","Lengan Panjang"], g:"tee", colours:["White","Navy"], sizes:["S","M","L"], stock:87, lo:199000, hi:199000},
+  {id:"00000004", name:"Kaos Anak Karakter", div:"Anak Laki-laki", tags:["Kaos","Lengan Pendek"], g:"tee", colours:["Navy","White"], sizes:["S","M","L"], stock:120, lo:69000, hi:69000},
+  {id:"00000003", name:"Kaos Basic Katun Combed", div:"Pria", tags:["Basic","Kaos","Lengan Pendek"], g:"tee", colours:["Black","White","Navy"], sizes:["S","M","L","XL"], stock:310, lo:89000, hi:99000},
+  {id:"00000002", name:"Celana Chino Slim Fit", div:"Pria", tags:["Celana"], g:"pants", colours:["Khaki","Navy","Black"], sizes:["S","M","L","XL"], stock:76, lo:249000, hi:249000},
+  {id:"00000001", name:"Blus Rayon Motif Bunga", div:"Wanita", tags:["Blus"], g:"tee", colours:["Cream","Maroon"], sizes:["S","M","L"], stock:45, lo:159000, hi:159000},
+]
+
+// "00000012 · Pria · Kaos, Basic" — an article with no tags just stops early
+const kind = (a, withId) => [withId ? a.id : null, a.div, a.tags.join(", ")].filter(Boolean).join(" · ")
+
+// Colors and Sizes as words; the full list in `data-l`, cut to fit after paint
+let LISTS = []
+const list = (items) => { LISTS.push(items); return `<span class="list" data-l="${LISTS.length-1}" title="${items.join(", ")}">${items.join(", ")}</span>` }
+const whole = (items) => `<span class="list" title="${items.join(", ")}">${items.map(x=>x.replace(/ /g,"\u00a0")).join(", ")}</span>`
+const SCALE = ["XXS","XS","S","M","L","XL","XXL","XXXL"]
+const pos = (s) => /^\d+$/.test(s) ? +s : SCALE.indexOf(s)
+function runs(sizes){
+  if (sizes.some(x => pos(x) < 0)) return sizes.join(", ")
+  const out = []
+  let start = 0
+  for (let i = 1; i <= sizes.length; i++) {
+    if (i < sizes.length && pos(sizes[i]) === pos(sizes[i-1]) + 1) continue
+    out.push(i - start >= 5 ? `${sizes[start]}–${sizes[i-1]}` : sizes.slice(start, i).join(", "))
+    start = i
+  }
+  return out.join(", ")
+}
+const textCols = [
+  {h:"Colors", w:[180,150], c:a=>list(a.colours)},
+  {h:"Sizes", w:[160,130], c:a=>list(a.sizes)},
+]
+const tail = [
+  {h:"Stock", w:[90,90], r:true, c:a=>`<span class="num">${a.stock} pcs</span>`},
+  {h:"Price Range", w:[210,210], r:true, c:a=>`<span class="num">${price(a)}</span>`},
+  {h:"Status", w:[100,96], c:()=>`<span class="status">Active</span>`},
+]
+
+const OPTIONS = [
+  {id:"today", label:"Today", h:null,
+   note:"<b>Today</b> · Division as its own chip column, Colors as swatches, Sizes as a range (M–L). The division chip cuts “Sandal dan Sep…”, and swatches need a hover to say which colour.",
+   cols:[
+     {h:"Article", w:"auto", c:a=>`<div class="art">${thumb(a,32)}<div class="tx"><span class="nm trunc">${a.name}</span><span class="mono m trunc">${a.id}</span></div></div>`},
+     {h:"Division", w:[176,150], c:a=>`<span class="tagchip"><span class="trunc">${a.div}</span></span>`},
+     {h:"Colors", w:[130,120], c:a=>`<span class="sw">${a.colours.map(c=>`<i style="background:${HEX[c]}"></i>`).join("")}</span>`},
+     {h:"Sizes", w:[120,110], c:a=>range(a.sizes)},
+     ...tail]},
+  {id:"A", label:"Two lines",
+   note:"<b>A · Two lines</b> · name on line 1; id · division · tags in grey on line 2, one font. Rows stay 64px; a long tag list ends in …",
+   cols:[{h:"Article", w:"auto", c:a=>`<div class="art">${thumb(a,40)}<div class="tx"><span class="nm trunc">${a.name}</span><span class="m trunc" style="margin-top:3px">${kind(a,true)}</span></div></div>`}, ...textCols, ...tail]},
+  {id:"B", label:"Three lines",
+   note:"<b>B · Three lines</b> · the Pricelist cell: name / id · division / tags, grey under the name, 48px photo, 84px rows. Same cell on both screens, so an article reads the same everywhere.",
+   h:84,
+   cols:[{h:"Article", w:"auto", c:a=>`<div class="art">${thumb(a,48)}<div class="tx"><span class="nm trunc">${a.name}</span><span class="m trunc" style="margin-top:3px">${a.id} · ${a.div}</span>${a.tags.length?`<span class="m trunc" style="margin-top:2px">${a.tags.join(", ")}</span>`:""}</div></div>`}, ...textCols, ...tail]},
+  {id:"F", label:"All shown", h:84, wrap:true,
+   note:"<b>F · Three lines, all shown</b> · the B cell; Colors and Sizes wrap inside the 84px row and are never cut, a word never splits. Price Range is never cut: one line wide enough for the longest price, or two lines (from / to) so the article gets the room. Only an article with 9–10 colours makes its row taller.",
+   cols:[{h:"Article", w:"auto", c:a=>`<div class="art">${thumb(a,48)}<div class="tx"><span class="nm trunc">${a.name}</span><span class="m trunc" style="margin-top:3px">${a.id} · ${a.div}</span>${a.tags.length?`<span class="m trunc" style="margin-top:2px">${a.tags.join(", ")}</span>`:""}</div></div>`},
+     {h:"Colors", w:[180,150], c:a=>whole(a.colours)},
+     {h:"Sizes", w:[160,130], c:a=>whole(a.sizes)},
+     {h:"Stock", w:[90,90], r:true, c:a=>`<span class="num">${a.stock} pcs</span>`},
+     // one line fits the longest price; two lines put the top of the range under the bottom
+     {h:"Price Range", get w(){ return S.price === "two" ? [132,132] : [210,210] }, r:true, c:a=>S.price === "two" && a.lo !== a.hi ? `<span class="num" style="display:block">${rp(a.lo)}</span><span class="num" style="display:block;margin-top:2px">– ${a.hi.toLocaleString("id-ID")}</span>` : `<span class="num">${price(a)}</span>`},
+     {h:"Status", w:[100,92], c:()=>`<span class="status">Active</span>`}]},
+  {id:"G", label:"Top aligned", star:true, h:0, wrap:true, grid:true,
+   note:"<b>G · Top aligned</b> · F, but every cell starts on the name’s line and every line sits on one 22px grid, so a wrapped colour lines up with the id and tags beside it. 16px of air above and below; Price Range always one line.",
+   cols:[{h:"Article", w:"auto", c:a=>`<div class="art">${thumb(a,48)}<div class="tx"><span class="nm trunc">${a.name}</span><span class="m trunc">${a.id} · ${a.div}</span>${a.tags.length?`<span class="m trunc">${a.tags.join(", ")}</span>`:""}</div></div>`},
+     {h:"Colors", w:[180,150], c:a=>whole(a.colours)},
+     {h:"Sizes", w:[160,130], c:a=>whole(a.sizes)},
+     {h:"Stock", w:[90,90], r:true, c:a=>`<span class="num">${a.stock} pcs</span>`},
+     {h:"Price Range", w:[210,210], r:true, c:a=>`<span class="num">${price(a)}</span>`},
+     {h:"Status", w:[100,92], c:()=>`<span class="status">Active</span>`}]},
+  {id:"H", label:"Size runs", h:0, wrap:true, grid:true,
+   note:"<b>H · Size runs</b> · G, but five or more sizes in a row read as a range (XS–XXL, 28–35); a gap keeps commas (S, L, XL). Sizes stay one line, only a long colour list wraps.",
+   cols:[{h:"Article", w:"auto", c:a=>`<div class="art">${thumb(a,48)}<div class="tx"><span class="nm trunc">${a.name}</span><span class="m trunc">${a.id} · ${a.div}</span>${a.tags.length?`<span class="m trunc">${a.tags.join(", ")}</span>`:""}</div></div>`},
+     {h:"Colors", w:[180,150], c:a=>whole(a.colours)},
+     {h:"Sizes", w:[160,130], c:a=>`<span class="list" title="${a.sizes.join(", ")}">${runs(a.sizes)}</span>`},
+     {h:"Stock", w:[90,90], r:true, c:a=>`<span class="num">${a.stock} pcs</span>`},
+     {h:"Price Range", w:[210,210], r:true, c:a=>`<span class="num">${price(a)}</span>`},
+     {h:"Status", w:[100,92], c:()=>`<span class="status">Active</span>`}]},
+  {id:"C", label:"Id first",
+   note:"<b>C · Id first</b> · the article id gets its own first column like a PO number; then photo, name over “Division · tags”. Good when the team searches and talks by id.",
+   cols:[
+     {h:"Article id", w:[116,108], c:a=>`<span class="idcell">${a.id}</span>`},
+     {h:"Article", w:"auto", c:a=>`<div class="art">${thumb(a,40)}<div class="tx"><span class="nm trunc">${a.name}</span><span class="m trunc" style="margin-top:3px">${kind(a,false)}</span></div></div>`}, ...textCols, ...tail]},
+  {id:"D", label:"One line", h:52,
+   note:"<b>D · One line</b> · 52px rows: small photo, name, then id · division · tags in grey on the same line, cut with … when long. Most articles per screen; tags show only while there is room.",
+   cols:[{h:"Article", w:"auto", c:a=>`<div class="art">${thumb(a,32)}<span class="trunc"><span class="nm">${a.name}</span><span class="m"> &nbsp;${kind(a,true)}</span></span></div>`}, ...textCols, ...tail]},
+  {id:"E", label:"By division",
+   note:"<b>E · By division</b> · rows sit under their division (a grey band with the count), so the cell only carries name / id · tags. Newest first inside each division.",
+   group:true,
+   cols:[{h:"Article", w:"auto", c:a=>`<div class="art">${thumb(a,40)}<div class="tx"><span class="nm trunc">${a.name}</span><span class="m trunc" style="margin-top:3px">${[a.id, a.tags.join(", ")].filter(Boolean).join(" · ")}</span></div></div>`}, ...textCols, ...tail]},
+]
+
+{
+  const g = OPTIONS.find(x => x.id === "G")
+  g.star = false
+  OPTIONS.splice(OPTIONS.indexOf(g) + 2, 0, {...g, id:"I", label:"Clean", star:true, h:98, clean:true,
+    note:"<b>I · Clean</b> · G, tidied to the hub’s design system: one bar (search · Filter, which holds Division, Tag, Color and Size · Columns), sort by a heading; every row three lines tall; Status a green dot and an ink word; “Price range” in sentence case; 16px cell sides; › at the row’s end on hover.",
+    // 16px sides take 4px from each cell: Price range and Colors get them back
+    cols: g.cols.map(c => c.h === "Price Range" ? {...c, h:"Price range", w:[214,214]} : c.h === "Colors" ? {...c, w:[184,152]} : c)})
+}
+const S = {opt:"I", width:1440, lists:"cut", price:"two"}
+try{ Object.assign(S, JSON.parse(localStorage.getItem("art-cell-4") || "{}")) }catch{}
+const save = () => { try{ localStorage.setItem("art-cell-4", JSON.stringify(S)) }catch{} }
+
+function rowsHtml(o){
+  const h = o.wrap || S.lists !== "wrap" ? (o.h ?? 64) : null
+  const tr = (a) => `<tr style="${h && o.id!=="today"?`height:${h}px`:o.id==="today"?"height:62px":""}">${o.cols.map(c=>`<td class="${c.r?"r":""}">${c.c(a)}</td>`).join("")}</tr>`
+  if (!o.group) return ARTS.map(tr).join("")
+  const divs = [...new Set(ARTS.map(a=>a.div))].sort((x,y)=>x.localeCompare(y))
+  return divs.map(d => {
+    const rows = ARTS.filter(a=>a.div===d)
+    return `<tr class="grp"><td colspan="${o.cols.length}">${d} <span class="m" style="font-weight:400;margin-left:6px">${rows.length}</span></td></tr>${rows.map(tr).join("")}`
+  }).join("")
+}
+
+function draw(){
+  LISTS = []
+  const o = OPTIONS.find(x => x.id === S.opt) || OPTIONS[2]
+  const wi = S.width === 1440 ? 0 : 1
+  $("#opts").innerHTML = OPTIONS.map(x => `<button data-o="${x.id}" class="${x.id===o.id?"on":""}">${x.id==="today"?"":`<b>${x.id}</b>`}${x.label}${x.star?'<span class="star">★</span>':""}</button>`).join("")
+  // F never cuts, so its toggle is how the price range reads instead
+  $("#lists").style.display = o.grid ? "none" : ""
+  $("#lists").innerHTML = o.wrap
+    ? [["one","Price 1 line"],["two","Price 2 lines"]].map(([k,l]) => `<button data-pr="${k}" class="${k===S.price?"on":""}">${l}</button>`).join("")
+    : [["cut","Cut +N"],["wrap","Wrap"]].map(([k,l]) => `<button data-li="${k}" class="${k===S.lists?"on":""}">${l}</button>`).join("")
+  $("#widths").innerHTML = [1440,1280].map(w => `<button data-w="${w}" class="${w===S.width?"on":""}">${w}</button>`).join("")
+  $("#note").innerHTML = o.note
+  const colours = new Set(ARTS.flatMap(a=>a.colours)), sizes = new Set(ARTS.flatMap(a=>a.sizes))
+  const soldOut = ARTS.filter(a=>a.stock===0).length
+  const chev = '<svg class="i" style="width:15px;height:15px;color:var(--mute)" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>'
+  $("#page").innerHTML = `
+    <div class="figs">${[["Articles",ARTS.length],["Divisions",new Set(ARTS.map(a=>a.div)).size],["Colors",colours.size],["Sizes",sizes.size]].map(f=>`<div class="fig"><div class="l">${f[0]}</div><div class="v">${f[1]}</div></div>`).join("")}</div>
+    <div class="tabs"><button class="tab on">Active<span class="c">${ARTS.length}</span></button><button class="tab">Sold out<span class="c">${soldOut}</span></button><button class="tab">Inactive<span class="c">0</span></button></div>
+${o.clean ? cleanBar() : `    <div class="bar"><div class="search"><svg class="i" style="width:16px;height:16px" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>Search Articles</div>${["Division","Tag","Color","Size"].map(s=>`<div class="sel">${s}${chev}</div>`).join("")}</div>
+    <div class="bar2"><button class="ghost" style="color:var(--body)"><svg class="i" style="width:16px;height:16px" viewBox="0 0 24 24"><path d="M7 4v16M3 8l4-4 4 4M17 20V4M13 16l4 4 4-4"/></svg>${o.group?"Division, newest first":"Newest first"}</button><button class="ghost" style="border:1px solid var(--hairline-2)"><svg class="i" style="width:16px;height:16px" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M10 4v16M15 4v16"/></svg>Columns</button></div>`}
+    <div class="tbox">
+      <table class="lists-${lists(o)} ${o.grid?"grid":""} ${o.clean?"clean":""}">
+        <colgroup>${o.cols.map(c=>`<col style="width:${c.w==="auto"?"":c.w[wi]+"px"}">`).join("")}</colgroup>
+        <thead><tr>${o.cols.map(c=>`<th class="${c.r?"r":""}">${c.h}</th>`).join("")}</tr></thead>
+        <tbody>${rowsHtml(o)}</tbody>
+      </table>
+    </div>`
+  fit()
+  if (lists(o) === "cut") cutLists()
+}
+// one Toolbar: search, Filter (the four facets live in its panel), then Columns at the right
+function cleanBar(){
+  const ico = (d) => `<svg class="i" style="width:16px;height:16px" viewBox="0 0 24 24">${d}</svg>`
+  return `<div class="bar" style="position:relative;margin-bottom:12px">
+    <div class="search" style="width:280px">${ico('<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>')}Search articles</div>
+    <button class="gb" data-fp>${ico('<path d="M4 6h16M7 12h10M10 18h4"/>')}Filter</button>
+    <div style="flex:1"></div>
+    <button class="gb">${ico('<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M10 4v16M15 4v16"/>')}Columns</button>
+    <div class="fpanel" id="fpanel">${["Division","Tag","Color","Size"].map(f=>`<div class="fr">${f}<span>Any</span></div>`).join("")}</div>
+  </div>`
+}
+const lists = (o) => o.wrap ? "wrap" : S.lists
+
+// "Black, White, Navy +3": as many words as the column holds, then how many more
+function cutLists(){
+  document.querySelectorAll(".list").forEach(el => {
+    const items = LISTS[+el.dataset.l]
+    for (let k = items.length; k >= 1; k--) {
+      el.innerHTML = items.slice(0,k).join(", ") + (k < items.length ? ` <span class="m">+${items.length-k}</span>` : "")
+      if (el.scrollWidth <= el.clientWidth + 0.5) return
+    }
+  })
+}
+function fit(){
+  const app = $("#app"), wrap = $("#stagewrap")
+  document.documentElement.style.setProperty("--nh", $("#note").offsetHeight + "px")
+  app.style.width = S.width + "px"
+  const z = Math.min(1, wrap.clientWidth / S.width)
+  app.style.zoom = z
+  app.style.height = (wrap.clientHeight / z) + "px"
+}
+document.addEventListener("click", (e) => {
+  const fp = $("#fpanel")
+  if (e.target.closest("[data-fp]")) { fp.classList.toggle("open"); return }
+  if (fp && !e.target.closest("#fpanel")) fp.classList.remove("open")
+  const t = e.target.closest("[data-o],[data-w],[data-li],[data-pr]")
+  if (!t) return
+  if (t.dataset.o) S.opt = t.dataset.o
+  if (t.dataset.w) S.width = +t.dataset.w
+  if (t.dataset.li) S.lists = t.dataset.li
+  if (t.dataset.pr) S.price = t.dataset.pr
+  save(); draw()
+})
+addEventListener("resize", () => { fit(); draw() })
+document.fonts?.ready.then(draw)
+draw()
+</script>
+</body>
+</html>

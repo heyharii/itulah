@@ -31,6 +31,7 @@ use axum::{
     body::Bytes,
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
     Extension, Json,
 };
 
@@ -150,17 +151,21 @@ pub async fn install_server(
 /// `POST /api/v1/stores/{unit}/server/disconnect`: disconnect the machine that
 /// serves the store — its key stops working, the store's server goes back to
 /// not installed — and answer with a fresh install code for the next one,
-/// exactly what `install` answers.
+/// exactly what `install` answers. A removed store's server is let go for
+/// good: `204`, and no code, since nothing is installed there again.
 pub async fn disconnect_server(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
     Path(unit): Path<String>,
-) -> Result<(StatusCode, Json<infrastructure::StoreServerInstall>), AppError> {
+) -> Result<Response, AppError> {
     require_admin(&principal, "disconnect a store's server")?;
     let issued =
         infrastructure::disconnect_store_server(&state.db, unit.trim(), &principal.username)
             .await?;
-    Ok((StatusCode::CREATED, Json(issued)))
+    Ok(match issued {
+        Some(issued) => (StatusCode::CREATED, Json(issued)).into_response(),
+        None => StatusCode::NO_CONTENT.into_response(),
+    })
 }
 
 // ---- The Actions menu (remote actions, 28 Sep 2026) ---------------------------
@@ -303,4 +308,100 @@ pub async fn test_print(
         infrastructure::request_test_print(&state.db, device_id.trim(), &principal.username)
             .await?;
     Ok((StatusCode::ACCEPTED, Json(requested)))
+}
+
+// ── head office stops a till, a cashier or the store (0990) ─────────────
+
+/// `GET /api/v1/stores/{unit}/pos`: the store's Tills tab — its tills, each
+/// with the drawer open at it, and the people who sign in at them.
+pub async fn pos(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(unit): Path<String>,
+) -> Result<Json<infrastructure::StorePos>, AppError> {
+    let unit = unit.trim();
+    if !reach_of(&state, &principal).await?.covers(unit) {
+        return Err(AppError::Forbidden(format!(
+            "{} may read only the store they are posted to",
+            principal.username
+        )));
+    }
+    Ok(Json(
+        infrastructure::store_pos(&state.db, unit, may_manage(&principal)).await?,
+    ))
+}
+
+/// `POST /api/v1/stores/{unit}/stop`, with `{reason}`: the store's tills
+/// stop selling and open no shift. Answers the store's page.
+pub async fn stop(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(unit): Path<String>,
+    Json(request): Json<infrastructure::PosStopRequest>,
+) -> Result<Json<infrastructure::StoreDetail>, AppError> {
+    require_admin(&principal, "stop a store")?;
+    let unit = unit.trim();
+    infrastructure::stop_store(&state.db, unit, request, &principal.username).await?;
+    Ok(Json(
+        infrastructure::store_detail(&state.db, unit, true).await?,
+    ))
+}
+
+/// `POST /api/v1/stores/{unit}/resume`: a stopped store trades again.
+pub async fn resume(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(unit): Path<String>,
+) -> Result<Json<infrastructure::StoreDetail>, AppError> {
+    require_admin(&principal, "resume a store")?;
+    let unit = unit.trim();
+    infrastructure::resume_store(&state.db, unit, &principal.username).await?;
+    Ok(Json(
+        infrastructure::store_detail(&state.db, unit, true).await?,
+    ))
+}
+
+/// `POST /api/v1/stores/{unit}/remove`, with `{code}`: a stopped store that
+/// closed for good leaves the active lists. Its history stays.
+pub async fn remove(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(unit): Path<String>,
+    Json(request): Json<infrastructure::RemoveStoreRequest>,
+) -> Result<Json<infrastructure::StoreDetail>, AppError> {
+    require_admin(&principal, "remove a store")?;
+    let unit = unit.trim();
+    infrastructure::remove_store(&state.db, unit, request, &principal.username).await?;
+    Ok(Json(
+        infrastructure::store_detail(&state.db, unit, true).await?,
+    ))
+}
+
+/// `POST /api/v1/stores/{unit}/cashiers/{user_id}/stop`, with `{reason}`:
+/// the person may not sell or open a shift at any store. Answers the store's
+/// Tills tab.
+pub async fn stop_cashier(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path((unit, user_id)): Path<(String, uuid::Uuid)>,
+    Json(request): Json<infrastructure::PosStopRequest>,
+) -> Result<Json<infrastructure::StorePos>, AppError> {
+    require_admin(&principal, "stop a person on the POS")?;
+    infrastructure::stop_cashier(&state.db, user_id, request, &principal.username).await?;
+    Ok(Json(
+        infrastructure::store_pos(&state.db, unit.trim(), true).await?,
+    ))
+}
+
+/// `POST /api/v1/stores/{unit}/cashiers/{user_id}/resume`.
+pub async fn resume_cashier(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path((unit, user_id)): Path<(String, uuid::Uuid)>,
+) -> Result<Json<infrastructure::StorePos>, AppError> {
+    require_admin(&principal, "resume a person on the POS")?;
+    infrastructure::resume_cashier(&state.db, user_id, &principal.username).await?;
+    Ok(Json(
+        infrastructure::store_pos(&state.db, unit.trim(), true).await?,
+    ))
 }

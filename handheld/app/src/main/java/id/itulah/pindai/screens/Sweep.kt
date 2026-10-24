@@ -11,9 +11,14 @@ import id.itulah.pindai.core.Sounder
 import id.itulah.pindai.core.Barcode
 import id.itulah.pindai.core.Label
 import id.itulah.pindai.core.skuDisplay
+import id.itulah.pindai.core.FrameStats
 import id.itulah.pindai.core.Gen2State
+import id.itulah.pindai.core.Knobs
 import id.itulah.pindai.core.Lab
+import id.itulah.pindai.core.RestReadout
+import id.itulah.pindai.core.RssiWindow
 import id.itulah.pindai.core.ScanMetrics
+import id.itulah.pindai.core.StartMode
 import id.itulah.pindai.core.Tid
 import id.itulah.pindai.BuildConfig
 import id.itulah.pindai.data.Api
@@ -127,6 +132,30 @@ data class InboundState(
     /** The lorry arrived before its announcement; received the old way. */
     val unannounced: Boolean = false,
     val receipt: InboundReceipt? = null,
+)
+
+/**
+ * The Lab's view of the vendor SDK's knobs. Bench builds only: a release never
+ * reaches any of it, and nothing here is saved.
+ */
+data class KnobState(
+    /** How the next round starts. See [StartMode]. */
+    val startMode: StartMode = StartMode.NORMAL,
+    /** What the frames of the last round carried, taken when it stopped. */
+    val frames: FrameStats? = null,
+    /** The last stop's okcnt against those frames, from this app's own log. */
+    val drops: String? = null,
+    val readout: RestReadout? = null,
+    /** The last mid-sweep power test, one line per window. */
+    val dynamic: List<String> = emptyList(),
+    /** The last raw power write, in a line. */
+    val raw: String? = null,
+    val ignorePowerOff: Boolean = false,
+    val powerOffReceiver: Boolean? = null,
+    /** An experiment is under way; the knobs wait for it. */
+    val running: Boolean = false,
+    /** What the last experiment said when it could not run, or how a re-open went. */
+    val note: String? = null,
 )
 
 data class SweepState(
@@ -257,6 +286,8 @@ data class SweepState(
     /** DC or shop. Decides what Receive means; see [isStoreReceiving]. */
     val nodeRole: NodeRole = NodeRole.UNKNOWN,
     val inbound: InboundState = InboundState(),
+    /** The Lab's SDK knobs. Bench only. */
+    val knobs: KnobState = KnobState(),
 ) {
     /**
      * Receive, on a shop: against an announced delivery, blind.
@@ -503,7 +534,6 @@ class SweepViewModel(
                 if (state.value.sweeping || state.value.starting) return@withLock
                 withContext(Dispatchers.IO) {
                     runCatching {
-                        val saved = settings()
                         // Load the clip while the operator is still walking to
                         // the rack, not on the first read.
                         appContext?.let { sounder.prepare(it) }
@@ -521,14 +551,7 @@ class SweepViewModel(
                         // open applies it whoever makes it — the activity, this,
                         // or the first pull — and so does every re-open after.
                         // See [Reader.useProfile].
-                        reader.useProfile(
-                            rfLink = saved.rfLink,
-                            target = RadioProfile.TARGET,
-                            tagFocus = saved.tagFocus,
-                            fastId = RadioProfile.FAST_ID,
-                            session = saved.gen2Session,
-                        )
-                        saved.readerPower.takeIf { it > 0 }?.let { reader.setPower(it) }
+                        reader.useProductionRecipe()
                         reader.init(appContext!!)
                     }
                 }.onSuccess { version ->
@@ -1223,7 +1246,6 @@ class SweepViewModel(
                         // Choose the power BEFORE the module opens, so init
                         // applies it once: a setPower issued to an already-open
                         // module reports success while the antenna goes silent.
-                        settings().readerPower.takeIf { it > 0 }?.let { reader.setPower(it) }
                         // Timed and shown, because "the reader is slow to wake"
                         // is a complaint nobody can act on and "1 400 ms" is.
                         // The cost is the vendor UART opening, not this app.
@@ -1233,8 +1255,13 @@ class SweepViewModel(
                         engine.start()
                         // TID rides along when FastID is on, which is how the
                         // chip identifies itself without a second read.
-                        val started = reader.start(withTid = state.value.gen2.fastId) { epc, rssi, tid ->
-                            engine.offer(epc, rssi, tid)
+                        val started = try {
+                            reader.start(withTid = state.value.gen2.fastId) { epc, rssi, tid ->
+                                engine.offer(epc, rssi, tid)
+                            }
+                        } catch (failure: Exception) {
+                            engine.stop()
+                            throw failure
                         }
                         if (!started) {
                             engine.stop()
@@ -1369,6 +1396,13 @@ class SweepViewModel(
                             gaps = engine.gaps(),
                             foreignSample = foreignSample,
                             epcShapes = shapes,
+                            // What the frames of this round carried, for the
+                            // Lab: a read of a few counters, bench builds only.
+                            knobs = if (BuildConfig.BENCH) {
+                                it.knobs.copy(frames = reader.frameStats(), drops = null)
+                            } else {
+                                it.knobs
+                            },
                             lines = rows, resultReady = true,
                             history = history,
                             // Straight into what was just counted. The question in
@@ -1519,7 +1553,8 @@ class SweepViewModel(
                     lab.log("  power now ${got} dBm (asked $arg), rfLink=${reader.rfLink()}")
                 }
                 "freq" -> {
-                    lab.log("  frequencyMode=${withContext(Dispatchers.IO) { reader.frequencyMode() }} (vendor number, unmapped)")
+                    val code = withContext(Dispatchers.IO) { reader.frequencyMode() }
+                    lab.log("  frequencyMode=$code — ${Knobs.regionName(code)}")
                 }
                 "epcs" -> {
                     // The EPC list itself, so two sweeps can be intersected by
@@ -1619,13 +1654,279 @@ class SweepViewModel(
                             .substringAfter("queryTarget=").substringBefore(","))
                     lab.log("  " + withContext(Dispatchers.IO) { reader.gen2Dump() })
                 }
+                "recipe" -> {
+                    runCatching {
+                        withContext(Dispatchers.IO) {
+                            reader.useProductionRecipe()
+                            reader.init(appContext!!)
+                            reader.recipeReadback()
+                        }
+                    }.onSuccess { lab.log("  $it") }
+                        .onFailure { lab.log("  recipe refused: ${it.message}") }
+                }
                 "calls" -> reader.calls().takeLast(10).forEach { lab.log("  $it") }
                 "marry" -> { marryDetectedTags(); lab.log("  marrying") }
                 "forget" -> { divorceTags(); lab.log("  forgetting") }
+                // The SDK knobs, the same experiments the Lab screen's knob
+                // cards run by hand. Each writes down what the module answered.
+                "startmode" -> {
+                    val mode = when (arg.lowercase()) {
+                        "phase" -> StartMode.PHASE
+                        "freq", "frequency" -> StartMode.FREQUENCY
+                        else -> StartMode.NORMAL
+                    }
+                    lab.log("  " + knobStartMode(mode))
+                }
+                "frames" -> lab.log("  " + framesLine(reader.frameStats()))
+                "drops" -> lab.log("  " + knobDrops())
+                "dynpower" -> knobDynamic(arg.toIntOrNull() ?: DYNAMIC_TEST_DBM).forEach { lab.log("  $it") }
+                "knobs" -> lab.log("  " + knobReadout())
+                "rawpower" -> lab.log(
+                    "  " + (arg.toIntOrNull()?.let { knobRawPower(it) } ?: "rawpower needs a figure in dBm"),
+                )
+                "reopen" -> lab.log("  " + knobReopen())
+                "poweroff" -> lab.log("  " + knobIgnorePowerOff(arg.equals("ignore", true)))
                 else -> lab.log("  unknown command")
             }
         }
     }
+
+    // ---------------------------------------------------- SDK knobs (bench)
+    //
+    // The Lab's handles on what reverse engineering found in the vendor SDK.
+    // Bench builds only — [knob] is the door, and a release never opens it.
+    // Each is a question for the bench, not a setting for the floor: nothing
+    // here is saved, and the floor's radio profile is never touched.
+
+    fun setStartMode(mode: StartMode) = knob { knobStartMode(mode) }
+    fun dynamicPowerTest(dbm: Int) = knob { knobDynamic(dbm) }
+    fun countDrops() = knob { knobDrops() }
+    fun readModule() = knob { knobReadout() }
+    fun rawPower(dbm: Int) = knob { knobRawPower(dbm) }
+    fun reopenReader() = knob { knobReopen() }
+    fun setIgnorePowerOff(on: Boolean) = knob { knobIgnorePowerOff(on) }
+
+    private fun knob(action: suspend () -> Any) {
+        if (!BuildConfig.BENCH) return
+        viewModelScope.launch { action() }
+    }
+
+    /**
+     * How the next round starts. Refused while one runs: the frame is sent at
+     * the start, and a round's figures must belong to one frame.
+     */
+    private suspend fun knobStartMode(mode: StartMode): String = operationMutex.withLock {
+        if (liveRound()) return@withLock REST_ONLY
+        reader.startMode = mode
+        update { it.copy(knobs = it.knobs.copy(startMode = mode, note = null)) }
+        "next start sends ${mode.frame}"
+    }
+
+    /**
+     * The last stop's okcnt, read from this app's own log, against the frames
+     * this app was handed: the difference is what the SDK took in and dropped.
+     */
+    private suspend fun knobDrops(): String {
+        val counts = withContext(Dispatchers.IO) { reader.lastStopCounts() }
+        val frames = state.value.knobs.frames?.frames
+        val line = counts?.let { (ok, got) ->
+            "okcnt $ok · GetTagCount $got" +
+                (frames?.let { " · dropped ≈ ${Knobs.dropped(ok, it)}" } ?: "")
+        } ?: "no UHF_StopGet line in this app's log"
+        update { it.copy(knobs = it.knobs.copy(drops = line)) }
+        return line
+    }
+
+    /**
+     * Change the power mid-sweep without the re-open, and listen either side.
+     *
+     * Holds the radio's lock and marks the screen busy for the seven seconds it
+     * takes, so neither the trigger nor a power change lands in the middle.
+     */
+    private suspend fun knobDynamic(dbm: Int): List<String> = operationMutex.withLock {
+        val s = state.value
+        if (!s.sweeping || s.busy) {
+            val why = listOf("start a sweep first")
+            update { it.copy(knobs = it.knobs.copy(dynamic = why)) }
+            return@withLock why
+        }
+        update { it.copy(busy = true, knobs = it.knobs.copy(running = true)) }
+        val lines = withContext(Dispatchers.IO) {
+            runCatching { measureDynamic(dbm) }
+                .getOrElse { listOf("THREW " + (it.message ?: it::class.java.simpleName)) }
+        }
+        update {
+            it.copy(
+                busy = false, sdkCalls = reader.calls(),
+                knobs = it.knobs.copy(running = false, dynamic = lines),
+            )
+        }
+        lines
+    }
+
+    /**
+     * Three windows: before, after `setDynamicDistance`, and after putting the
+     * figure back the same way.
+     *
+     * One tag is compared across them — the one heard most before the change —
+     * because a mean over every tag RISES when the power falls: the weak tags
+     * leave the field first. Blocking: IO.
+     */
+    private fun measureDynamic(dbm: Int): List<String> {
+        val was = reader.rawPowerInForce().takeIf { it > 0 } ?: reader.power()
+        val target = dbm.coerceIn(Reader.MIN_POWER, Reader.MAX_POWER)
+        val before = reader.listen(KNOB_WINDOW_MS)
+        val tag = before.busiest()
+        val sent = reader.setDynamicPower(target)
+        Thread.sleep(KNOB_SETTLE_MS)
+        val after = reader.listen(KNOB_WINDOW_MS)
+        val lines = mutableListOf(
+            windowLine("before", was, before, tag, null),
+            windowLine("after", target, after, tag, before) + if (sent) "" else " · not sent",
+        )
+        if (sent && was > 0) {
+            val back = reader.setDynamicPower(was)
+            Thread.sleep(KNOB_SETTLE_MS)
+            lines += windowLine("back", was, reader.listen(KNOB_WINDOW_MS), tag, before) +
+                if (back) "" else " · not sent"
+        } else {
+            lines += "not put back · re-open before measuring anything else"
+        }
+        return lines
+    }
+
+    /** One window in a line: the power, the reads, their mean, and the compared tag against [base]. */
+    private fun windowLine(name: String, dbm: Int, window: RssiWindow, tag: String?, base: RssiWindow?): String {
+        val power = if (dbm > 0) "$dbm dBm" else "? dBm"
+        if (window.reads() == 0) return "$name · $power · no reads"
+        val all = "$name · $power · ${window.reads()} reads · " + "%.1f dBm".format(window.mean())
+        if (tag == null) return all
+        val reads = window.readsOf(tag)
+        if (reads == 0) return "$all · …${tag.takeLast(4)} gone"
+        val mean = window.meanOf(tag)
+        val delta = base?.meanOf(tag)?.takeIf { !it.isNaN() }?.let { " · Δ " + "%+.1f".format(mean - it) }
+        return "$all · …${tag.takeLast(4)} " + "%.1f (%d)".format(mean, reads) + delta.orEmpty()
+    }
+
+    /** The module asked at rest: region, fast inventory, duty cycle, temperature, hardware, power. */
+    private suspend fun knobReadout(): String = operationMutex.withLock {
+        if (liveRound()) return@withLock REST_ONLY
+        knobRunning()
+        val got = withContext(Dispatchers.IO) { runCatching { openAtRest(); reader.readAtRest() } }
+        val readout = got.getOrNull()
+        update {
+            it.copy(
+                sdkCalls = reader.calls(),
+                knobs = it.knobs.copy(
+                    running = false,
+                    readout = readout ?: it.knobs.readout,
+                    powerOffReceiver = readout?.powerOffReceiver ?: it.knobs.powerOffReceiver,
+                    note = got.exceptionOrNull()?.let { e -> e.message ?: "refused" },
+                ),
+            )
+        }
+        readout?.let { describe(it) } ?: (got.exceptionOrNull()?.message ?: "refused")
+    }
+
+    /**
+     * Write the power raw with option byte 00, at rest. See [Reader.rawPower]:
+     * status 01 says the module took it, and only a sweep says it radiates.
+     */
+    private suspend fun knobRawPower(dbm: Int): String = operationMutex.withLock {
+        if (liveRound()) return@withLock REST_ONLY
+        knobRunning()
+        val got = withContext(Dispatchers.IO) { runCatching { openAtRest(); reader.rawPower(dbm) } }
+        val line = got.fold(
+            { raw ->
+                raw.frame + " → " + when (raw.status) {
+                    1 -> "status 01, taken"
+                    -1 -> "no reply (${raw.code})"
+                    else -> "status %02X".format(raw.status)
+                } + " · reads back ${raw.readBack} dBm"
+            },
+            { it.message ?: "refused" },
+        )
+        update { it.copy(sdkCalls = reader.calls(), knobs = it.knobs.copy(running = false, raw = line)) }
+        line
+    }
+
+    /** Close and open the module again — a cold boot at the chosen power — and time it. */
+    private suspend fun knobReopen(): String = operationMutex.withLock {
+        if (liveRound()) return@withLock REST_ONLY
+        knobRunning()
+        val got = withContext(Dispatchers.IO) {
+            runCatching {
+                val began = System.currentTimeMillis()
+                reader.reopen()
+                (System.currentTimeMillis() - began) to reader.power()
+            }
+        }
+        val line = got.fold(
+            { (ms, dbm) -> "re-opened in $ms ms · module reports $dbm dBm" },
+            { it.message ?: "the reader did not open" },
+        )
+        val dbm = got.getOrNull()?.second ?: -1
+        update {
+            it.copy(
+                sdkCalls = reader.calls(),
+                readerPower = if (dbm > 0) dbm else it.readerPower,
+                powerFromModule = it.powerFromModule || dbm > 0,
+                knobs = it.knobs.copy(
+                    running = false, raw = null, note = line,
+                    powerOffReceiver = reader.powerOffReceiverRegistered(),
+                ),
+            )
+        }
+        line
+    }
+
+    /** Keep the module, or let the SDK give it up, when another app broadcasts UHF_POWER_OFF. */
+    private suspend fun knobIgnorePowerOff(on: Boolean): String = operationMutex.withLock {
+        val registered = withContext(Dispatchers.IO) { reader.setIgnorePowerOff(on) }
+        update {
+            it.copy(
+                sdkCalls = reader.calls(),
+                knobs = it.knobs.copy(ignorePowerOff = on, powerOffReceiver = registered),
+            )
+        }
+        "UHF_POWER_OFF " + (if (on) "ignored" else "obeyed") + " · receiver " + when (registered) {
+            true -> "registered"
+            false -> "unregistered"
+            null -> "unknown"
+        }
+    }
+
+    /**
+     * A round is live, starting or being moved — and the Lab is told so. Call
+     * with [operationMutex] held, where the answer cannot change underneath.
+     */
+    private fun liveRound(): Boolean {
+        val s = state.value
+        val live = s.sweeping || s.starting || s.busy
+        if (live) update { it.copy(knobs = it.knobs.copy(note = REST_ONLY)) }
+        return live
+    }
+
+    private fun knobRunning() = update { it.copy(knobs = it.knobs.copy(running = true, note = null)) }
+
+    /**
+     * The module open, at the floor's power, for an experiment at rest. Opening
+     * is not sweeping: nothing radiates. Blocking: IO.
+     */
+    private fun openAtRest() {
+        settings().readerPower.takeIf { it > 0 }?.let { reader.setPower(it) }
+        reader.init(appContext!!)
+    }
+
+    private fun describe(r: RestReadout): String =
+        "region ${Knobs.regionName(r.region)} · fastInventory ${r.fastInventory ?: "?"}" +
+            " · pwm status ${r.pwmStatus} work ${r.pwmWorkMs} wait ${r.pwmWaitMs}" +
+            " · ${r.temperature} °C · hw ${r.hardware ?: "?"} · power ${r.power}" +
+            " · receiver ${r.powerOffReceiver ?: "?"}"
+
+    private fun framesLine(f: FrameStats): String =
+        "${f.mode.frame} frames=${f.frames} stronger=${f.strong} extras=${f.extras}" +
+            " phase=${f.lastPhase} freq=${f.lastFrequencyMhz}"
 
     /** The history list, read fresh. */
     fun loadHistory() {
@@ -2706,6 +3007,7 @@ class SweepViewModel(
      * figure and applies it the next time the module opens.
      */
     fun setPower(dbm: Int) {
+        if (!BuildConfig.BENCH) return
         if (state.value.busy) return
         val target = dbm.coerceIn(Reader.MIN_POWER, Reader.MAX_POWER)
         if (target == state.value.readerPower) return
@@ -2827,7 +3129,6 @@ class SweepViewModel(
                     runCatching {
                         // The saved choice first, so the open applies it: a
                         // setPower to an open module is not radiated.
-                        settings().readerPower.takeIf { it > 0 }?.let { reader.setPower(it) }
                         reader.init(appContext!!)
                         reader.power()
                     }
@@ -2970,6 +3271,19 @@ class SweepViewModel(
 
         /** Enough unnamed EPCs to see a pattern, few enough to read. */
         private const val FOREIGN_SAMPLE = 4
+
+        /**
+         * One listening window of the mid-sweep power test, and the pause after
+         * each change before the next window opens.
+         */
+        private const val KNOB_WINDOW_MS = 2_000L
+        private const val KNOB_SETTLE_MS = 300L
+
+        /** What the Lab file's `dynpower` tries when it names no figure. */
+        private const val DYNAMIC_TEST_DBM = 20
+
+        /** Why an at-rest experiment did not run. */
+        private const val REST_ONLY = "stop the sweep first"
 
         /** Set once by the activity; the reader needs a Context to open the UART. */
         @Volatile var appContext: android.content.Context? = null

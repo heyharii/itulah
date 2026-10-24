@@ -1,0 +1,533 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Assets options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+/* GA › Assets — tidier options of the register (17 Oct).
+   Measured on hub :5350 at 1440×900; tokens from frontend-hub/design-system/tokens.json.
+   The list format is Procurement › Purchase Orders (ListPage card). */
+:root{
+  --ink:#1d1d1f; --body:#6e6e73; --faint:#c7c7cc; --line-ico:#8e8e93; --crumb:#aeaeb2;
+  --soft:#fafafb; --soft-2:#f2f2f5; --band:#fafafb; --seg:#f2f2f4; --stone:#e8ebf0;
+  --hairline:#e8e8ec; --hairline-2:#dcdce1; --row-line:#eeeef1;
+  --accent:#2862dc; --accent-bg:#eef3fc; --cta-hover:#2055c7;
+  --warn:#c9892e; --warn-fg:#a66c1f; --bad:#d70015; --bad-fg:#d70015;
+  --panel-ink:#1d2939; --panel-body:#344054; --panel-hover:#f2f4f7; --rail-text:#344054;
+  --ease-out:cubic-bezier(.23,1,.32,1);
+  --shadow-page:0 0 0 1px rgba(0,0,0,.05),0 2px 8px rgba(0,0,0,.04),0 24px 72px rgba(0,0,0,.08);
+  --shadow-panel:0 0 0 1px rgba(0,0,0,.05),0 2px 6px rgba(0,0,0,.04);
+  --shadow-pop:0 0 0 1px var(--hairline),0 4px 8px rgba(24,39,60,.04),0 12px 32px rgba(24,39,60,.08);
+  --font:"Inter",system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font-family:var(--font);font-size:15px;line-height:22px;color:var(--ink);background:#d9dbe0;letter-spacing:-.006em;-webkit-font-smoothing:antialiased;overflow:hidden}
+button,input{font:inherit;color:inherit;background:none;border:0;padding:0;margin:0;letter-spacing:inherit}
+button{cursor:pointer}
+.i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+
+/* prototype chrome */
+.proto{height:50px;overflow-x:auto;background:#141518;color:#fff;display:flex;align-items:center;gap:12px;padding:0 14px 0 18px}
+.proto .t{font-weight:600;white-space:nowrap}
+.seg{display:flex;gap:2px;background:#24262b;border-radius:9px;padding:3px}
+.seg button{height:32px;padding:0 11px;border-radius:7px;color:#b9bcc3;white-space:nowrap;transition:background-color .15s ease,color .15s ease,transform .12s var(--ease-out)}
+.seg button:active{transform:scale(.97)}
+.seg button b{font-weight:600;color:#fff;margin-right:5px}
+.seg button.on{background:#fff;color:var(--ink)} .seg button.on b{color:var(--ink)}
+.seg .star{color:#f4b740;margin-left:4px}
+.proto .sp{flex:1}
+.note{min-height:36px;background:#1c1e22;color:#a7abb3;line-height:24px;padding:6px 18px;border-top:1px solid #26282d}
+.note b{color:#fff;font-weight:500}
+.stagewrap{height:calc(100vh - 50px - var(--nh,36px));overflow:hidden;display:flex;justify-content:center}
+
+/* hub shell (measured: stone ground, 68 rail, 216 panel, page floats 12 off) */
+.app{height:100%;display:flex;background:var(--stone);padding:12px 12px 12px 0;flex:none}
+.rail{width:68px;flex:none;display:flex;flex-direction:column;align-items:center;gap:4px;padding-top:2px}
+.rail .ri{width:40px;height:40px;border-radius:10px;display:grid;place-items:center;color:var(--rail-text)}
+.rail .ri .i{width:18px;height:18px}
+.rail .ri.on{background:#fff;color:var(--accent);box-shadow:0 0 0 1px rgba(16,24,40,.07),0 1px 2px rgba(16,24,40,.08)}
+.rail .av{margin-top:auto;width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#e8def4,#f8dde8);display:grid;place-items:center;font-weight:600;color:#5a3ca6;margin-bottom:6px}
+.panel{width:216px;flex:none;background:#fff;border-radius:16px;box-shadow:var(--shadow-panel);display:flex;flex-direction:column;margin-right:12px}
+.panel h2{margin:0;height:56px;display:flex;align-items:center;justify-content:space-between;padding:0 14px 0 18px;font-size:17px;font-weight:600;color:var(--panel-ink)}
+.panel h2 .i{color:var(--line-ico)}
+.nav{padding:0 10px;display:flex;flex-direction:column;gap:2px}
+.nav .nr{height:36px;display:flex;align-items:center;padding:0 10px;border-radius:8px;color:var(--panel-body)}
+.nav .nr.on{background:var(--accent-bg);color:var(--accent);font-weight:600}
+.nav hr{border:0;border-top:1px solid var(--hairline);margin:6px 10px}
+.panel .clock{margin-top:auto;height:52px;display:flex;align-items:center;gap:8px;padding:0 18px;color:var(--panel-body);border-top:1px solid var(--hairline)}
+.main{flex:1;min-width:0;background:#fff;border-radius:16px;box-shadow:var(--shadow-page);overflow-y:auto;overflow-x:hidden;position:relative}
+
+/* page head */
+.ph{position:sticky;top:0;z-index:6;background:#fff;height:77px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 28px 0;border-bottom:1px solid var(--hairline)}
+.ph h1{margin:0;font-size:17px;line-height:24px;font-weight:600}
+.ph .acts{display:flex;align-items:center;gap:8px}
+.btn{height:36px;display:inline-flex;align-items:center;gap:6px;padding:0 14px 0 11px;border-radius:8px;background:var(--accent);color:#fff;font-weight:500;white-space:nowrap;box-shadow:0 1px 2px rgba(20,50,100,.1);transition:background-color .12s ease,transform .12s var(--ease-out)}
+.btn:active{transform:scale(.97)}
+@media (hover:hover){.btn:hover{background:var(--cta-hover)}}
+.body{padding:24px 28px 40px}
+
+/* figures */
+.kpis{display:flex;margin-bottom:32px}
+.kpi{padding:0 24px;border-left:1px solid var(--hairline);text-align:left;white-space:nowrap}
+.kpi:first-child{padding-left:0;border-left:0}
+.kpi .l{color:var(--body);line-height:20px;transition:color .12s ease}
+.kpi .v{display:block;font-size:16px;font-weight:600;line-height:24px;margin-top:4px;font-variant-numeric:tabular-nums}
+.kpi .v.bad{color:var(--bad-fg)}
+button.kpi .l{text-decoration:underline dotted transparent;text-underline-offset:4px}
+@media (hover:hover){button.kpi:hover .l{color:var(--ink);text-decoration-color:var(--faint)}}
+.kpi.on .l,.kpi.on .v{color:var(--accent)}
+
+/* tabs */
+.tabs{display:flex;gap:20px;border-bottom:1px solid var(--hairline)}
+.tab{position:relative;padding:8px 0 10px;font-weight:500;color:var(--body);white-space:nowrap;display:inline-flex;align-items:center;transition:color .12s ease}
+.tab .c{margin-left:6px;color:var(--body);font-weight:400;font-variant-numeric:tabular-nums}
+.tab.on{color:var(--ink)}
+.tab.on::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;border-radius:2px;background:var(--ink)}
+@media (hover:hover){.tab:hover{color:var(--ink)}}
+.tab .i{width:15px;height:15px;margin-left:4px;color:var(--line-ico)}
+
+/* bar */
+.bar{display:flex;align-items:center;gap:8px;margin:16px 0 12px}
+.search{width:280px;height:36px;border:1px solid var(--hairline-2);border-radius:8px;display:flex;align-items:center;gap:8px;padding:0 10px;color:var(--line-ico);transition:border-color .12s ease,box-shadow .12s ease}
+.search:focus-within{border-color:var(--accent);box-shadow:0 0 0 2px rgba(40,98,220,.12)}
+.search input{flex:1;min-width:0;outline:0;color:var(--ink);height:34px}
+.search input::placeholder{color:var(--line-ico)}
+.mw{position:relative}
+.mb{height:36px;display:inline-flex;align-items:center;gap:6px;padding:0 9px 0 12px;border:1px solid var(--hairline-2);border-radius:8px;color:var(--body);white-space:nowrap;transition:background-color .12s ease,transform .12s var(--ease-out)}
+.mb.set{color:var(--ink);font-weight:500}
+.mb:active{transform:scale(.97)}
+@media (hover:hover){.mb:hover{background:var(--soft-2)}}
+.mb .i{width:15px;height:15px;color:var(--line-ico)}
+.gb{height:36px;display:inline-flex;align-items:center;gap:6px;padding:0 12px;border:1px solid var(--hairline-2);border-radius:8px;font-weight:500;transition:background-color .12s ease,transform .12s var(--ease-out)}
+.gb:active{transform:scale(.97)}
+@media (hover:hover){.gb:hover{background:var(--soft-2)}}
+.sw{height:36px;display:inline-flex;align-items:center;gap:8px;padding:0 12px 0 10px;border:1px solid var(--hairline-2);border-radius:8px;white-space:nowrap}
+.sw .tr{width:30px;height:18px;border-radius:999px;background:#e5e5ea;position:relative;transition:background-color .16s ease}
+.sw .tr::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);transition:transform .16s var(--ease-out)}
+.sw.on .tr{background:var(--accent)} .sw.on .tr::after{transform:translateX(12px)}
+.bsp{flex:1}
+
+/* menus: grow from their trigger */
+.pop{position:absolute;top:calc(100% + 6px);left:0;z-index:8;min-width:230px;max-height:420px;overflow:auto;background:#fff;border-radius:10px;box-shadow:var(--shadow-pop);padding:6px;opacity:0;transform:scale(.97);transform-origin:top left;pointer-events:none;transition:opacity .16s var(--ease-out),transform .16s var(--ease-out)}
+.pop.r{left:auto;right:0;transform-origin:top right}
+.pop.open{opacity:1;transform:none;pointer-events:auto}
+.pop .h{padding:6px 10px 4px;color:var(--body)}
+.pop .it{width:100%;height:36px;display:flex;align-items:center;gap:10px;padding:0 10px;border-radius:8px;text-align:left;white-space:nowrap}
+@media (hover:hover){.pop .it:hover{background:var(--soft-2)}}
+.pop .it .ck{width:16px;color:var(--accent);flex:none}
+.pop .it .n{margin-left:auto;padding-left:16px;color:var(--body);font-variant-numeric:tabular-nums}
+
+/* table — framed, page scrolls, heading sticks under the head */
+.tcard{border:1px solid var(--hairline);border-radius:10px;overflow:clip}
+table.dt{width:100%;border-collapse:separate;border-spacing:0;table-layout:fixed}
+.dt th{position:sticky;top:77px;z-index:3;height:40px;background:var(--band);color:var(--body);font-weight:500;text-align:left;padding:0 16px;border-bottom:1px solid var(--hairline-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dt td{padding:12px 16px;border-top:1px solid var(--row-line);vertical-align:middle;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dt tbody tr:first-child td{border-top:0}
+.dt tbody tr.row{cursor:pointer}
+.dt tbody tr.row td{transition:background-color .12s ease}
+@media (hover:hover){.dt tr.row:hover td{background:var(--soft)}}
+.dt td:last-child{position:relative;padding-right:34px}
+@media (hover:hover){.dt tr.row:hover td:last-child::after{content:"";position:absolute;right:18px;top:50%;width:7px;height:7px;margin-top:-4px;border-right:1.6px solid var(--body);border-top:1.6px solid var(--body);transform:rotate(45deg)}}
+.dt .nm{display:block;font-weight:500;overflow:hidden;text-overflow:ellipsis}
+.dt .q{display:block;color:var(--body);overflow:hidden;text-overflow:ellipsis}
+.dt .dash{color:var(--body)}
+.dt tr.grp td{height:44px;padding-top:0;padding-bottom:0;background:var(--band);font-weight:500;border-top:1px solid var(--hairline);cursor:pointer;user-select:none}
+.dt tbody tr.grp:first-child td{border-top:0}
+.dt tr.grp + tr td{border-top:1px solid var(--hairline)}
+.dt tr.grp .gi{display:inline-flex;align-items:center;gap:8px}
+.dt tr.grp .chev{color:var(--line-ico);transition:transform .16s var(--ease-out)}
+.dt tr.grp.shut .chev{transform:rotate(-90deg)}
+.dt tr.grp .gc{color:var(--body);font-weight:400;font-variant-numeric:tabular-nums}
+.dt tr.grp .gl{color:var(--line-ico)}
+.dt tfoot td{height:44px;padding:0 16px;background:var(--band);border-top:1px solid var(--hairline);color:var(--body)}
+.dt tfoot b{color:var(--ink);font-weight:500}
+.empty{padding:48px 16px;text-align:center;color:var(--body)}
+
+/* status: dot in its tone, ink word; the word takes colour only for warn/bad */
+.st{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+.st::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--crumb);flex:none}
+.st.warn{color:var(--warn-fg)} .st.warn::before{background:var(--warn)}
+.st.bad{color:var(--bad-fg)} .st.bad::before{background:var(--bad)}
+.sts{display:flex;gap:16px}
+
+/* Now — the hub as it draws today */
+.now-search{width:224px;height:32px;border:1px solid var(--hairline-2);border-radius:8px;padding:0 12px;color:var(--line-ico);display:flex;align-items:center}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.chip{height:32px;display:inline-flex;align-items:center;gap:8px;padding:0 12px;border:1px solid var(--hairline-2);border-radius:999px;font-weight:500;white-space:nowrap;transition:background-color .12s ease}
+.chip .i{color:var(--line-ico)} .chip .n{color:var(--body);font-weight:500}
+.chip.on{border-color:var(--accent);background:var(--accent-bg);color:var(--accent)} .chip.on .i,.chip.on .n{color:var(--accent)}
+@media (hover:hover){.chip:not(.on):hover{background:var(--soft)}}
+.nowbar{display:flex;align-items:center;gap:6px;margin-bottom:12px}
+.segm{display:flex;background:var(--seg);border-radius:9px;padding:2px}
+.segm button{height:28px;padding:0 10px;border-radius:7px;font-weight:500;color:var(--body)}
+.segm button.on{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.qb{height:32px;display:inline-flex;align-items:center;gap:6px;padding:0 10px;color:var(--body);border-radius:8px}
+.nowcard{border:1px solid var(--hairline);border-radius:10px;overflow:hidden}
+.nowscroll{overflow-x:auto}
+.ng{display:grid;grid-template-columns:112px minmax(224px,1fr) 176px 96px 144px 144px 112px 144px 144px;gap:12px;align-items:center;min-width:1152px;padding:0 14px}
+.ng.hd{height:40px;background:var(--soft);border-bottom:1px solid var(--hairline);color:var(--body);font-weight:500}
+.ng.rw{padding-top:10px;padding-bottom:10px;border-bottom:1px solid var(--hairline);cursor:pointer}
+.ng.rw:last-child{border-bottom:0}
+@media (hover:hover){.ng.rw:hover{background:var(--soft)}}
+.ng > *{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ng .tile{width:30px;height:30px;border-radius:8px;background:var(--soft-2);display:grid;place-items:center;color:var(--body);flex:none}
+.ng .as{display:flex;align-items:center;gap:10px}
+.ng .as > span:last-child{min-width:0}
+.ng .g{color:var(--body)}
+.ng .b{display:block;overflow:hidden;text-overflow:ellipsis}
+.pill{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;border:1px solid var(--hairline-2);border-radius:999px;white-space:nowrap}
+.pill::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--crumb)}
+.pill.warn{color:var(--warn-fg)} .pill.warn::before{background:var(--warn)}
+.pill.bad{color:var(--bad-fg)} .pill.bad::before{background:var(--bad)}
+</style>
+</head>
+<body>
+<div class="proto">
+  <div class="t">GA · Assets</div>
+  <div class="seg" id="opts"></div>
+  <div class="sp"></div>
+  <div class="seg" id="widths"></div>
+</div>
+<div class="note" id="note"></div>
+<div class="stagewrap" id="stagewrap">
+  <div class="app" id="app">
+    <nav class="rail" id="rail"></nav>
+    <aside class="panel">
+      <h2>GA <svg class="i" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg></h2>
+      <div class="nav">
+        <div class="nr">Overview</div><hr>
+        <div class="nr">Supply Requests</div><div class="nr">Repairs</div><div class="nr">Service Schedule</div><hr>
+        <div class="nr on">Assets</div><div class="nr">Contracts</div><div class="nr">Sites</div><div class="nr">Suppliers</div><hr>
+        <div class="nr">Letters</div><div class="nr">Files</div>
+      </div>
+      <div class="clock"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>17 Oct 2026 · 16:19</div>
+    </aside>
+    <main class="main" id="main"></main>
+  </div>
+</div>
+
+<script>
+const $ = (s, r = document) => r.querySelector(s)
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))
+const ico = (d, cls = "i") => `<svg class="${cls}" viewBox="0 0 24 24">${d}</svg>`
+const P = {
+  search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>',
+  chev:'<path d="m6 9 6 6 6-6"/>',
+  check:'<path d="M5 12.5 10 17l9-10"/>',
+  cols:'<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M10 4v16M15 4v16"/>',
+  filter:'<path d="M4 6h16M7 12h10M10 18h4"/>',
+  pin:'<path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/>',
+}
+// the build glyphs the hub draws (lucide)
+const G = {
+  property:'<path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2M10 6h4M10 10h4M10 14h4M10 18h4"/>',
+  technical:'<rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2M15 20v2M2 15h2M2 9h2M20 15h2M20 9h2M9 2v2M9 20v2"/>',
+  vehicles:'<path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/>',
+  ffe:'<path d="M19 9V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v3"/><path d="M3 16a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5a2 2 0 0 0-4 0v1.5a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5V11a2 2 0 0 0-4 0z"/><path d="M5 18v2M19 18v2"/>',
+  it:'<rect width="20" height="14" x="2" y="3" rx="2"/><path d="M8 21h8M12 17v4"/>',
+  audio:'<rect width="16" height="20" x="4" y="2" rx="2"/><circle cx="12" cy="14" r="4"/><path d="M12 6h.01M12 14h.01"/>',
+  oe:'<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5M12 22V12"/>',
+  software:'<rect x="2" y="4" width="20" height="16" rx="2"/><path d="M10 4v4M2 8h20M6 4v4"/>',
+  projects:'<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
+}
+const VIEWS = [
+  {k:"property", l:"Property"}, {k:"technical", l:"Technical"}, {k:"vehicles", l:"Vehicles"},
+  {k:"ffe", l:"Furniture & fixtures"}, {k:"it", l:"IT hardware"}, {k:"audio", l:"Audio"},
+  {k:"oe", l:"Operating equipment"}, {k:"software", l:"Software"}, {k:"projects", l:"Projects"},
+]
+const VL = Object.fromEntries(VIEWS.map((v) => [v.k, v.l]))
+const BUILD = {"IT hardware":"it", "Software":"software", "Audio / music":"audio", "Technical equipment":"technical", "Vehicle":"vehicles", "Furniture & fixtures":"ffe", "Building":"property", "Land":"property", "Project / CIP":"projects", "Operating equipment":"oe"}
+const SITES = {"dc":"DC", "store-01":"Cikupa", "store-02":"Muaro Bungo", "store-03":"Purbalingga", "store-04":"Bumiayu", "store-05":"Jambi", "store-06":"Wiramode", "store-07":"Brebes", "store-08":"Pasuruan", "store-09":"WMJB", "store-10":"WMBA", "store-11":"Sipin", "store-12":"Banjaran", "store-13":"Wonosobo"}
+const SITE_ORDER = Object.keys(SITES)
+
+// the 46 rows on hub :5350 (17 Oct): code|name|serial|class|build|site|area|holder|condition|finance assessed
+const n2 = (i) => String(i).padStart(2, "0")
+const ROWS = [
+  "AST-000002|Laptop GA — Lenovo ThinkPad E14|PF4K2M9X|FFE Komputer|IT hardware|dc||Nina Oktaviani|G|1",
+  "AST-000003|Laptop kasir toko 01 — HP 240 G9|HP240G9-0101|FFE Komputer|IT hardware|store-01||Dian Pertiwi|G|1",
+  "AST-000004|Lisensi POS Seventh Soft — 2 outlet|7S-RTL-02|Seventh Soft Application|Software|dc|||G|1",
+  "AST-000005|Sound system toko 01 — TOA ZA-2120||FFE Music|Audio / music|store-01|||G|1",
+  "AST-000006|AC split toko 01 — Daikin 2 PK|DKN-FTKC50-0101|Air Conditioner|Technical equipment|store-01|Area penjualan||G|1",
+  "AST-000007|Mobil box pengiriman — Mitsubishi L300||Mobil|Vehicle|dc||Yusuf Ramadhan|G|1",
+  "AST-000008|Meja kerja staf HO (8 unit)||FFE Office|Furniture & fixtures|dc|||G|1",
+  "AST-000009|Mezzanine gudang DC||Bangunan Tambahan|Building|dc|||G|1",
+  "AST-000010|Renovasi fasad toko 01 (termin 1)||Contract In Progress (CIP)|Project / CIP|store-01|||G|1",
+  "AST-GA-001|Tanah kantor pusat & DC||Tanah Hak Milik|Land|dc|||G|0",
+  "AST-GA-002|AC split toko 01 (lama)|SAM-AR18-0101|Air Conditioner|Technical equipment|store-01|Ruang stok||S|0",
+  "AST-GA-003|Rak dinding display toko 01||OE - Rak 2|Operating equipment|store-01|Dinding kiri & kanan||G|0",
+  "AST-GA-004|Printer struk lama toko 01|EPS-U220-0101|FFE Komputer|IT hardware|store-01|Gudang toko||B|0",
+  ...Array.from({length:13}, (_, i) => `FA-AC-store-${n2(i+1)}|AC Split Ruang Toko store-${n2(i+1)}||Air Conditioner|Technical equipment|store-${n2(i+1)}|||G|1`),
+  "FA-DC-0001|Laptop Kasir DC||FFE Komputer|IT hardware|dc|||G|1",
+  "FA-DC-0002|Meja & Kursi Kantor DC||FFE Office|Furniture & fixtures|dc|||G|1",
+  "FA-HO-FFE-01|Meja & Kursi Kantor HO 2||FFE Office|Furniture & fixtures|dc|||G|1",
+  "FA-HO-KOMP-01|Komputer Kasir HO 1||FFE Komputer|IT hardware|dc|||G|1",
+  "FA-HO-KOMP-02|Komputer Kasir HO 2||FFE Komputer|IT hardware|dc|||G|1",
+  "FA-HO-KOMP-03|Laptop Finance HO||FFE Komputer|IT hardware|dc|||G|1",
+  ...Array.from({length:13}, (_, i) => `FA-RAK-store-${n2(i+1)}|Rak Display store-${n2(i+1)}||FFE Toko dan Gudang|Furniture & fixtures|store-${n2(i+1)}|||G|1`),
+  "FA-ST01-0001|AC Split Ruang Kasir Store-01||Air Conditioner|Technical equipment|store-01|||G|1",
+].map((line) => {
+  const [code, name, serial, cls, build, site, area, holder, cond, fin] = line.split("|")
+  return {code, name, serial, cls, build, site, area, holder, cond, fin: fin === "1", view: BUILD[build], status: "REG"}
+})
+const COND = {G:"Good", S:"Needs service", B:"Broken"}
+const CTONE = {G:"", S:"warn", B:"bad"}
+const wrongs = (r) => [r.cond === "B" && ["bad","Broken"], r.cond === "S" && ["warn","Needs service"], !r.fin && ["warn","Not assessed"]].filter(Boolean)
+
+const OPTIONS = [
+  {id:"now", t:"Now", note:"<b>As the hub draws it today.</b> 10 chips over two rows, a second row of filters, 9 columns in a 1,152px grid that scrolls sideways inside its card — Finance status is cut off at 1440. Two lines in every cell, a glyph tile on every row."},
+  {id:"A", t:"One format", star:true, note:"<b>A · One format</b> — the Purchase Orders list: figures, tabs In use · Disposed (no Needs details), search and menus in one bar. The 10 chips become a <b>Kind</b> menu. 5 columns that fit, no sideways scroll; code and serial under the name, the place by its name. Finance waits behind Columns — the <b>Not assessed</b> figure finds those rows."},
+  {id:"B", t:"Kind tabs", note:"<b>B · Kind tabs</b> — the three biggest kinds are tabs, the rest under More. Status moves into the bar. On a kind tab the Kind column turns into the client's class (Air Conditioner, FFE Komputer…)."},
+  {id:"C", t:"By place", note:"<b>C · By place</b> — A with <b>Group by place</b> on: one band per place (click to fold), Location becomes Area. Switch it off and it is A."},
+  {id:"D", t:"By kind", note:"<b>D · By kind</b> — A with <b>Group by kind</b> on: the glyph once on its band instead of on every row; Kind becomes Class. Switch it off and it is A."},
+  {id:"E", t:"To check", note:"<b>E · To check</b> — opens on the assets with a problem and one <b>What's wrong</b> column (Broken, Needs service, Not assessed). In use is the whole register, as in A."},
+]
+const COLS = {
+  // widths at 1440 / 1280: the narrower page trims the side columns, never the asset's name
+  asset:{l:"Asset"}, kind:{l:"Kind", w:[184,150]}, cls:{l:"Class", w:[200,170]}, loc:{l:"Location", w:[180,150]}, area:{l:"Area", w:[156,140]},
+  holder:{l:"Holder", w:[156,152]}, cond:{l:"Condition", w:[168,168]}, fin:{l:"Finance", w:[160,160], off:true}, wrong:{l:"What's wrong", w:[300,300]},
+}
+
+const store = {get(k){try{return localStorage.getItem(k)}catch{return null}}, set(k,v){try{localStorage.setItem(k,v)}catch{}}}
+const urlOpt = new URLSearchParams(location.search).get("o")
+const S = {opt: OPTIONS.some((o) => o.id === urlOpt) ? urlOpt : (store.get("assets-opt") || "A"), w: +(store.get("assets-w") || 1440)}
+function reset(){
+  Object.assign(S, {tab: S.opt === "E" ? "check" : (S.opt === "B" ? "all" : "use"), kind:null, site:null, cond:null, book:null, q:"", fig:null, menu:null, group:true, shut:new Set(), colOn:{}, nowView:null, nowBook:"ALL"})
+}
+reset()
+
+// ---------- shared pieces ----------
+const st = (tone, word) => `<span class="st ${tone}">${esc(word)}</span>`
+const count = (pred) => ROWS.filter(pred).length
+const siteName = (id) => SITES[id] || id
+const where = (r) => r.area ? `${siteName(r.site)} · ${r.area}` : siteName(r.site)
+const quiet = (r) => r.serial ? `${r.code} · ${r.serial}` : r.code
+
+function cell(id, r){
+  switch (id) {
+    case "asset": return `<td title="${esc(r.name)}"><span class="nm">${esc(r.name)}</span><span class="q">${esc(quiet(r))}</span></td>`
+    case "kind": return `<td>${esc(VL[r.view])}</td>`
+    case "cls": return `<td title="${esc(r.cls)}">${esc(r.cls)}</td>`
+    case "loc": return `<td title="${esc(where(r))}">${esc(where(r))}</td>`
+    case "area": return `<td>${r.area ? esc(r.area) : '<span class="dash">—</span>'}</td>`
+    case "holder": return `<td>${r.holder ? esc(r.holder) : '<span class="dash">—</span>'}</td>`
+    case "cond": return `<td>${st(CTONE[r.cond], COND[r.cond])}</td>`
+    case "fin": return `<td>${r.fin ? st("", "Assessed") : st("warn", "Not assessed")}</td>`
+    case "wrong": return `<td><span class="sts">${wrongs(r).map(([t, w]) => st(t, w)).join("")}</span></td>`
+  }
+}
+
+function figures(){
+  const f = [
+    {k:null, l:"Assets", v:ROWS.length},
+    {k:"S", l:"Needs service", v:count((r) => r.cond === "S")},
+    {k:"B", l:"Broken", v:count((r) => r.cond === "B"), bad:true},
+    {k:"F", l:"Not assessed", v:count((r) => !r.fin)},
+  ]
+  return `<div class="kpis">${f.map((x) => x.k === null
+    ? `<div class="kpi"><span class="l">${x.l}</span><span class="v">${x.v}</span></div>`
+    : `<button class="kpi ${S.fig === x.k ? "on" : ""}" data-fig="${x.k}"><span class="l">${x.l}</span><span class="v ${x.bad && x.v > 0 ? "bad" : ""}">${x.v}</span></button>`).join("")}</div>`
+}
+
+function tabsHtml(list){
+  return `<div class="tabs" role="tablist">${list.map((t) => t.html ?? `<button class="tab ${S.tab === t.v ? "on" : ""}" data-tab="${t.v}">${esc(t.l)}<span class="c">${t.n}</span></button>`).join("")}</div>`
+}
+
+function menu(key, label, options, value, set){
+  // options: [{v, l, n}] — the first is "all"
+  const chosen = options.find((o) => o.v === value)
+  const open = S.menu === key
+  return `<div class="mw"><button class="mb ${value !== null ? "set" : ""}" data-menu="${key}">${esc(value === null ? label : chosen.l)}${ico(P.chev)}</button>
+    <div class="pop ${key === "cols" ? "r" : ""}" data-pop="${key}" ${open ? 'data-opening="1"' : ""}>${options.map((o) => `<button class="it" data-set="${set}" data-v="${o.v ?? ""}"><span class="ck">${o.v === value ? ico(P.check) : ""}</span>${esc(o.l)}${o.n !== undefined ? `<span class="n">${o.n}</span>` : ""}</button>`).join("")}</div></div>`
+}
+const kindMenu = () => menu("kind", "Kind", [{v:null, l:"All kinds", n:ROWS.length}, ...VIEWS.map((v) => ({v:v.k, l:v.l, n:count((r) => r.view === v.k)}))], S.kind, "kind")
+const siteMenu = () => menu("site", "Location", [{v:null, l:"All locations", n:ROWS.length}, ...SITE_ORDER.map((s) => ({v:s, l:SITES[s], n:count((r) => r.site === s)}))], S.site, "site")
+const condMenu = () => menu("cond", "Condition", [{v:null, l:"Any condition"}, {v:"G", l:"Good", n:count((r) => r.cond === "G")}, {v:"S", l:"Needs service", n:count((r) => r.cond === "S")}, {v:"B", l:"Broken", n:count((r) => r.cond === "B")}], S.cond, "cond")
+const bookMenu = () => menu("book", "Status", [{v:null, l:"Any status"}, {v:"use", l:"In use", n:ROWS.length}, {v:"gone", l:"Disposed", n:0}], S.book, "book")
+const searchBox = (ph) => `<label class="search">${ico(P.search)}<input id="q" value="${esc(S.q)}" placeholder="${ph}" autocomplete="off"></label>`
+const groupSwitch = (label) => `<button class="sw ${S.group ? "on" : ""}" data-group="1"><span class="tr"></span>${label}</button>`
+
+function colsFor(){
+  const o = S.opt
+  let ids
+  if (o === "E" && S.tab === "check") ids = ["asset", "kind", "loc", "wrong"]
+  else if (o === "B") ids = ["asset", S.tab === "all" ? "kind" : "cls", "loc", "holder", "cond", "fin"]
+  else if (o === "C" && S.group) ids = ["asset", "kind", "area", "holder", "cond", "fin"]
+  else if (o === "D" && S.group) ids = ["asset", "cls", "loc", "holder", "cond", "fin"]
+  else ids = ["asset", "kind", "loc", "holder", "cond", "fin"]
+  const extra = ["kind", "cls", "loc", "holder", "cond", "fin"].filter((c) => !ids.includes(c) && !(c === "loc" && ids.includes("area")))
+  const on = (c) => S.colOn[c] ?? !COLS[c].off
+  return {all:[...ids, ...extra], shown:[...ids.filter((c) => c === "asset" || on(c)), ...extra.filter((c) => S.colOn[c] === true)]}
+}
+function colsMenu(){
+  const {all, shown} = colsFor()
+  const open = S.menu === "cols"
+  return `<div class="mw"><button class="gb" data-menu="cols">${ico(P.cols)}Columns</button>
+    <div class="pop r" data-pop="cols" ${open ? 'data-opening="1"' : ""}><div class="h">Columns</div>${all.filter((c) => c !== "asset").map((c) => `<button class="it" data-col="${c}"><span class="ck">${shown.includes(c) ? ico(P.check) : ""}</span>${COLS[c].l}</button>`).join("")}</div></div>`
+}
+
+function filtered(){
+  const q = S.q.trim().toLowerCase()
+  return ROWS.filter((r) => {
+    if (S.opt === "E" && S.tab === "check" && wrongs(r).length === 0) return false
+    if (S.tab === "gone" || S.book === "gone") return false
+    if (S.opt === "B" && S.tab !== "all" && r.view !== S.tab) return false
+    if (S.kind && r.view !== S.kind) return false
+    if (S.site && r.site !== S.site) return false
+    if (S.cond && r.cond !== S.cond) return false
+    if (S.fig === "S" && r.cond !== "S") return false
+    if (S.fig === "B" && r.cond !== "B") return false
+    if (S.fig === "F" && r.fin) return false
+    if (q && ![r.name, r.code, r.serial, r.holder, r.cls, siteName(r.site), r.area, VL[r.view]].some((s) => s && s.toLowerCase().includes(q))) return false
+    return true
+  })
+}
+
+function tableHtml(){
+  const {shown} = colsFor()
+  const rows = filtered()
+  const narrowed = S.q || S.kind || S.site || S.cond || S.fig || S.book
+  const colgroup = `<colgroup>${shown.map((c) => `<col${COLS[c].w ? ` style="width:${COLS[c].w[S.w === 1440 ? 0 : 1]}px"` : ""}>`).join("")}</colgroup>`
+  const head = `<thead><tr>${shown.map((c) => `<th>${COLS[c].l}</th>`).join("")}</tr></thead>`
+  if (rows.length === 0) {
+    return `<div class="tcard"><table class="dt">${colgroup}${head}</table><div class="empty">${narrowed ? "No asset matches these filters." : "Nothing here yet."}</div></div>`
+  }
+  const line = (r) => `<tr class="row">${shown.map((c) => cell(c, r)).join("")}</tr>`
+  let body
+  const grouped = (S.opt === "C" || S.opt === "D") && S.group
+  if (grouped) {
+    const keyOf = S.opt === "C" ? (r) => r.site : (r) => r.view
+    const order = S.opt === "C" ? SITE_ORDER : VIEWS.map((v) => v.k)
+    body = order.filter((k) => rows.some((r) => keyOf(r) === k)).map((k) => {
+      const these = rows.filter((r) => keyOf(r) === k)
+      const shut = S.shut.has(k)
+      const label = S.opt === "C" ? `${ico(P.pin, "i gl")}${esc(SITES[k])}` : `${ico(G[k], "i gl")}${esc(VL[k])}`
+      return `<tr class="grp ${shut ? "shut" : ""}" data-fold="${k}"><td colspan="${shown.length}"><span class="gi">${ico(P.chev, "i chev")}${label}<span class="gc">${these.length}</span></span></td></tr>${shut ? "" : these.map(line).join("")}`
+    }).join("")
+  } else body = rows.map(line).join("")
+  const foot = `<tfoot><tr><td colspan="${shown.length}"><b>${rows.length}</b> ${narrowed ? `of ${ROWS.length} assets` : (rows.length === 1 ? "asset" : "assets")}</td></tr></tfoot>`
+  return `<div class="tcard"><table class="dt">${colgroup}${head}<tbody>${body}</tbody>${foot}</table></div>`
+}
+
+// ---------- the options ----------
+function head(){
+  return `<header class="ph"><h1>Assets</h1><div class="acts"><button class="btn">${ico(P.plus)}Register asset</button></div></header>`
+}
+function statusTabs(){
+  return tabsHtml([{v:"use", l:"In use", n:ROWS.length}, {v:"gone", l:"Disposed", n:0}])
+}
+function kindTabs(){
+  const big = ["technical", "ffe", "it"]
+  const rest = VIEWS.filter((v) => !big.includes(v.k))
+  const inRest = rest.find((v) => v.k === S.tab)
+  const open = S.menu === "more"
+  const more = `<div class="mw"><button class="tab ${inRest ? "on" : ""}" data-menu="more">${inRest ? `${esc(inRest.l)}<span class="c">${count((r) => r.view === inRest.k)}</span>` : "More"}${ico(P.chev)}</button>
+    <div class="pop" data-pop="more" ${open ? 'data-opening="1"' : ""}>${rest.map((v) => `<button class="it" data-tab="${v.k}"><span class="ck">${S.tab === v.k ? ico(P.check) : ""}</span>${esc(v.l)}<span class="n">${count((r) => r.view === v.k)}</span></button>`).join("")}</div></div>`
+  return tabsHtml([{v:"all", l:"All", n:ROWS.length}, ...big.map((k) => ({v:k, l:VL[k], n:count((r) => r.view === k)})), {html:more}])
+}
+
+function page(){
+  const o = S.opt
+  if (o === "now") return nowPage()
+  let tabs, bar
+  if (o === "A") { tabs = statusTabs(); bar = [searchBox("Search assets"), kindMenu(), siteMenu(), condMenu()] }
+  if (o === "B") { tabs = kindTabs(); bar = [searchBox("Search assets"), siteMenu(), condMenu(), bookMenu()] }
+  if (o === "C") { tabs = statusTabs(); bar = [searchBox("Search assets"), kindMenu(), ...(S.group ? [] : [siteMenu()]), condMenu(), groupSwitch("Group by place")] }
+  if (o === "D") { tabs = statusTabs(); bar = [searchBox("Search assets"), ...(S.group ? [] : [kindMenu()]), siteMenu(), condMenu(), groupSwitch("Group by kind")] }
+  if (o === "E") { tabs = tabsHtml([{v:"check", l:"To check", n:count((r) => wrongs(r).length > 0)}, {v:"use", l:"In use", n:ROWS.length}, {v:"gone", l:"Disposed", n:0}]); bar = [searchBox("Search assets"), kindMenu(), siteMenu(), ...(S.tab === "check" ? [] : [condMenu()])] }
+  return `${head()}<div class="body">${figures()}${tabs}<div class="bar">${bar.join("")}<span class="bsp"></span>${colsMenu()}</div><div id="tbl">${tableHtml()}</div></div>`
+}
+
+// Now: a copy of assets.tsx as it renders on :5350
+function nowPage(){
+  const nViews = (k) => count((r) => r.view === k)
+  const chips = [`<button class="chip ${S.nowView === null ? "on" : ""}" data-nowview="">All<span class="n">${ROWS.length}</span></button>`,
+    ...VIEWS.map((v) => `<button class="chip ${S.nowView === v.k ? "on" : ""}" data-nowview="${v.k}">${ico(G[v.k])}${esc(v.l)}<span class="n">${nViews(v.k)}</span></button>`)].join("")
+  const rows = ROWS.filter((r) => (S.nowView === null || r.view === S.nowView) && S.nowBook !== "DRAFT")
+  const grid = rows.map((r) => `<div class="ng rw">
+      <span class="g">${esc(r.code)}</span>
+      <span class="as"><span class="tile">${ico(G[r.view])}</span><span><span class="b" style="font-weight:500">${esc(r.name)}</span><span class="b g">${esc(r.serial || "no serial")}</span></span></span>
+      <span class="g"><span class="b">${esc(r.cls)}</span><span class="b">${esc(r.build)}</span></span>
+      <span class="g">${esc(r.site)}</span>
+      <span class="g">${esc(r.area || "—")}</span>
+      <span class="g">${esc(r.holder || "—")}</span>
+      <span>${r.cond === "G" ? '<span class="g">Good</span>' : `<span class="pill ${CTONE[r.cond]}">${COND[r.cond]}</span>`}</span>
+      <span><span class="pill">Registered</span></span>
+      <span><span class="pill ${r.fin ? "" : "warn"}">${r.fin ? "Assessed" : "Not assessed"}</span></span>
+    </div>`).join("")
+  return `<header class="ph"><h1>Assets</h1><div class="acts"><span class="now-search">Search</span><button class="btn">${ico(P.plus)}Register asset</button></div></header>
+  <div class="body">
+    <div class="chips">${chips}</div>
+    <div class="nowbar"><div class="segm">${["ALL:All", "DRAFT:Needs details", "REGISTERED:Registered"].map((s) => { const [v, l] = s.split(":"); return `<button class="${S.nowBook === v ? "on" : ""}" data-nowbook="${v}">${l}</button>` }).join("")}</div>
+      <span class="qb">${ico(P.filter)}Any condition</span><span class="qb">${ico(P.filter)}All locations</span><span class="bsp"></span><span class="g" style="color:var(--body)"><b style="color:var(--ink);font-weight:500">${rows.length}</b> assets</span></div>
+    <div class="nowcard"><div class="nowscroll"><div class="ng hd"><span>Code</span><span>Asset</span><span>Class</span><span>Location</span><span>Area</span><span>Holder</span><span>Condition</span><span>GA status</span><span>Finance status</span></div>${rows.length ? grid : '<div class="empty" style="min-width:1152px">No assets in this reading yet. Register an asset when it arrives, then fill in where it is and what state it is in.</div>'}</div></div>
+  </div>`
+}
+
+// ---------- drawing ----------
+const RAIL = [P.search, '<path d="M6 6h15l-2 8H8z"/><circle cx="9" cy="20" r="1"/><circle cx="18" cy="20" r="1"/>', '<path d="M8 3 3 6l2 4 2-1v12h10V9l2 1 2-4-5-3c-.5 1.5-2 2.5-4 2.5S8.5 4.5 8 3z"/>', '<path d="M3 7h11v9H3zM14 10h4l3 3v3h-7z"/><circle cx="7" cy="17" r="1.6"/><circle cx="17" cy="17" r="1.6"/>', G.oe, '<path d="m3 11 15-6v14L3 13z"/><path d="M7 13v5"/>', '<path d="M4 9h16l-1-4H5zM5 9v11h14V9"/>', '<path d="M3 21h18M5 21V10M19 21V10M12 3 3 8h18z"/>', '<circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M16 4.5a3.5 3.5 0 0 1 0 7M21 20c0-2.6-1.6-4.8-4-5.6"/>', '<path d="M4 5h12v9H8l-4 3z"/><path d="M8 17h8l4 3V9h-4"/>', '<path d="M4 4h7a3 3 0 0 1 3 3v13a2 2 0 0 0-2-2H4zM20 4h-5"/>']
+$("#rail").innerHTML = RAIL.map((d, i) => `<div class="ri ${i === 9 ? "on" : ""}">${ico(d)}</div>`).join("") + '<div class="av">A</div>'
+
+function draw(){
+  $("#opts").innerHTML = OPTIONS.map((o) => `<button data-o="${o.id}" class="${o.id === S.opt ? "on" : ""}">${o.id === "now" ? "Now" : `<b>${o.id}</b>${o.t}`}${o.star ? '<span class="star">★</span>' : ""}</button>`).join("")
+  $("#widths").innerHTML = [1440, 1280].map((w) => `<button data-w="${w}" class="${w === S.w ? "on" : ""}">${w}</button>`).join("")
+  $("#note").innerHTML = OPTIONS.find((o) => o.id === S.opt).note
+  const main = $("#main"), top = main.scrollTop
+  const focused = document.activeElement?.id === "q", caret = focused ? document.activeElement.selectionStart : null
+  main.innerHTML = page()
+  main.scrollTop = top
+  if (focused) { const q = $("#q"); q.focus(); q.setSelectionRange(caret, caret) }
+  const opening = $("[data-opening]")
+  // drawn closed, then opened after a forced style pass, so it grows from its trigger
+  if (opening) { opening.getBoundingClientRect(); opening.classList.add("open") }
+  fit()
+}
+function fit(){
+  const app = $("#app"), wrap = $("#stagewrap")
+  document.documentElement.style.setProperty("--nh", $("#note").offsetHeight + "px")
+  app.style.width = S.w + "px"
+  const z = Math.min(1, wrap.clientWidth / S.w)
+  app.style.zoom = z
+  app.style.height = (wrap.clientHeight / z) + "px"
+}
+
+document.addEventListener("input", (e) => {
+  if (e.target.id !== "q") return
+  S.q = e.target.value
+  $("#tbl").innerHTML = tableHtml()
+})
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("[data-o],[data-w],[data-tab],[data-menu],[data-set],[data-col],[data-fig],[data-group],[data-fold],[data-nowview],[data-nowbook]")
+  const inPop = e.target.closest(".pop")
+  if (!t) { if (S.menu && !inPop) { closeMenu() } return }
+  const d = t.dataset
+  if (d.o) { S.opt = d.o; store.set("assets-opt", d.o); history.replaceState(null, "", "?o=" + d.o); reset() }
+  if (d.w) { S.w = +d.w; store.set("assets-w", d.w) }
+  if (d.menu) { if (S.menu === d.menu) { closeMenu(); return } S.menu = d.menu; draw(); return }
+  if (d.tab) { S.tab = d.tab; S.menu = null }
+  if (d.set) { S[d.set] = d.v === "" ? null : d.v; S.menu = null }
+  if (d.col) { const {shown} = colsFor(); S.colOn[d.col] = !shown.includes(d.col); draw(); return }
+  if (d.fig) S.fig = S.fig === d.fig ? null : d.fig
+  if (d.group) { S.group = !S.group; S.kind = null; S.site = null }
+  if (d.fold) { S.shut.has(d.fold) ? S.shut.delete(d.fold) : S.shut.add(d.fold); $("#tbl").innerHTML = tableHtml(); return }
+  if (d.nowview !== undefined) S.nowView = d.nowview || null
+  if (d.nowbook) S.nowBook = d.nowbook
+  draw()
+})
+function closeMenu(){
+  const pop = $(".pop.open")
+  S.menu = null
+  if (pop) pop.classList.remove("open")
+}
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && S.menu) closeMenu() })
+addEventListener("resize", fit)
+document.fonts?.ready.then(fit)
+draw()
+</script>
+</body>
+</html>

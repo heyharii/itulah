@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sidebar Icons</title>
+<style>
+@font-face{font-family:Inter;src:url('/frontend-hub/node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2') format('woff2');font-weight:100 900;font-display:swap}
+:root{--ink:#1d1d1f;--body:#3a3a3c;--mute:#6e6e73;--line:#ececf0;--blue:#2563eb;--blue-bg:#eaf1ff;--red:#d70015;
+ --stone:#e9e9ed;--panel:#f5f5f7;--side-ink:#636366;--side-mute:#8e8e93;--hover:rgb(0 0 0 / 5%);--edge:rgb(0 0 0 / 5%);
+ --ring:0 0 0 1px rgb(0 0 0 / 5%),0 2px 8px rgb(0 0 0 / 4%),0 24px 72px rgb(0 0 0 / 8%);
+ --pict:#3d3d40}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;font:15px/1.45 Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:var(--ink);background:var(--stone);-webkit-font-smoothing:antialiased;overflow:hidden}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
+svg{flex:none;fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round}
+
+/* options strip */
+.opts{position:fixed;top:14px;right:18px;z-index:5;display:flex;gap:4px;padding:4px;border-radius:12px;background:#fff;box-shadow:var(--ring)}
+.opts button{height:34px;padding:0 14px;border-radius:8px;color:var(--mute);font-weight:500;white-space:nowrap}
+.opts button[aria-pressed=true]{background:var(--ink);color:#fff}
+
+/* shell */
+.shell{display:flex;height:100vh}
+.rail{width:64px;flex:none;display:flex;flex-direction:column;align-items:center;gap:4px;padding:16px 0;color:var(--side-ink)}
+.logo{width:32px;height:32px;border-radius:9px;background:#2f63d8;color:#fff;display:grid;place-items:center;font-weight:700;margin-bottom:14px}
+.ic{position:relative;width:44px;height:44px;border-radius:11px;display:grid;place-items:center;transition:background-color .15s ease,box-shadow .15s ease,color .15s ease}
+.ic:not(.on):hover{background:var(--hover)}
+.ic .lbl{display:none}
+.ic .dot{position:absolute;top:6px;right:6px;width:8px;height:8px;border-radius:50%;background:var(--red);box-shadow:0 0 0 2px var(--stone)}
+.rail .end{margin-top:auto}
+.panel{width:216px;flex:none;display:flex;flex-direction:column;padding:16px 10px;margin:12px 12px 12px 0;border-radius:16px;background:var(--panel);box-shadow:0 0 0 1px var(--edge),0 2px 6px rgb(0 0 0 / 4%)}
+.panel h2{margin:4px 10px 14px;font-size:15px;font-weight:650}
+.item{display:flex;align-items:center;height:34px;padding:0 10px;border-radius:8px;color:var(--side-ink)}
+.item.on{background:#fff;color:var(--ink);font-weight:550;box-shadow:0 0 0 1px rgb(0 0 0 / 6%),0 1px 3px rgb(0 0 0 / 6%)}
+.page{flex:1;min-width:0;background:#fff;margin:12px 12px 12px 0;border-radius:16px;box-shadow:var(--ring);overflow:auto;padding:26px 32px}
+h1{margin:0 0 6px;font-size:17px;font-weight:650}
+.say{color:var(--mute);margin:0 0 22px}
+
+/* the set at full size, on the page */
+.sheet{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;max-width:760px}
+.cell{display:flex;flex-direction:column;align-items:center;gap:8px;padding:16px 8px 12px;border-radius:12px;background:#fafafa;box-shadow:inset 0 0 0 1px var(--line)}
+.cell span{color:var(--body)}
+
+/* ── NOW: the hub's line icons (lucide, 1.7) ── */
+[data-o="now"] .p{display:none}
+[data-o="now"] .ic svg.n{width:20px;height:20px;stroke-width:1.7}
+[data-o="now"] .ic.on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgb(0 0 0 / 7%)}
+[data-o="now"] .cell svg.n{width:40px;height:40px;stroke-width:1.5}
+:not([data-o="now"]) > * .n{}
+[data-o]:not([data-o="now"]) .n{display:none}
+
+/* ── PICTOGRAM: the reference's taste — a heavier dark-grey line, small inner
+   details, filled wheels and knobs; drawn on 32, shown at 26 ── */
+[data-o]:not([data-o="now"]) .p{width:26px;height:26px;stroke-width:1.9;color:var(--pict)}
+[data-o]:not([data-o="now"]) .p .f{fill:currentColor;stroke:none}
+[data-o]:not([data-o="now"]) .p .w{fill:#fff}
+[data-o]:not([data-o="now"]) .p text{fill:currentColor;stroke:none;font:700 6.2px Inter,sans-serif;letter-spacing:.1px}
+.cell .p{width:56px!important;height:56px!important;stroke-width:1.6!important}
+
+/* A · Line: the pictograms alone, lit blue where you are */
+[data-o="a"] .ic.on{background:#fff;box-shadow:0 1px 2px rgb(0 0 0 / 7%)}
+[data-o="a"] .ic.on .p{color:var(--blue)}
+
+/* B · Tile: each on the reference's grey tile — white at the top, a soft
+   grey under, a hairline; the lit one turns blue-white */
+[data-o="b"] .rail{gap:6px}
+[data-o="b"] .ic{background:linear-gradient(#fff,#ececef);box-shadow:inset 0 0 0 1px rgb(0 0 0 / 7%),0 1px 1px rgb(0 0 0 / 5%)}
+[data-o="b"] .ic:not(.on):hover{background:linear-gradient(#fff,#e4e4e8)}
+[data-o="b"] .ic.on{background:linear-gradient(#fff,#e2ebff);box-shadow:inset 0 0 0 1.5px var(--blue),0 1px 2px rgb(37 99 235 / 18%)}
+[data-o="b"] .ic.on .p{color:var(--blue)}
+[data-o="b"] .cell{background:linear-gradient(#fff,#ececef);box-shadow:inset 0 0 0 1px rgb(0 0 0 / 7%)}
+
+/* C · Labelled: a wider rail, the word under each picture */
+[data-o="c"] .rail{width:86px;gap:2px}
+[data-o="c"] .ic{width:78px;height:60px;gap:2px;align-content:center}
+[data-o="c"] .ic .lbl{display:block;font-size:15px;line-height:16px;color:var(--side-ink);letter-spacing:-.2px}
+[data-o="c"] .ic .p{width:24px;height:24px}
+[data-o="c"] .ic.on{background:#fff;box-shadow:0 1px 2px rgb(0 0 0 / 7%)}
+[data-o="c"] .ic.on .p,[data-o="c"] .ic.on .lbl{color:var(--blue)}
+[data-o="c"] .ic.on .lbl{font-weight:600}
+[data-o="c"] .ic .dot{top:5px;right:20px}
+</style>
+</head>
+<body data-o="a">
+<div class="opts" role="group" aria-label="Option">
+  <button data-set="now">Now</button>
+  <button data-set="a">A · Line</button>
+  <button data-set="b">B · Tile</button>
+  <button data-set="c">C · Labelled</button>
+</div>
+
+<!-- One symbol per department: n = Now (lucide), p = pictogram -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+ <defs>
+  <!-- NOW -->
+  <symbol id="n-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+  <symbol id="n-exec" viewBox="0 0 24 24"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></symbol>
+  <symbol id="n-buy" viewBox="0 0 24 24"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></symbol>
+  <symbol id="n-merch" viewBox="0 0 24 24"><path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z"/></symbol>
+  <symbol id="n-ops" viewBox="0 0 24 24"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/></symbol>
+  <symbol id="n-inv" viewBox="0 0 24 24"><path d="M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z"/><path d="m7 16.5-4.74-2.85"/><path d="m7 16.5 5-3"/><path d="M7 16.5v5.17"/><path d="M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z"/><path d="m17 16.5-5-3"/><path d="m17 16.5 4.74-2.85"/><path d="M17 16.5v5.17"/><path d="M7.97 4.42A2 2 0 0 0 7 6.13v4.37l5 3 5-3V6.13a2 2 0 0 0-.97-1.71l-3-1.8a2 2 0 0 0-2.06 0l-3 1.8Z"/><path d="M12 8 7.26 5.15"/><path d="m12 8 4.74-2.85"/><path d="M12 13.5V8"/></symbol>
+  <symbol id="n-mkt" viewBox="0 0 24 24"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></symbol>
+  <symbol id="n-sales" viewBox="0 0 24 24"><path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"/><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4"/><path d="M2 7h20"/><path d="M22 7v3a2 2 0 0 1-2 2a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 16 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 12 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 8 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 4 12a2 2 0 0 1-2-2V7"/></symbol>
+  <symbol id="n-fin" viewBox="0 0 24 24"><path d="M3 22h18"/><path d="M6 18v-7"/><path d="M10 18v-7"/><path d="M14 18v-7"/><path d="M18 18v-7"/><path d="M12 2 20 7H4z"/></symbol>
+  <symbol id="n-hr" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+  <symbol id="n-ga" viewBox="0 0 24 24"><path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/></symbol>
+  <symbol id="n-master" viewBox="0 0 24 24"><path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></symbol>
+
+  <!-- PICTOGRAM, on 32 -->
+  <symbol id="p-search" viewBox="0 0 32 32"><circle cx="13" cy="13" r="8.5"/><path d="M8.6 11.2a5 5 0 0 1 3.4-3.4"/><path d="m19.4 19.4 2.2 2.2"/><path d="m21.4 21.4 5.2 5.2" stroke-width="4.2"/></symbol>
+  <symbol id="p-exec" viewBox="0 0 32 32"><path d="M14 7.2A10.5 10.5 0 1 0 24.8 18H14z"/><path d="M18 3.5a10.5 10.5 0 0 1 10.5 10.5H18z"/><path d="M14 18 6.7 25.3"/></symbol>
+  <symbol id="p-buy" viewBox="0 0 32 32"><path d="M2.5 5.5h4l3.4 15.5h15.6"/><path d="M8.2 10h20.3l-2.6 8.5H9.9"/><path d="M13 10.5v7.5M17.5 10.5v7.5M22 10.5v7.5"/><path d="M8.8 14.3h18.4"/><circle fill="currentColor" stroke="none" cx="12.5" cy="25.5" r="2.4"/><circle fill="currentColor" stroke="none" cx="23.5" cy="25.5" r="2.4"/></symbol>
+  <symbol id="p-merch" viewBox="0 0 32 32"><path d="M11.5 4.5 4 8.3l2.6 6.4 3.4-1.4V27.5h12V13.3l3.4 1.4L28 8.3l-7.5-3.8"/><path d="M11.5 4.5a4.5 4.5 0 0 0 9 0"/><path d="M13.5 4.6a2.5 2.5 0 0 0 5 0"/><path d="M10 13.3V10M22 13.3V10"/></symbol>
+  <symbol id="p-ops" viewBox="0 0 32 32"><path d="M2.5 7.5h17v15h-17z"/><path d="M19.5 12h5.2l4.8 6v4.5h-10"/><path d="M21.5 14h2.4l2.6 3.4h-5z"/><path d="M2.5 18.5h17"/><circle fill="#fff" cx="8" cy="23.5" r="2.8"/><circle fill="#fff" cx="24" cy="23.5" r="2.8"/><circle fill="currentColor" stroke="none" cx="8" cy="23.5" r=".9"/><circle fill="currentColor" stroke="none" cx="24" cy="23.5" r=".9"/></symbol>
+  <symbol id="p-inv" viewBox="0 0 32 32"><path d="M4.5 11.5 16 6.5l11.5 5L16 16.5z"/><path d="M4.5 11.5v11l11.5 5 11.5-5v-11"/><path d="M16 16.5v11"/><path d="m4.5 11.5-2.3 4.4 11.5 5 2.3-4.4"/><path d="m27.5 11.5 2.3 4.4-11.5 5L16 16.5"/><path d="m10.2 9 11.5 5v3.2"/></symbol>
+  <symbol id="p-mkt" viewBox="0 0 32 32"><path d="M4 12.5h5.5L22 6v20L9.5 19.5H4z"/><path d="M9.5 12.5v7"/><path d="m9.5 19.5 2.3 7.5h3.6l-1.8-6.2"/><path d="M25.5 12.8a4 4 0 0 1 0 6.4"/><path d="M27.8 9.8a8 8 0 0 1 0 12.4"/></symbol>
+  <symbol id="p-sales" viewBox="0 0 32 32"><path d="M10 12.5 16 5.5l6 7"/><circle fill="currentColor" stroke="none" cx="16" cy="5.2" r="1.4"/><rect x="3.5" y="12.5" width="25" height="13" rx="2"/><rect x="5.6" y="14.6" width="20.8" height="8.8" rx=".8" stroke-width="1"/><text x="16" y="21.2" text-anchor="middle" font-size="6.6" font-weight="700" font-family="Inter,sans-serif" fill="currentColor" stroke="none">open</text></symbol>
+  <symbol id="p-fin" viewBox="0 0 32 32"><path d="M3.5 11.5 16 4.5l12.5 7z"/><text x="16" y="10.7" text-anchor="middle" font-size="3.6" font-weight="800" font-family="Inter,sans-serif" fill="currentColor" stroke="none">BANK</text><path d="M4.5 13.5h23"/><path d="M7.5 15.5v8M12.5 15.5v8M19.5 15.5v8M24.5 15.5v8"/><path d="M5.5 15.5h4M10.5 15.5h4M17.5 15.5h4M22.5 15.5h4"/><path d="M4.5 24h23"/><path d="M2.5 27.5h27"/></symbol>
+  <symbol id="p-hr" viewBox="0 0 32 32"><circle cx="21.5" cy="9" r="3.6"/><path d="M18.4 17.3a7.2 7.2 0 0 1 10.6 6.4v1.3h-7"/><circle fill="#fff" cx="11.5" cy="11" r="4.4"/><path fill="#fff" d="M3 27v-1.8a8.5 8.5 0 0 1 17 0V27z"/><path d="M9.2 18.2 11.5 21l2.3-2.8"/></symbol>
+  <symbol id="p-ga" viewBox="0 0 32 32"><rect x="3.5" y="10" width="25" height="16.5" rx="2.2"/><path d="M12 10V7.2A1.7 1.7 0 0 1 13.7 5.5h4.6A1.7 1.7 0 0 1 20 7.2V10"/><path d="M3.8 17.5h10.2M18 17.5h10.2"/><rect fill="#fff" x="14" y="15.5" width="4" height="4.2" rx=".8"/></symbol>
+  <symbol id="p-master" viewBox="0 0 32 32"><path d="M16 8.5C13 6.3 8.5 5.6 3 6v18.5c5.5-.4 10 .3 13 2.5 3-2.2 7.5-2.9 13-2.5V6c-5.5-.4-10 .3-13 2.5z"/><path d="M16 8.5V27"/><path d="M6.5 10.5c2.2 0 4.2.4 6 1.2M6.5 14.5c2.2 0 4.2.4 6 1.2M6.5 18.5c2.2 0 4.2.4 6 1.2M25.5 10.5c-2.2 0-4.2.4-6 1.2M25.5 14.5c-2.2 0-4.2.4-6 1.2M25.5 18.5c-2.2 0-4.2.4-6 1.2"/></symbol>
+ </defs>
+</svg>
+
+<div class="shell">
+  <nav class="rail" id="rail" aria-label="Departments"></nav>
+  <aside class="panel">
+    <h2>Ops</h2>
+    <div class="item on">Allotment</div>
+    <div class="item">Receiving</div>
+    <div class="item">Returns</div>
+    <div class="item">Stock</div>
+    <div class="item">Printing</div>
+  </aside>
+  <main class="page">
+    <h1 id="title">A · Line</h1>
+    <p class="say" id="say"></p>
+    <div class="sheet" id="sheet"></div>
+  </main>
+</div>
+
+<script>
+const DEPTS = [
+  ["search", "Search"],
+  ["exec", "Executive"],
+  ["buy", "Procurement", true],
+  ["merch", "Merchandise", true],
+  ["ops", "Ops"],
+  ["inv", "Inventory"],
+  ["mkt", "Marketing"],
+  ["sales", "Sales"],
+  ["fin", "Finance", true],
+  ["hr", "HR", true],
+  ["ga", "GA"],
+  ["master", "Master"],
+]
+const SAY = {
+  now: "Today's line icons, as on osretail.site.",
+  a: "The pictograms of the reference: a heavier dark-grey line, small inner details, filled wheels. The one you are in turns blue on a white chip.",
+  b: "The same pictograms on the reference's grey tile. The one you are in gets a blue ring.",
+  c: "The pictograms with their word under them, so nobody has to guess what a picture means.",
+}
+const icon = (id) =>
+  `<svg class="n" viewBox="0 0 24 24"><use href="#n-${id}"/></svg><svg class="p" viewBox="0 0 32 32"><use href="#p-${id}"/></svg>`
+const rail = document.getElementById("rail")
+rail.innerHTML =
+  `<div class="logo">C</div>` +
+  DEPTS.map(([id, label, dot]) =>
+    `<button class="ic${id === "ops" ? " on" : ""}" title="${label}">${icon(id)}<span class="lbl">${label === "Procurement" ? "Buying" : label === "Merchandise" ? "Merch" : label}</span>${dot ? '<span class="dot"></span>' : ""}</button>`
+  ).join("")
+rail.querySelectorAll(".ic").forEach((b) =>
+  b.addEventListener("click", () => {
+    rail.querySelectorAll(".ic").forEach((x) => x.classList.toggle("on", x === b))
+  })
+)
+document.getElementById("sheet").innerHTML = DEPTS.map(
+  ([id, label]) => `<div class="cell">${icon(id)}<span>${label}</span></div>`
+).join("")
+
+const set = (o) => {
+  document.body.dataset.o = o
+  document.querySelectorAll(".opts button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.set === o))
+  document.getElementById("title").textContent = document.querySelector(`.opts [data-set="${o}"]`).textContent
+  document.getElementById("say").textContent = SAY[o]
+  try { localStorage.setItem("sidebar-icons", o) } catch {}
+}
+document.querySelectorAll(".opts button").forEach((b) => b.addEventListener("click", () => set(b.dataset.set)))
+let first = "a"
+try { first = new URLSearchParams(location.search).get("o") || localStorage.getItem("sidebar-icons") || "a" } catch {}
+set(first)
+</script>
+</body>
+</html>

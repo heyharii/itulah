@@ -49,7 +49,7 @@
 //! cost half waits for inventory valuation. See `domain::sales_posting`.
 
 use super::payment_ledger;
-use super::poster::{post, reverse, PostingIntent, PostingLine};
+use super::poster::{post, reverse, LineAccount, PostingIntent, PostingLine};
 use super::stock_ledger::{self, StockOutflow};
 use crate::cloud::application::AppError;
 use crate::cloud::domain::sales_posting::{
@@ -372,6 +372,9 @@ fn acquirer_of(method: &str, acquirer: Option<&str>, reference: Option<&str>) ->
 struct EdcBanks {
     terminals: BTreeMap<String, String>,
     banks: Vec<String>,
+    /// The shop's machine of each bank: the account debit, credit and QRIS
+    /// land in, where head office named one (0989).
+    accounts: BTreeMap<String, [Option<String>; 3]>,
 }
 
 impl EdcBanks {
@@ -395,7 +398,31 @@ impl EdcBanks {
         let banks = sqlx::query_scalar::<_, String>("SELECT upper(code) FROM bank WHERE active")
             .fetch_all(pool)
             .await?;
-        Ok(Self { terminals, banks })
+        let accounts = sqlx::query(
+            "SELECT bank_code, max(debit_account) AS debit_account,
+                    max(credit_account) AS credit_account, max(qris_account) AS qris_account
+               FROM edc_terminal WHERE site_id = $1 AND active GROUP BY bank_code",
+        )
+        .bind(site_id)
+        .fetch_all(pool)
+        .await?
+        .iter()
+        .map(|row| {
+            Ok((
+                row.try_get::<String, _>("bank_code")?.to_ascii_uppercase(),
+                [
+                    row.try_get::<Option<String>, _>("debit_account")?,
+                    row.try_get::<Option<String>, _>("credit_account")?,
+                    row.try_get::<Option<String>, _>("qris_account")?,
+                ],
+            ))
+        })
+        .collect::<Result<BTreeMap<_, _>, AppError>>()?;
+        Ok(Self {
+            terminals,
+            banks,
+            accounts,
+        })
     }
 }
 
@@ -481,6 +508,7 @@ impl Buckets {
                 tender_count: count,
                 direct_mdr_bps: None,
                 direct_bank: None,
+                direct_account: None,
             });
         }
         // Change given, or takings no tender accounts for, with no cash bucket
@@ -504,6 +532,7 @@ impl Buckets {
                 tender_count: 0,
                 direct_mdr_bps: None,
                 direct_bank: None,
+                direct_account: None,
             });
         }
         Ok(out)
@@ -913,6 +942,19 @@ async fn read_day(
                     ))
                 })?
             });
+            // And the account: the one head office set on that machine for
+            // this kind, else the bank's link decides (0989).
+            let slot = match tender {
+                "CREDIT_CARD" => 1,
+                "QRIS" => 2,
+                _ => 0,
+            };
+            bucket.direct_account = bucket
+                .direct_bank
+                .as_deref()
+                .and_then(|bank| edc.accounts.get(&bank.to_ascii_uppercase()))
+                .and_then(|kinds| kinds[slot].clone())
+                .filter(|_| tender != "EWALLET");
         }
     }
     let exceptions = exceptions
@@ -1379,6 +1421,7 @@ pub async fn sales_posting_exception_resolve(
         debit_minor: net,
         credit_minor: 0,
         memo,
+        account_code: None,
     };
     sales_posting_open_receivables(
         &mut tx,
@@ -1900,12 +1943,21 @@ pub async fn sales_posting_post(
         .iter()
         .map(|side| {
             let unit = posting_unit(&day_unit, side.semantic_key, &head_office);
-            let mut line = if side.debit_minor > 0 {
-                PostingLine::debit(side.semantic_key, &unit, side.debit_minor)
-            } else {
-                PostingLine::credit(side.semantic_key, &unit, side.credit_minor)
+            // A shop EDC's own account when head office named one (0989);
+            // otherwise the meaning, resolved through its link.
+            let account = match &side.account_code {
+                Some(code) => LineAccount::Account {
+                    account_code: code.clone(),
+                    category_code: None,
+                },
+                None => LineAccount::from(side.semantic_key),
             };
-            if !side.qualifier.is_empty() {
+            let mut line = if side.debit_minor > 0 {
+                PostingLine::debit(account, &unit, side.debit_minor)
+            } else {
+                PostingLine::credit(account, &unit, side.credit_minor)
+            };
+            if !side.qualifier.is_empty() && side.account_code.is_none() {
                 line = line.with_qualifier(&side.qualifier);
             }
             line.memo = Some(side.memo.clone());

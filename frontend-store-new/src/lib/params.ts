@@ -98,6 +98,8 @@ export const PARAMS = {
   delivery: text,
   movement: text,
   returning: text,
+  /// Money › Unmatched sales: the sale whose sheet is open, by its line id.
+  unmatched: text,
   /// How many days the report covers, ending today.
   span: counted,
   /// How the series is grouped.

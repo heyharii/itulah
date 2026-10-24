@@ -6,7 +6,14 @@
       "rfid-native/libusb-1.0.dll": "rfid-native/libusb-1.0.dll",
       "rfid-native/vcruntime140.dll": "rfid-native/vcruntime140.dll",
       "rfid-native/vcruntime140_1.dll": "rfid-native/vcruntime140_1.dll",
-      "rfid-native/msvcp140.dll": "rfid-native/msvcp140.dll"
+      "rfid-native/msvcp140.dll": "rfid-native/msvcp140.dll",
+      "fingerprint-native/ZKFinger-setup.exe": "fingerprint-native/ZKFinger-setup.exe"
+    },
+    "windows": {
+      "wix": {
+        "fragmentPaths": ["wix/uninstall-guard.wxs"],
+        "componentGroupRefs": ["CentralPosUninstallGuard"]
+      }
     }
   }
 }

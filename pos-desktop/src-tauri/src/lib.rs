@@ -21,7 +21,8 @@
 //! So: two lanes out of this process, and both of them are named.
 //!
 //!   - [`edge`] — everything the shop decides, asked for by path.
-//!   - [`device`] — what only a process on this machine can reach.
+//!   - [`device`] — what only a process on this machine can reach (the R3 in
+//!     [`rfid`], the fingerprint scanner in [`fingerprint`]).
 //!
 //! And three things about the till itself, none of them domain state:
 //!
@@ -37,11 +38,14 @@ use tauri::Manager;
 mod device;
 mod discovery;
 mod edge;
+mod fingerprint;
 mod join;
 mod peripherals;
 mod printer;
 mod requests;
 mod rfid;
+/// Only head office uninstalls a POS: the till holds itself until removed.
+mod uninstall;
 
 /// Open the screen that faces the shopper.
 ///
@@ -127,10 +131,16 @@ pub fn run() {
             edge::edge_call,
             edge::edge_signed_call,
             device::rfid_state,
+            device::rfid_status,
             device::rfid_read_pad,
+            device::rfid_test_reader,
+            device::rfid_calibrate,
+            device::rfid_diagnostics,
             device::fingerprint_state,
             device::fingerprint_identify,
             device::fingerprint_enroll,
+            device::fingerprint_cancel,
+            device::fingerprint_install_driver,
             device::open_drawer,
             discovery::discover_nodes,
             discovery::identify_node,
@@ -147,6 +157,8 @@ pub fn run() {
             printer::test_usb_printer,
             printer::local_printers,
             open_customer_display,
+            uninstall::till_hold,
+            uninstall::open_uninstall,
         ])
         .run(tauri::generate_context!())
         .expect("the counter window could not be opened");

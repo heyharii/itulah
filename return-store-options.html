@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Return Store options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet" />
+<style>
+/* Ops › Return Store — one per return, like Allotments, no kanban and
+   no grouping (owner, 20 Oct 2026).
+   Tokens: frontend-hub/src/styles/white.css (All white). */
+:root{
+  --ink:#1d1d1f; --body:#6e6e73; --mute:#6e6e73; --faint:#c7c7cc;
+  --soft:#fafafb; --soft-2:#f2f2f5; --soft-3:#f5f5f7;
+  --hairline:#e8e8ec; --hairline-2:#dcdce1; --row-line:#eeeef1; --band:#fafafb;
+  --accent:#2862dc; --accent-bg:#eef3fc; --cta:#2862dc;
+  --ok-fg:#248a3d; --warn-fg:#b25000; --info:#2862dc;
+  --r-card:10px; --r-inner:8px;
+  --ease-out:cubic-bezier(.23,1,.32,1);
+  --font:"Inter",system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font-family:var(--font);font-size:15px;color:var(--ink);background:#e9e9ec;letter-spacing:-.006em;-webkit-font-smoothing:antialiased;overflow:hidden}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+.i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+
+.proto{height:50px;overflow-x:auto;background:#141518;color:#fff;display:flex;align-items:center;gap:12px;padding:0 14px 0 18px}
+.proto .t{font-weight:600;white-space:nowrap}
+.seg{display:flex;gap:2px;background:#24262b;border-radius:9px;padding:3px}
+.seg button{height:32px;padding:0 11px;border-radius:7px;font-size:15px;color:#b9bcc3;white-space:nowrap;transition:background-color .15s ease,color .15s ease,transform .16s ease-out}
+.seg button:active{transform:scale(.97)}
+.seg button b{font-weight:600;color:#fff;margin-right:5px}
+.seg button.on{background:#fff;color:var(--ink)} .seg button.on b{color:var(--ink)}
+.seg .star{color:#f4b740;margin-left:4px}
+.proto .sp{flex:1}
+.note{min-height:36px;background:#1c1e22;color:#a7abb3;font-size:15px;line-height:24px;padding:6px 18px;border-top:1px solid #26282d}
+.note b{color:#fff;font-weight:500}
+.stagewrap{height:calc(100vh - 86px);overflow:hidden;display:flex;justify-content:center}
+
+.app{height:100%;width:100%;display:grid;grid-template-columns:68px 232px minmax(0,1fr);background:var(--soft-3);position:relative;overflow:hidden}
+.rail{display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:4px}
+.logo{width:28px;height:28px;border-radius:7px;background:var(--ink);color:#fff;display:grid;place-items:center;font-weight:600;margin-bottom:10px}
+.rail .ri{width:40px;height:36px;border-radius:8px;display:grid;place-items:center;color:#3a3a3c}
+.rail .ri.on{background:#fff;box-shadow:0 0 0 1px var(--hairline)}
+.dept{background:#fff;margin:8px 0;border-radius:12px;display:flex;flex-direction:column}
+.dept h2{margin:0;height:52px;display:flex;align-items:center;padding:0 18px;font-size:17px;font-weight:600}
+.rows{padding:2px 10px;display:flex;flex-direction:column;gap:2px}
+.row{height:38px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-radius:8px;color:#3a3a3c;width:100%}
+.row.on{background:var(--accent-bg);color:var(--accent);font-weight:500}
+.badge{min-width:20px;height:20px;border-radius:10px;background:#c62828;color:#fff;font-size:13px;font-weight:600;display:grid;place-items:center;padding:0 6px}
+.main{margin:8px;background:#fff;border-radius:12px;overflow-y:auto;min-width:0}
+.head{height:52px;display:flex;align-items:center;gap:10px;padding:0 28px;border-bottom:1px solid var(--hairline)}
+.head h1{margin:0;font-size:17px;font-weight:600;flex:1}
+.page{padding:20px 28px 48px}
+.figs{display:flex;margin-bottom:24px}
+.fig{padding:0 26px 0 20px;border-left:1px solid var(--hairline)}
+.fig:first-child{border-left:0;padding-left:0}
+.fig .l{color:var(--body);white-space:nowrap}
+.fig .v{font-size:17px;font-weight:600;margin-top:4px;font-variant-numeric:tabular-nums}
+.tabs{display:flex;gap:18px;border-bottom:1px solid var(--hairline);margin-bottom:16px}
+.tab{height:38px;color:var(--body);position:relative}
+.tab .c{margin-left:5px;color:var(--mute)}
+.tab.on{color:var(--ink);font-weight:500}
+.tab.on::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--ink);border-radius:2px}
+.search{width:280px;height:36px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);display:flex;align-items:center;gap:8px;padding:0 12px;color:var(--mute);margin-bottom:14px}
+
+.tbox{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden}
+table{border-collapse:collapse;width:100%;table-layout:fixed}
+th{height:40px;background:var(--band);color:var(--body);font-weight:500;text-align:left;padding:0 16px;border-bottom:1px solid var(--hairline);white-space:nowrap}
+td{padding:0 16px;height:64px;white-space:nowrap;border-top:1px solid var(--row-line);vertical-align:middle;overflow:hidden}
+tbody tr:first-child td{border-top:0}
+tbody tr.click{cursor:pointer}
+@media (hover:hover){tbody tr.click:hover td{background:#fafafb}}
+.r{text-align:right}
+.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+.nm{font-weight:500;color:var(--ink)}
+.m{color:var(--mute)}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:15px;letter-spacing:0}
+.two{display:flex;flex-direction:column;gap:4px;min-width:0}
+.two .b{color:var(--mute)}
+.trunc{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.btn{height:32px;display:inline-flex;align-items:center;gap:6px;padding:0 12px;border-radius:var(--r-inner);font-weight:500;white-space:nowrap;transition:transform .16s ease-out,background-color .15s ease}
+.btn:active{transform:scale(.97)}
+.btn.p{background:var(--cta);color:#fff}
+.btn.t{background:var(--accent-bg);color:var(--accent);font-weight:600}
+.btn.g{border:1px solid var(--hairline-2);background:#fff}
+.st{white-space:nowrap}
+.st::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;margin:0 8px 2px 0;vertical-align:middle;background:var(--d)}
+.st.way{--d:var(--info)} .st.rev{--d:#c98a00} .st.done{--d:var(--ok-fg)}
+.warn{color:var(--warn-fg)}
+.grp td{height:52px;background:var(--band);border-top:1px solid var(--hairline)}
+.grp + tr td{border-top:1px solid var(--hairline)}
+.chev{display:inline-block;width:7px;height:7px;border-right:1.6px solid var(--mute);border-bottom:1.6px solid var(--mute);transform:rotate(-45deg);margin-right:12px;transition:transform .2s var(--ease-out)}
+.open .chev{transform:rotate(45deg) translateY(-2px)}
+.sub td:first-child{padding-left:44px}
+.dash{color:var(--faint)}
+
+/* D master-detail */
+.md{display:grid;grid-template-columns:260px minmax(0,1fr);gap:20px}
+.slist{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden;align-self:start}
+.si{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 16px;border-top:1px solid var(--row-line);width:100%;text-align:left}
+.si:first-child{border-top:0}
+.si.on{background:var(--accent-bg)}
+.si .n{font-weight:500}
+.si .sx{color:var(--mute);font-size:15px}
+.pill{display:inline-flex;align-items:center;height:24px;padding:0 8px;border-radius:12px;background:var(--accent);color:#fff;font-size:13px;font-weight:600}
+.dtitle{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px}
+.dtitle h3{margin:0;font-size:17px;font-weight:600}
+
+/* sheet */
+.scrim{position:absolute;inset:0;background:rgb(0 0 0/.18);opacity:0;pointer-events:none;transition:opacity .2s var(--ease-out);z-index:10}
+.sheet{position:absolute;top:8px;right:8px;bottom:8px;width:min(760px,calc(100% - 16px));background:#fff;border-radius:12px;box-shadow:0 20px 60px rgb(0 0 0/.18);transform:translateX(calc(100% + 16px));transition:transform .28s var(--ease-out);z-index:11;display:flex;flex-direction:column}
+.app.sheeted .scrim{opacity:1;pointer-events:auto}
+.app.sheeted .sheet{transform:none}
+.sh{padding:22px 28px 16px;border-bottom:1px solid var(--hairline);display:flex;justify-content:space-between}
+.sh .crumb{color:var(--mute)}
+.sh h2{margin:4px 0 0;font-size:19px;font-weight:600}
+.sb{padding:22px 28px;overflow:auto;flex:1}
+.facts{display:grid;grid-template-columns:1fr 1fr;gap:18px 24px;margin-bottom:22px}
+.facts .l{color:var(--mute)} .facts .v{margin-top:4px}
+.x{width:32px;height:32px;border-radius:8px;display:grid;place-items:center}
+
+.narrow .app{grid-template-columns:minmax(0,1fr)}
+.narrow .rail,.narrow .dept{display:none}
+.narrow .stagewrap .app{width:414px}
+.narrow .figs{flex-wrap:wrap;gap:12px 0}
+.narrow .md{grid-template-columns:1fr}
+.narrow .hide-n{display:none}
+.show-n{display:none} .narrow .show-n{display:block}
+.narrow table{table-layout:auto}
+.narrow td{white-space:normal;height:auto;padding-top:12px;padding-bottom:12px}
+.narrow .btn{white-space:nowrap;padding:0 10px}
+.narrow .sub td:first-child{padding-left:16px}
+.narrow td{padding-left:12px;padding-right:12px}
+.narrow th{width:auto!important}
+.narrow .sheet{width:calc(100% - 16px)}
+.narrow .facts{grid-template-columns:1fr}
+.narrow .stile{min-width:0;flex:1 1 40%}
+.narrow .rv .rh{flex-direction:column;align-items:flex-start;gap:4px;padding:12px 14px}
+.narrow .qin{width:64px}
+.narrow .sf{padding:12px 16px}
+.narrow .totals dl{min-width:0;width:100%}
+.narrow .sb,.narrow .sh{padding-left:16px;padding-right:16px}
+.narrow .sb td{padding-left:12px;padding-right:12px}
+.narrow .page{padding:16px}
+.narrow .head{padding:0 16px}
+
+/* allotment-style return card */
+.cards{display:flex;flex-direction:column;gap:12px}
+.card{border:1px solid var(--hairline);border-radius:12px;padding:18px 18px 16px 22px;display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,300px);gap:12px 24px;align-items:start;cursor:pointer}
+@media (hover:hover){.card:hover{background:#fcfcfd}}
+.card .t1{font-weight:600}
+.card .t2{color:var(--mute);margin-top:2px}
+.card .t3{margin-top:6px}
+.card .t3 b{font-weight:600}
+.mini{border:1px solid var(--hairline);border-radius:8px;overflow:hidden}
+.one{display:flex;flex-direction:column;align-items:flex-end;gap:4px;text-align:right}
+.one .st{font-weight:500}
+.one .why{color:var(--mute)}
+.narrow .one{align-items:flex-start;text-align:left}
+.mini table th{height:34px;padding:0 12px}
+.mini table td{height:40px;padding:0 12px}
+.card .acts{grid-column:3;display:flex;justify-content:flex-end;gap:8px}
+.stamp{border:2px solid currentColor;border-radius:4px;padding:2px 8px;text-align:center;font-weight:700;font-size:15px;line-height:17px;transform:rotate(-4deg);margin-top:4px;outline:1px solid currentColor;outline-offset:2px}
+.stamp.ok{color:#2e8b4e} .stamp.warn{color:#b07a2a}
+.arts{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.art{display:flex;align-items:center;gap:10px}
+.th{width:36px;height:36px;border-radius:8px;border:1px solid var(--hairline);display:grid;place-items:center;color:var(--faint);flex:none}
+.narrow .card{grid-template-columns:1fr;padding:16px}
+.narrow .card .acts{grid-column:1}
+.narrow .card .stampbox{display:none}
+
+.tiles{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+.tile{background:var(--soft-3);border-radius:10px;padding:10px 14px;min-width:96px}
+.tile .l{color:var(--body)} .tile .v{font-weight:600;margin-top:2px;font-variant-numeric:tabular-nums}
+.segtabs{display:inline-flex;gap:2px;background:var(--soft-3);border-radius:9px;padding:3px}
+.segtabs button{height:32px;padding:0 10px;border-radius:7px;color:var(--body)}
+.segtabs button.on{background:#fff;color:var(--ink);font-weight:500;box-shadow:0 0 0 1px var(--hairline)}
+tfoot td{height:52px;background:var(--band);border-top:1px solid var(--hairline)}
+
+/* New return — a wide sheet, as New PO's */
+.sheet.wide{width:min(1180px,calc(100% - 16px))}
+.sf{border-top:1px solid var(--hairline);padding:14px 28px;display:flex;justify-content:flex-end;gap:8px}
+.btn.d{background:#d70015;color:#fff}
+.btn.lg{height:40px;padding:0 16px}
+.stores{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px}
+.stile{min-width:150px;border:1px solid var(--hairline-2);border-radius:12px;padding:12px 14px;text-align:left;transition:border-color .15s ease,background-color .15s ease,transform .16s ease-out}
+.stile:active{transform:scale(.98)}
+.stile .c{font-weight:600}
+.stile .n{color:var(--mute)}
+.stile .q{margin-top:6px;font-variant-numeric:tabular-nums;color:var(--body)}
+.stile .q b{color:var(--accent);font-weight:600}
+.stile.on{border-color:var(--accent);background:var(--accent-bg);box-shadow:0 0 0 1px var(--accent)}
+.qin{width:84px;height:40px;border:1px solid var(--hairline-2);border-radius:8px;text-align:center;font:inherit;font-weight:600;font-variant-numeric:tabular-nums}
+.qin:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.qin.over{border-color:#d70015;color:#d70015}
+.reason{display:inline-flex;align-items:center;height:26px;padding:0 9px;border-radius:13px;background:var(--soft-2);color:var(--body);white-space:nowrap}
+.totals{display:flex;justify-content:flex-end;margin-top:16px}
+.totals dl{display:grid;grid-template-columns:1fr auto;gap:6px 40px;margin:0;background:var(--soft);border:1px solid var(--hairline);border-radius:10px;padding:12px 20px;min-width:320px}
+.totals dt{color:var(--ink)} .totals dd{margin:0;text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
+.rv{border:1px solid var(--hairline);border-radius:12px;margin-bottom:14px;overflow:hidden}
+.rv .rh{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;background:var(--band);border-bottom:1px solid var(--hairline)}
+.rv .rh b{font-weight:600}
+.toast{position:absolute;left:50%;bottom:24px;transform:translate(-50%,20px);opacity:0;background:#1d1d1f;color:#fff;border-radius:10px;padding:12px 18px;transition:opacity .2s var(--ease-out),transform .2s var(--ease-out);z-index:20;pointer-events:none}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+</style>
+</head>
+<body>
+<div class="proto">
+  <div class="t">Ops · Return Store</div>
+  <div class="seg" id="opts"></div>
+  <div class="sp"></div>
+  <div class="seg" id="widths"></div>
+</div>
+<div class="note" id="note"></div>
+<div class="stagewrap" id="stagewrap">
+  <div class="app" id="app">
+    <nav class="rail">
+      <div class="logo">C</div>
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></div>
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><path d="M6 6h15l-2 8H8z"/><circle cx="9" cy="20" r="1"/><circle cx="18" cy="20" r="1"/></svg></div>
+      <div class="ri on"><svg class="i" viewBox="0 0 24 24"><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="18" r="1.6"/><circle cx="17" cy="18" r="1.6"/></svg></div>
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><path d="M4 20V10l8-6 8 6v10"/></svg></div>
+    </nav>
+    <aside class="dept">
+      <h2>Ops</h2>
+      <div class="rows">
+        <div class="row">Receiving PO <span class="badge">14</span></div>
+        <div class="row">Receiving Return <span class="badge">2</span></div>
+        <div class="row">Quantity Checks <span class="badge">2</span></div>
+        <div class="row">Allotment <span class="badge">1</span></div>
+        <div class="row on">Return Store <span class="badge">3</span></div>
+        <div class="row">Printing</div>
+      </div>
+    </aside>
+    <main class="main">
+      <div class="head"><h1>Return Store</h1><button class="btn p" id="newbtn" onclick="openNew()">+ New return</button></div>
+      <div class="page" id="page"></div>
+    </main>
+    <div class="scrim" id="scrim"></div>
+    <section class="sheet" id="sheet"></section>
+    <div class="toast" id="toast"></div>
+  </div>
+</div>
+
+<script>
+// One row per RETURN (one surat jalan from one store), as the Allotments
+// list draws an allotment — no grouping (owner, 20 Oct 2026: "harusnya per
+// return dong, seperti allotment, per return, ga usah group group").
+// Stages: on the way (blind, koli only) → in review (counted, standing in
+// "Return · Cxxx" at the Gudang, to inspect) → completed (inspected).
+const RETURNS = [
+  { sj: "ALT-00000041", store: "C004 · Bumiayu", sent: "20 Oct", koli: 0, stage: "pick", asked: 8, arts: ["Kaos Basic Katun Combed", "Celana Chino Slim Fit"] },
+  { sj: "ALT-00000040", store: "C002 · Muaro Bungo", sent: "20 Oct", koli: 0, stage: "pick", asked: 3, arts: ["Blus Rayon Motif Bunga"] },
+  { sj: "SJ-C001-TOKO-000002", store: "C001 · Cikupa", sent: "17 Oct", koli: 1, stage: "way", arts: ["Flat Shoes Wanita", "Kemeja Oxford Lengan Panjang"] },
+  { sj: "SJ-C001-TOKO-000001", store: "C001 · Cikupa", sent: "17 Oct", koli: 1, stage: "way", arts: ["Celana Chino Slim Fit", "Kaos Anak Karakter", "Kaos Basic Katun Combed"] },
+  { sj: "SJ-C003-TOKO-000001", store: "C003 · Purwokerto", sent: "19 Oct", koli: 2, stage: "way", arts: ["Blus Rayon Motif Bunga"] },
+  { sj: "SJ-C001-TOKO-000003", store: "C001 · Cikupa", sent: "16 Oct", koli: 1, stage: "rev", sentPcs: 3, got: 3, arts: ["Kaos Basic Katun Combed"] },
+  { sj: "SJ-C003-TOKO-000002", store: "C003 · Purwokerto", sent: "18 Oct", koli: 1, stage: "rev", sentPcs: 6, got: 5, missing: 1, arts: ["Kemeja Oxford Lengan Panjang", "Flat Shoes Wanita"] },
+  { sj: "SJ-C002-TOKO-000002", store: "C002 · Muaro Bungo", sent: "20 Oct", koli: 1, stage: "rev", sentPcs: 1, got: 2, extra: 1, arts: ["Kaos Anak Karakter"] },
+  { sj: "SJ-C001-TOKO-000005", store: "C001 · Cikupa", sent: "20 Oct", koli: 1, stage: "done", sentPcs: 2, got: 2, on: "20 Oct", arts: ["Celana Chino Slim Fit"] },
+  { sj: "SJ-C002-TOKO-000001", store: "C002 · Muaro Bungo", sent: "20 Oct", koli: 1, stage: "done", sentPcs: 4, got: 3, missing: 1, on: "20 Oct", arts: ["Blus Rayon Motif Bunga", "Kaos Basic Katun Combed"] },
+  { sj: "SJ-C005-TOKO-000001", store: "C005 · Tegal", sent: "14 Oct", koli: 1, stage: "done", sentPcs: 5, got: 5, on: "15 Oct", arts: ["Flat Shoes Wanita"] },
+]
+const TABS = [["pick", "To pick"], ["way", "In transit"], ["rev", "Review count"], ["done", "Completed"]]
+const OPTIONS = [
+  { k: "D", t: "Like PO list", star: true, note: "<b>D · Like the PO list.</b> One table, tabs Active · Completed · Cancelled. Status is a word (To pick · In transit) — or the blue Review count button when a count waits; those stand first. Completed wears the stamp." },
+  { k: "A", t: "Like Allotments", note: "<b>A · Like Allotments.</b> One card per return, the Allotments card as it is: store, surat jalan · date, the pieces; at the right ONE status (To pick · In transit · Review count) — no table, a return has no pipeline; the one button under it; Completed wears the stamp." },
+  { k: "B", t: "One row per return", note: "<b>B · One row per return.</b> The same returns as a plain table, like Receiving PO: Return (store over surat jalan) · Sent on · Koli · Pcs · Status · the button." },
+  { k: "C", t: "Card with its articles", note: "<b>C · Card with its articles.</b> Card A with the articles the return carries listed on the left (names only while it is on the way — never how many)." },
+]
+let opt = "D", narrow = false, tab = "pick", dtab = "active"
+
+const sum = (xs, f) => xs.reduce((a, x) => a + (f(x) || 0), 0)
+const inTab = () => RETURNS.filter(r => r.stage === tab)
+const figs = () => `<div class="figs">
+  <div class="fig"><div class="l">To pick</div><div class="v">${sum(RETURNS.filter(r=>r.stage==="pick"), r=>r.asked)} pcs</div></div>
+  <div class="fig"><div class="l">In transit</div><div class="v">${sum(RETURNS.filter(r=>r.stage==="way"), r=>r.koli)} koli</div></div>
+  <div class="fig"><div class="l">Review count</div><div class="v">${RETURNS.filter(r=>r.stage==="rev").length}</div></div>
+  <div class="fig"><div class="l">Completed</div><div class="v">${sum(RETURNS.filter(r=>r.stage==="done"), r=>r.got)} pcs</div></div></div>`
+const tabs = () => `<div class="tabs">${TABS.map(([k, w]) => `<button class="tab ${tab===k?"on":""}" onclick="tab='${k}';render()">${w}<span class="c">${RETURNS.filter(r=>r.stage===k).length}</span></button>`).join("")}</div>`
+const search = `<div class="search"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>Search returns or stores</div>`
+const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`
+const line = r => r.stage === "pick" ? `<b>${r.asked} pcs</b> · ${plural(r.arts.length, "article")}`
+  : r.stage === "way" ? `<b>${r.koli} koli</b> · ${plural(r.arts.length, "article")}`
+  : `<b>${r.got} pcs</b> · ${plural(r.arts.length, "article")} · ${r.koli} koli`
+// One status, no table: a return has one store and one way to go.
+const WORD = { pick: "To pick", way: "In transit", rev: "Review count", done: "Completed" }
+const DOT = { pick: "#8e8e93", way: "var(--info)", rev: "#c45a00", done: "var(--ok-fg)" }
+const diff = r => [r.missing && `${r.missing} missing`, r.extra && `${r.extra} extra`].filter(Boolean).join(" · ")
+const status = r => `<div class="one"><span class="st" style="--d:${DOT[r.stage]}">${WORD[r.stage]}</span>${
+  r.stage === "rev" ? `<span class="why">Counted ${r.got} of ${r.sentPcs}${diff(r) ? ` · ${diff(r)}` : " · matches"}</span>`
+  : r.stage === "pick" ? `<span class="why">Waiting on the store</span>` : ""}</div>`
+const mini = status
+const button = r => r.stage === "way" ? `<button class="btn p" onclick="event.stopPropagation()">Count receive</button>`
+  : r.stage === "rev" ? `<button class="btn p" onclick="event.stopPropagation()">Review count</button>` : ""
+const stamp = r => r.stage === "done" ? `<div class="stamp ${r.missing ? "warn" : "ok"}">${r.missing ? "Accepted" : "Completed"}<br>${r.on}</div>` : ""
+const th = `<span class="th"><svg class="i" viewBox="0 0 24 24"><path d="M8 4 4 7l2 3 2-1v11h8V9l2 1 2-3-4-3c-1 1.5-2.3 2-4 2s-3-.5-4-2z"/></svg></span>`
+const card = (r, arts) => `<div class="card" onclick="openReturn('${r.sj}')">
+  <div><div class="t1">${r.store}</div><div class="t2"><span class="mono">${r.sj}</span> · ${r.sent}</div><div class="t3">${line(r)}</div>
+  ${arts ? `<div class="arts">${r.arts.map(a => `<div class="art">${th}<span>${a}</span></div>`).join("")}</div>` : ""}</div>
+  <div class="stampbox">${stamp(r)}</div>
+  ${mini(r)}
+  ${button(r) ? `<div class="acts">${button(r)}</div>` : ""}</div>`
+const empty = () => `<div class="tbox" style="padding:28px;text-align:center"><span class="m">${{ pick: "Nothing to pick.", way: "Nothing in transit.", rev: "Nothing to review.", done: "Nothing completed yet." }[tab]}</span></div>`
+
+function pageA() { const rows = inTab(); return figs() + tabs() + search + (rows.length ? `<div class="cards">${rows.map(r => card(r, false)).join("")}</div>` : empty()) }
+function pageC() { const rows = inTab(); return figs() + tabs() + search + (rows.length ? `<div class="cards">${rows.map(r => card(r, true)).join("")}</div>` : empty()) }
+function pageB() {
+  const rows = inTab()
+  const statusCell = r => `<span class="st" style="--d:${DOT[r.stage]}">${WORD[r.stage]}</span>${r.stage === "rev" ? ` <span class="m">· ${diff(r) || "matches"}</span>` : ""}`
+  return figs() + tabs() + search + (rows.length ? `<div class="tbox"><table>
+  <thead><tr><th style="width:30%">Return</th><th class="hide-n">Sent on</th><th class="r hide-n">Koli</th><th class="r hide-n">Pcs</th><th class="hide-n" style="width:28%">Status</th><th class="r" style="width:160px"></th></tr></thead>
+  <tbody>${rows.map(r => `<tr class="click" onclick="openReturn('${r.sj}')">
+    <td><div class="two"><span class="nm trunc">${r.store}</span><span class="b mono trunc">${r.sj}</span><span class="b show-n">${WORD[r.stage]} · ${r.stage === "pick" ? `${r.asked} pcs` : r.stage === "way" ? `${r.koli} koli` : `${r.got} pcs`}</span></div></td>
+    <td class="hide-n">${r.sent}</td><td class="r num hide-n">${r.koli || '<span class="dash">—</span>'}</td><td class="r num hide-n">${r.stage === "pick" ? r.asked : r.stage === "way" ? '<span class="dash">—</span>' : r.got}</td>
+    <td class="hide-n">${statusCell(r)}</td>
+    <td class="r">${button(r) || `<span class="m">${r.on ?? ""}</span>`}</td></tr>`).join("")}</tbody></table></div>` : empty())
+}
+
+// D · the PO list's own form: Active / Completed / Cancelled; the status is a
+// word, or the Review count button; a waiting review stands first.
+const CANCELLED = [{ sj: "ALT-00000036", store: "C004 · Bumiayu", sent: "15 Oct", koli: 0, stage: "cancel", asked: 4, arts: ["Kaos Anak Karakter"] }]
+const RANK = { rev: 0, way: 1, pick: 2 }
+function pageD() {
+  const active = RETURNS.filter(r => r.stage !== "done").sort((a, b) => RANK[a.stage] - RANK[b.stage])
+  const done = RETURNS.filter(r => r.stage === "done")
+  const rows = dtab === "active" ? active : dtab === "done" ? done : CANCELLED
+  const DT = [["active", "Active", active.length], ["done", "Completed", done.length], ["cancel", "Cancelled", CANCELLED.length]]
+  const tabsD = `<div class="segtabs">${DT.map(([k, w, n]) => `<button class="${dtab===k?"on":""}" onclick="dtab='${k}';render()">${w} <span class="m">${n}</span></button>`).join("")}</div>`
+  const figsD = `<div class="tiles">
+    <div class="tile"><div class="l">Returns</div><div class="v">${RETURNS.length}</div></div>
+    <div class="tile"><div class="l">Still open</div><div class="v">${active.length}</div></div>
+    <div class="tile"><div class="l">Review count</div><div class="v">${RETURNS.filter(r=>r.stage==="rev").length}</div></div>
+    <div class="tile"><div class="l">In transit</div><div class="v">${sum(RETURNS.filter(r=>r.stage==="way"), r=>r.koli)} koli</div></div></div>`
+  const sent = r => r.stage === "pick" || r.stage === "cancel" ? `${r.asked} pcs` : r.sentPcs ? `${r.sentPcs} pcs` : `${r.koli} koli`
+  const recv = r => r.got === undefined ? `<span class="m">0 pcs</span>` : `<span class="${r.missing || r.extra ? "warn" : ""}">${r.got} pcs</span>`
+  const statusD = r => r.stage === "rev" ? `<button class="btn p" onclick="event.stopPropagation()">Review count</button>`
+    : r.stage === "done" ? `<span class="stamp ${r.missing ? "warn" : "ok"}" style="display:inline-block">${r.missing ? "Accepted" : "Completed"}<br>${r.on}</span>`
+    : r.stage === "cancel" ? `<span class="m">Cancelled</span>`
+    : `<span style="color:${r.stage === "way" ? "var(--info)" : "var(--ok-fg)"}">${WORD[r.stage]}</span>`
+  return `<div class="dhead">${figsD}</div>` + tabsD + `<div class="search" style="margin-top:14px">${search.slice(search.indexOf("<svg"), search.lastIndexOf("</div>"))}</div>` + (rows.length ? `<div class="tbox"><table>
+  <thead><tr><th style="width:34%">Return</th><th class="hide-n">Sent on</th><th class="r hide-n">Sent</th><th class="r hide-n">Received</th><th class="r" style="width:170px">Status</th></tr></thead>
+  <tbody>${rows.map(r => `<tr class="click" onclick="openReturn('${r.sj}')">
+    <td><div class="two"><span class="nm trunc">${r.store}</span><span class="b"><span class="mono">${r.sj}</span> · ${plural(r.arts.length, "article")}</span><span class="b show-n">${sent(r)}</span></div></td>
+    <td class="hide-n">${r.sent}</td><td class="r num hide-n">${sent(r)}</td><td class="r num hide-n">${recv(r)}</td><td class="r">${statusD(r)}</td></tr>`).join("")}</tbody>
+  <tfoot><tr><td class="m">${rows.length} returns</td><td class="hide-n"></td><td class="r num hide-n"><b>${sum(rows, r => r.sentPcs ?? r.asked ?? 0)} pcs</b></td><td class="r num hide-n"><b>${sum(rows, r => r.got)} pcs</b></td><td></td></tr></tfoot></table></div>` : empty())
+}
+
+// New return (owner, 20 Oct 2026 sketch): store tiles on top to switch store;
+// under them the store's RETURN stock — articles, how many, the reason the
+// store gave when it moved them in — and a box to type how many go back.
+// Review return before Submit, as New PO's Review order. One store = one
+// return: four stores filled, four returns.
+const STOCK = {
+  "C001 · Cikupa": [
+    { a: "Flat Shoes Wanita", sku: "00000006103 · Black · M", have: 4, why: "Damaged" },
+    { a: "Kemeja Oxford Lengan Panjang", sku: "00000005104 · White · L", have: 3, why: "Slow moving" },
+    { a: "Kaos Basic Katun Combed", sku: "00000003104 · Black · L", have: 6, why: "Factory defect" },
+  ],
+  "C002 · Muaro Bungo": [
+    { a: "Blus Rayon Motif Bunga", sku: "00000001102 · Red · S", have: 2, why: "Wrong item" },
+    { a: "Celana Chino Slim Fit", sku: "00000002105 · Black · XL", have: 5, why: "Slow moving" },
+  ],
+  "C003 · Purwokerto": [
+    { a: "Kaos Anak Karakter", sku: "00000004103 · Blue · M", have: 7, why: "Damaged" },
+  ],
+  "C005 · Tegal": [
+    { a: "Loafers Kulit Sintetis", sku: "00000007106 · Brown · 42", have: 2, why: "Factory defect" },
+    { a: "Flat Shoes Wanita", sku: "00000006104 · Black · L", have: 1, why: "Damaged" },
+  ],
+}
+let nr = { store: "C001 · Cikupa", step: "edit", qty: {} }
+const k = (st, i) => `${st}~${i}`
+const storeSum = st => STOCK[st].reduce((a, l, i) => a + (Number(nr.qty[k(st, i)]) || 0), 0)
+const filled = () => Object.keys(STOCK).filter(st => storeSum(st) > 0)
+const over = () => Object.keys(STOCK).some(st => STOCK[st].some((l, i) => (Number(nr.qty[k(st, i)]) || 0) > l.have))
+function openNew() { nr = { store: Object.keys(STOCK)[0], step: "edit", qty: {} }; drawNew(); document.getElementById("sheet").classList.add("wide"); document.getElementById("app").classList.add("sheeted") }
+function setQty(st, i, v) { nr.qty[k(st, i)] = v.replace(/\D/g, ""); drawNew(true) }
+function fillAll() { STOCK[nr.store].forEach((l, i) => nr.qty[k(nr.store, i)] = String(l.have)); drawNew() }
+function drawNew(keepFocus) {
+  const focus = keepFocus && document.activeElement?.dataset?.k
+  const st = nr.store, lines = STOCK[st], fs = nr.step === "review" && nr.only ? [nr.only] : filled(), total = fs.reduce((a, x) => a + storeSum(x), 0)
+  const tiles = `<div class="stores">${Object.keys(STOCK).map(x => { const have = STOCK[x].reduce((a, l) => a + l.have, 0), q = storeSum(x)
+    return `<button class="stile ${x===st?"on":""}" onclick="nr.store='${x}';drawNew()"><div class="c">${x.split(" · ")[0]}</div><div class="n">${x.split(" · ")[1]}</div><div class="q">${have} pcs in return${q ? ` · <b>${q} to send</b>` : ""}</div></button>` }).join("")}</div>`
+  const edit = tiles + `<div class="dtitle"><h3>${st}</h3><span style="display:flex;gap:8px"><button class="btn g" onclick="fillAll()">Fill all</button><button class="btn p" ${storeSum(st) && !over() ? "" : "disabled style='opacity:.45'"} onclick="nr.only='${st}';nr.step='review';drawNew()">Submit return</button></span></div>
+    <div class="tbox"><table><thead><tr><th>Article</th><th class="hide-n" style="width:170px">Reason</th><th class="r hide-n" style="width:140px">Quantity</th><th class="r" style="width:150px">Return</th></tr></thead>
+    <tbody>${lines.map((l, i) => { const v = nr.qty[k(st, i)] ?? "", bad = (Number(v) || 0) > l.have
+      return `<tr><td><div class="art" style="display:flex;align-items:center;gap:12px;min-width:0">${th}<div class="two"><span class="nm trunc">${l.a}</span><span class="b">${l.sku}</span><span class="b show-n">${l.why} · ${l.have} pcs</span></div></div></td><td class="hide-n"><span class="reason">${l.why}</span></td><td class="r num hide-n">${l.have} pcs</td>
+      <td class="r"><input class="qin ${bad?"over":""}" data-k="${k(st,i)}" inputmode="numeric" placeholder="0" value="${v}" oninput="setQty('${st}',${i},this.value)"></td></tr>` }).join("")}</tbody></table></div>
+    <div class="totals"><dl><dt>${st.split(" · ")[0]}</dt><dd>${storeSum(st)} pcs</dd><dt>${fs.length} ${fs.length===1?"store":"stores"} · ${fs.length} ${fs.length===1?"return":"returns"}</dt><dd>${total} pcs</dd></dl></div>`
+  const review = fs.map((x, n) => `<div class="rv"><div class="rh"><span><b>${x}</b> → Gudang HO</span><span class="m">Return ${n + 1} of ${fs.length} · <b style="color:var(--ink)">${storeSum(x)} pcs</b></span></div>
+    <table><thead><tr><th>Article</th><th class="hide-n" style="width:170px">Reason</th><th class="r" style="width:120px">Return</th></tr></thead><tbody>${STOCK[x].map((l, i) => [l, Number(nr.qty[k(x, i)]) || 0]).filter(([, q]) => q).map(([l, q]) =>
+    `<tr><td><div class="art" style="display:flex;align-items:center;gap:12px;min-width:0">${th}<div class="two"><span class="nm trunc">${l.a}</span><span class="b">${l.sku}</span><span class="b show-n">${l.why}</span></div></div></td><td class="hide-n"><span class="reason">${l.why}</span></td><td class="r num"><b>${q} pcs</b></td></tr>`).join("")}</tbody></table></div>`).join("") +
+    `<div class="totals"><dl><dt>${fs.length} returns</dt><dd>${total} pcs</dd></dl></div>`
+  document.getElementById("sheet").innerHTML = `<div class="sh"><div><div class="crumb">Return Store</div><h2>${nr.step === "edit" ? "New return" : "Review return"}</h2></div>
+    <button class="x" onclick="closeSheet()"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+    <div class="sb">${nr.step === "edit" ? edit : review}</div>
+    <div class="sf">${nr.step === "edit"
+      ? `<button class="btn g lg" onclick="closeSheet()">Cancel</button><button class="btn p lg" ${fs.length && !over() ? "" : "disabled style='opacity:.45'"} onclick="nr.only=null;nr.step='review';drawNew()">Return all · ${fs.length} ${fs.length===1?"store":"stores"}</button>`
+      : `<button class="btn g lg" onclick="nr.step='edit';nr.only=null;drawNew()">‹ Back to editing</button><button class="btn p lg" onclick="submitNew()">Submit ${fs.length} ${fs.length===1?"return":"returns"}</button>`}</div>`
+  if (focus) { const el = document.querySelector(`[data-k="${focus}"]`); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length) } }
+}
+let altNo = 42
+function submitNew() {
+  const fs = nr.only ? [nr.only] : filled()
+  fs.forEach(x => RETURNS.unshift({ sj: `ALT-000000${altNo++}`, store: x, sent: "20 Oct", koli: 0, stage: "pick", asked: storeSum(x), arts: STOCK[x].filter((l, i) => Number(nr.qty[k(x, i)])).map(l => l.a), fresh: true }))
+  const one = nr.only; if (one) { STOCK[one].forEach((l, i) => delete nr.qty[k(one, i)]); nr.only = null; nr.step = 'edit'; drawNew(); render() } else { closeSheet(); opt = "D"; dtab = "active"; render() }
+  const t = document.getElementById("toast"); t.textContent = `${fs.length} ${fs.length===1?"return":"returns"} created · To pick`; t.classList.add("on"); setTimeout(() => t.classList.remove("on"), 2600)
+}
+function openReturn(sj) {
+  const r = RETURNS.concat(typeof CANCELLED === "undefined" ? [] : CANCELLED).find(x => x.sj === sj)
+  document.getElementById("sheet").innerHTML = `<div class="sh"><div><div class="crumb">Return Store / <span class="mono">${r.sj}</span></div><h2>${r.store}</h2></div>
+    <button class="x" onclick="closeSheet()"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+    <div class="sb"><div class="facts">
+      <div><div class="l">Store</div><div class="v">${r.store}</div></div>
+      <div><div class="l">Surat jalan</div><div class="v mono">${r.sj}</div></div>
+      <div><div class="l">Koli</div><div class="v">${r.koli}</div></div>
+      <div><div class="l">Sent on</div><div class="v">${r.sent}</div></div></div>
+      <div class="tbox"><table><thead><tr><th>Article</th><th class="r" style="width:120px">${r.stage === "way" ? "Counted" : "Received"}</th></tr></thead>
+      <tbody>${r.arts.map(a => `<tr><td><div class="art" style="display:flex;align-items:center;gap:10px">${th}<span>${a}</span></div></td><td class="r num">${r.stage === "way" ? '<span class="dash">—</span>' : "·"}</td></tr>`).join("")}</tbody></table></div></div>`
+  document.getElementById("app").classList.add("sheeted")
+}
+function closeSheet() { document.getElementById("app").classList.remove("sheeted"); setTimeout(() => document.getElementById("sheet").classList.remove("wide"), 300) }
+function render() {
+  document.getElementById("opts").innerHTML = OPTIONS.map(o => `<button class="${o.k===opt?"on":""}" onclick="opt='${o.k}';closeSheet();render()"><b>${o.k}</b>${o.t}${o.star?'<span class="star">★</span>':''}</button>`).join("")
+  document.getElementById("widths").innerHTML = [["Desk",false],["Phone 414",true]].map(([t,n]) => `<button class="${narrow===n?"on":""}" onclick="narrow=${n};render()">${t}</button>`).join("")
+  document.body.classList.toggle("narrow", narrow)
+  document.getElementById("note").innerHTML = OPTIONS.find(o => o.k === opt).note
+  document.getElementById("page").innerHTML = { A: pageA, B: pageB, C: pageC, D: pageD }[opt]()
+}
+document.getElementById("scrim").onclick = closeSheet
+addEventListener("keydown", e => e.key === "Escape" && closeSheet())
+const q = new URLSearchParams(location.search); if (q.get("o") && "ABCD".includes(q.get("o"))) opt = q.get("o"); if (q.get("t")) tab = q.get("t")
+render()
+</script>
+</body>
+</html>

@@ -483,7 +483,12 @@ class ScanEngine {
                 onCounted?.invoke()
             }
         }
-        pendingEvidence.add(event.epc to event.rssi?.toFloatOrNull())
+        // Not `toFloatOrNull`: the SDK writes RSSI in the device's own locale,
+        // so a handheld set to Indonesian sends "-48,30", which that reads as
+        // no RSSI at all. [Knobs.rssiOf] reads either separator, allocating
+        // nothing.
+        val dbm = Knobs.rssiOf(event.rssi)
+        pendingEvidence.add(event.epc to if (dbm.isNaN()) null else dbm)
         processed.incrementAndGet()
         processedNanos.addAndGet(System.nanoTime() - began)
     }

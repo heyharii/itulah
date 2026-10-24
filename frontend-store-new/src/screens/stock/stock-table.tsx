@@ -5,25 +5,34 @@ import { Input } from "@/components/ui/field"
 import { count, sku } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import type { StockMove } from "@/screens/stock/move-stock"
-import { sum, type Pool, type StockArticle } from "@/screens/stock/stock-model"
+import {
+  figureLabel,
+  sum,
+  type Figure,
+  type StockArticle,
+} from "@/screens/stock/stock-model"
 import { placeLabel } from "@/screens/stock/shared"
 
-/// Stock as an accordion: an article is one row with its three places and a
-/// total; open, it is its "Colour Size" rows. In a move the same rows become
+/// Stock as an accordion: an article is one row with the places on screen and
+/// their total; open, it is its "Colour Size" rows. In a move the same rows become
 /// From | Move | To, and Move is a box to type into.
 ///
 /// The columns are one grid template on every row, so a figure stands under
 /// its heading whichever row it is in.
 
-const POOLS: readonly Pool[] = ["floor", "warehouse", "reject"]
-
-const COLS = "grid-cols-[minmax(0,1fr)_repeat(4,3.5rem)] md:grid-cols-[minmax(0,1fr)_repeat(4,7rem)]"
+/// By how many figures a row carries: one place alone, or two and their total.
+const COLS: Readonly<Record<number, string>> = {
+  1: "grid-cols-[minmax(0,1fr)_3.5rem] md:grid-cols-[minmax(0,1fr)_7rem]",
+  2: "grid-cols-[minmax(0,1fr)_repeat(2,3.5rem)] md:grid-cols-[minmax(0,1fr)_repeat(2,7rem)]",
+  3: "grid-cols-[minmax(0,1fr)_repeat(3,3.5rem)] md:grid-cols-[minmax(0,1fr)_repeat(3,7rem)]",
+  4: "grid-cols-[minmax(0,1fr)_repeat(4,3.5rem)] md:grid-cols-[minmax(0,1fr)_repeat(4,7rem)]",
+}
 const MOVE_COLS = "grid-cols-[minmax(0,1fr)_3.5rem_4.5rem_3.5rem] md:grid-cols-[minmax(0,1fr)_7rem_9rem_7rem]"
 
 /// A place's colour: the sales floor is the shop's blue, the store room a
 /// neutral, the reject an amber — the same dot in the KPI, the heading, the
 /// route and the panel.
-export function PoolDot({ pool }: { pool: Pool }) {
+export function PoolDot({ pool }: { pool: Figure }) {
   return (
     <span
       aria-hidden
@@ -31,7 +40,7 @@ export function PoolDot({ pool }: { pool: Pool }) {
         "size-2 shrink-0 rounded-full",
         pool === "floor" && "bg-accent",
         pool === "warehouse" && "bg-line-ico",
-        pool === "reject" && "bg-warn",
+        (pool === "reject" || pool === "over" || pool === "ho") && "bg-warn",
       )}
     />
   )
@@ -53,10 +62,14 @@ function Figure({ value, className }: { value: number; className?: string }) {
 
 export function StockTable({
   articles,
+  pools,
   move,
   forceOpen,
 }: {
   articles: readonly StockArticle[]
+  /// The places (or pockets) drawn as columns; with more than one, a Total
+  /// follows.
+  pools: readonly Figure[]
   move: StockMove
   /// A search opens every article it finds.
   forceOpen: boolean
@@ -84,12 +97,14 @@ export function StockTable({
   }
 
   const { moving, from, to } = move
+  const totalled = pools.length > 1
+  const cols = COLS[pools.length + (totalled ? 1 : 0)]
   return (
     <div data-stock-table className="rounded-card border border-hairline bg-canvas">
       <div
         className={cn(
           "sticky top-0 z-10 grid items-center rounded-t-card border-b border-hairline bg-canvas/95 text-[0.9375rem] font-medium text-body backdrop-blur",
-          moving ? MOVE_COLS : COLS,
+          moving ? MOVE_COLS : cols,
         )}
       >
         <div className="flex items-center gap-3 px-3 py-3 md:px-4">
@@ -118,10 +133,10 @@ export function StockTable({
           </>
         ) : (
           <>
-            {POOLS.map((pool) => (
+            {pools.map((pool) => (
               <Heading key={pool} pool={pool} />
             ))}
-            <div className="px-1 text-right md:px-3">Total</div>
+            {totalled && <div className="px-1 text-right md:px-3">Total</div>}
           </>
         )}
       </div>
@@ -152,7 +167,7 @@ export function StockTable({
                 }}
                 className={cn(
                   "grid min-h-16 cursor-pointer items-center text-[0.9375rem] font-semibold transition-colors hover:bg-soft",
-                  moving ? MOVE_COLS : COLS,
+                  moving ? MOVE_COLS : cols,
                 )}
               >
                 <div className="flex min-w-0 items-center gap-2 py-2 pr-1 pl-2 md:pl-3">
@@ -179,13 +194,15 @@ export function StockTable({
                   </>
                 ) : (
                   <>
-                    {POOLS.map((pool) => (
+                    {pools.map((pool) => (
                       <Figure key={pool} value={sum(article.skus, pool)} className="px-1 md:px-3" />
                     ))}
-                    <Figure
-                      value={POOLS.reduce((total, pool) => total + sum(article.skus, pool), 0)}
-                      className="px-1 md:px-3"
-                    />
+                    {totalled && (
+                      <Figure
+                        value={pools.reduce((total, pool) => total + sum(article.skus, pool), 0)}
+                        className="px-1 md:px-3"
+                      />
+                    )}
                   </>
                 )}
               </div>
@@ -199,7 +216,7 @@ export function StockTable({
                       key={one.sku}
                       className={cn(
                         "grid min-h-12 items-center border-t border-hairline text-[0.9375rem] text-ink",
-                        moving ? MOVE_COLS : COLS,
+                        moving ? MOVE_COLS : cols,
                       )}
                     >
                       <div className="flex min-w-0 items-center gap-2 py-1 pr-1 pl-9 md:pl-12">
@@ -245,13 +262,15 @@ export function StockTable({
                         </>
                       ) : (
                         <>
-                          {POOLS.map((pool) => (
+                          {pools.map((pool) => (
                             <Figure key={pool} value={one[pool]} className="px-1 md:px-3" />
                           ))}
-                          <Figure
-                            value={one.floor + one.warehouse + one.reject}
-                            className="px-1 md:px-3"
-                          />
+                          {totalled && (
+                            <Figure
+                              value={pools.reduce((total, pool) => total + one[pool], 0)}
+                              className="px-1 md:px-3"
+                            />
+                          )}
                         </>
                       )}
                     </div>
@@ -265,7 +284,7 @@ export function StockTable({
   )
 }
 
-function Heading({ pool, accent }: { pool: Pool; accent?: boolean }) {
+function Heading({ pool, accent }: { pool: Figure; accent?: boolean }) {
   return (
     <div
       className={cn(
@@ -276,7 +295,7 @@ function Heading({ pool, accent }: { pool: Pool; accent?: boolean }) {
       <span className="max-md:hidden">
         <PoolDot pool={pool} />
       </span>
-      {placeLabel(pool )}
+      {figureLabel(pool)}
     </div>
   )
 }

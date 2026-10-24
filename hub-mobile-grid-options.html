@@ -1,0 +1,616 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hub Mobile Grid</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="frontend-hub/design-system/tokens.css">
+<link rel="stylesheet" href="frontend-hub/design-system/bundle.css">
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<style>
+/* Central tokens come from tokens.css; the few below are the hub's own
+   (white.css / index.css) that the tile and the press need. */
+:root{--t-press:120ms;--ease-out:cubic-bezier(.23,1,.32,1)}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"Inter Variable",Inter,system-ui,sans-serif;background:var(--stone);color:var(--ink);font-size:15px;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;text-align:left;-webkit-tap-highlight-color:transparent}
+
+/* the switch above the phone (not part of the design) */
+.ctl{position:relative;z-index:20;background:var(--stone);padding:12px 16px 8px;display:flex;flex-direction:column;gap:8px;align-items:center}
+.seg{display:flex;flex-wrap:wrap;justify-content:center;gap:2px;background:var(--soft-2);border-radius:9px;padding:2px}
+.seg button{padding:6px 12px;border-radius:7px;font-weight:500;color:var(--mute);font-size:15px}
+.seg button[aria-pressed=true]{background:var(--canvas);color:var(--ink);font-weight:600;box-shadow:0 1px 2px rgb(0 0 0/8%)}
+.row-ctl{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+
+.stage{display:flex;justify-content:center;padding:8px 16px 48px}
+.phone{position:relative;width:414px;height:896px;background:var(--canvas);border-radius:44px;overflow:hidden;box-shadow:0 0 0 10px #111,0 30px 60px rgb(0 0 0/16%);display:flex;flex-direction:column}
+.phone.w375{width:375px;height:812px}
+.status{height:47px;flex:none;display:flex;align-items:flex-end;justify-content:space-between;padding:0 30px 6px;font-weight:600}
+.scroll{flex:1;overflow-y:auto;overscroll-behavior:contain;padding:8px var(--phone-gutter,16px) 24px}
+.scroll::-webkit-scrollbar{display:none}
+
+/* greeting — AppLauncher */
+.date{font-weight:500;color:var(--mute)}
+.hello{font-size:28px;line-height:1.12;font-weight:600;letter-spacing:-.025em;margin-top:2px}
+
+/* a section head with its count at the right end (SubHead aside) */
+.sub{display:flex;justify-content:space-between;align-items:baseline;font-weight:600;margin:24px 4px 10px}
+.sub .aside{font-weight:500;color:var(--mute);font-variant-numeric:tabular-nums}
+.sub a{font-weight:500;color:var(--accent);text-decoration:none}
+
+/* the department tile — AppIcon (.app-icon) */
+.tile{display:grid;place-items:center;color:#fff;flex:none;position:relative;
+  background:linear-gradient(180deg,rgb(255 255 255/.2),rgb(255 255 255/0) 58%),var(--tile,var(--app-system));
+  box-shadow:0 1px 2px rgb(24 39 60/12%),inset 0 0 0 .5px rgb(0 0 0/6%);transition:transform var(--t-press) var(--ease-out)}
+.tile svg{stroke-width:1.9}
+.tile.lg{width:56px;height:56px;border-radius:16px}.tile.lg svg{width:26px;height:26px}
+.tile.md{width:36px;height:36px;border-radius:10px}.tile.md svg{width:18px;height:18px}
+.tile.sm{width:32px;height:32px;border-radius:10px}.tile.sm svg{width:17px;height:17px}
+.dot{position:absolute;top:-3px;right:-3px;width:12px;height:12px;border-radius:50%;background:var(--bad-fg);box-shadow:0 0 0 2px var(--canvas)}
+
+/* CountBadge */
+.count{min-width:20px;height:20px;padding:0 5px;border-radius:999px;background:var(--bad-fg);color:var(--on-dark);font-size:15px;font-weight:600;line-height:20px;text-align:center;font-variant-numeric:tabular-nums;flex:none}
+
+/* the grid of apps */
+.grid{display:grid;grid-template-columns:repeat(var(--cols,4),1fr);row-gap:20px}
+.app{display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;min-width:0}
+.app:active .tile{transform:scale(.92)}
+.app .name{font-weight:500;line-height:1.2;white-space:nowrap;letter-spacing:-.015em}
+.cols3 .grid{--cols:3}
+
+/* framed list — rows are not boxes */
+.list{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden}
+.li{display:flex;align-items:center;gap:12px;min-height:56px;padding:0 14px;width:100%;transition:background var(--t-press)}
+.li+.li{border-top:1px solid var(--row-line)}
+.li:active{background:var(--soft)}
+.li .w{flex:1;min-width:0;font-weight:500}
+.li .w small{display:block;font-size:15px;font-weight:400;color:var(--mute)}
+.chev{width:16px;height:16px;color:var(--line-ico);flex:none}
+
+/* B — figure cards */
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.fc{border:1px solid var(--hairline);border-radius:var(--r-card);padding:14px;display:flex;flex-direction:column;gap:2px;transition:transform var(--t-press) var(--ease-out)}
+.fc:active{transform:scale(.97)}
+.fc .top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px}
+.fc .fig{font-size:24px;line-height:30px;font-weight:600;font-variant-numeric:tabular-nums}
+.fc .what{color:var(--mute);line-height:1.3}
+
+/* C/D — PhoneCards */
+.cards{display:flex;flex-direction:column;gap:10px}
+.pc{border:1px solid var(--hairline);border-radius:var(--r-card);transition:transform var(--t-press) var(--ease-out);display:block;width:100%}
+.pc:active{transform:scale(.985)}
+.pc .top{display:flex;justify-content:space-between;gap:12px;padding:14px 16px}
+.pc .nm{font-size:16px;line-height:20px;font-weight:600;letter-spacing:-.16px}
+.pc .ln{color:var(--mute);line-height:20px}
+.pc .lead{font-size:24px;line-height:30px;font-weight:600;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.pc .foot{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:48px;padding:0 16px;border-top:1px solid var(--row-line);color:var(--mute)}
+.who{display:flex;align-items:center;gap:8px}
+.st{display:inline-flex;align-items:center;gap:6px;color:var(--warn-fg)}
+.st::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--warn)}
+.btn{height:32px;padding:0 14px;border-radius:var(--r-inner);background:var(--cta);color:#fff;font-weight:500;flex:none}
+.more{display:flex;align-items:center;justify-content:center;gap:6px;height:44px;font-weight:500;color:var(--accent);width:100%}
+
+/* D — one up next */
+.next{border:1px solid var(--hairline);border-radius:var(--r-card)}
+.next .top{padding:16px;display:flex;gap:12px;align-items:flex-start}
+.next .nm{font-size:16px;font-weight:600;line-height:20px}
+.next .ln{color:var(--mute)}
+.next .foot{display:flex;gap:8px;padding:0 16px 16px}
+.next .foot .btn{flex:1;height:44px}
+.next .foot .ghost{flex:1;height:44px;border-radius:var(--r-inner);border:1px solid var(--hairline-2);font-weight:500;text-align:center}
+.after{margin-top:2px}
+.after .li{min-height:48px;padding:0 4px;border-top:1px solid var(--row-line)}
+.after .li:first-child{border-top:0}
+
+/* empty */
+.calm{display:flex;align-items:center;gap:10px;color:var(--mute);padding:4px}
+.calm svg{width:20px;height:20px;color:var(--ok-fg)}
+
+/* the dock — Home tab, search capsule, account orb */
+.dock{flex:none;display:flex;align-items:center;gap:8px;padding:8px 12px calc(8px + 26px);border-top:1px solid var(--hairline);background:var(--canvas)}
+.tab{display:flex;flex-direction:column;align-items:center;gap:2px;font-weight:500;color:var(--accent);width:64px;flex:none}
+.tab svg{width:24px;height:24px}
+.search{flex:1;height:44px;border-radius:999px;background:var(--soft-2);display:flex;align-items:center;gap:8px;padding:0 14px;color:var(--mute)}
+.search svg{width:18px;height:18px}
+.orb{width:44px;height:44px;border-radius:50%;background:var(--soft-2);display:grid;place-items:center;font-weight:600;flex:none;position:relative}
+/* colour levels — how much hue the Home carries */
+.t-plain .list .tile,.t-glyph .list .tile,.t-grey .list .tile,.t-calm .list .tile{display:none}
+.t-plain .list .li,.t-glyph .list .li,.t-grey .list .li,.t-calm .list .li{min-height:52px}
+.t-glyph .grid .tile{background:var(--soft-3);color:var(--tile);box-shadow:none}
+.t-grey .grid .tile,.t-calm .grid .tile{background:var(--soft-2);color:var(--ink);box-shadow:none}
+.t-calm .grid .dot{display:none}
+.t-calm .list .count{background:none;color:var(--ink);padding:0;font-weight:600}
+/* icon styles — the grid's art */
+.art{position:relative;width:60px;height:60px;display:grid;place-items:center;flex:none;transition:transform var(--t-press) var(--ease-out)}
+.app:active .art{transform:scale(.92)}
+.art .bgd{position:absolute;inset:0;border-radius:18px;background:color-mix(in srgb,var(--tile) 12%,white)}
+.art svg{position:relative;width:30px;height:30px;color:color-mix(in srgb,var(--tile) 85%,black);fill:color-mix(in srgb,var(--tile) 24%,white);stroke-width:1.8}
+.art img{position:relative;display:block}
+.i-gojek .art img{width:54px;height:54px;transform:translate(5px,-7px);filter:drop-shadow(0 3px 4px rgb(24 39 60/16%))}
+.i-float .art .bgd{display:none}
+.i-float .art img{width:54px;height:54px;filter:drop-shadow(0 6px 6px rgb(24 39 60/14%))}
+.i-flat .art .bgd{background:var(--soft-3)}
+.i-flat .art img{width:34px;height:34px}
+.tag{position:absolute;top:-9px;left:-10px;height:22px;padding:0 7px;border-radius:8px 8px 8px 2px;background:var(--ink);color:#fff;font-size:15px;font-weight:600;line-height:22px;font-variant-numeric:tabular-nums;z-index:1;box-shadow:0 0 0 2px var(--canvas)}
+.i-hue .grid,.i-pop .grid,.i-duo .grid,.i-gojek .grid,.i-float .grid,.i-flat .grid{row-gap:22px}
+/* Hub colour — our own pictures, drawn in each department's hue (three tones) */
+.hz{position:relative;width:60px;height:60px;flex:none;transition:transform var(--t-press) var(--ease-out)}
+.app:active .hz{transform:scale(.92)}
+.hz .bgd{position:absolute;inset:0;border-radius:18px;background:color-mix(in srgb,var(--c) 17%,white)}
+.hz svg{position:absolute;left:7px;top:7px;width:46px;height:46px;overflow:visible;filter:drop-shadow(0 2px 2px color-mix(in srgb,var(--c) 30%,transparent))}
+.i-pop .hz svg{left:11px;top:-3px;width:50px;height:50px}
+.hz .b{fill:var(--c)}
+.hz .d{fill:color-mix(in srgb,var(--c) 68%,black)}
+.hz .l{fill:color-mix(in srgb,var(--c) 42%,white)}
+.hz .w{fill:#fff}
+.hz .sd{fill:none;stroke:color-mix(in srgb,var(--c) 68%,black);stroke-width:3.5;stroke-linecap:round;stroke-linejoin:round}
+.hz .sl{fill:none;stroke:color-mix(in srgb,var(--c) 42%,white);stroke-width:3.2;stroke-linecap:round}
+.hz .sw{fill:none;stroke:#fff;stroke-opacity:.55;stroke-width:2.4;stroke-linecap:round}
+.hz .hl{fill:#fff;fill-opacity:.28}
+.tag.red{background:var(--bad-fg)}
+.tag.red::after{content:"";position:absolute;left:0;bottom:-5px;border-left:7px solid var(--bad-fg);border-bottom:6px solid transparent}
+.tag.red{border-radius:8px 8px 8px 0;box-shadow:none}
+/* Gloss — the same pictures with light falling from the top */
+.i-gloss .hz .b,.i-plinth .hz .b{fill:var(--gb)}
+.i-gloss .hz .d,.i-plinth .hz .d{fill:var(--gd)}
+.i-gloss .hz .l,.i-plinth .hz .l{fill:var(--gl)}
+.i-gloss .hz .b[stroke],.i-plinth .hz .b[stroke]{stroke:var(--gb)}
+.i-gloss .hz .d[stroke],.i-plinth .hz .d[stroke]{stroke:var(--gd)}
+.i-gloss .hz .bgd{background:linear-gradient(165deg,color-mix(in srgb,var(--c) 7%,white),color-mix(in srgb,var(--c) 24%,white));box-shadow:inset 0 1px 0 #fff,inset 0 -3px 6px color-mix(in srgb,var(--c) 14%,transparent)}
+.i-gloss .hz svg{filter:drop-shadow(0 3px 3px color-mix(in srgb,var(--c) 38%,transparent))}
+/* Plinth — the object stands on a pastel step, bigger than its tile */
+.i-plinth .hz .bgd{top:auto;bottom:0;height:28px;left:1px;right:1px;border-radius:14px;background:linear-gradient(180deg,color-mix(in srgb,var(--c) 26%,white),color-mix(in srgb,var(--c) 16%,white))}
+.i-plinth .hz svg{left:5px;top:-4px;width:50px;height:50px;filter:drop-shadow(0 4px 3px color-mix(in srgb,var(--c) 40%,transparent))}
+/* Sticker — a white die-cut edge, set a little crooked */
+.i-sticker .hz svg{left:8px;top:8px;width:44px;height:44px;filter:drop-shadow(1.7px 0 0 #fff) drop-shadow(-1.7px 0 0 #fff) drop-shadow(0 1.7px 0 #fff) drop-shadow(0 -1.7px 0 #fff) drop-shadow(0 3px 3px rgb(24 39 60/.2));transform:rotate(-7deg)}
+.i-sticker .app:nth-child(2n) .hz svg{transform:rotate(6deg)}
+.i-sticker .app:nth-child(3n) .hz svg{transform:rotate(-3deg)}
+.i-sticker .hz .bgd{background:color-mix(in srgb,var(--c) 20%,white)}
+/* Solid — the hue fills the tile and the picture is drawn in its light */
+.i-solid .hz .bgd{background:linear-gradient(180deg,color-mix(in srgb,var(--c) 78%,white),var(--c) 70%);box-shadow:0 2px 4px color-mix(in srgb,var(--c) 35%,transparent),inset 0 1px 0 rgb(255 255 255/.35)}
+.i-solid .hz .b{fill:#fff}
+.i-solid .hz .b[stroke]{stroke:#fff}
+.i-solid .hz .l{fill:color-mix(in srgb,var(--c) 30%,white)}
+.i-solid .hz .d{fill:color-mix(in srgb,var(--c) 55%,black)}
+.i-solid .hz .w{fill:var(--c)}
+.i-solid .hz .sw{stroke:var(--c);stroke-opacity:.6}
+.i-solid .hz .sl{stroke:color-mix(in srgb,var(--c) 30%,white)}
+.i-solid .hz .hl{fill-opacity:0}
+.i-solid .hz svg{filter:drop-shadow(0 2px 2px color-mix(in srgb,var(--c) 70%,black))}
+/* three across: the same art, a size up */
+.cols3 .hz{zoom:1.2}
+/* Sticker A–E — straight, the picture steps out of its pastel square (Gojek) */
+.hz.g3 .b{fill:var(--gb)}.hz.g3 .d{fill:var(--gd)}.hz.g3 .l{fill:var(--gl)}
+.hz.g3 .b[stroke]{stroke:var(--gb)}.hz.g3 .d[stroke]{stroke:var(--gd)}
+.hz.out{width:64px;height:60px}
+.hz.out .bgd{inset:auto;left:0;top:0;width:50px;height:50px;border-radius:15px;background:color-mix(in srgb,var(--c) 22%,white);box-shadow:none}
+.hz.out svg{left:15px;top:11px;width:49px;height:49px;filter:drop-shadow(0 3px 3px color-mix(in srgb,var(--c) 36%,transparent))}
+.hz.out .tag{top:-9px;left:-9px}
+.hz.edge svg{filter:drop-shadow(1.6px 0 0 #fff) drop-shadow(-1.6px 0 0 #fff) drop-shadow(0 1.6px 0 #fff) drop-shadow(0 -1.6px 0 #fff) drop-shadow(0 3px 3px rgb(24 39 60/.18))}
+.i-stb .hz.out .bgd{width:46px;height:46px;top:6px}
+.i-stb .hz.out svg{left:11px;top:-2px;width:57px;height:57px}
+.i-stc .hz.out .bgd{border-radius:50%}
+.i-stc .hz.out svg{left:14px;top:12px;width:48px;height:48px}
+.cols3 .hz.out{zoom:1.15}
+/* Matte — Gojek: a soft square, a solid-coloured picture, no shine, no edge */
+.hz .a{fill:#ffc531}
+.hz .sa{fill:none;stroke:#ffc531;stroke-width:3.2;stroke-linecap:round;stroke-linejoin:round}
+.hz.matte .hl{display:none}
+.hz.matte svg{filter:none}
+.hz.matte .bgd{background:var(--cb,color-mix(in srgb,var(--c) 16%,white))}
+.hz.matte .d{fill:var(--cd,color-mix(in srgb,var(--c) 66%,black))}
+.hz.matte .l{fill:var(--cl,color-mix(in srgb,var(--c) 78%,white))}
+.hz.matte .sl{stroke:var(--cl,color-mix(in srgb,var(--c) 78%,white))}
+.hz.matte .a{fill:#f7b928}.hz.matte .sa{stroke:#f7b928}
+.tag.ink{background:var(--bad-fg);border-radius:8px 8px 8px 0}
+.tag.ink::after{content:"";position:absolute;left:0;bottom:-5px;border-left:7px solid var(--bad-fg);border-bottom:6px solid transparent}
+.i-matte .app .name,.i-matteb .app .name{color:#484848}
+.i-matteb .hz.out .bgd{border-radius:50%}
+/* Matte, shaded — Gojek's clay: each part darkens toward its foot, no shine; a contact shadow on the square */
+.hz.matte{--kd:var(--cd,color-mix(in srgb,var(--c) 66%,black));--kl:var(--cl,color-mix(in srgb,var(--c) 78%,white))}
+.hz.matte.sh .b{fill:var(--gb)}.hz.matte.sh .d{fill:var(--gd)}.hz.matte.sh .l{fill:var(--gl)}
+.hz.matte.sh .b[stroke]{stroke:var(--gb)}.hz.matte.sh .d[stroke]{stroke:var(--gd)}
+.hz.matte .w{fill:#f4f2ee}
+
+/* tasks under the grid — PhoneCards */
+.tasks{display:flex;flex-direction:column;gap:10px}
+.task{border:1px solid var(--hairline);border-radius:var(--r-card);background:var(--canvas);transition:transform var(--t-press) var(--ease-out)}
+.task:active{transform:scale(.985)}
+.task .kind{display:flex;align-items:center;gap:8px;padding:12px 16px 0;color:var(--mute);font-weight:500}
+.hz.mini{width:26px;height:26px}
+.hz.mini svg{position:static;width:26px;height:26px;filter:none}
+.task .kind .st{margin-left:auto}
+.task .top{display:flex;justify-content:space-between;gap:12px;padding:8px 16px 14px}
+.task .nm{font-size:16px;line-height:20px;font-weight:600;letter-spacing:-.16px;overflow-wrap:anywhere}
+.task .ln{color:var(--mute);line-height:20px}
+.task .lead{font-size:24px;line-height:30px;font-weight:600;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.task .thumbs{display:flex;gap:6px;padding:0 16px 14px}
+.task .thumbs span{width:44px;height:44px;border-radius:8px;background:var(--soft-3);display:grid;place-items:center}
+.task .thumbs svg{width:30px;height:30px}
+.task .thumbs .more-n{font-weight:500;color:var(--mute)}
+.task .foot{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:48px;padding:0 16px;border-top:1px solid var(--row-line);color:var(--mute)}
+.task .foot b{font-weight:400;color:var(--ink)}
+
+/* the hub's own bottom: one Home tab and the floating account orb */
+.hbar{flex:none;border-top:1px solid rgb(0 0 0/6%);background:rgb(255 255 255/.8);backdrop-filter:blur(24px) saturate(1.5);-webkit-backdrop-filter:blur(24px) saturate(1.5);padding-bottom:26px;position:relative;z-index:4}
+.htab{position:relative;height:52px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-weight:500;color:var(--accent);line-height:1.2;letter-spacing:.005em}
+.htab::before{content:"";position:absolute;inset:0;background:linear-gradient(180deg,color-mix(in srgb,var(--accent) 15%,transparent),transparent)}
+.htab::after{content:"";position:absolute;top:0;left:50%;transform:translateX(-50%);width:40px;height:3px;border-radius:0 0 999px 999px;background:var(--accent)}
+.htab svg{position:relative;width:22px;height:22px;fill:var(--accent);stroke:var(--accent)}
+.htab span{position:relative}
+.orb2{position:absolute;right:16px;bottom:calc(52px + 26px + 16px);width:56px;height:56px;border-radius:50%;background:rgb(255 255 255/.92);backdrop-filter:blur(14px);box-shadow:0 0 0 2px var(--accent),var(--shadow-float);display:grid;place-items:center;z-index:6}
+.orb2 .face{width:42px;height:42px;border-radius:50%;background:var(--accent-bg);color:var(--accent);font-size:17px;font-weight:600;display:grid;place-items:center}
+.orb2 .count{position:absolute;top:1px;right:1px;box-shadow:0 0 0 2px var(--canvas)}
+.has-orb .scroll{padding-bottom:88px}
+/* the hub's phone top bar (shell header, 52px) */
+.tbar{flex:none;height:52px;display:flex;align-items:center;gap:10px;padding:0 12px;border-bottom:1px solid var(--hairline);background:var(--canvas)}
+.tbar svg{width:28px;height:28px;flex:none}
+.tbar b{font-weight:600;letter-spacing:-.01em}
+
+/* The account orb, AssistiveTouch-like. Position is written to transform by JS;
+   rest/held/open are scale + opacity, properties of their own so they never fight it. */
+.aorb{position:absolute;left:0;top:0;z-index:8;width:56px;height:56px;border-radius:50%;border:0;padding:0;background:rgb(255 255 255/.92);backdrop-filter:blur(14px) saturate(1.6);-webkit-backdrop-filter:blur(14px) saturate(1.6);box-shadow:0 0 0 2px var(--accent),var(--shadow-float);display:grid;place-items:center;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;will-change:transform;transition:opacity 300ms ease,scale var(--t-press) var(--ease-out)}
+.aorb .face{width:42px;height:42px;border-radius:50%;background:var(--accent-bg);color:var(--accent);font-size:17px;font-weight:600;display:grid;place-items:center;pointer-events:none}
+.aorb .obadge{position:absolute;top:1px;right:1px;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:var(--bad-fg);color:#fff;font-size:12px;font-weight:700;line-height:18px;text-align:center;font-variant-numeric:tabular-nums;box-shadow:0 0 0 2px var(--canvas);pointer-events:none}
+/* idle: it steps back, the way AssistiveTouch dims */
+.aorb[data-resting]{opacity:.5;scale:.92}
+/* under the finger: lit and a touch bigger, at once */
+.aorb[data-held]{opacity:1;scale:1.06;cursor:grabbing;transition:opacity 100ms ease,scale var(--t-press) var(--ease-out)}
+/* open: the orb becomes the panel */
+.aorb[data-open]{opacity:0;scale:.9;pointer-events:none;transition:opacity 120ms ease,scale 200ms var(--ease-out)}
+
+/* The 3×2 panel grows out of the orb: a circle the orb's size, centred on it, opens to the whole card.
+   In on the iOS drawer curve; out faster on the ease-out — the person has already decided. */
+.orb-menu{position:absolute;z-index:9;width:312px;padding:10px;border-radius:20px;background:rgb(255 255 255/.94);backdrop-filter:blur(18px) saturate(1.6);-webkit-backdrop-filter:blur(18px) saturate(1.6);box-shadow:0 0 0 1px rgb(0 0 0/6%),var(--shadow-float);display:grid;grid-template-columns:repeat(3,1fr);gap:4px;
+  clip-path:circle(28px at var(--ox,50%) var(--oy,50%));transform-origin:var(--ox,50%) var(--oy,50%);transform:scale(.96);opacity:0;visibility:hidden;pointer-events:none;
+  transition:clip-path 200ms var(--ease-out),transform 200ms var(--ease-out),opacity 150ms ease 50ms,visibility 0s 200ms}
+.orb-menu[data-open]{clip-path:circle(var(--r,480px) at var(--ox,50%) var(--oy,50%));transform:none;opacity:1;visibility:visible;pointer-events:auto;
+  transition:clip-path 360ms var(--ease-drawer),transform 360ms var(--ease-drawer),opacity 120ms ease,visibility 0s}
+.otile{position:relative;height:72px;border-radius:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;font-size:15px;font-weight:500;color:var(--ink);opacity:0;transform:translateY(4px);transition:opacity 120ms ease,transform 120ms var(--ease-out),background-color 150ms}
+.otile svg{width:22px;height:22px;stroke-width:1.6;color:var(--mute)}
+.otile:active{background:var(--soft-2)}
+.otile.out,.otile.out svg{color:var(--bad-fg)}
+.otile .obadge{position:absolute;top:6px;left:calc(50% + 4px);min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:var(--bad-fg);color:#fff;font-size:12px;font-weight:700;line-height:18px;text-align:center;box-shadow:0 0 0 2px var(--canvas)}
+.orb-menu[data-open] .otile{opacity:1;transform:none;transition:opacity 180ms ease,transform 220ms var(--ease-out),background-color 150ms}
+.orb-menu[data-open] .otile:nth-child(2){transition-delay:30ms}.orb-menu[data-open] .otile:nth-child(3){transition-delay:60ms}
+.orb-menu[data-open] .otile:nth-child(4){transition-delay:90ms}.orb-menu[data-open] .otile:nth-child(5){transition-delay:120ms}.orb-menu[data-open] .otile:nth-child(6){transition-delay:150ms}
+.orb-veil{position:absolute;inset:0;z-index:7;display:none}
+.orb-veil[data-open]{display:block}
+.hrow{display:grid;grid-template-columns:repeat(var(--n,1),1fr)}
+.htab.off{color:var(--mute)}
+.htab.off::before,.htab.off::after{display:none}
+.htab.off svg{fill:none;stroke:currentColor;stroke-width:1.7}
+.htab:active .tico,.htab:active>svg{scale:.9}
+.tico{position:relative;display:grid;font-style:normal;transition:scale var(--t-press) var(--ease-out)}
+.tav{width:24px;height:24px;border-radius:50%;background:var(--accent-bg);color:var(--accent);font-size:13px;font-weight:600;display:grid;place-items:center;font-style:normal;box-shadow:0 0 0 1.5px var(--hairline-2)}
+.tdot{position:absolute;top:-2px;right:-4px;width:10px;height:10px;border-radius:50%;background:var(--bad-fg);box-shadow:0 0 0 2px var(--canvas)}
+@media (prefers-reduced-motion:reduce){
+ .orb-menu,.orb-menu[data-open]{clip-path:none;transform:none;transition:opacity 150ms ease,visibility 0s}
+ .orb-menu:not([data-open]){transition:opacity 150ms ease,visibility 0s 150ms}
+ .orb-menu .otile,.orb-menu[data-open] .otile{transform:none;transition:opacity 150ms ease}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="ctl">
+  <div class="seg" id="sv"></div>
+  <div class="row-ctl"><div class="seg" id="sbar"></div><div class="seg" id="sorb"></div><div class="seg" id="sex"></div><div class="seg" id="si"></div><div class="seg" id="spal"></div></div>
+  <div class="row-ctl">
+    <div class="seg" id="st"></div><div class="seg" id="sc"></div><div class="seg" id="sw"></div><div class="seg" id="sd"></div>
+  </div>
+</div>
+<div class="stage"><div class="phone" id="phone"></div></div>
+
+<script>
+const APPS=[
+ ['executive','Executive','layout-dashboard'],['buying','Procurement','shopping-cart'],['merchandise','Merchandise','shirt'],
+ ['ops','Ops','truck'],['inventory','Inventory','boxes'],['marketing','Marketing','megaphone'],
+ ['selling','Sales','store'],['finance','Finance','landmark'],['hr','HR','users'],
+ ['ga','GA','messages-square'],['system','Master','book-open'],['library','Files','folder-open'],
+].map(([id,l,i])=>({id,l,i}));
+// Outside the departments (asides + the account orb's tiles): Chat, Discussions, Notifications, Reports, Profile; System for an admin
+const MORE=[['chat','Chat',2],['discussions','Discussions',1],['notify','Notifications',5],['reports','Reports',0],['profile','Profile',0],['admin','System',0]].map(([id,l,n])=>({id,l,n}));
+const A=Object.fromEntries([...APPS,...MORE].map(a=>[a.id,a]));
+
+// What waits on this person, by department (useCount totals)
+const WAITS={
+ some:[
+  {a:'buying',n:3,t:'Approve purchase orders',f:'POs to approve'},
+  {a:'merchandise',n:2,t:'Review allotments',f:'Allotments to review'},
+  {a:'ops',n:2,t:'Review counts',f:'Counts to review'},
+  {a:'hr',n:4,t:'Decide leave requests',f:'Leave requests'},
+  {a:'finance',n:1,t:'Approve payments',f:'Payment to approve'},
+ ],
+ worst:[
+  {a:'buying',n:128,t:'Approve purchase orders',f:'POs to approve'},
+  {a:'merchandise',n:47,t:'Review allotments',f:'Allotments to review'},
+  {a:'ops',n:12,t:'Review counts',f:'Counts to review'},
+  {a:'hr',n:36,t:'Decide leave requests',f:'Leave requests'},
+  {a:'finance',n:9,t:'Approve payments',f:'Payments to approve'},
+  {a:'ga',n:3,t:'Approve supply requests',f:'Supply requests'},
+  {a:'inventory',n:5,t:'Review stock issues',f:'Stock issues'},
+ ],
+ none:[],
+};
+// The records themselves, most urgent first (for C and D)
+const RECS={
+ some:[
+  {a:'buying',nm:'Garmen Nusantara, PT',ln:['PO-161026-010 · 1 item','Delivery 29 Oct 2026'],lead:'Rp 2.040.000',sub:'24 pcs',act:'Approve'},
+  {a:'ops',nm:'Receiving at DC Cikarang',ln:['SJ-181026-004 · Batik Kencana','Counted by Dewi Lestari'],lead:'260 pcs',sub:'40 pcs short',act:'Review'},
+  {a:'hr',nm:'Rina Kusuma',ln:['Annual leave · Store Kemang','20 Oct 2026 – 22 Oct 2026'],lead:'3 days',sub:'9 days left',act:'Approve'},
+ ],
+ worst:[
+  {a:'buying',nm:'Perusahaan Garmen Nusantara Sejahtera Abadi, PT',ln:['PO-161026-010 · 148 items','Delivery 29 Oct 2026'],lead:'Rp 1.204.040.000',sub:'12.480 pcs',act:'Approve'},
+  {a:'ops',nm:'Receiving at DC Cikarang Timur Kawasan Industri',ln:['SJ-181026-004 · Batik Kencana','Counted by Maria Theresia Kusumawardhani'],lead:'12.260 pcs',sub:'1.040 pcs short',act:'Review'},
+  {a:'hr',nm:'Bambang Sutrisno Wicaksono Hadiningrat',ln:['Annual leave · Store Grand Indonesia','20 Oct 2026 – 14 Nov 2026'],lead:'26 days',sub:'0 days left',act:'Approve'},
+ ],
+ none:[],
+};
+
+const SHIRT=c=>`<svg viewBox="0 0 48 48"><path d="M17 6 L9 9.5 L2.5 18 L9 23.5 L12 21 V41 A2.5 2.5 0 0 0 14.5 43.5 H33.5 A2.5 2.5 0 0 0 36 41 V21 L39 23.5 L45.5 18 L39 9.5 L31 6 C30 9.5 27.5 11.5 24 11.5 C20.5 11.5 18 9.5 17 6 Z" fill="${c}"/></svg>`;
+const TASKS={
+ some:[
+  {a:'buying',kind:'Purchase order',nm:'Garmen Nusantara, PT',ln:['PO-161026-010 · 3 items','Delivery 29 Oct 2026'],lead:'360 pcs',sub:'Rp 24.480.000',thumbs:['#2b3a55','#7a2e3a','#5d6b3c'],who:'Dewi Lestari',act:'Approve'},
+  {a:'buying',kind:'Purchase order',nm:'Batik Kencana, CV',ln:['PO-171026-004 · 1 item','Delivery 2 Nov 2026'],lead:'120 pcs',sub:'Rp 6.120.000',thumbs:['#b5651d'],who:'Dewi Lestari',act:'Approve'},
+  {a:'ops',kind:'Receiving count',nm:'DC Cikarang',ln:['SJ-181026-004 · Batik Kencana','Counted by Agus Pratama'],lead:'260 pcs',sub:'40 pcs short',who:'Agus Pratama',act:'Review'},
+  {a:'hr',kind:'Leave request',nm:'Rina Kusuma',ln:['Annual leave · Store Kemang','20 Oct 2026 – 22 Oct 2026'],lead:'3 days',sub:'9 days left',who:'Rina Kusuma',act:'Approve'},
+ ],
+ worst:[
+  {a:'buying',kind:'Purchase order',nm:'Perusahaan Garmen Nusantara Sejahtera Abadi, PT',ln:['PO-161026-010 · 148 items','Delivery 29 Oct 2026'],lead:'12.480 pcs',sub:'Rp 1.204.040.000',thumbs:['#2b3a55','#7a2e3a','#5d6b3c','#b5651d','#3d3d3d'],who:'Maria Theresia Kusumawardhani',act:'Approve'},
+  {a:'ops',kind:'Receiving count',nm:'DC Cikarang Timur Kawasan Industri Jababeka',ln:['SJ-181026-004 · Batik Kencana','Counted by Bambang Sutrisno Wicaksono'],lead:'12.260 pcs',sub:'1.040 pcs short',who:'Bambang Sutrisno Wicaksono',act:'Review'},
+ ],
+ none:[],
+};
+function taskCards(){
+ const t=TASKS[S.d],w=WAITS[S.d];
+ if(!t.length)return `<div class="sub">Waiting for you</div>${calm}`;
+ return `<div class="sub">Waiting for you<span class="aside">${cap(total(w))}</span></div><div class="tasks">${t.map(x=>`<div class="task">
+  <div class="kind">${mattePic(A[x.a],artStyle(x.a),0,'hz mini matte sh')}${x.kind}<span class="st">Pending</span></div>
+  <div class="top"><div style="min-width:0"><div class="nm">${x.nm}</div>${x.ln.map(l=>`<div class="ln">${l}</div>`).join('')}</div><div><div class="lead">${x.lead}</div><div class="ln" style="text-align:right">${x.sub}</div></div></div>
+  ${x.thumbs?`<div class="thumbs">${x.thumbs.slice(0,4).map(c=>`<span>${SHIRT(c)}</span>`).join('')}${x.thumbs.length>4?`<span class="more-n">+${x.thumbs.length-4}</span>`:''}</div>`:''}
+  <div class="foot"><span>By <b>${x.who}</b></span><button class="btn">${x.act}</button></div></div>`).join('')}</div>
+  <button class="more">See all ${cap(total(w))} ${ic('chevron-right').replace('<i','<i class="chev" style="color:var(--accent)"')}</button>`;
+}
+const search=()=>`<div class="list" style="margin-top:20px"><button class="li"><span class="tile md" style="display:grid;background:var(--soft-2);color:var(--body);box-shadow:none">${ic('search')}</span><span class="w" style="color:var(--mute);font-weight:400">Search or jump to…</span></button></div>`;
+const S={v:'a',bar:'four',orb:'snap',ex:'none',wt:'off',ic:'matte',pal:'fam',t:'plain',cols:4,w:414,d:'some'};
+const ic=n=>`<i data-lucide="${n}"></i>`;
+const tile=(a,size,dot)=>`<span class="tile ${size}" style="--tile:var(--app-${a.id})">${ic(a.i)}${dot?'<span class="dot"></span>':''}</span>`;
+const cap=n=>n>99?'99+':n;
+const total=w=>w.reduce((s,x)=>s+x.n,0);
+
+// Fluent Emoji (MIT) — one picture per department
+const FL='https://cdn.jsdelivr.net/gh/microsoft/fluentui-emoji@main/assets';
+const EMO={executive:['Chart increasing','chart_increasing'],buying:['Shopping cart','shopping_cart'],merchandise:['T-shirt','t-shirt'],
+ ops:['Delivery truck','delivery_truck'],inventory:['Package','package'],marketing:['Megaphone','megaphone'],selling:['Convenience store','convenience_store'],
+ finance:['Bank','bank'],hr:['Busts in silhouette','busts_in_silhouette'],ga:['Office building','office_building'],system:['Books','books'],library:['File folder','file_folder']};
+const ART={
+ executive:`<rect class="l" x="6" y="26" width="10" height="17" rx="3"/><rect class="b" x="19" y="17" width="10" height="26" rx="3"/><rect class="d" x="32" y="7" width="10" height="36" rx="3"/><path class="sa" d="M5 19 L17 10.5 L24 14.5 L37 3.5"/><path class="a" d="M33 2 H40 V9 Z"/><rect class="hl" x="21" y="19" width="3" height="21" rx="1.5"/><rect class="hl" x="34" y="9" width="3" height="31" rx="1.5"/>`,
+ buying:`<rect class="a" x="20" y="4" width="14" height="12" rx="2.5" transform="rotate(-10 27 10)"/><path class="sd" d="M3 9 H9 L11 14"/><path class="b" d="M11 14 H43 L38.5 31 H15.5 Z" stroke="var(--c)" stroke-width="3" stroke-linejoin="round"/><path class="sw" d="M21 18 V27 M28 18 V27 M35 18 V27"/><path class="sd" d="M15.5 31 L17 36 H38"/><circle class="d" cx="19" cy="40" r="4"/><circle class="d" cx="36" cy="40" r="4"/><circle class="w" cx="19" cy="40" r="1.5"/><circle class="w" cx="36" cy="40" r="1.5"/>`,
+ merchandise:`<path class="b" d="M17 6 L9 9.5 L2.5 18 L9 23.5 L12 21 V41 A2.5 2.5 0 0 0 14.5 43.5 H33.5 A2.5 2.5 0 0 0 36 41 V21 L39 23.5 L45.5 18 L39 9.5 L31 6 C30 9.5 27.5 11.5 24 11.5 C20.5 11.5 18 9.5 17 6 Z" stroke="var(--c)" stroke-width="1.5" stroke-linejoin="round"/><path class="d" d="M17 6 C18 9.5 20.5 11.5 24 11.5 C27.5 11.5 30 9.5 31 6 C29 7.6 26.8 8.4 24 8.4 C21.2 8.4 19 7.6 17 6 Z"/><rect class="a" x="12" y="25" width="24" height="5"/><path class="hl" d="M14 14 L19 12 V40 H14 Z"/>`,
+ ops:`<rect class="b" x="2" y="10" width="27" height="23" rx="3"/><rect class="l" x="2" y="15" width="27" height="3"/><path class="d" d="M29 17 H37.5 A3 3 0 0 1 40 18.4 L45 26 V33 H29 Z"/><path class="w" d="M31.5 20 H37 L40.5 25.5 H31.5 Z" fill-opacity=".9"/><rect class="d" x="2" y="31" width="43" height="4.5" rx="2"/><circle cx="13" cy="37" r="5.2" fill="#1d1d1f"/><circle cx="36" cy="37" r="5.2" fill="#1d1d1f"/><circle class="w" cx="13" cy="37" r="2"/><circle class="w" cx="36" cy="37" r="2"/><rect class="hl" x="4.5" y="21" width="3" height="9" rx="1.5"/><rect class="a" x="42.5" y="27.5" width="2.5" height="3.5" rx="1"/>`,
+ inventory:`<rect class="b" x="3" y="23" width="21" height="20" rx="2.5"/><rect class="d" x="24" y="23" width="21" height="20" rx="2.5"/><rect class="l" x="13" y="5" width="22" height="18" rx="2.5"/><rect class="a" x="11.5" y="23" width="4" height="8"/><rect class="a" x="32.5" y="23" width="4" height="8"/><rect class="b" x="22" y="5" width="4" height="8"/><rect class="hl" x="5.5" y="26" width="3" height="14" rx="1.5"/>`,
+ marketing:`<path class="sa" d="M39 15 Q42.5 22 39 29"/><path class="sa" d="M43.5 11 Q49 22 43.5 33"/><rect class="l" x="4" y="16" width="8" height="12" rx="3"/><path class="b" d="M11 16.5 L31 7 V37 L11 27.5 Z" stroke="var(--c)" stroke-width="3" stroke-linejoin="round"/><ellipse class="d" cx="32" cy="22" rx="3.6" ry="15"/><path class="d" d="M14 27.5 L18 38.5 A2 2 0 0 0 19.9 40 H22.5 A1.6 1.6 0 0 0 24 37.8 L20.8 30.4 Z"/><path class="hl" d="M13 18 L22 13.7 V20 L13 21.5 Z"/>`,
+ selling:`<rect class="l" x="6" y="19" width="36" height="24" rx="2.5"/><rect class="b" x="3" y="8" width="42" height="12" rx="3"/><rect class="w" x="11.4" y="8" width="8.4" height="12" fill-opacity=".9"/><rect class="w" x="28.2" y="8" width="8.4" height="12" fill-opacity=".9"/><circle class="b" cx="7.2" cy="20" r="4.2"/><circle class="w" cx="15.6" cy="20" r="4.2"/><circle class="b" cx="24" cy="20" r="4.2"/><circle class="w" cx="32.4" cy="20" r="4.2"/><circle class="b" cx="40.8" cy="20" r="4.2"/><rect class="d" x="19.5" y="29" width="9" height="14" rx="1.5"/><rect class="w" x="10" y="29" width="7" height="7" rx="1.5"/><rect class="w" x="31" y="29" width="7" height="7" rx="1.5"/>`,
+ finance:`<path class="d" d="M24 3 L44 13.5 V17 H4 V13.5 Z" stroke="color-mix(in srgb,var(--c) 68%,black)" stroke-width="2" stroke-linejoin="round"/><circle class="a" cx="24" cy="11" r="2.8"/><rect class="l" x="5" y="17" width="38" height="3" rx="1"/><rect class="b" x="8" y="21" width="5.5" height="15" rx="1.5"/><rect class="b" x="17" y="21" width="5.5" height="15" rx="1.5"/><rect class="b" x="25.5" y="21" width="5.5" height="15" rx="1.5"/><rect class="b" x="34.5" y="21" width="5.5" height="15" rx="1.5"/><rect class="d" x="5" y="36" width="38" height="4" rx="1.5"/><rect class="b" x="2.5" y="40" width="43" height="4" rx="1.5"/>`,
+ hr:`<circle class="l" cx="32.5" cy="13.5" r="6.5"/><path class="l" d="M21 38 C21 29.5 26 24.5 32.5 24.5 C39 24.5 44 29.5 44 38 V39 A2 2 0 0 1 42 41 H23 A2 2 0 0 1 21 39 Z"/><circle class="b" cx="18.5" cy="16.5" r="7.5"/><path class="b" d="M5 41 C5 32 11 26.5 18.5 26.5 C26 26.5 32 32 32 41 V42 A2 2 0 0 1 30 44 H7 A2 2 0 0 1 5 42 Z"/><path class="a" d="M16 26.8 L18.5 33 L21 26.8 Z"/><path class="hl" d="M12.5 14 A6 6 0 0 1 17 9.5 A6 6 0 0 0 13.5 18 Z"/>`,
+ ga:`<rect class="d" x="29" y="17" width="12" height="26" rx="2"/><rect class="b" x="8" y="5" width="22" height="38" rx="2.5"/><rect class="a" x="12" y="10" width="5" height="5" rx="1"/><rect class="a" x="21" y="10" width="5" height="5" rx="1"/><rect class="a" x="12" y="18" width="5" height="5" rx="1"/><rect class="a" x="21" y="18" width="5" height="5" rx="1"/><rect class="a" x="12" y="26" width="5" height="5" rx="1"/><rect class="a" x="21" y="26" width="5" height="5" rx="1"/><rect class="l" x="32.5" y="22" width="5" height="4" rx="1"/><rect class="l" x="32.5" y="29" width="5" height="4" rx="1"/><rect class="d" x="16" y="35" width="6" height="8" rx="1"/><rect class="d" x="4" y="42" width="40" height="3" rx="1.5"/>`,
+ system:`<rect class="d" x="10" y="5" width="30" height="38" rx="3"/><rect class="w" x="13" y="8" width="26" height="34" rx="2"/><rect class="b" x="8" y="4" width="27" height="36" rx="3"/><rect class="d" x="8" y="4" width="5.5" height="36" rx="2.5"/><rect class="l" x="18" y="11" width="12" height="6" rx="1.5"/><path class="a" d="M27 38 V46 L30 43.5 L33 46 V38 Z"/>`,
+ chat:`<path class="l" d="M27 23 H40 A5 5 0 0 1 45 28 V35 A5 5 0 0 1 40 40 V44.5 L34.5 40 H32 A5 5 0 0 1 27 35 Z"/><path class="b" d="M12 5 H34 A6 6 0 0 1 40 11 V25 A6 6 0 0 1 34 31 H20 L11 39 V31 A6 6 0 0 1 5 25 V11 A6 6 0 0 1 12 5 Z"/><circle class="w" cx="14.5" cy="18" r="2.6"/><circle class="a" cx="22.5" cy="18" r="2.6"/><circle class="w" cx="30.5" cy="18" r="2.6"/>`,
+ discussions:`<path class="l" d="M18 4 H40 A5 5 0 0 1 45 9 V22 A5 5 0 0 1 40 27 V32 L34 27 H18 A5 5 0 0 1 13 22 V9 A5 5 0 0 1 18 4 Z"/><path class="b" d="M8 15 H30 A5 5 0 0 1 35 20 V33 A5 5 0 0 1 30 38 H15 L8 44.5 V38 A5 5 0 0 1 3 33 V20 A5 5 0 0 1 8 15 Z"/><rect class="w" x="8.5" y="22" width="19" height="3" rx="1.5"/><rect class="w" x="8.5" y="28.5" width="12" height="3" rx="1.5"/><circle class="a" cx="40" cy="9" r="3"/>`,
+ notify:`<circle class="d" cx="24" cy="5.5" r="2.8"/><path class="b" d="M24 6.5 C16.5 6.5 11.5 12 11.5 19.5 V28 L7.5 33.5 V36 H40.5 V33.5 L36.5 28 V19.5 C36.5 12 31.5 6.5 24 6.5 Z"/><rect class="d" x="7.5" y="33.5" width="33" height="3.5" rx="1.75"/><circle class="a" cx="24" cy="41.5" r="4.5"/><path class="l" d="M15.5 19.5 C15.5 14.5 18.5 11 22.5 10.3 C19.5 12.5 18.5 15.5 18.5 19.5 V27 H15.5 Z"/>`,
+ reports:`<rect class="b" x="7" y="7" width="32" height="38" rx="3.5"/><rect class="w" x="11" y="12" width="24" height="29" rx="1.5"/><rect class="d" x="16" y="3.5" width="14" height="7" rx="2.5"/><rect class="l" x="15" y="29" width="4.5" height="8" rx="1"/><rect class="b" x="21" y="23" width="4.5" height="14" rx="1"/><rect class="a" x="27" y="17" width="4.5" height="20" rx="1"/>`,
+ profile:`<rect class="l" x="3" y="9" width="42" height="31" rx="4.5"/><rect class="d" x="19" y="5" width="10" height="7" rx="2.5"/><circle class="b" cx="15" cy="21" r="5.5"/><path class="b" d="M6.5 34.5 C6.5 29 10.5 26.5 15 26.5 C19.5 26.5 23.5 29 23.5 34.5 Z"/><rect class="d" x="27" y="18" width="13" height="3.2" rx="1.6"/><rect class="w" x="27" y="24" width="10" height="3.2" rx="1.6"/><rect class="a" x="27" y="30" width="7" height="3.2" rx="1.6"/>`,
+ admin:`${[0,45,90,135,180,225,270,315].map(r=>`<rect class="b" x="20.5" y="4" width="7" height="9" rx="2" transform="rotate(${r} 24 24)"/>`).join('')}<circle class="b" cx="24" cy="24" r="14"/><circle class="d" cx="24" cy="24" r="8"/><circle class="a" cx="24" cy="24" r="3.6"/>`,
+ library:`<path class="d" d="M4 12 A3 3 0 0 1 7 9 H17.5 L21.5 13 H41 A3 3 0 0 1 44 16 V38 A3 3 0 0 1 41 41 H7 A3 3 0 0 1 4 38 Z"/><rect class="w" x="9" y="14" width="29" height="20" rx="1.5"/><rect class="a" x="13" y="18" width="16" height="2.4" rx="1.2"/><rect class="l" x="13" y="23" width="11" height="2.4" rx="1.2"/><path class="b" d="M3 21 A3 3 0 0 1 6 18 H42 A3 3 0 0 1 45 21.3 L43.4 38.3 A3 3 0 0 1 40.4 41 H7.6 A3 3 0 0 1 4.6 38.3 Z"/><rect class="hl" x="6" y="21" width="36" height="3" rx="1.5"/>`,
+};
+const stop=(o,c)=>`<stop offset="${o}" style="stop-color:${c}"/>`;
+const mix=(p,w)=>`color-mix(in srgb,var(--c) ${p}%,${w})`;
+function grad(id){
+ if(!['gloss','plinth','sta','stb','stc','std'].includes(S.ic))return '';
+ return `<defs><linearGradient id="gb-${id}" x1="0" y1="0" x2=".3" y2="1">${stop(0,mix(55,'white'))}${stop(.5,'var(--c)')}${stop(1,mix(78,'black'))}</linearGradient><linearGradient id="gd-${id}" x1="0" y1="0" x2=".3" y2="1">${stop(0,mix(82,'black'))}${stop(1,mix(55,'black'))}</linearGradient><linearGradient id="gl-${id}" x1="0" y1="0" x2=".3" y2="1">${stop(0,mix(20,'white'))}${stop(1,mix(55,'white'))}</linearGradient></defs>`;
+}
+// Sticker A Gojek · B White edge · C Circle · D Big · E Flat edge
+const STK={sta:' out g3',stb:' out g3',stc:' out g3',std:' out g3 edge',ste:' out edge'};
+// Colour for the matte pictures: Family = Gojek's few colours by group; Bright = one clean hue each; Hub = --app-*
+const PAL={
+ // Family = Gojek's own colours, sampled from its Home: base, shade, light, background
+ fam:(()=>{const G=['#30a830','#1e7a22','#4cc03c','#def6cc'],R=['#ec2d3a','#9c2a30','#f2525c','#fcdede'],B=['#00a8cc','#00799a','#22bfe0','#d2f0f6'],O=['#f08c1a','#b5620c','#f6a640','#fdead2'];
+  return {executive:B,buying:G,merchandise:R,ops:G,inventory:G,marketing:R,selling:R,finance:B,hr:B,ga:B,system:O,library:O,chat:G,discussions:B,notify:O,reports:R,profile:B,admin:O}})(),
+ bright:{executive:'#5856d6',buying:'#1f7ae0',merchandise:'#e8457a',ops:'#00aed6',inventory:'#ff8a00',marketing:'#a04be0',selling:'#00aa13',finance:'#0fa38f',hr:'#ee2737',ga:'#f5a300',system:'#4f6bed',library:'#ff6b3d',chat:'#00aa13',discussions:'#1f7ae0',notify:'#f5a300',reports:'#ee2737',profile:'#5856d6',admin:'#4f6bed'},
+};
+function mattePic(a,c,n,cls='hz out matte sh'){
+ const id=a.id+(cls.includes('mini')?'-m':'');
+ const g=(k,stops)=>`<linearGradient id="${k}-${id}" x1="0" y1="0" x2=".25" y2="1">${stops.map(([o,col])=>stop(o,col)).join('')}</linearGradient>`;
+ const defs=`<defs>${g('mb',[[0,'color-mix(in srgb,var(--c) 78%,var(--kl))'],[.45,'var(--c)'],[1,'color-mix(in srgb,var(--c) 45%,var(--kd))']])}${g('md',[[0,'color-mix(in srgb,var(--kd) 80%,var(--c))'],[1,'color-mix(in srgb,var(--kd) 72%,black)']])}${g('ml',[[0,'var(--kl)'],[1,'color-mix(in srgb,var(--kl) 50%,var(--c))']])}</defs>`;
+ return `<span class="${cls}" style="${c};--gb:url(#mb-${id});--gd:url(#md-${id});--gl:url(#ml-${id})">${cls.includes('mini')?'':'<span class="bgd"></span>'}<svg viewBox="0 0 48 48" aria-hidden="true">${defs}<ellipse cx="26" cy="46" rx="16" ry="2.4" fill="color-mix(in srgb,var(--kd) 30%,transparent)"/>${ART[a.id]}</svg>${n?`<span class="tag ink">${cap(n)}</span>`:''}</span>`;
+}
+function artStyle(id){const v=PAL[S.pal]?.[id];return Array.isArray(v)?`--c:${v[0]};--cd:${v[1]};--cl:${v[2]};--cb:${v[3]}`:`--c:${v||`var(--app-${id},var(--app-system))`}`}
+function art(a,n){
+ if(S.ic==='matte'||S.ic==='matteb'){const v=PAL[S.pal]?.[a.id],c=Array.isArray(v)?`--c:${v[0]};--cd:${v[1]};--cl:${v[2]};--cb:${v[3]}`:`--c:${v||`var(--app-${a.id})`}`;return mattePic(a,c,n)}
+ if(['hue','pop','gloss','plinth','sticker','solid','sta','stb','stc','std','ste'].includes(S.ic))return `<span class="hz${STK[S.ic]||''}" style="--c:var(--app-${a.id});--gb:url(#gb-${a.id});--gd:url(#gd-${a.id});--gl:url(#gl-${a.id})"><span class="bgd"></span><svg viewBox="0 0 48 48" aria-hidden="true">${grad(a.id)}${ART[a.id]}</svg>${n?`<span class="tag red">${cap(n)}</span>`:''}</span>`;
+ if(S.ic==='tile')return tile(a,'lg',!!n);
+ const tag=n?`<span class="tag">${cap(n)}</span>`:'';
+ if(S.ic==='duo')return `<span class="art" style="--tile:var(--app-${a.id})"><span class="bgd"></span>${ic(a.i)}${tag}</span>`;
+ const f=S.ic==='flat',[nm,sn]=EMO[a.id];
+ return `<span class="art" style="--tile:var(--app-${a.id})"><span class="bgd"></span><img src="${FL}/${encodeURIComponent(nm)}/${f?'Flat':'3D'}/${sn}_${f?'flat.svg':'3d.png'}" alt="">${tag}</span>`;
+}
+function moreTiles(){
+ return `<div class="sub" style="margin-top:28px">Workplace</div><div class="grid">${MORE.map(a=>`<button class="app">${art(a,a.n)}<span class="name">${a.l}</span></button>`).join('')}</div>`;
+}
+function grid(w){
+ const n=Object.fromEntries(w.map(x=>[x.a,x.n]));
+ return `<div style="height:28px"></div><div class="grid">${APPS.map(a=>`<button class="app">${art(a,n[a.id])}<span class="name">${a.l}</span></button>`).join('')}</div>`;
+}
+function head(w,label='Waiting for you'){
+ return `<div class="sub">${label}<span class="aside">${w.length?cap(total(w)):''}</span></div>`;
+}
+const calm=`<div class="calm">${ic('circle-check')}Nothing is waiting for you</div>`;
+
+const V={
+ a:{n:'A · Rows',top(w){
+  return head(w)+(w.length?`<div class="list">${w.map(x=>`<button class="li">${tile(A[x.a],'md')}<span class="w">${x.t}</span><span class="count">${cap(x.n)}</span>${ic('chevron-right').replace('<i','<i class="chev"')}</button>`).join('')}</div>`:calm);
+ }},
+ b:{n:'B · Figures',top(w){
+  const show=w.slice(0,4);
+  return head(w)+(w.length?`<div class="pair">${show.map(x=>`<button class="fc"><span class="top"><span class="fig">${cap(x.n)}</span>${tile(A[x.a],'sm')}</span><span class="what">${x.f}</span></button>`).join('')}</div>${w.length>4?`<button class="more">${w.length-4} more ${ic('chevron-right').replace('<i','<i class="chev" style="color:var(--accent)"')}</button>`:''}`:calm);
+ }},
+ c:{n:'C · Records',top(w,r){
+  return head(w)+(r.length?`<div class="cards">${r.map(x=>`<div class="pc"><div class="top"><div style="min-width:0"><div class="nm">${x.nm}</div>${x.ln.map(l=>`<div class="ln">${l}</div>`).join('')}</div><div><div class="lead">${x.lead}</div><div class="ln" style="text-align:right">${x.sub}</div></div></div><div class="foot"><span class="who">${tile(A[x.a],'sm')}${A[x.a].l}</span><button class="btn">${x.act}</button></div></div>`).join('')}</div><button class="more">See all ${cap(total(w))} ${ic('chevron-right').replace('<i','<i class="chev" style="color:var(--accent)"')}</button>`:calm);
+ }},
+ d:{n:'D · Up next',top(w,r){
+  if(!r.length)return head(w)+calm;
+  const x=r[0];
+  return head(w)+`<div class="next"><div class="top">${tile(A[x.a],'md')}<div style="flex:1;min-width:0"><div class="nm">${x.nm}</div>${x.ln.map(l=>`<div class="ln">${l}</div>`).join('')}<div style="margin-top:8px;font-size:24px;line-height:30px;font-weight:600;font-variant-numeric:tabular-nums">${x.lead} <span class="ln" style="font-size:15px;font-weight:400">${x.sub}</span></div></div></div><div class="foot"><button class="ghost">Open</button><button class="btn">${x.act}</button></div></div>
+  <div class="after list" style="border:0;border-radius:0;margin-top:8px">${w.map(y=>`<button class="li"><span class="w">${y.t}</span><span class="count">${cap(y.n)}</span>${ic('chevron-right').replace('<i','<i class="chev"')}</button>`).join('')}</div>`;
+ }},
+ e:{n:'E · Sentence',top(w){
+  if(!w.length)return head(w)+calm;
+  return head(w)+`<div class="list">${w.map(x=>`<button class="li" style="min-height:64px">${tile(A[x.a],'md')}<span class="w">${A[x.a].l}<small>${x.n>99?'99+':x.n} ${x.f.toLowerCase()}</small></span>${ic('chevron-right').replace('<i','<i class="chev"')}</button>`).join('')}</div>`;
+ }},
+};
+
+const phone=document.getElementById('phone');
+
+/* ── the orb: drag with momentum, settle on a spring, rest when idle, open into the panel ── */
+const ORB={x:null,y:null,raf:0,rest:0};
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const SIZE=56,EDGE=16,SLOP=6,REST_AFTER=2500;
+function orbBox(){const W=phone.clientWidth,H=phone.clientHeight;return{W,H,minX:EDGE,maxX:W-EDGE-SIZE,minY:47+52+EDGE,maxY:H-(52+26)-EDGE-SIZE}}
+const clampN=(v,a,b)=>Math.min(b,Math.max(a,v));
+// past an edge it follows less and less (rubber band), like a scroll view
+const band=(v,a,b)=>v<a?a-(1-1/((a-v)*0.55/120+1))*120:v>b?b+(1-1/((v-b)*0.55/120+1))*120:v;
+function wireOrb(){
+ const o=phone.querySelector('.aorb'),m=phone.querySelector('.orb-menu'),veil=phone.querySelector('.orb-veil');
+ if(!o){ORB.close=null;return}
+ const box=orbBox();
+ if(ORB.x==null){ORB.x=box.maxX;ORB.y=box.maxY}
+ ORB.x=clampN(ORB.x,box.minX,box.maxX);ORB.y=clampN(ORB.y,box.minY,box.maxY);
+ const put=(x,y)=>{o.style.transform=`translate(${x}px,${y}px)`};
+ put(ORB.x,ORB.y);
+ const restSoon=()=>{clearTimeout(ORB.rest);ORB.rest=setTimeout(()=>{if(!m.hasAttribute('data-open'))o.setAttribute('data-resting','')},REST_AFTER)};
+ const wake=()=>{clearTimeout(ORB.rest);o.removeAttribute('data-resting')};
+ restSoon();
+
+ // Apple-style spring: duration 0.5s, bounce 0.15 — carries the throw's velocity into the settle
+ const springTo=(tx,ty,vx,vy)=>{
+  cancelAnimationFrame(ORB.raf);
+  if(reduce){ORB.x=tx;ORB.y=ty;put(tx,ty);return}
+  const k=Math.pow(2*Math.PI/0.5,2),c=2*(1-0.15)*Math.sqrt(k);
+  let x=ORB.x,y=ORB.y,last=performance.now();
+  const step=now=>{
+   const dt=Math.min(0.25,(now-last)/1000);last=now;
+   const n=Math.max(1,Math.ceil(dt*240)),h=dt/n;
+   for(let i=0;i<n;i++){vx+=(-k*(x-tx)-c*vx)*h;vy+=(-k*(y-ty)-c*vy)*h;x+=vx*h;y+=vy*h}
+   ORB.x=x;ORB.y=y;put(x,y);
+   if(Math.abs(x-tx)<0.3&&Math.abs(y-ty)<0.3&&Math.abs(vx)<8&&Math.abs(vy)<8){ORB.x=tx;ORB.y=ty;put(tx,ty);return}
+   ORB.raf=requestAnimationFrame(step);
+  };
+  ORB.raf=requestAnimationFrame(step);
+ };
+
+ let d=null;
+ o.onpointerdown=e=>{
+  if(d||(e.pointerType==='mouse'&&e.button!==0))return;
+  cancelAnimationFrame(ORB.raf);wake();o.setAttribute('data-held','');
+  try{o.setPointerCapture(e.pointerId)}catch(_){}
+  d={id:e.pointerId,sx:e.clientX,sy:e.clientY,ox:ORB.x,oy:ORB.y,moved:false,pts:[{x:e.clientX,y:e.clientY,t:e.timeStamp}]};
+ };
+ o.onpointermove=e=>{
+  if(!d||e.pointerId!==d.id)return;
+  const dx=e.clientX-d.sx,dy=e.clientY-d.sy;
+  if(!d.moved&&Math.hypot(dx,dy)<SLOP)return;
+  d.moved=true;
+  const b=orbBox();ORB.x=band(d.ox+dx,b.minX,b.maxX);ORB.y=band(d.oy+dy,b.minY,b.maxY);put(ORB.x,ORB.y);
+  d.pts.push({x:e.clientX,y:e.clientY,t:e.timeStamp});if(d.pts.length>6)d.pts.shift();
+ };
+ const end=e=>{
+  if(!d||e.pointerId!==d.id)return;
+  const one=d;d=null;o.removeAttribute('data-held');
+  if(!one.moved){if(e.type!=='pointercancel')toggle();restSoon();return}
+  // velocity from the last ~100ms of the drag, px/s
+  const a=one.pts.find(p=>e.timeStamp-p.t<100)||one.pts[0],z=one.pts[one.pts.length-1],dt=Math.max(1,z.t-a.t);
+  const vx=(z.x-a.x)/dt*1000,vy=(z.y-a.y)/dt*1000;
+  const b=orbBox();
+  let tx,ty;
+  if(S.orb==='snap'){
+   // where the throw would carry it, then the nearer side wall — AssistiveTouch
+   const px=ORB.x+vx*0.2,py=ORB.y+vy*0.2;
+   tx=px+SIZE/2<b.W/2?b.minX:b.maxX;ty=clampN(py,b.minY,b.maxY);
+  }else{tx=clampN(ORB.x,b.minX,b.maxX);ty=clampN(ORB.y,b.minY,b.maxY)}
+  springTo(tx,ty,vx,vy);restSoon();
+ };
+ o.onpointerup=end;o.onpointercancel=end;
+ o.onclick=e=>{if(e.detail===0)toggle()};
+
+ function place(){
+  const b=orbBox(),w=m.offsetWidth,h=m.offsetHeight,cx=ORB.x+SIZE/2,cy=ORB.y+SIZE/2;
+  // the orb sits in the panel's corner nearest it, so the panel grows out of it
+  let left=cx>b.W/2?ORB.x+SIZE-w:ORB.x,top=cy>b.H/2?ORB.y+SIZE-h:ORB.y;
+  left=clampN(left,8,b.W-8-w);top=clampN(top,47+52+8,b.H-(52+26)-8-h);
+  const ox=cx-left,oy=cy-top,r=Math.max(...[[0,0],[w,0],[0,h],[w,h]].map(([X,Y])=>Math.hypot(X-ox,Y-oy)))+24;
+  m.style.left=left+'px';m.style.top=top+'px';
+  m.style.setProperty('--ox',ox+'px');m.style.setProperty('--oy',oy+'px');m.style.setProperty('--r',r+'px');
+ }
+ function open(){wake();place();m.setAttribute('data-open','');o.setAttribute('data-open','');veil.setAttribute('data-open','');o.setAttribute('aria-expanded','true')}
+ function close(){m.removeAttribute('data-open');o.removeAttribute('data-open');veil.removeAttribute('data-open');o.setAttribute('aria-expanded','false');restSoon()}
+ function toggle(){m.hasAttribute('data-open')?close():open()}
+ veil.onpointerdown=close;
+ m.onclick=e=>{if(e.target.closest('.otile'))close()};
+ ORB.close=close;
+}
+addEventListener('keydown',e=>{if(e.key==='Escape')ORB.close?.()});
+function render(){
+ const w=WAITS[S.d],r=RECS[S.d];
+ phone.className='phone'+(S.bar==='four'?'':' has-orb')+(S.w===375?' w375':'')+(S.cols===3||S.w<400?' cols3':'')+' t-'+S.t+' i-'+S.ic;
+ phone.innerHTML=`<div class="status"><span>9:41</span><span>●●●</span></div>
+ <header class="tbar"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7.5" fill="#111214"/><rect x="0.5" y="0.5" width="31" height="31" rx="7" fill="none" stroke="rgb(255 255 255 / 10%)"/><path d="M18.2 11.6A6.5 6.5 0 1 0 18.2 20.4" fill="none" stroke="#fff" stroke-width="3.6" stroke-linecap="round"/><circle cx="23.4" cy="16" r="2.2" fill="var(--accent)"/></svg><b>Central</b></header>
+ <div class="scroll"><div class="date">Sat 18 Oct</div><div class="hello">Good morning, Hari</div>
+ ${grid(w)}${S.ex==='tiles'?moreTiles():''}</div>
+ ${S.bar==='four'?'':`<div class="orb-veil"></div>
+ <div class="orb-menu" role="menu" aria-label="Account">
+  <button class="otile" role="menuitem">${ic('message-square')}Chat<span class="obadge">2</span></button>
+  <button class="otile" role="menuitem">${ic('messages-square')}Discussions<span class="obadge">1</span></button>
+  <button class="otile" role="menuitem">${ic('bell')}Notifications<span class="obadge">5</span></button>
+  <button class="otile" role="menuitem">${ic('user-round')}Profile</button>
+  <button class="otile" role="menuitem">${ic('moon')}Sleep</button>
+  <button class="otile out" role="menuitem">${ic('log-out')}Sign out</button>
+ </div>
+ <button class="aorb" type="button" aria-label="Hari Santoso, 8 waiting" aria-haspopup="menu" aria-expanded="false"><span class="face">H</span><span class="obadge">8</span></button>`}
+ <nav class="hbar" aria-label="Main"><div class="hrow" style="--n:${{four:4,three:3}[S.bar]||1}">
+  <a class="htab">${ic('layout-grid')}<span>Home</span></a>
+  ${S.bar==='four'?`<a class="htab off"><i class="tico">${ic('message-square')}<b class="tdot"></b></i><span>Chat</span></a><a class="htab off"><i class="tico">${ic('bell')}<b class="tdot"></b></i><span>Notifications</span></a><a class="htab off"><i class="tico"><span class="tav">H</span></i><span>Profile</span></a>`:''}
+  ${S.bar==='three'?`<a class="htab off"><i class="tico">${ic('message-square')}<b class="tdot"></b></i><span>Chat</span></a><a class="htab off"><i class="tico">${ic('bell')}<b class="tdot"></b></i><span>Activity</span></a>`:''}
+ </div></nav>`;
+ lucide.createIcons();
+ wireOrb();
+ for(const [id,key,opts] of CTL){document.querySelectorAll(`#${id} button`).forEach(b=>b.setAttribute('aria-pressed',String(S[key])===b.dataset.v))}
+ try{history.replaceState(null,'','?'+new URLSearchParams(S))}catch(e){}
+}
+const CTL=[
+ ['sv','v',Object.entries(V).map(([k,v])=>[k,v.n])],
+ ['sbar','bar',[['four','Home · Chat · Notifications · Profile (no orb)'],['three','Home · Chat · Activity + orb'],['one','Home only + orb (now)']]],
+ ['sorb','orb',[['snap','Orb · iPhone snap'],['stay','Orb · stays where dropped']]],
+ ['sex','ex',[['none','Departments only'],['tiles','Workplace tiles']]],
+ ['spal','pal',[['fam','Family colours'],['bright','Bright'],['hub','Hub colours']]],
+ ['si','ic',[['matte','Matte'],['matteb','Matte · circle'],['sta','Sticker A'],['stb','B · Big'],['stc','C · Circle'],['std','D · White edge'],['ste','E · Flat edge'],['gloss','Gloss'],['plinth','Plinth'],['solid','Solid'],['hue','Hub colour'],['pop','Hub colour · pop'],['tile','Hub tile'],['duo','Duotone'],['gojek','3D tile'],['float','3D float'],['flat','Flat colour']]],
+ ['st','t',[['now','Colour now'],['plain','1 · Plain top'],['glyph','2 · Tinted glyph'],['grey','3 · All grey'],['calm','4 · Grey, no red']]],
+ ['sc','cols',[['4','4 across'],['3','3 across']]],
+ ['sw','w',[['414','414'],['375','375']]],
+ ['sd','d',[['some','Some waiting'],['worst','Worst case'],['none','Nothing']]],
+];
+for(const [id,key,opts] of CTL){
+ const el=document.getElementById(id);
+ el.innerHTML=opts.map(([v,l])=>`<button data-v="${v}">${l}</button>`).join('');
+ el.onclick=e=>{const b=e.target.closest('button');if(!b)return;S[key]=typeof S[key]==='number'?+b.dataset.v:b.dataset.v;render()};
+}
+const q=new URLSearchParams(location.search);
+for(const k of Object.keys(S))if(q.has(k))S[k]=typeof S[k]==='number'?+q.get(k):q.get(k);
+if(!V[S.v])S.v='a';
+if(S.ex!=='tiles')S.ex='none';
+addEventListener('keydown',e=>{const k='abcde'[+e.key-1];if(k){S.v=k;render()}});
+render();
+</script>
+</body>
+</html>

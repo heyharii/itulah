@@ -1,0 +1,1401 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C5 Handheld Prototype</title>
+<style>
+/* ── Tokens.kt, value for value (1dp = 1px, sp = px) ───────────────────── */
+:root{
+  --ink:#20242C; --text:#394150; --body:#626B78; --mute:#737C89; --faint:#B9C0C9; --line-ico:#89919D;
+  --canvas:#FFFFFF; --soft:#F8F9FB; --soft2:#F0F2F5; --soft3:#F7F8FA;
+  --hairline:#E7EAF0; --hairline2:#DCE1E8; --hairline-strong:#C7CED8;
+  --dark:#191B20; --on-dark:#FFFFFF; --shadow:#18273C;
+  --accent:#2563EB; --accent-bg:#EFF5FF; --info:#2F86D8; --info-fg:#2C57BF;
+  --cta:#2563EB; --cta-fg:#FFFFFF;
+  --ok:#36B827; --ok-fg:#15803D; --warn:#C9892E; --warn-fg:#B45309; --bad:#D05151; --bad-fg:#BE123C;
+  --sp-xs:4px; --sp-sm:8px; --sp-md:12px; --sp-lg:16px; --sp-xl:20px; --sp-xxl:24px;
+  --r-card:12px; --r-inner:7px; --r-shell:16px; --r-sheet:16px;
+  --tap-floor:44px; --tap-action:56px; --tap-field:48px;
+  --ease-out:cubic-bezier(.16,1,.3,1); --ease-in-out:cubic-bezier(.77,0,.175,1);
+  --t-press:120ms; --t-hover:120ms; --t-pop:160ms; --t-panel:200ms; --t-page:180ms; --t-sheet:280ms;
+  --font:Roboto, "Google Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono:"Roboto Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* page around the device (not the app) */
+  --page:#E9EBEF; --page-ink:#394150; --body-shell:#2A2D33;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--page);font-family:var(--font);color:var(--page-ink);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;cursor:pointer}
+input{font:inherit}
+
+/* type scale (Type.*) */
+.t-display{font-size:76px;line-height:82px;font-weight:600;letter-spacing:-2px;font-variant-numeric:tabular-nums}
+.t-total{font-size:32px;line-height:35px;font-weight:600;letter-spacing:-.025em;font-variant-numeric:tabular-nums}
+.t-hero{font-size:22px;line-height:26px;font-weight:600;letter-spacing:-.022em}
+.t-title{font-size:17px;line-height:22px;font-weight:600;letter-spacing:-.015em}
+.t-kpi{font-size:21px;line-height:24px;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.t-cardTitle{font-size:14px;line-height:18px;font-weight:600;letter-spacing:-.01em}
+.t-metric{font-size:15px;line-height:20px;font-weight:500;font-variant-numeric:tabular-nums}
+.t-body{font-size:14px;line-height:20px}
+.t-cell{font-size:13.5px;line-height:19px}
+.t-control{font-size:14px;line-height:20px;font-weight:500}
+.t-action{font-size:16px;line-height:22px;font-weight:500}
+.t-section{font-size:12.5px;line-height:16px;font-weight:500;color:var(--mute)}
+.t-meta{font-size:12.5px;line-height:17px;font-variant-numeric:tabular-nums}
+.t-pill{font-size:11.5px;line-height:14px;font-weight:500}
+.t-id{font-size:12.5px;line-height:16px;font-family:var(--mono);font-variant-numeric:tabular-nums;word-break:break-all}
+.c-ink{color:var(--ink)} .c-text{color:var(--text)} .c-body{color:var(--body)} .c-mute{color:var(--mute)}
+.c-faint{color:var(--faint)} .c-lineico{color:var(--line-ico)} .c-ok{color:var(--ok-fg)} .c-warn{color:var(--warn-fg)} .c-bad{color:var(--bad-fg)}
+.center{text-align:center}
+.ellip{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.clamp2{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+
+/* ── stage ─────────────────────────────────────────────────────────────── */
+.stage{min-height:100%;display:flex;align-items:center;justify-content:center;gap:28px;padding:28px 16px;flex-wrap:wrap}
+.rig{display:flex;align-items:center;gap:22px}
+.device{background:var(--body-shell);border-radius:38px;padding:34px 16px 46px;position:relative;
+  box-shadow:0 30px 60px -20px rgba(24,39,60,.45),0 2px 0 rgba(255,255,255,.06) inset}
+.device::before{content:"";position:absolute;top:15px;left:50%;width:64px;height:5px;margin-left:-32px;border-radius:3px;background:#15171b}
+.device::after{content:"C5";position:absolute;bottom:14px;left:0;right:0;text-align:center;color:#6b7079;font-size:15px;letter-spacing:.2em;font-weight:600}
+.screen{width:360px;height:720px;background:var(--canvas);border-radius:6px;overflow:hidden;position:relative;display:flex;flex-direction:column}
+.sysbar{height:24px;flex:0 0 24px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:12px;color:var(--ink);background:var(--canvas);font-variant-numeric:tabular-nums}
+.sysbar .r{display:flex;gap:6px;align-items:center}
+.sysbar svg{width:14px;height:14px;fill:var(--ink)}
+.app{position:relative;flex:1;display:flex;flex-direction:column;overflow:hidden;background:var(--canvas)}
+
+.trigger-wrap{display:flex;flex-direction:column;align-items:center;gap:10px}
+.trigger{width:84px;height:84px;border-radius:50%;border:0;background:#F28C28;color:#fff;font-weight:600;font-size:15px;
+  box-shadow:0 6px 0 #b8611a,0 10px 18px rgba(0,0,0,.18);transition:transform var(--t-press) var(--ease-out),box-shadow var(--t-press) var(--ease-out)}
+.trigger:active,.trigger.down{transform:translateY(5px);box-shadow:0 1px 0 #b8611a,0 4px 8px rgba(0,0,0,.18)}
+.trigger-hint{font-size:15px;color:var(--mute)}
+kbd{font:inherit;border:1px solid var(--hairline2);border-bottom-width:2px;border-radius:5px;padding:0 5px;background:#fff}
+
+/* state switcher */
+.panel{width:300px;font-size:15px;color:var(--text);align-self:center}
+.panel details{background:rgba(255,255,255,.7);border:1px solid var(--hairline2);border-radius:12px;padding:10px 14px}
+.panel summary{cursor:pointer;font-weight:600;color:var(--ink);list-style:none}
+.panel summary::-webkit-details-marker{display:none}
+.panel .pkg{font-family:var(--mono);font-size:15px;color:var(--mute);margin:8px 0 2px}
+.prow{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--hairline)}
+.prow:first-of-type{border-top:0}
+.seg{display:inline-flex;background:var(--soft2);border-radius:7px;padding:2px}
+.seg button{border:0;background:none;padding:3px 8px;border-radius:5px;font-size:15px;color:var(--body)}
+.seg button.on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(24,39,60,.12)}
+.pbtns{display:flex;flex-wrap:wrap;gap:6px;padding-top:8px;border-top:1px solid var(--hairline);margin-top:4px}
+.pbtns button{border:1px solid var(--hairline2);background:#fff;border-radius:7px;padding:4px 9px;font-size:15px}
+
+@media (max-width:760px){
+  .stage{padding:0 0 24px;gap:16px}
+  .rig{flex-direction:column;gap:14px;width:100%}
+  .device{border-radius:0;padding:0;width:100%;box-shadow:none}
+  .device::before,.device::after{display:none}
+  .screen{width:100%;height:100svh;max-height:780px;border-radius:0}
+  .trigger-wrap{flex-direction:row}
+  .panel{width:auto;max-width:100%;padding:0 16px}
+}
+
+/* ── app shell ─────────────────────────────────────────────────────────── */
+.appbar{height:60px;flex:0 0 60px;display:flex;align-items:center;gap:10px;padding:0 14px;background:var(--canvas)}
+.appbar .slot{width:44px;flex:0 0 44px;display:flex;align-items:center}
+.appbar .ttl{flex:1;text-align:center;color:var(--ink)}
+.content{position:relative;flex:1;overflow:hidden}
+.layer{position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;background:var(--canvas);scrollbar-width:none}
+.layer::-webkit-scrollbar{display:none}
+.footfade{position:absolute;left:0;right:0;bottom:0;height:110px;pointer-events:none;background:linear-gradient(to bottom,rgba(255,255,255,0) 0%,var(--canvas) 70%)}
+.tabbar{position:absolute;left:0;right:0;bottom:8px;display:flex;justify-content:center;gap:14px}
+.tab{border:0;display:flex;align-items:center;justify-content:center;background:rgba(247,248,250,.9);padding:0;
+  transition:background-color var(--t-press) var(--ease-out)}
+.tab svg{width:21px;height:21px;fill:var(--line-ico)}
+.tab.on{background:var(--accent);box-shadow:0 4px 14px rgba(37,99,235,.38)}
+.tab.on svg{fill:var(--on-dark)}
+
+.pad{padding:8px 16px 150px}
+.pad120{padding:8px 16px 120px}
+.stack>*+*{margin-top:8px}
+.stack-md>*+*{margin-top:12px}
+
+/* HubCard */
+.card{background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-card);padding:16px;
+  box-shadow:0 1px 2px rgba(24,39,60,.06);transition:background-color var(--t-press) var(--ease-out),transform var(--t-press) var(--ease-out)}
+.card.tight{padding:12px 16px}
+.card.press{cursor:pointer;user-select:none}
+.card.press:active{background:var(--soft2);transform:scale(.99)}
+.row{display:flex;align-items:center}
+.col{display:flex;flex-direction:column}
+.grow{flex:1;min-width:0}
+.between{justify-content:space-between}
+.gap-sm{gap:8px} .gap-md{gap:12px} .gap-xxl{gap:24px} .gap-xs{gap:4px}
+
+/* Pill */
+.pill{display:inline-flex;align-items:center;gap:6px;height:25px;padding:0 9px;background:var(--canvas);border:1px solid;border-radius:var(--r-inner);white-space:nowrap}
+.pill .dot{width:5px;height:5px;border-radius:50%}
+.tone-ok{color:var(--ok-fg);border-color:rgba(21,128,61,.30)} .tone-ok .dot{background:var(--ok)}
+.tone-warn{color:var(--warn-fg);border-color:rgba(180,83,9,.30)} .tone-warn .dot{background:var(--warn)}
+.tone-bad{color:var(--bad-fg);border-color:rgba(190,18,60,.30)} .tone-bad .dot{background:var(--bad)}
+.tone-accent{color:var(--accent);border-color:rgba(37,99,235,.30)} .tone-accent .dot{background:var(--accent)}
+
+/* Buttons */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 16px;border-radius:var(--r-inner);
+  font-size:14px;line-height:20px;font-weight:500;transition:transform var(--t-press) var(--ease-out),background-color var(--t-press) var(--ease-out);white-space:nowrap}
+.btn:active:not(:disabled){transform:scale(.99)}
+.btn.big{min-height:56px;padding:0 24px;font-size:16px;line-height:22px}
+.btn.full{width:100%}
+.btn-primary{background:var(--cta);color:var(--cta-fg);border:0}
+.btn-primary:disabled{background:var(--soft2);color:var(--mute);cursor:default}
+.btn-quiet{background:var(--canvas);color:var(--text);border:1px solid var(--hairline2)}
+.btn-quiet:active:not(:disabled){background:var(--soft2)}
+.btn-quiet:disabled{background:var(--soft2);color:var(--mute);border-color:transparent;cursor:default}
+.btnrow{display:flex;gap:8px;flex-wrap:wrap}
+.btnrow .btn{padding:0 14px}
+.spin{width:18px;height:18px;border:2px solid rgba(255,255,255,.35);border-top-color:currentColor;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Chip */
+.chip{width:44px;height:44px;display:flex;align-items:center;justify-content:center;background:var(--canvas);border:1px solid var(--hairline2);
+  border-radius:var(--r-inner);box-shadow:0 1px 2px rgba(24,39,60,.06);padding:0;transition:transform var(--t-press) var(--ease-out)}
+.chip:active{transform:scale(.99)}
+.chip svg{width:18px;height:18px;fill:var(--line-ico)}
+
+/* HubField */
+.field{display:flex;flex-direction:column;gap:6px}
+.field label{font-size:12.5px;line-height:17px;font-weight:500;color:var(--text)}
+.field input{height:48px;width:100%;border:1px solid transparent;border-radius:var(--r-inner);background:var(--soft2);padding:0 16px;
+  font-size:16px;line-height:22px;font-weight:500;color:var(--ink);outline:none;caret-color:var(--accent)}
+.field input::placeholder{color:var(--mute);font-weight:500}
+.field input:focus{border-color:var(--accent)}
+.field .hint{font-size:12.5px;line-height:17px;color:var(--mute)}
+.mb-md{margin-bottom:12px}
+
+/* KeyValue */
+.kv{display:flex;justify-content:space-between;align-items:center;padding:8px 0;gap:12px}
+.kv .k{font-size:13.5px;line-height:19px;color:var(--mute);white-space:nowrap}
+.kv .v{font-size:13.5px;line-height:19px;font-weight:500;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.kv .v.mono{font-family:var(--mono);font-weight:400;font-size:12.5px}
+.kv .v.none{color:var(--faint)}
+
+.ico{width:18px;height:18px;flex:0 0 auto}
+.ico svg{width:100%;height:100%;display:block}
+.pinbox{width:44px;height:44px;display:flex;align-items:center;justify-content:center;border:0;background:none;padding:0}
+.pinbox svg{width:18px;height:18px}
+.rot180{transform:rotate(180deg)}
+.chev{transition:transform var(--t-panel) var(--ease-out)}
+
+/* Fader */
+.fader{position:relative;height:56px;border-radius:var(--r-card);background:var(--soft2);overflow:hidden;touch-action:none;cursor:pointer;user-select:none}
+.fader .fill{position:absolute;left:0;top:0;bottom:0;background:var(--hairline2)}
+.fader .thumb{position:absolute;top:4px;bottom:4px;width:34px;background:var(--canvas);border:1px solid var(--hairline-strong);border-radius:var(--r-inner);
+  box-shadow:0 1px 2px rgba(24,39,60,.08);display:flex;align-items:center;justify-content:center;gap:3px}
+.fader .thumb i{display:block;width:2px;height:16px;border-radius:1px;background:var(--hairline-strong)}
+.fader.ease .fill{transition:width 320ms var(--ease-out)}
+.fader.ease .thumb{transition:left 320ms var(--ease-out)}
+
+/* Rolling digits */
+.roll{display:inline-flex;font-variant-numeric:tabular-nums}
+.dg{position:relative;display:inline-block;overflow:hidden}
+.dg>span{display:block}
+.dg>span.abs{position:absolute;left:0;top:0}
+
+/* scanning surface */
+.scan{display:flex;flex-direction:column;align-items:center;height:100%;padding:24px 16px 120px}
+.scan .spacer{flex:1}
+.bigcount{color:var(--faint);transition:color var(--t-panel) var(--ease-out)}
+.bigcount.live{color:var(--ok-fg)}
+
+/* transitions */
+@keyframes pageIn{from{opacity:0;transform:translateX(var(--from,16%))}to{opacity:1;transform:none}}
+@keyframes pageOut{from{opacity:1;transform:none}to{opacity:0;transform:translateX(var(--to,-12%))}}
+@keyframes surfaceIn{from{opacity:0;transform:translateY(7%)}to{opacity:1;transform:none}}
+@keyframes fadeOut{to{opacity:0}}
+.anim-page-in{animation:pageIn var(--t-page) var(--ease-out) both}
+.anim-page-out{animation:pageOut var(--t-pop) var(--ease-out) both;pointer-events:none}
+.anim-surface-in{animation:surfaceIn var(--t-panel) var(--ease-out) both}
+.anim-fade-out{animation:fadeOut var(--t-pop) linear both;pointer-events:none}
+.expand{display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows var(--t-pop) var(--ease-out),opacity var(--t-pop)}
+.expand.open{grid-template-rows:1fr;opacity:1;transition:grid-template-rows var(--t-panel) var(--ease-out),opacity var(--t-panel)}
+.expand>div{overflow:hidden}
+
+/* splash */
+.splash{position:absolute;inset:0;background:var(--canvas);display:flex;align-items:center;justify-content:center;z-index:20;transition:opacity 260ms}
+.splash.gone{opacity:0;pointer-events:none}
+.splash svg{width:288px;height:288px;animation:blink 700ms cubic-bezier(0,0,.2,1) infinite alternate}
+@keyframes blink{from{opacity:1}to{opacity:.35}}
+
+/* pull to refresh */
+.ptr{position:absolute;left:50%;top:0;width:40px;height:40px;margin-left:-20px;border-radius:50%;background:var(--canvas);
+  box-shadow:0 2px 6px rgba(24,39,60,.18);display:flex;align-items:center;justify-content:center;transform:translateY(-48px);z-index:5}
+.ptr .spin{border-color:rgba(47,134,216,.25);border-top-color:var(--info);color:var(--info)}
+
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:0ms !important;animation-iteration-count:1 !important;transition-duration:0ms !important}
+}
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="rig">
+    <div class="device" aria-label="Chainway C5">
+      <div class="screen">
+        <div class="sysbar"><span id="clock">14.32</span><span class="r">
+          <svg id="wifi" viewBox="0 0 24 24"><path d="M12 21 0 8.5C3.3 5.4 7.5 3.5 12 3.5s8.7 1.9 12 5L12 21z"/></svg>
+          <svg viewBox="0 0 24 24"><path d="M15.67 4H14V2h-4v2H8.33C7.6 4 7 4.6 7 5.33v15.33C7 21.4 7.6 22 8.33 22h7.33c.74 0 1.34-.6 1.34-1.33V5.33C17 4.6 16.4 4 15.67 4z"/></svg>
+          <span>86%</span></span></div>
+        <div class="app" id="app">
+          <div class="appbar"><div class="slot" id="barLeft"></div><div class="ttl t-title ellip" id="barTitle">Scan</div><div class="slot"></div></div>
+          <div class="content" id="content"></div>
+          <div class="footfade"></div>
+          <nav class="tabbar" id="tabbar"></nav>
+          <div class="splash" id="splash"><svg viewBox="0 0 288 288" aria-label="Central">
+            <path fill="#E11D2E" d="M120,84 L168,84 A36,36 0 0,1 204,120 L204,168 A36,36 0 0,1 168,204 L120,204 A36,36 0 0,1 84,168 L84,120 A36,36 0 0,1 120,84 Z"/>
+            <path d="M166.38,121.62 A31.67,31.67 0 1,0 166.38,166.38" stroke="#fff" stroke-width="16.67" stroke-linecap="round" fill="none"/></svg></div>
+        </div>
+      </div>
+    </div>
+    <div class="trigger-wrap">
+      <button class="trigger" id="trigger" aria-label="Hardware trigger">Trigger</button>
+      <div class="trigger-hint"><kbd>Space</kbd></div>
+    </div>
+  </div>
+
+  <aside class="panel">
+    <details open>
+      <summary>States</summary>
+      <div class="pkg" id="pkg">id.itulah.pindai.dc</div>
+      <div id="panelRows"></div>
+      <div class="pbtns">
+        <button data-p="splash">Replay splash</button>
+        <button data-p="sessions">Open Sessions</button>
+        <button data-p="clearHistory">Clear history</button>
+        <button data-p="seedHistory">Seed history</button>
+      </div>
+    </details>
+  </aside>
+</div>
+
+<script>
+"use strict";
+/* ═══════════════ motion ═══════════════ */
+const RM = window.matchMedia("(prefers-reduced-motion: reduce)");
+const motionOn = () => !RM.matches;
+const EASE_OUT = "cubic-bezier(.16,1,.3,1)";
+const T = { press: 120, pop: 160, panel: 200, page: 180, sheet: 280 };
+
+/* ═══════════════ icons (Material outlined) ═══════════════ */
+const P = {
+  qr: "M9.5 6.5v3h-3v-3h3M11 5H5v6h6V5zm-1.5 9.5v3h-3v-3h3M11 13H5v6h6v-6zm6.5-6.5v3h-3v-3h3M19 5h-6v6h6V5zm-6 8h1.5v1.5H13V13zm1.5 1.5H16V16h-1.5v-1.5zM16 13h1.5v1.5H16V13zm-3 3h1.5v1.5H13V16zm1.5 1.5H16V19h-1.5v-1.5zM16 16h1.5v1.5H16V16zm1.5-1.5H19V16h-1.5v-1.5zm0 3H19V19h-1.5v-1.5zM22 7h-2V4h-3V2h5v5zm0 15v-5h-2v3h-3v2h5zM2 22h5v-2H4v-3H2v5zM2 2v5h2V4h3V2H2z",
+  inv: "M20 2H4c-1 0-2 .9-2 2v3.01c0 .72.43 1.34 1 1.69V20c0 1.1 1.1 2 2 2h14c.9 0 2-.9 2-2V8.7c.57-.35 1-.97 1-1.69V4c0-1.1-1-2-2-2zm-1 18H5V9h14v11zm1-13H4V4h16v3zM9 12h6v2H9z",
+  inbox: "M16 9h-2.55V6h-2.9v3H8l4 4zm3-6H4.99C3.88 3 3 3.9 3 5v14c0 1.1.88 2 1.99 2H19c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 12h-4c0 1.66-1.35 3-3 3s-3-1.34-3-3H4.99V5H19v10z",
+  check: "M22 7h-9v2h9V7zm0 8h-9v2h9v-2zM5.54 11L2 7.46l1.41-1.41 2.12 2.12 4.24-4.24 1.41 1.41L5.54 11zm0 8L2 15.46l1.41-1.41 2.12 2.12 4.24-4.24 1.41 1.41L5.54 19z",
+  sci: "M13 11.33L18 18H6l5-6.67V6h2v5.33zM15.96 4H8.04c-.42 0-.65.48-.39.81L9 6.5v4.17L3.2 18.4c-.49.66-.02 1.6.8 1.6h16c.82 0 1.29-.94.8-1.6L15 10.67V6.5l1.35-1.69c.26-.33.03-.81-.39-.81z",
+  gear: "M19.43 12.98c.04-.32.07-.64.07-.98 0-.34-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65A.49.49 0 0 0 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1a.5.5 0 0 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zm-1.98-1.71c.04.31.05.52.05.73 0 .21-.02.43-.05.73l-.14 1.13.89.7 1.08.84-.7 1.21-1.27-.51-1.04-.42-.9.68c-.43.32-.84.56-1.25.73l-1.06.43-.16 1.13-.2 1.35h-1.4l-.19-1.35-.16-1.13-1.06-.43c-.43-.18-.83-.41-1.23-.71l-.91-.7-1.06.43-1.27.51-.7-1.21 1.08-.84.89-.7-.14-1.13c-.03-.31-.05-.54-.05-.74s.02-.43.05-.73l.14-1.13-.89-.7-1.08-.84.7-1.21 1.27.51 1.04.42.9-.68c.43-.32.84-.56 1.25-.73l1.06-.43.16-1.13.2-1.35h1.39l.19 1.35.16 1.13 1.06.43c.43.18.83.41 1.23.71l.91.7 1.06-.43 1.27-.51.7 1.21-1.07.85-.89.7.14 1.13zM12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm0 6c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z",
+  pinO: "M14 4v5c0 1.12.37 2.16 1 3H9c.65-.86 1-1.9 1-3V4h4m3-2H7c-.55 0-1 .45-1 1s.45 1 1 1h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3V4h1c.55 0 1-.45 1-1s-.45-1-1-1z",
+  pinF: "M16 9V4h1c.55 0 1-.45 1-1s-.45-1-1-1H7c-.55 0-1 .45-1 1s.45 1 1 1h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3z",
+  chevR: "M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z",
+  more: "M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6z",
+  back: "M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z",
+};
+const svg = (d, fill, cls = "") => `<svg class="${cls}" viewBox="0 0 24 24" style="fill:${fill}"><path d="${d}"/></svg>`;
+
+/* ═══════════════ helpers ═══════════════ */
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const pad = (n, w) => String(n).padStart(w, "0");
+const DAYS = ["januari", "februari", "maret", "april", "mei", "juni", "juli", "agustus", "september", "oktober", "november", "desember"];
+const sweepDay = d => `${d.getDate()} ${DAYS[d.getMonth()]}`;
+const sweepClock = d => `${pad(d.getHours(), 2)}.${pad(d.getMinutes(), 2)}`;
+const localWhen = d => d ? `${sweepDay(d)} ${sweepClock(d)}` : null;
+const isoZ = d => d.toISOString().replace(/\.\d{3}Z$/, "Z");
+const rnd = (a, b) => a + Math.random() * (b - a);
+const pick = a => a[Math.floor(Math.random() * a.length)];
+const hex = n => Array.from({ length: n }, () => "0123456789ABCDEF"[Math.floor(Math.random() * 16)]).join("");
+function seeded(seed) { let s = seed >>> 0; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); }
+
+/* ═══════════════ catalogue (mock) ═══════════════ */
+const ARTICLES = [
+  ["Kemeja Linen Oversize", ["Putih", "Navy"], ["S", "M", "L"]],
+  ["Kaos Basic Crew", ["Hitam", "Abu Misty", "Putih"], ["S", "M", "L", "XL"]],
+  ["Celana Chino Slim", ["Khaki", "Hitam"], ["30", "32", "34"]],
+  ["Dress Midi Batik Parang", ["Coklat Sogan"], ["S", "M", "L"]],
+  ["Rok Plisket", ["Dusty Pink", "Hitam"], ["All Size"]],
+  ["Blus Kerah Sabrina", ["Sage", "Broken White"], ["M", "L"]],
+  ["Jaket Denim Cropped", ["Biru Muda"], ["S", "M", "L"]],
+  ["Hoodie Fleece", ["Maroon", "Abu Tua"], ["M", "L", "XL"]],
+  ["Celana Kulot Linen", ["Krem", "Olive"], ["S", "M", "L"]],
+  ["Tunik Rayon Motif Daun", ["Hijau Botol"], ["M", "L"]],
+  ["Cardigan Rajut", ["Mocca", "Hitam"], ["All Size"]],
+  ["Kemeja Flanel Kotak", ["Merah", "Biru"], ["M", "L", "XL"]],
+];
+const CATALOG = {}; // sku -> {name, article}
+ARTICLES.forEach(([name, colours, sizes], ai) => colours.forEach((c, ci) => sizes.forEach((s, si) => {
+  const sku = "40" + pad(ai * 7 + 113, 4) + pad(ci + 1, 2) + pad(si + 1, 2) + "1";
+  CATALOG[sku] = { name: `${name} ${c} ${s}`, article: ai };
+})));
+const SKUS = Object.keys(CATALOG);
+const UNKNOWN_SKUS = ["49990120101", "49990120201"];
+const oursEpc = (sku, serial) => "A1" + sku + pad(serial.toString(16).toUpperCase(), 11);
+const foreignEpc = () => pick(["E280", "E200", "3034"]) + hex(20);
+
+/* tags in front of the reader: threshold dBm = where the tag stops powering up */
+function makePopulation(seed, n, skuPool, opts = {}) {
+  const r = seeded(seed);
+  const tags = [];
+  let serial = 1000 + Math.floor(r() * 90000);
+  for (let i = 0; i < n; i++) {
+    const roll = r();
+    let epc, sku = null, kind;
+    if (roll < (opts.foreign ?? .06)) { epc = "E280" + hex(20); kind = "foreign"; }
+    else if (roll < (opts.foreign ?? .06) + (opts.unknown ?? .03)) { sku = UNKNOWN_SKUS[Math.floor(r() * 2)]; epc = oursEpc(sku, serial++); kind = "unknown"; }
+    else { sku = skuPool[Math.floor(Math.pow(r(), 1.6) * skuPool.length)]; epc = oursEpc(sku, serial++); kind = "ours"; }
+    // fraction readable at p dBm = ((p-5)/25)^4 → 30: all, 25: ~41%, 20: ~13%, 10: ~0.2%
+    tags.push({ epc, sku, kind, threshold: 5 + 25 * Math.pow(r(), .25), pos: r() });
+  }
+  return tags;
+}
+
+/* ═══════════════ environment (state switcher) ═══════════════ */
+const NODES = {
+  dc: { pkg: "id.itulah.pindai.dc", label: "Central DC", baseUrl: "https://dc-br5g.onrender.com", siteId: "dc-01", pool: "dc.warehouse", deviceId: "C5-DC-01", role: "dc" },
+  store: { pkg: "id.itulah.pindai.store", label: "Central Store", baseUrl: "https://store-mhpy.onrender.com", siteId: "store-01", pool: "store-01.floor", deviceId: "C5-STORE-01", role: "store" },
+};
+const env = {
+  app: "dc", bench: true, setelan: "filled", online: true, nextStep: "ok",
+  receive: "ok", catalogue: "ready", clock: "ok", deliveries: "some",
+};
+
+/* ═══════════════ state ═══════════════ */
+const TABS = [
+  { id: "SCAN", label: "Scan", icon: P.qr, mode: "SCAN" },
+  { id: "PACKING", label: "Packing", icon: P.inv, mode: "PACKING" },
+  { id: "RECEIVING", label: "Receive", icon: P.inbox, mode: "RECEIVING" },
+  { id: "COUNT", label: "Count", icon: P.check, mode: "COUNT" },
+  { id: "LAB", label: "Lab", icon: P.sci, mode: null },
+  { id: "SETTINGS", label: "Settings", icon: P.gear, mode: null },
+];
+const MODE_VERB = { SCAN: "Finish", PACKING: "Finish · open carton", RECEIVING: "Finish · receive", COUNT: "Finish · submit" };
+
+const emptyCounts = () => ({ units: 0, skus: 0, articles: 0, unknown: 0, foreign: 0, unexpected: 0, labelled: 0, unknownUnits: 0, distinctTags: 0, malformed: 0 });
+const S = {
+  tab: "SCAN", prevTab: "SCAN", showSessions: false, chosenSession: null,
+  mode: "SCAN", sweeping: false, starting: false, busy: false,
+  counts: emptyCounts(), lines: [], message: null, failed: false,
+  destination: "", countId: "", countList: [], countsLoaded: false,
+  catalogue: { generation: 42, items: 12480, syncing: false, note: null },
+  outboxPending: 0, sessionCode: "", sessions: [], sessionsLoaded: false, shared: null, sharedNote: null,
+  history: [], openSweep: null, nextId: 1,
+  labelMode: false, labelNote: null, labelDiag: "",
+  gen2: { tagFocus: true, fastId: false, session: 1 }, chip: null, oursOnly: false, skuFilter: "", filterNote: null,
+  countEveryTag: false, aliasCount: 0, aliasNote: null, sdkCalls: [], engineBeliefs: "",
+  metrics: { sightings: 0, duplicates: 0, queueDepth: 0, dropped: 0 }, gaps: null, epcShapes: "", foreignSample: [],
+  inbound: { deliveries: [], loaded: false, loading: false, note: null, chosen: null, unannounced: false, receipt: null },
+  sweepOpen: false,
+  settings: {}, draft: {}, setStatus: null, setFailed: false, setBusy: false, learning: false,
+  power: 30, powerNote: null, powerAsleep: true, powerApplying: false,
+  receiptOpen: null, discardArmed: false, detailQuery: "",
+};
+let engine = null; // live sweep
+
+function fillSettings() {
+  const n = NODES[env.app];
+  S.settings = env.setelan === "filled"
+    ? { baseUrl: n.baseUrl, siteId: n.siteId, pool: n.pool, deviceId: n.deviceId, deviceKey: "7f3c9a01d2e84b6c", operatorToken: "", readerPower: S.settings.readerPower || 0, triggerKeyCode: S.settings.triggerKeyCode || 0 }
+    : { baseUrl: "", siteId: "", pool: "", deviceId: "", deviceKey: "", operatorToken: "", readerPower: 0, triggerKeyCode: 0 };
+  S.draft = { ...S.settings };
+}
+const configured = () => { const s = S.settings; return !!(s.baseUrl && s.siteId && s.deviceId && s.deviceKey && s.pool); };
+const nodeRole = () => { const s = (S.settings.siteId || "").toLowerCase(); return s.startsWith("dc") ? "DC" : (s.startsWith("store") || s.startsWith("shop") || s.startsWith("toko")) ? "STORE" : "UNKNOWN"; };
+const isStoreReceiving = () => S.mode === "RECEIVING" && nodeRole() === "STORE";
+const isReceivingDelivery = () => isStoreReceiving() && (S.inbound.chosen != null || S.inbound.unannounced);
+const canReach = () => env.online && configured();
+const catalogueReady = () => env.catalogue === "ready";
+const visibleTabs = () => TABS.filter(t => env.bench || t.id !== "LAB");
+const callLog = c => { S.sdkCalls.push(c); if (S.sdkCalls.length > 24) S.sdkCalls.shift(); };
+
+/* ═══════════════ deliveries (mock) ═══════════════ */
+function makeDeliveries() {
+  const now = Date.now();
+  const mk = (i, ref, koli, hrs, n) => {
+    const skuPool = SKUS.slice(i * 5, i * 5 + 9);
+    const pop = makePopulation(900 + i, n, skuPool, { foreign: .04, unknown: .02 });
+    // two extras the DC did not send
+    pop.push({ epc: oursEpc(SKUS[40 + i], 77000 + i), sku: SKUS[40 + i], kind: "ours", threshold: 9, pos: .5, extra: true });
+    pop.push({ epc: oursEpc(SKUS[40 + i], 77100 + i), sku: SKUS[40 + i], kind: "ours", threshold: 11, pos: .7, extra: true });
+    return { deliveryId: "dlv-" + hex(8).toLowerCase(), shipmentReference: ref, sourceSiteId: "dc-01", departedAt: new Date(now - hrs * 3600e3), koliCount: koli, population: pop };
+  };
+  return [mk(0, "SJ/DC01/2610/0142", 3, 5.2, 64), mk(1, "SJ/DC01/2610/0147", 2, 2.1, 41), mk(2, null, 1, .8, 18)];
+}
+let DELIVERIES = makeDeliveries();
+const deliveryTitle = d => d.shipmentReference || `Delivery from ${d.sourceSiteId || "the DC"}`;
+const deliveryLine = d => [d.sourceSiteId && d.shipmentReference ? `from ${d.sourceSiteId}` : null, d.departedAt ? `left ${localWhen(d.departedAt)}` : null].filter(Boolean).join(" · ") || "on its way";
+
+/* ═══════════════ scan engine (simulated) ═══════════════ */
+function populationFor() {
+  if (isReceivingDelivery()) {
+    if (S.inbound.chosen) return S.inbound.chosen.population;
+    return makePopulation(4242, 36, SKUS.slice(10, 20));
+  }
+  const store = nodeRole() === "STORE";
+  return makePopulation(store ? 777 + S.history.length : 1234 + S.history.length, store ? 110 : 260, store ? SKUS : SKUS.slice(0, 26));
+}
+function beginSweep() {
+  engine = { seen: new Map(), sightings: 0, duplicates: 0, startedAt: 0, elapsed: 0, lastRead: new Map(), gapSum: 0, gapN: 0, gapMax: 0, gapOver: 0, labelled: [] };
+  S.openSweep = null; S.sweepOpen = true;
+  S.counts = emptyCounts(); S.lines = []; S.message = null; S.failed = false;
+}
+function snapshot() {
+  const c = emptyCounts();
+  const skus = new Set(), arts = new Set(), unk = new Set();
+  const ours = S.countEveryTag;
+  engine.seen.forEach(t => {
+    c.distinctTags++;
+    if (t.kind === "foreign") { c.foreign++; if (ours) c.units++; return; }
+    if (t.kind === "unknown" || !catalogueReady()) { c.unknownUnits++; unk.add(t.sku); return; }
+    c.units++; skus.add(t.sku); arts.add(CATALOG[t.sku].article);
+  });
+  engine.labelled.forEach(sku => { c.units++; c.labelled++; skus.add(sku); arts.add(CATALOG[sku].article); });
+  c.skus = skus.size; c.articles = arts.size; c.unknown = unk.size;
+  return c;
+}
+function buildLines() {
+  const by = new Map();
+  const add = (sku, epc) => { if (!by.has(sku)) by.set(sku, []); by.get(sku).push(epc); };
+  engine.seen.forEach(t => {
+    if (t.kind === "foreign") { if (S.countEveryTag) add(t.epc.slice(0, 11), t.epc); return; }
+    add(t.sku, t.epc);
+  });
+  engine.labelled.forEach(sku => add(sku, null));
+  return [...by.entries()].map(([sku, epcs]) => ({
+    skuCode: sku, qty: epcs.length, epcs: epcs.filter(Boolean),
+    identity: catalogueReady() && CATALOG[sku] ? { name: CATALOG[sku].name } : null,
+  })).sort((a, b) => b.qty - a.qty);
+}
+let ticker = null;
+function tick() {
+  if (!S.sweeping || !engine) return;
+  engine.elapsed += 100;
+  const now = performance.now();
+  const exposure = Math.min(1, engine.elapsed / 7000);   // walking the rack
+  const power = S.power;
+  const pop = engine.population;
+  for (const t of pop) {
+    if (t.threshold > power) continue;                   // a tag does not fade, it vanishes
+    if (S.oursOnly && t.kind === "foreign") continue;
+    if (t.pos > exposure + .05) continue;
+    const seen = engine.seen.has(t.epc);
+    const margin = Math.min(1, (power - t.threshold) / 6 + .15);
+    if (!seen) {
+      if (Math.random() < .22 * margin) { engine.seen.set(t.epc, t); engine.sightings++; engine.lastRead.set(t.epc, now); }
+    } else if (Math.random() < (S.gen2.tagFocus ? .04 : .45) * margin) {
+      engine.sightings++; engine.duplicates++;
+      const g = now - (engine.lastRead.get(t.epc) || now);
+      engine.gapSum += g; engine.gapN++; engine.gapMax = Math.max(engine.gapMax, g); if (g > 500) engine.gapOver++;
+      engine.lastRead.set(t.epc, now);
+    }
+  }
+  S.counts = snapshot();
+  updateScanning();
+}
+
+function toggleSweep() {
+  if (S.busy) return;
+  if (!S.sweeping && !S.starting && isStoreReceiving()) {
+    let refusal = null;
+    if (S.inbound.receipt) refusal = "Tap Done to go back to the deliveries first";
+    else if (!isReceivingDelivery()) refusal = "Choose a delivery first — or Unannounced delivery at the foot of the list";
+    else if (S.labelMode) refusal = "A delivery is received by its tags. Switch the trigger back to tags.";
+    if (refusal) { S.message = refusal; S.failed = true; render(); return; }
+  }
+  if (S.labelMode) { scanLabel(); return; }
+  S.sweeping ? stopSweep() : startSweep();
+}
+function startSweep() {
+  if (!S.sweepOpen) beginSweep();
+  engine.population = populationFor();
+  S.busy = true; S.starting = true; S.failed = false; S.message = null;
+  callLog(`setPower(${S.power}) -> true`);
+  render();
+  setTimeout(() => {
+    callLog(`startInventoryTag() -> true`);
+    S.busy = false; S.starting = false; S.sweeping = true; S.lines = [];
+    render();
+    ticker = setInterval(tick, 100);
+  }, 420);
+}
+function stopSweep() {
+  clearInterval(ticker); ticker = null;
+  callLog("stopInventory() -> true");
+  const counts = snapshot();
+  const holding = isReceivingDelivery();
+  const rows = buildLines();
+  S.sweeping = false; S.busy = false; S.counts = counts; S.lines = rows;
+  S.metrics = { sightings: engine.sightings, duplicates: engine.duplicates, queueDepth: Math.min(512, 40 + Math.floor(engine.sightings / 9)), dropped: 0 };
+  S.gaps = engine.gapN ? { mean: engine.gapSum / engine.gapN, max: Math.round(engine.gapMax), over: engine.gapOver, n: engine.gapN } : null;
+  const hdr = new Map(); engine.seen.forEach(t => hdr.set(t.epc.slice(0, 2), (hdr.get(t.epc.slice(0, 2)) || 0) + 1));
+  S.epcShapes = engine.seen.size ? `len 24 x${engine.seen.size} | hdr ` + [...hdr.entries()].sort((a, b) => b[1] - a[1]).map(([h, n]) => `${h} x${n}`).join(", ") : "";
+  S.foreignSample = [...engine.seen.values()].filter(t => t.kind === "foreign").slice(0, 5).map(t => t.epc);
+  if (S.gen2.fastId && engine.seen.size) S.chip = { vendor: "Impinj", model: "M750" };
+  S.engineBeliefs = `aliases=${S.aliasCount} bench=${S.countEveryTag} known=${catalogueReady() ? S.catalogue.items : 0}`;
+  if (!holding) {
+    const id = S.nextId++;
+    S.history.unshift({ id, endedAt: new Date(), mode: S.countEveryTag ? "BENCH" : S.mode, units: counts.units, skus: counts.skus, articles: counts.articles, unknown: counts.unknown, foreign: counts.foreign, lines: rows, pinned: false });
+    S.openSweep = id;
+  }
+  S.sweepOpen = holding;
+  spoolEvidence();
+  render();
+}
+function spoolEvidence() {
+  if (!engine || engine.seen.size === 0) return;
+  S.outboxPending++;
+  drainOutbox();
+}
+function drainOutbox() {
+  if (canReach() && env.clock === "ok") S.outboxPending = 0;
+}
+function scanLabel() {
+  if (!S.sweepOpen) beginSweep();
+  const sku = Math.random() < .12 ? null : pick(SKUS);
+  if (!sku) { S.labelNote = "not one of our labels: " + "8991002101234"; }
+  else { engine.labelled.push(sku); S.counts = snapshot(); S.labelNote = sku; S.lines = buildLines(); }
+  S.labelDiag = "imager open · asked " + (engine.labelled.length + 1) + " · started — waiting for a decode";
+  render();
+}
+
+/* ═══════════════ actions ═══════════════ */
+function setMode(mode) {
+  if (mode === S.mode) { if (mode === "RECEIVING") enterReceiving(); return true; }
+  const c = S.counts;
+  if (S.busy || (S.sweepOpen && (c.units > 0 || c.unknownUnits > 0))) {
+    S.message = isReceivingDelivery() ? "Receive this delivery or discard the sweep before changing jobs" : "finish the current sweep before changing jobs";
+    return false;
+  }
+  if (!S.sweeping) S.sweepOpen = false;
+  S.mode = mode; S.message = null; S.failed = false;
+  if (mode === "RECEIVING") enterReceiving();
+  if (mode === "COUNT" && !S.countsLoaded) loadCounts();
+  return true;
+}
+function selectTab(id) {
+  if (id === S.tab && !S.showSessions) return;
+  const t = TABS.find(x => x.id === id);
+  S.prevTab = S.tab; S.tab = id; S.showSessions = false; S.chosenSession = null;
+  if (t.mode && !setMode(t.mode)) { S.tab = TABS.find(x => x.mode === S.mode).id; }
+  if (id === "SETTINGS") { releaseReader(); enterSettings(); }
+  render();
+}
+function releaseReader() { if (S.sweeping) stopSweep(); }
+function enterReceiving() {
+  if (nodeRole() === "STORE" && !S.inbound.chosen && !S.inbound.receipt) loadInbound();
+}
+function loadInbound() {
+  const ib = S.inbound;
+  if (!configured()) { ib.loaded = true; ib.loading = false; ib.note = "Settings are incomplete — this handheld does not know which shop it is in."; render(); return; }
+  if (ib.loading) return;
+  ib.loading = true; render();
+  setTimeout(() => {
+    ib.loading = false; ib.loaded = true;
+    if (!env.online) ib.note = "The node could not be reached. Check the wifi and try again.";
+    else if (env.deliveries === "404") ib.note = "This node does not list deliveries yet.";
+    else { ib.note = null; ib.deliveries = env.deliveries === "none" ? [] : DELIVERIES.slice(); }
+    endPull(); render();
+  }, 650);
+}
+let countsLoading = false;
+function loadCounts() {
+  if (!configured() || countsLoading) return;
+  countsLoading = true;
+  setTimeout(() => {
+    countsLoading = false; S.countsLoaded = true;
+    S.countList = env.online ? (nodeRole() === "STORE" ? [["cnt-7c21", "COUNT · OPEN"]] : [["oc-2610-a", "FULL · OPEN"], ["oc-2610-b", "CYCLE · IN_PROGRESS"]]) : [];
+    if (!S.countId && S.countList.length) S.countId = S.countList[0][0];
+    render();
+  }, 600);
+}
+function loadSessions() {
+  if (!configured()) { S.sessionsLoaded = true; render(); return; }
+  setTimeout(() => {
+    S.sessionsLoaded = true;
+    S.sessions = env.online ? [
+      { code: "S-K7M2QP", tagCount: 412, deviceCount: 3, lastSeenAt: isoZ(new Date(Date.now() - 4 * 60e3)) },
+      { code: "S-H4RW9N", tagCount: 88, deviceCount: 1, lastSeenAt: isoZ(new Date(Date.now() - 31 * 60e3)) },
+    ] : [];
+    if (S.sessionCode && !S.sessions.some(s => s.code === S.sessionCode)) S.sessions.unshift({ code: S.sessionCode, tagCount: 0, deviceCount: 1, lastSeenAt: null });
+    render();
+  }, 500);
+}
+function setSessionCode(code) {
+  if (S.busy || (S.sweepOpen && S.counts.units > 0)) { S.sharedNote = "finish the current sweep before changing session"; return; }
+  S.sessionCode = code; S.shared = null; S.sharedNote = null;
+}
+function newSessionCode() {
+  const a = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  setSessionCode("S-" + Array.from({ length: 6 }, () => pick(a)).join(""));
+  loadSessions(); render();
+}
+function discardSweep() {
+  if (S.sweeping || S.busy) return;
+  spoolEvidence();
+  engine = null; S.sweepOpen = false;
+  S.counts = emptyCounts(); S.lines = []; S.failed = false; S.message = "Sweep discarded · its evidence stays filed";
+  render();
+}
+function receiveDelivery() {
+  const d = S.inbound.chosen; if (!d) return;
+  if (!configured()) { S.failed = true; S.message = "Settings are incomplete"; render(); return; }
+  if (S.sweeping) stopSweep();
+  const ours = engine ? [...engine.seen.values()].filter(t => t.kind !== "foreign") : [];
+  if (!ours.length) { S.failed = true; S.message = "Nothing of ours swept yet"; render(); return; }
+  S.busy = true; S.failed = false; S.message = "Receiving…"; render();
+  setTimeout(() => {
+    spoolEvidence();
+    const n = ours.length;
+    const outcome = !env.online ? "unreachable" : env.receive;
+    S.busy = false;
+    if (outcome === "ok") {
+      const receipt = makeReceipt(d, ours, false);
+      S.history.unshift({ id: S.nextId++, endedAt: new Date(), mode: "RECEIVING", units: S.counts.units, skus: S.counts.skus, articles: S.counts.articles, unknown: S.counts.unknown, foreign: S.counts.foreign, lines: S.lines, pinned: false });
+      engine = null; S.sweepOpen = false; S.counts = emptyCounts(); S.lines = []; S.message = null;
+      S.inbound.receipt = receipt; S.inbound.deliveries = S.inbound.deliveries.filter(x => x.deliveryId !== d.deliveryId);
+      DELIVERIES = DELIVERIES.filter(x => x.deliveryId !== d.deliveryId);
+    } else if (outcome === "conflict") {
+      S.inbound.receipt = makeReceipt(d, ours.slice(0, Math.max(1, ours.length - 3)), true);
+    } else {
+      S.failed = true;
+      S.message = `${n} tags saved as evidence · ` + (outcome === "gone"
+        ? "the node no longer knows this delivery. Refresh the list and choose again."
+        : "the node could not be reached, so nothing was received. Your sweep is kept — try again when the wifi is back.");
+    }
+    render();
+  }, 900);
+}
+function makeReceipt(d, swept, already) {
+  const expected = new Map(), sentEpcs = new Map();
+  d.population.forEach(t => { if (t.kind === "foreign" || t.extra) return; expected.set(t.sku, (expected.get(t.sku) || 0) + 1); if (!sentEpcs.has(t.sku)) sentEpcs.set(t.sku, []); sentEpcs.get(t.sku).push(t.epc); });
+  const got = new Map(); swept.forEach(t => { if (!got.has(t.sku)) got.set(t.sku, []); got.get(t.sku).push(t.epc); });
+  const skus = new Set([...expected.keys(), ...got.keys()]);
+  const lines = [...skus].map(sku => {
+    const exp = expected.get(sku) || 0, rec = (got.get(sku) || []).length;
+    const sentSet = new Set(sentEpcs.get(sku) || []), gotSet = new Set(got.get(sku) || []);
+    const missingEpcs = [...sentSet].filter(e => !gotSet.has(e)), extraEpcs = [...gotSet].filter(e => !sentSet.has(e));
+    return { skuCode: sku, name: CATALOG[sku] ? CATALOG[sku].name : null, expected: exp, received: rec,
+      missing: missingEpcs.length, extra: extraEpcs.length, missingEpcs, extraEpcs, hasProblem: missingEpcs.length + extraEpcs.length > 0 };
+  }).sort((a, b) => (b.hasProblem - a.hasProblem) || (b.expected - a.expected));
+  const sum = k => lines.reduce((s, l) => s + l[k], 0);
+  return {
+    alreadyReceived: already,
+    delivery: { title: deliveryTitle(d), sourceSiteId: d.sourceSiteId, receivedAt: already ? new Date(Date.now() - 50 * 60e3) : new Date(), receivedBy: "handheld" },
+    totals: { expectedUnits: sum("expected"), receivedUnits: sum("received"), missingUnits: sum("missing"), extraUnits: sum("extra") },
+    lines, skipped: swept.filter(t => t.kind === "unknown").length,
+  };
+}
+function closeReceipt() {
+  S.inbound.receipt = null; S.inbound.chosen = null; S.inbound.unannounced = false; S.message = null; S.failed = false;
+  render(); loadInbound();
+}
+function commit() {
+  if (!configured()) { S.failed = true; S.message = "Settings are incomplete"; render(); return; }
+  if (S.sweeping) stopSweep();
+  const current = { mode: S.mode, units: S.counts.units, foreign: S.counts.foreign, lines: S.lines };
+  if (current.units === 0) { S.failed = true; S.message = "Nothing swept yet"; render(); return; }
+  S.busy = true; S.message = "Saving…"; S.failed = false; render();
+  setTimeout(() => {
+    spoolEvidence();
+    S.busy = false;
+    if (!env.online || env.nextStep === "fail") {
+      S.failed = true;
+      S.message = `${current.units} observations SAVED · ` + (!env.online ? "Unable to resolve host \"" + S.settings.baseUrl.replace(/^https?:\/\//, "") + "\": No address associated with hostname" : "HTTP 422: lines[3].sku_code is not active at this site");
+    } else {
+      const received = current.lines.reduce((s, l) => s + l.epcs.length, 0);
+      const step = current.mode === "PACKING" ? `carton ${hex(8).toLowerCase()} · ${current.lines.length} SKUs`
+        : current.mode === "COUNT" ? `${received} count entries`
+        : current.mode === "RECEIVING" ? `${received} received` + (current.foreign > 0 ? `, ${current.foreign} not ours` : "") : null;
+      const queued = S.outboxPending;
+      const text = `${current.units} observations saved` + (step ? ` · ${step}` : "") + (queued > 0 ? ` · ${queued} batches waiting for the node` : "");
+      const wasUnannounced = isStoreReceiving() && S.inbound.unannounced;
+      engine = null; S.sweepOpen = false; S.counts = emptyCounts(); S.lines = []; S.message = text; S.failed = false;
+      if (wasUnannounced) { S.inbound.unannounced = false; render(); loadInbound(); return; }
+    }
+    render();
+  }, 900);
+}
+function refreshCatalogue() {
+  S.catalogue.syncing = true; render();
+  setTimeout(() => {
+    S.catalogue.syncing = false;
+    if (canReach() && catalogueReady()) { S.catalogue.generation++; S.catalogue.items += 17; S.catalogue.note = `gen ${S.catalogue.generation} · ${S.catalogue.items} SKUs · ${Math.round(rnd(180, 420))} ms`; }
+    else if (canReach()) S.catalogue.note = "the node has no catalogue yet";
+    else S.catalogue.note = catalogueReady() ? `offline · using gen ${S.catalogue.generation}` : "no catalogue: the node could not be reached";
+    render();
+  }, 1100);
+}
+
+/* settings power card: reader.init then power() */
+function enterSettings() {
+  S.setStatus = null; S.draft = { ...S.settings };
+  S.powerAsleep = true; S.powerNote = null;
+  S.power = S.settings.readerPower > 0 ? S.settings.readerPower : 30;
+  setTimeout(() => { S.powerAsleep = false; S.powerNote = `module reports ${S.power} dBm`; if (S.tab === "SETTINGS") render(); }, 700);
+}
+function commitPower() {
+  if (S.powerApplying) return;
+  const asked = S.power;
+  S.powerApplying = true; S.powerNote = "moving the antenna · about 4 seconds"; render();
+  setTimeout(() => {
+    S.powerApplying = false; S.powerAsleep = false;
+    S.power = asked; S.powerNote = `module reports ${asked} dBm`;
+    S.settings.readerPower = asked; S.draft.readerPower = asked;
+    callLog(`setPower(${asked}) -> true`);
+    if (S.tab === "SETTINGS") render();
+  }, 4000);
+}
+
+/* ═══════════════ rolling number ═══════════════ */
+function rollHTML(value, cls, id) {
+  return `<span class="roll ${cls}" ${id ? `id="${id}"` : ""} data-v="${value}">${String(value).split("").map(d => `<span class="dg"><span>${d}</span></span>`).join("")}</span>`;
+}
+function setRoll(el, value) {
+  if (!el) return;
+  const old = el.dataset.v; const s = String(value);
+  if (old === s) return;
+  el.dataset.v = s;
+  while (el.children.length < s.length) { const c = document.createElement("span"); c.className = "dg"; c.innerHTML = "<span></span>"; el.prepend(c); }
+  while (el.children.length > s.length) el.firstElementChild.remove();
+  const cols = [...el.children];
+  for (let i = 0; i < s.length; i++) {
+    const place = s.length - i;
+    const prev = old.length >= place ? old[old.length - place] : null;
+    const next = s[i];
+    const col = cols[i];
+    if (prev === next) continue;
+    const cur = col.lastElementChild;
+    if (!motionOn() || prev === null || !cur || !cur.textContent) { col.innerHTML = `<span>${next}</span>`; continue; }
+    const up = next > prev;                       // per digit, as in Motion.kt
+    [...col.children].slice(0, -1).forEach(n => n.remove());
+    const n = document.createElement("span"); n.textContent = next; n.className = "abs";
+    col.appendChild(n);
+    cur.animate([{ transform: "none", opacity: 1 }, { transform: `translateY(${up ? -100 : 100}%)`, opacity: 0 }], { duration: T.panel, easing: EASE_OUT, fill: "forwards" })
+      .onfinish = () => cur.remove();
+    n.animate([{ transform: `translateY(${up ? 100 : -100}%)`, opacity: 0 }, { transform: "none", opacity: 1 }], { duration: T.panel, easing: EASE_OUT })
+      .onfinish = () => n.classList.remove("abs");
+  }
+}
+
+/* ═══════════════ kit ═══════════════ */
+const pill = (tone, label, dot = true) => `<span class="pill t-pill tone-${tone}">${dot ? '<span class="dot"></span>' : ""}${esc(label)}</span>`;
+const primary = (text, act, o = {}) => `<button class="btn btn-primary ${o.big ? "big" : ""} ${o.full ? "full" : ""}" data-act="${act}" ${o.disabled || o.loading ? "disabled" : ""} ${o.data || ""}>${o.loading ? '<span class="spin" style="border-color:rgba(255,255,255,.35);border-top-color:#fff"></span>' : ""}${esc(text)}</button>`;
+const quiet = (text, act, o = {}) => `<button class="btn btn-quiet ${o.big ? "big" : ""} ${o.full ? "full" : ""}" data-act="${act}" ${o.disabled ? "disabled" : ""} ${o.data || ""} ${o.style ? `style="${o.style}"` : ""}>${esc(text)}</button>`;
+const section = (t, style = "") => `<div class="t-section" style="${style}">${esc(t)}</div>`;
+const kv = (k, v, mono) => `<div class="kv"><span class="k">${esc(k)}</span><span class="v ${mono ? "mono" : ""} ${v == null ? "none" : ""}">${esc(v ?? "—")}</span></div>`;
+const field = (o) => `<div class="field ${o.mb ? "mb-md" : ""}">${o.label ? `<label>${esc(o.label)}</label>` : ""}<input ${o.secret ? 'type="password"' : 'type="text"'} spellcheck="false" autocomplete="off" data-field="${o.key}" value="${esc(o.value)}" placeholder="${esc(o.placeholder || "")}">${o.hint ? `<div class="hint">${esc(o.hint)}</div>` : ""}</div>`;
+const card = (inner, o = {}) => `<div class="card ${o.press ? "press" : ""} ${o.tight ? "tight" : ""}" ${o.act ? `data-act="${o.act}"` : ""} ${o.data || ""}>${inner}</div>`;
+const sp = h => `<div style="height:${h}px"></div>`;
+
+/* ═══════════════ screens ═══════════════ */
+function scanningSurface() {
+  const c = S.counts;
+  const banner = isReceivingDelivery() ? (() => {
+    const d = S.inbound.chosen;
+    return `<div class="center"><div class="t-cardTitle c-ink ellip" style="max-width:300px">${esc(d ? deliveryTitle(d) : "Unannounced delivery")}</div>
+      <div class="t-meta c-mute">${esc(d ? `blind count · ${d.koliCount} koli` : "not linked to a surat jalan")}</div></div>${sp(16)}`;
+  })() : "";
+  return `<div class="scan">${banner}
+    <div id="scanPill">${S.starting ? pill("warn", "waking the reader") : pill("ok", "reading")}</div>
+    ${sp(20)}<div class="spacer"></div>
+    <div id="bigWrap">${bigCount(c.units, S.sweeping)}</div>
+    <div class="spacer"></div>
+    <div id="alarm">${alarmHTML()}</div></div>`;
+}
+function bigSize(v) { const d = String(v).length; return d <= 3 ? 140 : d === 4 ? 112 : d === 5 ? 90 : d === 6 ? 76 : 62; }
+function bigCount(v, live) {
+  const s = bigSize(v);
+  return `<div class="bigcount ${live ? "live" : ""}" id="big" data-size="${s}" style="font-size:${s}px;line-height:${Math.round(s * 1.08)}px;font-weight:600;letter-spacing:-2px">${rollHTML(v, "", "bigRoll")}</div>`;
+}
+function alarmHTML() {
+  const c = S.counts;
+  const a = env.clock === "wrong" ? "device clock is wrong — evidence is saved, filing is paused"
+    : c.unexpected > 0 ? `${c.unexpected} unexpected ${c.unexpected === 1 ? "product" : "products"}` : null;
+  return a ? `<div class="t-cell c-bad center" style="padding-bottom:20px">${esc(a)}</div>` : "";
+}
+function updateScanning() {
+  const big = document.getElementById("big");
+  if (!big) return;
+  const v = S.counts.units, s = bigSize(v);
+  if (+big.dataset.size !== s) { big.dataset.size = s; big.style.fontSize = s + "px"; big.style.lineHeight = Math.round(s * 1.08) + "px"; }
+  big.classList.toggle("live", S.sweeping);
+  setRoll(document.getElementById("bigRoll"), v);
+}
+
+function labelModeRow() {
+  const note = S.labelNote ?? (S.labelMode ? "QR or barcode · one scan, one unit" : "switch when a tag will not answer");
+  return card(`<div class="row">
+    <span class="ico" style="width:20px;height:20px">${svg(P.qr, S.labelMode ? "var(--accent)" : "var(--line-ico)")}</span>
+    <div class="grow" style="margin:0 12px">
+      <div class="t-cardTitle c-ink">${S.labelMode ? "Trigger reads labels" : "Trigger reads tags"}</div>
+      <div class="t-meta c-mute ellip">${esc(note)}</div>
+      ${S.labelMode && S.labelDiag ? `<div class="t-meta clamp2" style="color:var(--line-ico)">${esc(S.labelDiag)}</div>` : ""}
+    </div>${quiet(S.labelMode ? "Tags" : "Labels", "toggleLabel")}</div>`);
+}
+function modeExtras() {
+  if (S.mode === "PACKING") return card(field({ key: "destination", label: "Destination shop", placeholder: "store-07", value: S.destination,
+    hint: "The carton target comes from what was swept, not from typing — a target edited to match the sweep is not a target." }));
+  if (S.mode === "COUNT") {
+    const list = S.countList.length === 0
+      ? `<div class="t-meta c-mute">${S.countsLoaded ? "no open counts on this node" : "loading…"}</div>`
+      : S.countList.map(([id, label]) => `<div class="row between" data-act="setCount" data-id="${id}" style="padding:4px 0;cursor:pointer">
+          <span class="t-cell ${id === S.countId ? "c-ink" : "c-body"}">${esc(label)}</span>${id === S.countId ? pill("ok", "chosen", false) : ""}</div>`).join("");
+    return card(section("Official count") + list);
+  }
+  return "";
+}
+function historyCard(r) {
+  return card(`<div class="row"><div class="grow">
+      <div class="t-cardTitle c-ink">${sweepDay(r.endedAt)}</div>
+      <div class="t-meta c-mute">${sweepClock(r.endedAt)}${r.mode !== "SCAN" ? " · " + r.mode.toLowerCase() : ""}</div></div>
+      <button class="pinbox" data-act="pin" data-id="${r.id}" aria-label="${r.pinned ? "Unpin" : "Pin"}">${svg(r.pinned ? P.pinF : P.pinO, r.pinned ? "var(--accent)" : "var(--faint)")}</button>
+      <span class="t-total c-ink">${r.units}</span></div>`, { press: true, act: "openSweep", data: `data-id="${r.id}"` });
+}
+function statusFoot() {
+  const ready = catalogueReady();
+  const line = (ready ? `catalogue gen ${S.catalogue.generation} · ${S.catalogue.items} SKUs` : "no local catalogue") + (S.outboxPending > 0 ? ` · ${S.outboxPending} unsent` : "");
+  return `<div class="col" style="align-items:center;padding-top:16px">
+    <div class="t-meta" style="color:${ready ? "var(--faint)" : "var(--warn-fg)"}">${esc(line)}</div>
+    ${S.message ? `<div class="t-meta center ${S.failed ? "c-bad" : "c-mute"}" style="padding-top:4px">${esc(S.message)}</div>` : ""}
+    ${env.clock === "wrong" ? `<div class="t-meta c-bad">device clock is wrong — filing is paused</div>` : ""}</div>`;
+}
+function history() {
+  const empty = S.history.length === 0 ? `<div class="col" style="align-items:center;padding-top:120px">
+    <div class="t-hero c-faint">No sweeps yet</div>${sp(8)}<div class="t-meta c-mute">Pull the trigger to count a rack.</div></div>` : "";
+  return `<div class="pad stack">${labelModeRow()}${modeExtras()}${empty}${S.history.map(historyCard).join("")}${statusFoot()}</div>`;
+}
+function productRow(line) {
+  const id = line.identity;
+  return `<div class="card" style="margin-bottom:8px"><div class="row"><div class="grow">
+    <div class="t-cardTitle clamp2 ${id ? "c-ink" : "c-warn"}">${esc(id ? id.name : "Unknown product")}</div>
+    <div class="t-id c-faint ellip" style="word-break:normal">${esc(id ? line.skuCode : `${line.skuCode} · not in this catalogue`)}</div></div>
+    <span style="width:12px"></span><span class="t-total c-ink">${line.qty}</span></div></div>`;
+}
+function detailList() {
+  const r = S.history.find(h => h.id === S.openSweep);
+  const lines = r ? r.lines : S.lines;
+  const q = S.detailQuery.trim().toUpperCase();
+  const vis = q ? lines.filter(l => l.skuCode.includes(q) || (l.identity && l.identity.name.toUpperCase().includes(q))) : lines;
+  return vis.map(productRow).join("");
+}
+function sweepDetail() {
+  const r = S.history.find(h => h.id === S.openSweep);
+  const lines = r ? r.lines : S.lines;
+  return `<div class="pad">
+    <div style="padding-bottom:12px">${quiet("Back to history", "closeSweep")}${sp(16)}
+      <div class="c-ink" style="font-size:64px;line-height:70px;font-weight:600;letter-spacing:-2px;font-variant-numeric:tabular-nums">${r ? r.units : lines.reduce((s, l) => s + l.qty, 0)}</div>${sp(8)}
+      <div class="row gap-xxl"><span class="t-metric c-body">${r ? r.articles : 0} articles</span><span class="t-metric c-body">${lines.length} sku</span></div>
+      ${r ? `${sp(4)}<div class="t-meta c-faint">${sweepDay(r.endedAt)} ${sweepClock(r.endedAt)}${r.unknown > 0 ? ` · ${r.unknown} unknown` : ""}${r.foreign > 0 ? ` · ${r.foreign} not ours` : ""}</div>` : ""}
+    </div>
+    <div style="padding-bottom:8px">${field({ key: "detailQuery", placeholder: "name or SKU", value: S.detailQuery })}</div>
+    <div id="detailList">${detailList()}</div></div>`;
+}
+
+/* receiving (shop) */
+function recvStage() { return S.inbound.receipt ? 2 : isReceivingDelivery() ? 1 : 0; }
+function deliveryList() {
+  const ib = S.inbound;
+  const held = S.counts.units + S.counts.unknownUnits;
+  let h = `<div style="padding-bottom:4px"><div class="t-hero c-ink">Choose a delivery</div>${sp(4)}
+    <div class="t-meta c-mute">Deliveries on their way to this shop. Pull down to check again.</div></div>`;
+  if (held > 0 && !S.sweeping) h += card(`<div class="t-cardTitle c-ink">${held} tags already swept</div>${sp(4)}
+    <div class="t-meta c-mute">They go with the delivery you choose next. Discard them if they belong to none of these.</div>${sp(8)}${discardBtn(held)}`);
+  if (ib.note) h += `<div class="t-cell c-bad">${esc(ib.note)}</div>`;
+  if (S.message) h += `<div class="t-cell ${S.failed ? "c-bad" : "c-ok"}">${esc(S.message)}</div>`;
+  if (ib.deliveries.length === 0) {
+    h += `<div class="col" style="align-items:center;padding:72px 0">` + ((!ib.loaded || (ib.loading && !ib.note))
+      ? `<div class="t-cell c-mute">Looking for deliveries…</div>`
+      : `<div class="t-hero c-faint center">No delivery is on its way to this shop</div>${sp(8)}
+         <div class="t-meta c-mute center">A delivery appears here once the DC sends it off. A lorry that got here first can still be received — Unannounced delivery, below.</div>`) + `</div>`;
+  }
+  h += ib.deliveries.map(d => card(`<div class="row"><div class="grow">
+      <div class="t-cardTitle c-ink ellip">${esc(deliveryTitle(d))}</div>
+      <div class="t-meta c-mute clamp2">${esc(deliveryLine(d))}</div></div>
+      <span style="width:12px"></span><div class="col" style="align-items:flex-end"><span class="t-kpi c-ink">${d.koliCount}</span><span class="t-meta c-mute">koli</span></div>
+      <span style="width:8px"></span><span class="ico">${svg(P.chevR, "var(--faint)")}</span></div>`, { press: true, tight: true, act: "chooseDelivery", data: `data-id="${d.deliveryId}"` })).join("");
+  h += `<div style="padding-top:4px">${quiet(ib.loading ? "Checking…" : "Refresh", "loadInbound", { full: true, disabled: ib.loading })}</div>`;
+  h += `<div style="padding-top:16px">${section("Not on the list?")}${sp(4)}
+    <div class="t-meta c-mute">A lorry sometimes arrives before its announcement. Receive it without a delivery: the stock is booked in, but nothing is compared against what the DC sent.</div>${sp(8)}
+    ${quiet("Unannounced delivery", "unannounced", { full: true })}</div>`;
+  return `<div class="ptr" id="ptr"><span class="spin"></span></div><div class="pad stack" id="ptrBody">${h}</div>`;
+}
+function discardBtn(tags) {
+  return quiet(S.discardArmed ? `Tap again to discard ${tags} tags` : "Discard this sweep", "discard", { full: true });
+}
+function deliverySweep() {
+  const c = S.counts, d = S.inbound.chosen, un = d == null;
+  const ours = c.units + c.unknownUnits;
+  let h = card(`${section(un ? "Receiving without a delivery" : "Receiving")}${sp(4)}
+    <div class="t-hero c-ink clamp2">${esc(d ? deliveryTitle(d) : "Unannounced delivery")}</div>
+    <div class="t-meta c-mute">${esc(un ? "Not linked to any surat jalan. Nothing is compared." : deliveryLine(d) + ` · ${d.koliCount} koli`)}</div>${sp(12)}
+    ${quiet("Change delivery", "backToDeliveries", { full: true, disabled: S.busy })}`);
+  h += `<div style="padding:8px 0 4px">
+    <div class="c-ink" style="font-size:64px;line-height:70px;font-weight:600;letter-spacing:-2px;font-variant-numeric:tabular-nums">${ours}</div>
+    <div class="row gap-xxl"><span class="t-metric c-body">${c.skus} sku</span><span class="t-metric c-body">${c.articles} articles</span></div>${sp(4)}
+    <div class="t-meta c-mute">${ours === 0 ? "Pull the trigger and sweep the koli. Every pull adds to this delivery." : "Every pull adds to this delivery until you receive it."}</div>
+    ${c.unknownUnits > 0 ? `<div class="t-meta c-warn">${c.unknownUnits} of them this handheld cannot name${un ? " — the unannounced path leaves them out" : " — they are received too"}</div>` : ""}
+    ${c.foreign > 0 ? `<div class="t-meta c-faint">${c.foreign} tags that are not ours · left out</div>` : ""}</div>`;
+  h += primary(MODE_VERB.RECEIVING, un ? "commit" : "receiveDelivery", { big: true, full: true, disabled: !(ours > 0 && !S.sweeping), loading: S.busy });
+  if (S.message) h += `<div class="t-cell ${S.failed ? "c-bad" : "c-mute"}">${esc(S.message)}</div>`;
+  if (!un) h += `<div class="t-meta c-faint">Blind count: what the DC sent is shown after you receive, not before.</div>`;
+  h += S.lines.map(productRow).join("");
+  if (ours > 0) h += `<div style="padding-top:16px">${discardBtn(ours)}</div>`;
+  if (S.outboxPending > 0) h += `<div class="t-meta c-faint">${S.outboxPending} batches of evidence waiting for the node</div>`;
+  return `<div class="pad stack">${h}</div>`;
+}
+function receiptView() {
+  const r = S.inbound.receipt, t = r.totals;
+  const problems = r.lines.filter(l => l.hasProblem).length;
+  const fig = (label, v, color) => `<div class="col">${section(label)}<span class="t-kpi" style="color:${color}">${v}</span></div>`;
+  let h = `<div style="padding-bottom:4px">${r.alreadyReceived ? pill("warn", "already received") : pill("ok", "received")}${sp(8)}
+    <div class="t-hero c-ink">${esc(r.delivery.title)}</div>
+    <div class="t-meta c-mute">${esc([r.delivery.sourceSiteId ? `from ${r.delivery.sourceSiteId}` : null, `received ${localWhen(r.delivery.receivedAt)}`, r.delivery.receivedBy ? `by ${r.delivery.receivedBy}` : null].filter(Boolean).join(" · "))}</div></div>`;
+  if (r.alreadyReceived) h += card(`<div class="t-cell c-warn">This delivery was already received from a different sweep. What you see is what was recorded then — your sweep was not applied. It is still held on this handheld: choose the right delivery for it, or discard it.</div>`);
+  h += card(`<div class="row between">${fig("Expected", t.expectedUnits, "var(--ink)")}${fig("Received", t.receivedUnits, "var(--ink)")}${fig("Missing", t.missingUnits, t.missingUnits > 0 ? "var(--bad-fg)" : "var(--faint)")}${fig("Extra", t.extraUnits, t.extraUnits > 0 ? "var(--warn-fg)" : "var(--faint)")}</div>`);
+  h += primary("Done", "closeReceipt", { big: true, full: true });
+  if (r.skipped > 0) h += `<div class="t-meta c-mute">${r.skipped} tags were skipped by the node — not part of this delivery's products.</div>`;
+  h += section(r.lines.length === 0 ? "No product lines" : problems === 0 ? "Every product matched" : problems === 1 ? "1 product needs a look · tap it for the tags" : `${problems} products need a look · tap one for the tags`, "padding-top:12px");
+  h += r.lines.map(l => {
+    const open = S.receiptOpen === l.skuCode;
+    const epcList = (label, epcs, units) => epcs.length === 0 ? (units > 0 ? `<div class="t-meta c-mute">${esc(label)}: ${units} · no tags listed</div>` : "")
+      : `${section(label)}${sp(4)}${epcs.slice(0, 300).map(e => `<div class="t-id c-text">${e}</div>`).join("")}${epcs.length > 300 ? `<div class="t-meta c-mute">and ${epcs.length - 300} more</div>` : ""}`;
+    return card(`<div class="row"><div class="grow">
+        <div class="t-cardTitle clamp2 ${l.name ? "c-ink" : "c-warn"}">${esc(l.name || "Unknown product")}</div>
+        <div class="t-id c-faint">${l.skuCode}</div>${sp(4)}
+        <div class="t-metric c-body">expected ${l.expected} · received ${l.received}</div></div>
+        <span style="width:8px"></span>
+        <div class="col gap-xs" style="align-items:flex-end">${l.missing > 0 ? pill("bad", `${l.missing} missing`) : ""}${l.extra > 0 ? pill("warn", `${l.extra} extra`) : ""}${!l.hasProblem ? pill("ok", "matched", false) : ""}</div>
+        ${l.hasProblem ? `<span class="ico chev ${open ? "rot180" : ""}">${svg(P.more, "var(--line-ico)")}</span>` : ""}</div>
+      <div class="expand ${open ? "open" : ""}"><div><div style="padding-top:12px">${epcList("Missing — sent, not swept", l.missingEpcs, l.missing)}
+        ${l.missingEpcs.length && l.extraEpcs.length ? sp(12) : ""}${epcList("Extra — swept, not sent", l.extraEpcs, l.extra)}</div></div></div>`,
+      l.hasProblem ? { press: true, act: "toggleReceipt", data: `data-id="${l.skuCode}"` } : {});
+  }).join("");
+  return `<div class="pad stack">${h}</div>`;
+}
+
+/* sessions */
+function sessionsScreen() {
+  const c = S.chosenSession;
+  if (c) {
+    const joined = c.code === S.sessionCode;
+    return `<div class="pad120 col" style="min-height:100%;gap:12px">
+      ${card(`${section("Session")}${sp(4)}<div class="t-hero c-ink">${esc(c.code)}</div>${sp(16)}
+        <div class="row between"><div class="col">${section("Tags")}${rollHTML(c.tagCount, "t-kpi c-ink")}</div>
+        <div class="col" style="align-items:flex-end">${section("Readers")}${rollHTML(c.deviceCount, "t-kpi c-ink")}</div></div>
+        ${c.lastSeenAt ? `${sp(8)}<div class="t-meta c-mute">last filing ${esc(c.lastSeenAt)}</div>` : ""}`)}
+      <div class="t-cell c-body">Joining files this handheld's sweeps under this name. Nothing already counted is transferred, and nothing is taken over — you simply add to the same total.</div>
+      <div style="flex:1"></div>
+      ${joined ? `<div class="t-cell c-mute">Already joined</div>` : primary(`Join ${c.code}`, "joinSession", { big: true, full: true })}
+      ${quiet("Back", "sessionBack", { full: true })}</div>`;
+  }
+  let h = `<div class="t-cell c-body" style="padding-bottom:8px">Sessions are named, not owned. Several handhelds filing under one name are one count — the same tag seen twice is still one garment.</div>`;
+  if (S.sessionCode) h += card(`${section("You are in")}${sp(4)}<div class="t-hero c-ink">${esc(S.sessionCode)}</div>${sp(12)}${quiet("Leave and work alone", "leaveSession", { full: true })}`);
+  h += section("Active on this node", "padding-top:8px");
+  h += S.sessions.length === 0 ? `<div class="t-cell c-body">${S.sessionsLoaded ? "Nothing being counted right now." : "Loading…"}</div>`
+    : S.sessions.map(s => card(`<div class="row"><div class="grow"><div class="t-cardTitle c-ink">${esc(s.code)}</div>
+        <div class="t-meta c-mute">${s.tagCount} tags · ${s.deviceCount} readers</div></div>
+        ${s.code === S.sessionCode ? pill("accent", "joined") + '<span style="width:8px"></span>' : ""}
+        <span class="ico">${svg(P.chevR, "var(--faint)")}</span></div>`, { press: true, tight: true, act: "chooseSession", data: `data-code="${s.code}"` })).join("");
+  h += `<div style="padding-top:8px">${quiet("Start a new session", "newSession", { full: true })}</div>`;
+  return `<div class="pad120 stack">${h}</div>`;
+}
+
+/* lab (bench builds only) */
+function labScreen() {
+  const m = S.metrics, c = S.counts;
+  const ratio = m.sightings ? (m.duplicates / m.sightings * 100).toFixed(1) : "0.0";
+  const calls = S.sdkCalls.slice(-8).map(x => `<div class="t-id" style="color:${/THREW|false$/.test(x) ? "var(--bad-fg)" : "var(--body)"}">${esc(x)}</div>`).join("");
+  return `<div class="pad120 stack">
+    ${card(`${section("What the last sweep found")}${sp(12)}${kv("Distinct tags", String(c.distinctTags))}${kv("Products", String(c.units))}${kv("Malformed reads", String(c.malformed))}
+      ${kv("Sightings", String(m.sightings))}${kv("Duplicates", `${m.duplicates} (${ratio}%)`)}
+      ${kv("Gap between re-reads", S.gaps ? `${Math.round(S.gaps.mean)} ms mean · ${S.gaps.max} ms max` : "—")}${kv("Gaps over 500 ms", String(S.gaps ? S.gaps.over : 0))}
+      ${S.epcShapes ? `${sp(4)}<div class="t-id c-faint">${esc(S.epcShapes)}</div>` : ""}`)}
+    ${card(`${section("Radio")}${sp(12)}${kv("Chip", S.chip ? `${S.chip.vendor} · ${S.chip.model}` : "—")}${kv("Tag Focus", S.gen2.tagFocus ? "ON" : "off")}${kv("FastID", S.gen2.fastId ? "ON" : "off")}${kv("Session", "S" + S.gen2.session)}
+      ${sp(12)}<div class="btnrow">${quiet(S.gen2.tagFocus ? "Focus OFF" : "Focus ON", "focus")}${quiet(S.gen2.fastId ? "FastID OFF" : "FastID ON", "fastid")}</div>
+      ${sp(8)}<div class="btnrow">${[0, 1, 2, 3].map(s => quiet("S" + s, "gen2session", { disabled: S.gen2.session === s, data: `data-s="${s}"` })).join("")}</div>
+      ${sp(8)}${quiet("Reset radio", "resetRadio")}`)}
+    ${card(`${section("Select filter")}${sp(12)}<div class="btnrow">${quiet("Aim ptr 32", "aim", { data: 'data-p="32"' })}${quiet("Aim ptr 0", "aim", { data: 'data-p="0"' })}</div>
+      ${sp(8)}<div class="btnrow">${quiet(S.oursOnly ? "A0 filter ON" : "A0 filter", "oursOnly")}${quiet("Clear", "oursOff")}</div>
+      ${S.filterNote ? `${sp(4)}<div class="t-meta c-mute">${esc(S.filterNote)}</div>` : ""}`)}
+    ${card(`${section("Vendor calls")}${sp(8)}${S.sdkCalls.length ? calls : `<div class="t-meta c-mute">nothing asked yet</div>`}`)}
+    ${card(`${section("Bench")}${sp(12)}${kv("Tags married", String(S.aliasCount))}${sp(8)}
+      <div class="btnrow">${quiet("Marry", "marry")}${quiet("Forget", "forget")}${quiet("Export", "export")}</div>
+      ${S.aliasNote ? `${sp(4)}<div class="t-meta c-mute">${esc(S.aliasNote)}</div>` : ""}`)}
+  </div>`;
+}
+
+/* settings */
+function settingsScreen() {
+  const st = S, d = S.draft, m = S.metrics, c = S.counts;
+  const ratio = m.sightings ? (m.duplicates / m.sightings * 100).toFixed(1) : "0.0";
+  const meta = t => `<div class="t-meta c-mute">${esc(t)}</div>`;
+  const powerNoteColor = st.powerApplying ? "var(--text)" : st.powerAsleep ? "var(--faint)" : "var(--mute)";
+  const frac = (st.power - 5) / 25;
+  return `<div class="pad120 stack">
+    ${card(`${section("Catalogue")}${sp(12)}${kv("Generation", catalogueReady() ? String(st.catalogue.generation) : "—")}${kv("Products", String(catalogueReady() ? st.catalogue.items : 0))}${kv("Unsent evidence", String(st.outboxPending))}
+      ${st.catalogue.note ? sp(4) + meta(st.catalogue.note) : ""}${sp(12)}
+      ${quiet(st.catalogue.syncing ? "Checking…" : "Check for a new catalogue", "refreshCatalogue", { disabled: st.catalogue.syncing })}${sp(12)}
+      ${meta('The catalogue is a whole snapshot with a generation, so this asks one question and usually gets "the one you already have". Scanning never waits for it.')}`)}
+    ${card(`${section("Tag silicon · Gen2X")}${sp(12)}${quiet("Reset radio to defaults", "resetRadio")}${sp(8)}
+      ${kv("Tags married to products", String(st.aliasCount))}
+      ${st.engineBeliefs ? `<div class="t-id c-faint">engine: ${esc(st.engineBeliefs)}</div>` : ""}${sp(8)}
+      <div class="btnrow">${quiet("Export EPCs", "export")}${quiet("Marry detected tags", "marry")}${quiet("Forget", "forget")}</div>
+      ${st.aliasNote ? sp(4) + meta(st.aliasNote) : ""}${sp(4)}
+      ${meta("Bench only. Nothing is written to any tag, and the evidence filed to the Edge still carries the real EPC — this only changes what THIS handheld calls them, so a rig full of other people's tags can exercise the whole screen.")}${sp(8)}
+      ${quiet(st.countEveryTag ? "Bench mode: ON — counting every tag" : "Bench mode: off", "bench")}
+      ${st.countEveryTag ? sp(4) + `<div class="t-meta c-warn">Every tag is a line, whatever its EPC says. These sweeps are recorded as BENCH and are a count of transponders, not of stock.</div>` : ""}${sp(12)}
+      ${kv("Chip", st.chip ? `${st.chip.vendor} · ${st.chip.model}` : "sweep with FastID on to find out")}
+      ${kv("Tag Focus", st.gen2.tagFocus ? "on" : "off")}${kv("FastID", st.gen2.fastId ? "on" : "off")}${kv("Gen2 session", "S" + st.gen2.session)}
+      ${kv("Distinct tags", String(c.distinctTags))}${kv("Sightings", String(m.sightings))}${kv("Duplicates", `${m.duplicates} (${ratio}%)`)}
+      ${kv("Queue high-water", String(m.queueDepth))}${kv("Dropped", String(m.dropped))}
+      ${st.sdkCalls.length ? sp(4) + meta("vendor calls (newest last):") + st.sdkCalls.slice(-6).map(x => `<div class="t-id" style="color:${/THREW|false$/.test(x) ? "var(--bad-fg)" : "var(--faint)"}">${esc(x)}</div>`).join("") : ""}
+      ${st.epcShapes ? sp(4) + meta("EPC shapes:") + `<div class="t-id c-faint">${esc(st.epcShapes)}</div>` : ""}
+      ${st.foreignSample.length ? sp(4) + meta("unnamed EPCs:") + st.foreignSample.map(e => `<div class="t-id c-faint">${e}</div>`).join("") : ""}
+      ${sp(12)}<div class="btnrow">${quiet(st.gen2.tagFocus ? "Tag Focus off" : "Tag Focus on", "focus")}${quiet(st.gen2.fastId ? "FastID off" : "FastID on", "fastid")}</div>
+      ${sp(8)}<div class="btnrow">${[0, 1, 2, 3].map(s => quiet("S" + s, "gen2session", { disabled: st.gen2.session === s, data: `data-s="${s}"` })).join("")}</div>
+      ${sp(8)}<div class="btnrow">${[[2, 4], [4, 16], [6, 64]].map(([e, n]) => quiet(`${n} slots`, "startQ", { data: `data-q="${e}"` })).join("")}</div>${sp(12)}
+      ${meta("The reader in this handheld is an Impinj E710, so half of Gen2X is already settled; the other half is whatever chip is on the garment. Tag Focus quiets a tag once it has been counted, so the radio stops re-reading a rack it has already done. FastID brings the TID back with the EPC, which is what names the chip above. A tag that is not Impinj simply ignores both and inventories normally.")}`)}
+    ${card(`${section("Radio filter")}${sp(12)}${quiet(st.oursOnly ? "Hearing OUR tags only — tap to hear everything" : "Ignore tags that are not ours", "oursOnly", { style: "white-space:normal;text-align:left;padding:10px 16px" })}${sp(4)}
+      ${meta("Eight bits of Select on the EPC header. A pallet label or a supplier's own tag then never answers at all — no air time, no sighting, no work here. Safe while counting, because it narrows to everything of ours rather than to one product.")}${sp(12)}
+      ${field({ key: "skuFilter", label: "Select probe  pointer/bits/hex", value: st.skuFilter, mb: true })}
+      ${st.filterNote ? sp(4) + meta(st.filterNote) : ""}${sp(12)}${quiet("Clear filter", "clearFilter")}${sp(12)}
+      ${meta('A Gen2 Select on the first 52 bits of the EPC — the header and the eleven SKU digits — so the serial is ignored and the match means "this product, any unit". A tag that does not match never answers, which costs no air time at all. NOTE: this module is already known to accept a filter on the WRITE path and then not apply it, so acceptance here proves nothing until a sweep shows only one SKU coming back.')}`)}
+    ${card(`${section("Trigger")}${sp(12)}${kv("Key code", st.settings.triggerKeyCode > 0 ? String(st.settings.triggerKeyCode) : "not learned yet")}${sp(12)}
+      ${quiet(st.learning ? "Pull the trigger now…" : "Learn the trigger", "learn")}${sp(12)}
+      ${meta("Press and release starts reading; press again to stop. The keycode is learned rather than assumed because C5 firmware has shipped reporting five different numbers for the same button, and a guessed one does nothing at all — which on the floor looks exactly like a broken reader.")}`)}
+    ${card(`${section("Node")}${sp(12)}${field({ key: "d.baseUrl", label: "Edge URL", value: d.baseUrl, mb: true })}${field({ key: "d.siteId", label: "Site ID", value: d.siteId, mb: true })}${field({ key: "d.pool", label: "Pool", value: d.pool, mb: true })}
+      ${sp(12)}${meta("One build serves a DC and a shop; which one a handheld belongs to is a deployment fact, not a code fact.")}`)}
+    ${card(`${section("Device identity")}${sp(12)}${field({ key: "d.deviceId", label: "Device ID", value: d.deviceId, mb: true })}${field({ key: "d.deviceKey", label: "Device key", value: d.deviceKey, secret: true, mb: true })}
+      ${sp(12)}${meta("This key signs every batch of evidence. It proves WHICH READER read — never who was holding it.")}`)}
+    ${card(`${section("Reader power")}${sp(8)}
+      <div class="row between" style="align-items:flex-end"><div class="row" style="align-items:flex-end"><span class="t-total c-ink" id="powerFig">${st.power}</span><span style="width:4px"></span><span class="t-meta c-mute" style="padding-bottom:6px">dBm</span></div>
+        ${st.powerNote ? `<span class="t-meta" style="color:${powerNoteColor};padding-bottom:5px">${esc(st.powerNote)}</span>` : ""}</div>${sp(12)}
+      <div class="fader ease" id="fader" role="slider" aria-label="Reader power" aria-valuemin="5" aria-valuemax="30" aria-valuenow="${st.power}" tabindex="0">
+        <div class="fill" style="width:calc((100% - 34px) * ${frac} + 34px)"></div>
+        <div class="thumb" style="left:calc((100% - 34px) * ${frac})"><i></i><i></i></div></div>${sp(8)}
+      <div class="row between"><span class="t-meta c-mute">5 · the shelf in front of you</span><span class="t-meta c-mute">30 · the whole aisle</span></div>${sp(12)}
+      ${meta("Full power reads the back of a rack, and through a wall. A count that quietly includes the next room is wrong in the one way nobody checks — so this belongs to the job, not to the device.")}`)}
+    ${card(`${section("Operator (optional)")}${sp(12)}${field({ key: "d.operatorToken", label: "Bearer token", value: d.operatorToken, secret: true, mb: true })}
+      ${sp(12)}${meta("For audit attribution, and for packing, receiving and counting, which do need a human session.")}`)}
+    ${st.setStatus ? `<div class="t-cell ${st.setFailed ? "c-bad" : "c-ok"}" style="padding-top:4px">${esc(st.setStatus)}</div>` : ""}
+    <div style="padding-top:4px">${quiet("Test connection", "testConn", { full: true, disabled: st.setBusy })}</div>
+    ${primary("Save", "save", { big: true, full: true, disabled: st.setBusy })}
+  </div>`;
+}
+
+/* ═══════════════ shell render ═══════════════ */
+let lastKey = null;
+function screenKey() {
+  if (S.tab === "LAB") return "LAB";
+  if (S.tab === "SETTINGS") return "SETTINGS";
+  if (S.showSessions) return "SESSIONS";
+  const scanning = S.sweeping || S.starting;
+  if (scanning) return S.tab + ":scan";
+  if (isStoreReceiving()) return S.tab + ":recv" + recvStage();
+  return S.tab + ":rest" + (S.openSweep != null ? ":d" : "");
+}
+function bodyHTML() {
+  if (S.tab === "LAB" && env.bench) return labScreen();
+  if (S.tab === "SETTINGS") return settingsScreen();
+  if (S.showSessions) return sessionsScreen();
+  if (S.sweeping || S.starting) return scanningSurface();
+  if (isStoreReceiving()) return [deliveryList, deliverySweep, receiptView][recvStage()]();
+  if (S.openSweep != null) return sweepDetail();
+  return history();
+}
+function render() {
+  const pushed = S.showSessions && S.tab !== "SETTINGS";
+  document.getElementById("barTitle").textContent = pushed ? "Sessions" : TABS.find(t => t.id === S.tab).label;
+  document.getElementById("barLeft").innerHTML = pushed ? `<button class="chip" data-act="closeSessions" aria-label="Back">${svg(P.back, "var(--line-ico)")}</button>` : "";
+  renderTabs();
+  const content = document.getElementById("content");
+  const key = screenKey();
+  const html = bodyHTML();
+  const cur = content.querySelector(".layer:not(.leaving)");
+  if (cur && key === lastKey) {
+    if (key.endsWith(":scan")) { // keep the rolling digits alive
+      const pillEl = document.getElementById("scanPill");
+      if (pillEl) pillEl.innerHTML = S.starting ? pill("warn", "waking the reader") : pill("ok", "reading");
+      const al = document.getElementById("alarm"); if (al) al.innerHTML = alarmHTML();
+      updateScanning(); return;
+    }
+    const top = cur.scrollTop; const focused = document.activeElement && document.activeElement.dataset && document.activeElement.dataset.field;
+    cur.innerHTML = html; cur.scrollTop = top;
+    if (focused) { const f = cur.querySelector(`[data-field="${focused}"]`); if (f) { f.focus(); f.setSelectionRange(f.value.length, f.value.length); } }
+    bindLayer(cur); return;
+  }
+  // transition
+  const [pt, pk] = [lastKey ? lastKey.split(":")[0] : null, key.split(":")[0]];
+  let kind = "none", forward = true;
+  if (!lastKey) kind = "none";
+  else if (pt !== pk) { kind = "page"; const ids = TABS.map(t => t.id); forward = ids.indexOf(S.tab) >= ids.indexOf(S.prevTab); if (pk === "SESSIONS") forward = true; if (pt === "SESSIONS") forward = false; }
+  else if (key.endsWith(":scan") || lastKey.endsWith(":scan")) kind = "surface";
+  else if (key.includes(":recv") && lastKey.includes(":recv")) { kind = "page"; forward = +key.slice(-1) >= +lastKey.slice(-1); }
+  lastKey = key;
+  const layer = document.createElement("div");
+  layer.className = "layer"; layer.innerHTML = html;
+  if (cur) {
+    if (kind === "none" || !motionOn()) cur.remove();
+    else {
+      cur.classList.add("leaving");
+      if (kind === "page") { cur.style.setProperty("--to", forward ? "-12.5%" : "12.5%"); cur.classList.add("anim-page-out"); }
+      else cur.classList.add("anim-fade-out");
+      setTimeout(() => cur.remove(), T.pop + 20);
+    }
+  }
+  content.appendChild(layer);
+  if (kind === "page" && motionOn()) { layer.style.setProperty("--from", forward ? "16.6%" : "-16.6%"); layer.classList.add("anim-page-in"); }
+  if (kind === "surface" && motionOn()) layer.classList.add("anim-surface-in");
+  bindLayer(layer);
+}
+function renderTabs() {
+  const tabs = visibleTabs();
+  const width = document.querySelector(".screen").clientWidth;
+  const size = Math.min(54, (width - 24 - 14 * (tabs.length - 1)) / tabs.length);
+  const bar = document.getElementById("tabbar");
+  bar.innerHTML = tabs.map(t => `<button class="tab ${t.id === S.tab ? "on" : ""}" data-tab="${t.id}" aria-label="${t.label}" style="width:${size}px;height:${size}px;border-radius:${size / 3}px">${svg(t.icon, "")}</button>`).join("");
+}
+
+/* per-layer bindings: inputs, fader, pull-to-refresh */
+function bindLayer(layer) {
+  layer.querySelectorAll("input[data-field]").forEach(inp => inp.addEventListener("input", () => {
+    const k = inp.dataset.field, v = inp.value;
+    if (k.startsWith("d.")) S.draft[k.slice(2)] = v;
+    else if (k === "destination") S.destination = v.trim();
+    else if (k === "detailQuery") { S.detailQuery = v; const l = document.getElementById("detailList"); if (l) l.innerHTML = detailList(); }
+    else if (k === "skuFilter") { S.skuFilter = v; }
+  }));
+  const sf = layer.querySelector('input[data-field="skuFilter"]');
+  if (sf) sf.addEventListener("change", () => {
+    const v = sf.value.trim();
+    const parts = v.split("/");
+    S.filterNote = !v ? "cleared" : parts.length !== 3 ? "use pointer/bits/hex" : (isNaN(+parts[0]) || isNaN(+parts[1])) ? "pointer and bits must be numbers" : `accepted ptr=${parts[0]} bits=${parts[1]} · sweep to see`;
+    render();
+  });
+  const fader = layer.querySelector("#fader");
+  if (fader) bindFader(fader);
+  if (layer.querySelector("#ptrBody") && !layer._pull) { layer._pull = true; bindPull(layer); }
+}
+function bindFader(el) {
+  const thumbW = 34;
+  const valueAt = x => { const r = el.getBoundingClientRect(); const travel = Math.max(1, r.width - thumbW); return 5 + Math.round(Math.min(1, Math.max(0, (x - r.left - thumbW / 2) / travel)) * 25); };
+  const paint = v => {
+    const f = (v - 5) / 25;
+    el.querySelector(".fill").style.width = `calc((100% - 34px) * ${f} + 34px)`;
+    el.querySelector(".thumb").style.left = `calc((100% - 34px) * ${f})`;
+    el.setAttribute("aria-valuenow", v);
+    const fig = document.getElementById("powerFig"); if (fig) fig.textContent = v;
+  };
+  let dragging = false;
+  el.addEventListener("pointerdown", e => { dragging = true; el.setPointerCapture(e.pointerId); el.classList.remove("ease"); S.power = valueAt(e.clientX); paint(S.power); });
+  el.addEventListener("pointermove", e => { if (!dragging) return; S.power = valueAt(e.clientX); paint(S.power); });
+  const end = () => { if (!dragging) return; dragging = false; el.classList.add("ease"); commitPower(); };
+  el.addEventListener("pointerup", end); el.addEventListener("pointercancel", end);
+  el.addEventListener("keydown", e => {
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") { e.preventDefault(); S.power = Math.max(5, Math.min(30, S.power + (e.key === "ArrowRight" ? 1 : -1))); paint(S.power); clearTimeout(el._t); el._t = setTimeout(commitPower, 500); }
+  });
+}
+function bindPull(layer) {
+  const ptrEl = () => layer.querySelector("#ptr");
+  let startY = null, dy = 0;
+  layer.addEventListener("pointerdown", e => { if (layer.scrollTop <= 0 && !e.target.closest("button,input")) { startY = e.clientY; dy = 0; } });
+  layer.addEventListener("pointermove", e => {
+    if (startY == null) return; dy = Math.max(0, Math.min(110, e.clientY - startY));
+    const ptr = ptrEl(); if (ptr) ptr.style.transform = `translateY(${dy * .7 - 48}px)`;
+  });
+  const end = () => {
+    if (startY == null) return; startY = null;
+    const ptr = ptrEl(); if (!ptr) return;
+    if (dy > 70) { ptr.style.transition = `transform ${T.panel}ms ${EASE_OUT}`; ptr.style.transform = "translateY(16px)"; pulling = true; loadInbound(); }
+    else { ptr.style.transition = `transform ${T.panel}ms ${EASE_OUT}`; ptr.style.transform = "translateY(-48px)"; }
+  };
+  layer.addEventListener("pointerup", end); layer.addEventListener("pointerleave", end);
+}
+let pulling = false;
+function endPull() { pulling = false; }
+
+/* ═══════════════ events ═══════════════ */
+let discardTimer = null;
+const ACT = {
+  toggleLabel() {
+    if (S.sweeping || S.starting) { S.labelNote = "stop the sweep first"; return; }
+    S.labelMode = !S.labelMode; S.labelNote = null;
+    S.labelDiag = S.labelMode ? "imager open · asked 0 · started — waiting for a decode" : "";
+  },
+  setCount(el) { S.countId = el.dataset.id; },
+  pin(el, e) { e.stopPropagation(); const r = S.history.find(h => h.id === +el.dataset.id); r.pinned = !r.pinned; },
+  openSweep(el) { S.openSweep = +el.dataset.id; S.detailQuery = ""; },
+  closeSweep() { S.openSweep = null; },
+  chooseDelivery(el) { S.inbound.chosen = S.inbound.deliveries.find(d => d.deliveryId === el.dataset.id); S.inbound.unannounced = false; S.inbound.receipt = null; S.message = null; S.failed = false; },
+  unannounced() { S.inbound.chosen = null; S.inbound.unannounced = true; S.inbound.receipt = null; S.message = null; S.failed = false; },
+  loadInbound() { loadInbound(); },
+  backToDeliveries() { if (S.sweeping || S.busy) return; S.inbound.chosen = null; S.inbound.unannounced = false; S.message = null; S.failed = false; setTimeout(loadInbound, 0); },
+  discard() {
+    if (S.discardArmed) { S.discardArmed = false; clearTimeout(discardTimer); discardSweep(); return "skip"; }
+    S.discardArmed = true; clearTimeout(discardTimer); discardTimer = setTimeout(() => { S.discardArmed = false; render(); }, 4000);
+  },
+  receiveDelivery() { receiveDelivery(); return "skip"; },
+  commit() { commit(); return "skip"; },
+  closeReceipt() { closeReceipt(); return "skip"; },
+  toggleReceipt(el) {
+    const id = el.dataset.id; const was = S.receiptOpen; S.receiptOpen = was === id ? null : id;
+    // animate in place rather than re-render
+    document.querySelectorAll(".layer:not(.leaving) [data-act=toggleReceipt]").forEach(c => {
+      const open = c.dataset.id === S.receiptOpen;
+      const x = c.querySelector(".expand"); if (x) x.classList.toggle("open", open);
+      const ch = c.querySelector(".chev"); if (ch) ch.classList.toggle("rot180", open);
+    });
+    return "skip";
+  },
+  closeSessions() { S.showSessions = false; S.chosenSession = null; },
+  chooseSession(el) { S.chosenSession = S.sessions.find(s => s.code === el.dataset.code); },
+  joinSession() { setSessionCode(S.chosenSession.code); S.chosenSession = null; S.showSessions = false; },
+  sessionBack() { S.chosenSession = null; },
+  leaveSession() { setSessionCode(""); },
+  newSession() { newSessionCode(); return "skip"; },
+  focus() { S.gen2.tagFocus = !S.gen2.tagFocus; callLog(`setGen2Extensions(tagFocus=${S.gen2.tagFocus}, fastId=${S.gen2.fastId}) -> true`); },
+  fastid() { S.gen2.fastId = !S.gen2.fastId; callLog(`setGen2Extensions(tagFocus=${S.gen2.tagFocus}, fastId=${S.gen2.fastId}) -> true`); },
+  gen2session(el) { S.gen2.session = +el.dataset.s; callLog(`setGen2(session=${el.dataset.s}) -> true`); },
+  startQ(el) { callLog(`setGen2(startQ=${el.dataset.q}) -> true`); },
+  resetRadio() { S.gen2 = { tagFocus: true, fastId: false, session: 1 }; S.skuFilter = ""; S.filterNote = null; callLog("setGen2(defaults) -> true"); },
+  aim(el) { const t = engine && [...engine.seen.keys()][0]; S.filterNote = t ? `aimed at ${t.slice(0, 12)}… (ptr ${el.dataset.p})` : "sweep first — there is no tag to aim at"; },
+  oursOnly() { S.oursOnly = !S.oursOnly; S.skuFilter = ""; callLog(`setFilter(1, 32, 8, A1) -> true`); S.filterNote = S.oursOnly ? "accepted · sweep to see whether it HONOURS it" : "cleared"; },
+  oursOff() { S.oursOnly = false; S.filterNote = "cleared"; },
+  clearFilter() { S.skuFilter = ""; S.filterNote = "cleared"; },
+  marry() {
+    if (S.sweeping || S.starting) return;
+    const orphans = engine ? [...engine.seen.values()].filter(t => t.kind !== "ours").length : 0;
+    if (!orphans) { S.aliasNote = "nothing unnamed in the last sweep"; return; }
+    if (!catalogueReady()) { S.aliasNote = "no catalogue to marry them to"; return; }
+    S.aliasCount += orphans; S.aliasNote = `${orphans} tags married · sweep again`;
+  },
+  forget() { S.aliasCount = 0; S.aliasNote = "all marriages forgotten"; },
+  export() { const n = engine ? engine.seen.size : 0; S.aliasNote = `${n} EPCs written to /storage/emulated/0/Android/data/${NODES[env.app].pkg}/files/epc-sweep.txt`; },
+  bench() { if (S.sweeping || S.starting) return; S.countEveryTag = !S.countEveryTag; S.engineBeliefs = `aliases=${S.aliasCount} bench=${S.countEveryTag} known=${catalogueReady() ? S.catalogue.items : 0}`; },
+  learn() { S.learning = !S.learning; },
+  refreshCatalogue() { refreshCatalogue(); return "skip"; },
+  testConn() {
+    S.setBusy = true; S.setStatus = null; render();
+    setTimeout(() => {
+      S.setBusy = false;
+      if (!S.draft.baseUrl) { S.setFailed = true; S.setStatus = "failed"; }
+      else if (!env.online) { S.setFailed = true; S.setStatus = `Unable to resolve host "${S.draft.baseUrl.replace(/^https?:\/\//, "")}": No address associated with hostname`; }
+      else { S.setFailed = false; S.setStatus = "connected · " + (S.draft.siteId.startsWith("store") ? "store" : S.draft.siteId.startsWith("dc") ? "dc" : "?") + " · postgres"; }
+      render();
+    }, 800);
+    return "skip";
+  },
+  save() { S.settings = { ...S.draft }; S.setFailed = false; S.setStatus = "saved"; refreshCatalogue(); },
+};
+document.addEventListener("click", e => {
+  const tab = e.target.closest("[data-tab]");
+  if (tab) { selectTab(tab.dataset.tab); return; }
+  const el = e.target.closest("[data-act]");
+  if (el && el.closest(".app")) {
+    if (el.disabled) return;
+    const fn = ACT[el.dataset.act];
+    if (fn && fn(el, e) !== "skip") render();
+  }
+});
+
+/* trigger: the hardware button belongs to the sweep mode on top */
+function pullTrigger(code) {
+  if (!splashGone) return;
+  if (S.learning && S.tab === "SETTINGS") { S.settings.triggerKeyCode = code; S.draft.triggerKeyCode = code; S.learning = false; render(); return; }
+  const t = TABS.find(x => x.id === S.tab);
+  const armed = t.mode != null && !S.showSessions;
+  if (armed) toggleSweep();
+}
+const trig = document.getElementById("trigger");
+trig.addEventListener("click", () => pullTrigger(293));
+document.addEventListener("keydown", e => {
+  if (e.code !== "Space" || e.repeat) return;
+  const tg = e.target;
+  if (tg && (tg.tagName === "INPUT" || tg.tagName === "TEXTAREA" || tg.closest(".panel"))) return;
+  e.preventDefault(); trig.classList.add("down"); pullTrigger(62);
+});
+document.addEventListener("keyup", e => { if (e.code === "Space") trig.classList.remove("down"); });
+
+/* ═══════════════ splash ═══════════════ */
+let splashGone = false;
+function runSplash() {
+  const sp = document.getElementById("splash");
+  splashGone = false; sp.classList.remove("gone");
+  const ready = 600 + Math.random() * 600; // the radio opening beside the UI
+  setTimeout(() => { sp.classList.add("gone"); splashGone = true; }, Math.max(900, ready));
+}
+
+/* ═══════════════ state switcher ═══════════════ */
+const PANEL = [
+  ["app", "App", [["dc", "DC"], ["store", "Store"]]],
+  ["bench", "Build", [[true, "debug (Lab)"], [false, "release"]]],
+  ["setelan", "Setelan", [["filled", "filled"], ["empty", "empty"]]],
+  ["online", "Network", [[true, "online"], [false, "offline"]]],
+  ["nextStep", "Second step", [["ok", "ok"], ["fail", "fails"]]],
+  ["receive", "Receive delivery", [["ok", "ok"], ["conflict", "409"], ["gone", "404"]]],
+  ["deliveries", "Deliveries", [["some", "3"], ["none", "none"], ["404", "404"]]],
+  ["catalogue", "Catalogue", [["ready", "gen 42"], ["none", "none"]]],
+  ["clock", "Device clock", [["ok", "ok"], ["wrong", "wrong"]]],
+];
+function renderPanel() {
+  document.getElementById("pkg").textContent = `${NODES[env.app].pkg} · ${NODES[env.app].label}`;
+  document.getElementById("panelRows").innerHTML = PANEL.map(([k, label, opts]) => `<div class="prow"><span>${label}</span><span class="seg">${opts.map(([v, t]) => `<button class="${env[k] === v ? "on" : ""}" data-env="${k}" data-v="${String(v)}">${t}</button>`).join("")}</span></div>`).join("");
+}
+document.querySelector(".panel").addEventListener("click", e => {
+  const b = e.target.closest("[data-env]");
+  if (b) {
+    const k = b.dataset.env; let v = b.dataset.v; if (v === "true") v = true; else if (v === "false") v = false;
+    env[k] = v;
+    if (k === "app" || k === "setelan") {
+      if (S.sweeping) stopSweep();
+      fillSettings(); engine = null; S.sweepOpen = false; S.counts = emptyCounts(); S.lines = []; S.message = null; S.failed = false;
+      S.inbound = { deliveries: [], loaded: false, loading: false, note: null, chosen: null, unannounced: false, receipt: null };
+      S.countsLoaded = false; S.countList = []; S.countId = ""; S.sessions = []; S.sessionsLoaded = false;
+      DELIVERIES = makeDeliveries();
+      if (S.tab === "SETTINGS") enterSettings();
+      if (S.mode === "RECEIVING") enterReceiving();
+    }
+    if (k === "bench" && !v && S.tab === "LAB") { S.prevTab = S.tab; S.tab = "SETTINGS"; enterSettings(); }
+    if (k === "online" && v) drainOutbox();
+    if (k === "clock" && v === "ok") drainOutbox();
+    if (k === "deliveries") { S.inbound.chosen = null; S.inbound.unannounced = false; S.inbound.receipt = null; if (isStoreReceiving()) loadInbound(); }
+    if (k === "online") { S.countsLoaded = false; S.countList = []; }
+    if (S.mode === "COUNT" && !S.countsLoaded) loadCounts();
+    renderPanel(); render(); return;
+  }
+  const p = e.target.closest("[data-p]");
+  if (!p) return;
+  if (p.dataset.p === "splash") runSplash();
+  if (p.dataset.p === "sessions") { if (S.sweeping) stopSweep(); if (S.tab === "LAB" || S.tab === "SETTINGS") { S.prevTab = S.tab; S.tab = TABS.find(t => t.mode === S.mode).id; } S.showSessions = true; S.chosenSession = null; S.sessionsLoaded = false; loadSessions(); render(); }
+  if (p.dataset.p === "clearHistory") { S.history = []; S.openSweep = null; render(); }
+  if (p.dataset.p === "seedHistory") { seedHistory(); render(); }
+});
+function seedHistory() {
+  const mkLines = (seed, n) => {
+    const r = seeded(seed), m = new Map();
+    for (let i = 0; i < n; i++) { const sku = SKUS[Math.floor(Math.pow(r(), 1.5) * SKUS.length)]; m.set(sku, (m.get(sku) || 0) + 1); }
+    const lines = [...m.entries()].map(([sku, q]) => ({ skuCode: sku, qty: q, epcs: [], identity: { name: CATALOG[sku].name } }));
+    lines.push({ skuCode: UNKNOWN_SKUS[0], qty: 2, epcs: [], identity: null });
+    return lines.sort((a, b) => b.qty - a.qty);
+  };
+  const now = Date.now();
+  [[3 * 3600e3, "SCAN", 21, 184], [26 * 3600e3, "COUNT", 22, 412], [50 * 3600e3, "PACKING", 23, 63]].forEach(([ago, mode, seed, n]) => {
+    const lines = mkLines(seed, n);
+    const known = lines.filter(l => l.identity);
+    S.history.push({ id: S.nextId++, endedAt: new Date(now - ago), mode, units: known.reduce((s, l) => s + l.qty, 0), skus: known.length,
+      articles: new Set(known.map(l => CATALOG[l.skuCode].article)).size, unknown: 1, foreign: 3, lines, pinned: mode === "COUNT" });
+  });
+}
+
+/* clock in the status bar */
+function tickClock() { const d = new Date(); document.getElementById("clock").textContent = sweepClock(d); }
+setInterval(tickClock, 15000); tickClock();
+window.addEventListener("resize", renderTabs);
+
+/* boot */
+fillSettings(); seedHistory(); renderPanel(); render(); runSplash();
+</script>
+</body>
+</html>

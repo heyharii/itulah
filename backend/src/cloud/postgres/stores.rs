@@ -174,9 +174,16 @@ pub struct StoreSummary {
     pub unit_id: String,
     pub code: String,
     pub name: String,
-    /// `GETTING_READY`, `OPEN` or `CLOSED`, derived (0630).
+    /// `GETTING_READY`, `OPEN`, `STOPPED` or `CLOSED`, derived (0630, 0990).
+    /// The hub says "Removed" for `CLOSED`.
     pub status: String,
     pub opened_at: Option<DateTime<Utc>>,
+    /// Head office's stop (0990): while the store is stopped, and kept once it
+    /// is removed, so its page still says why.
+    pub stop: Option<StoreStop>,
+    /// When head office removed the store for good, and who (0990).
+    pub removed_at: Option<DateTime<Utc>>,
+    pub removed_by: Option<String>,
     /// The store's shop. Absent only for a store unit with no premises yet.
     pub site_id: Option<String>,
     pub site_code: Option<String>,
@@ -187,6 +194,15 @@ pub struct StoreSummary {
     pub readiness: StoreReadiness,
     pub server: StoreServer,
     pub tills: StoreTills,
+}
+
+/// Head office stopped a store's tills (0990): when, who, and why.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct StoreStop {
+    pub at: DateTime<Utc>,
+    pub by: String,
+    pub reason: String,
 }
 
 /// One thing that must be true before a store opens.
@@ -292,6 +308,11 @@ struct StoreFacts {
     name: String,
     unit_status: String,
     opened_at: Option<DateTime<Utc>>,
+    stopped_at: Option<DateTime<Utc>>,
+    stopped_by: Option<String>,
+    stopped_reason: Option<String>,
+    closed_at: Option<DateTime<Utc>>,
+    closed_by: Option<String>,
     site_id: Option<String>,
     site_code: Option<String>,
     city: Option<String>,
@@ -351,6 +372,7 @@ struct StoreFacts {
 const STORE_FACTS: &str = "
     WITH store AS (
         SELECT u.id AS unit_id, u.code, u.name, u.status AS unit_status, u.opened_at,
+               u.stopped_at, u.stopped_by, u.stopped_reason, u.closed_at, u.closed_by,
                (now() AT TIME ZONE unit_business_timezone(u.id))::date AS today,
                shop.id AS site_id, shop.code AS site_code, shop.city,
                COALESCE(shop.till_count, 0) AS till_seats,
@@ -368,6 +390,7 @@ const STORE_FACTS: &str = "
            AND ($1::text IS NULL OR u.id = $1)
     )
     SELECT st.unit_id, st.code, st.name, st.unit_status, st.opened_at,
+           st.stopped_at, st.stopped_by, st.stopped_reason, st.closed_at, st.closed_by,
            st.site_id, st.site_code, st.city, st.timezone, st.till_seats,
            pic.employee_id AS pic_employee_id, pic.pic_name, pic.pic_code,
            (node.origin_id IS NOT NULL AND cred.revoked_at IS NULL) AS has_node,
@@ -538,6 +561,11 @@ async fn store_facts(
                 name: row.try_get("name")?,
                 unit_status: row.try_get("unit_status")?,
                 opened_at: row.try_get("opened_at")?,
+                stopped_at: row.try_get("stopped_at")?,
+                stopped_by: row.try_get("stopped_by")?,
+                stopped_reason: row.try_get("stopped_reason")?,
+                closed_at: row.try_get("closed_at")?,
+                closed_by: row.try_get("closed_by")?,
                 site_id: row.try_get("site_id")?,
                 site_code: row.try_get("site_code")?,
                 city: row.try_get("city")?,
@@ -1068,6 +1096,8 @@ fn judge(facts: &StoreFacts, now: DateTime<Utc>) -> Vec<Judged> {
 fn status_of(facts: &StoreFacts) -> &'static str {
     if facts.unit_status == "CLOSED" {
         "CLOSED"
+    } else if facts.stopped_at.is_some() {
+        "STOPPED"
     } else if facts.opened_at.is_some() {
         "OPEN"
     } else {
@@ -1102,6 +1132,16 @@ fn summary_of(facts: &StoreFacts, judged: &[Judged], now: DateTime<Utc>) -> Stor
         name: facts.name.clone(),
         status: status_of(facts).into(),
         opened_at: facts.opened_at,
+        stop: match (facts.stopped_at, &facts.stopped_by, &facts.stopped_reason) {
+            (Some(at), Some(by), Some(reason)) => Some(StoreStop {
+                at,
+                by: by.clone(),
+                reason: reason.clone(),
+            }),
+            _ => None,
+        },
+        removed_at: facts.closed_at,
+        removed_by: facts.closed_by.clone(),
         site_id: facts.site_id.clone(),
         site_code: facts.site_code.clone(),
         city: facts.city.clone(),
@@ -1271,6 +1311,11 @@ pub async fn open_store(
         "CLOSED" => {
             return Err(AppError::Conflict(format!(
                 "{label} is closed; a closed store is not opened again from here"
+            )))
+        }
+        "STOPPED" => {
+            return Err(AppError::Conflict(format!(
+                "{label} is stopped; resume it rather than opening it again"
             )))
         }
         "OPEN" => {
@@ -1510,25 +1555,26 @@ pub async fn install_store_server(
 /// enrolment that let the machine in no longer stands for a server. Then a
 /// fresh code is issued exactly as `install_store_server` does, and returned.
 ///
+/// A removed store (`CLOSED`) is let go the same way, and that is the end of
+/// it: no code is issued, since no server is installed there again, and the
+/// answer is `None`. Removing leaves the server connected on purpose, so the
+/// sales it has not sent yet still arrive; this is the step after them.
+///
 /// Idempotent: with no machine connected there is nothing to revoke and the
-/// answer is still a fresh code. The sales the old machine had not sent are
-/// not lost — they are on its disk, and the replacement's approval refuses
-/// the rollover while head office still lacks some of them
-/// (`register_origin_digest_tx`), which is the moment somebody decides.
+/// answer is still a fresh code (or `None` for a closed store). The sales the
+/// old machine had not sent are not lost — they are on its disk, and the
+/// replacement's approval refuses the rollover while head office still lacks
+/// some of them (`register_origin_digest_tx`), which is the moment somebody
+/// decides.
 pub async fn disconnect_store_server(
     pool: &PgPool,
     unit_id: &str,
     actor: &str,
-) -> Result<StoreServerInstall, AppError> {
+) -> Result<Option<StoreServerInstall>, AppError> {
     let mut connection = pool.acquire().await?;
     let facts = one_store(&mut connection, unit_id).await?;
     drop(connection);
-    if status_of(&facts) == "CLOSED" {
-        return Err(AppError::Conflict(format!(
-            "{} ({}) is closed; its server is not installed again from here",
-            facts.name, facts.code
-        )));
-    }
+    let closed = status_of(&facts) == "CLOSED";
     let site_id = facts.site_id.clone().ok_or_else(|| {
         AppError::Conflict(format!(
             "{} ({}) has no shop yet, so there is no server to disconnect",
@@ -1580,9 +1626,13 @@ pub async fn disconnect_store_server(
         unit = %unit_id,
         %actor,
         machines = revoked.len(),
+        closed,
         "a store's server was disconnected; its key no longer works"
     );
-    install_store_server(pool, unit_id, actor).await
+    if closed {
+        return Ok(None);
+    }
+    install_store_server(pool, unit_id, actor).await.map(Some)
 }
 
 #[cfg(test)]
@@ -1596,6 +1646,11 @@ mod tests {
             name: "Tegal".into(),
             unit_status: "ACTIVE".into(),
             opened_at: None,
+            stopped_at: None,
+            stopped_by: None,
+            stopped_reason: None,
+            closed_at: None,
+            closed_by: None,
             site_id: Some("store-c014".into()),
             site_code: Some("C014-TOKO".into()),
             city: Some("Tegal".into()),

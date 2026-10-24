@@ -527,10 +527,12 @@ export function SuratJalanPrint({
   )
 }
 
-/// One trip's surat jalan: A4, one document for the whole truck. Letterhead,
-/// the trip's number and note, then each shop's cartons with a subtotal, and
-/// the grand total. Each shop keeps its own QR, which opens its own cartons
-/// at receiving.
+/// One trip's surat jalan, printed once (owner, 23 Oct 2026: "both — page
+/// per store and one for all"): the first page is the whole truck — every
+/// store's surat jalan number, its koli and pieces, the grand total, signed by
+/// the sender and the driver; then one page per store, which stays at that
+/// store — its own QR (scanned at receiving), its koli with a subtotal, and
+/// the sender, driver and receiver sign it.
 export function TripSuratJalanPaper({
   number,
   details,
@@ -545,7 +547,6 @@ export function TripSuratJalanPaper({
   paper?: Paper
 }) {
   const shop = useShopName()
-  const noteText = tripNote?.trim() ?? ""
   const stores = [...details].sort((left, right) =>
     shop(left.shipment.destination_store_id).localeCompare(
       shop(right.shipment.destination_store_id)
@@ -556,121 +557,199 @@ export function TripSuratJalanPaper({
   const totalKoli = stores.reduce((sum, one) => sum + one.koli.length, 0)
   const totalPieces = stores.reduce((sum, one) => sum + piecesOf(one), 0)
   return (
-    <div className={`${PAPER} ${suratJalanBox(paper)}`}>
-      <div className="mb-3.5 flex items-start justify-between gap-4 border-b-2 border-[#111] pb-3.5">
-        <div>
-          <div className="text-[16px] font-bold tracking-[0.04em] uppercase">
-            {COMPANY.name}
-          </div>
-          <div>{COMPANY.address}</div>
-          {COMPANY.phone !== "" && <div>{COMPANY.phone}</div>}
-        </div>
-        <div className="text-right">
-          <div className="text-[24px] leading-[28px] font-bold tracking-[0.02em]">
-            SURAT JALAN
-          </div>
-          <div className="mt-1 font-mono font-semibold">{number}</div>
-        </div>
+    <>
+      <div className={`${PAPER} ${suratJalanBox(paper)} flex flex-col`}>
+        <TripLetterhead number={number} />
+        <dl className="mb-4 grid grid-cols-[auto_1fr] gap-x-3.5 gap-y-1">
+          <dt className="text-[#555]">Dari</dt>
+          <dd className="font-semibold">{from}</dd>
+          <dt className="text-[#555]">Kepada</dt>
+          <dd>{count(stores.length)} toko</dd>
+          <dt className="text-[#555]">Tanggal</dt>
+          <dd>{today()}</dd>
+        </dl>
+        <TripNote text={tripNote} />
+        <table className="w-full border-collapse">
+          <thead>
+            <tr className="border-b-[1.5px] border-[#111] text-left">
+              <th className="w-11 px-1.5 py-1.5 font-semibold">No</th>
+              <th className="px-1.5 py-1.5 font-semibold">Toko</th>
+              <th className="px-1.5 py-1.5 font-semibold">No. surat jalan</th>
+              <th className="px-1.5 py-1.5 text-right font-semibold">Koli</th>
+              <th className="px-1.5 py-1.5 text-right font-semibold">Jumlah</th>
+            </tr>
+          </thead>
+          <tbody>
+            {stores.map((detail, index) => (
+              <tr
+                key={detail.shipment.shipment_id}
+                className="border-b border-[#ccc]"
+              >
+                <td className="px-1.5 py-1.5">{index + 1}</td>
+                <td className="px-1.5 py-1.5 font-semibold">
+                  {shop(detail.shipment.destination_store_id)}
+                </td>
+                <td className="px-1.5 py-1.5 font-mono">
+                  {detail.shipment.shipment_number}
+                </td>
+                <td className="px-1.5 py-1.5 text-right">
+                  {count(detail.koli.length)}
+                </td>
+                <td className="px-1.5 py-1.5 text-right">
+                  {quantity(piecesOf(detail))}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="border-t-[1.5px] border-[#111] font-bold">
+              <td className="px-1.5 py-1.5" />
+              <td className="px-1.5 py-1.5" colSpan={2}>
+                Total {count(stores.length)} toko
+              </td>
+              <td className="px-1.5 py-1.5 text-right">{count(totalKoli)}</td>
+              <td className="px-1.5 py-1.5 text-right">
+                {quantity(totalPieces)}
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+        <p className="mt-4 text-[#444]">
+          Surat jalan tiap toko ada di halaman berikutnya; serahkan satu
+          halaman ke setiap toko.
+        </p>
+        <Signatures roles={["Pengirim", "Sopir"]} />
       </div>
-      <dl className="mb-4 grid grid-cols-[auto_1fr] gap-x-3.5 gap-y-1">
-        <dt className="text-[#555]">Dari</dt>
-        <dd className="font-semibold">{from}</dd>
-        <dt className="text-[#555]">Kepada</dt>
-        <dd className={stores.length === 1 ? "font-semibold" : undefined}>
-          {stores.length === 1
-            ? shop(stores[0]!.shipment.destination_store_id)
-            : `${count(stores.length)} toko`}
-        </dd>
-        <dt className="text-[#555]">Tanggal</dt>
-        <dd>{today()}</dd>
-      </dl>
-      {noteText !== "" && (
-        <div className="mb-5">
-          <div className="text-[#555]">Data perjalanan</div>
-          <div className="mt-1 border-b border-dotted border-[#777] pb-1 whitespace-pre-wrap">
-            {noteText}
-          </div>
-        </div>
-      )}
-      {stores.map((detail) => (
-        <TripStoreSection
+      {stores.map((detail, index) => (
+        <div
           key={detail.shipment.shipment_id}
-          detail={detail}
-          name={shop(detail.shipment.destination_store_id)}
-          pieces={piecesOf(detail)}
-        />
+          className={`${PAPER} ${suratJalanBox(paper)} flex flex-col`}
+        >
+          <TripLetterhead number={detail.shipment.shipment_number} />
+          <div className="mb-5 flex items-start justify-between gap-6">
+            <dl className="grid grid-cols-[auto_1fr] gap-x-3.5 gap-y-1">
+              <dt className="text-[#555]">Dari</dt>
+              <dd className="font-semibold">{from}</dd>
+              <dt className="text-[#555]">Kepada</dt>
+              <dd className="text-[16px] font-bold">
+                {shop(detail.shipment.destination_store_id)}
+              </dd>
+              <dt className="text-[#555]">Tanggal</dt>
+              <dd>{today()}</dd>
+              <dt className="text-[#555]">Trip</dt>
+              <dd>
+                <span className="font-mono">{number}</span> · toko{" "}
+                {index + 1} dari {stores.length}
+              </dd>
+            </dl>
+            <Qr svg={detail.qr_svg} size="size-[29mm]" />
+          </div>
+          <TripNote text={tripNote} />
+          <table className="w-full border-collapse">
+            <thead>
+              <tr className="border-b-[1.5px] border-[#111] text-left">
+                <th className="w-11 px-1.5 py-1.5 font-semibold">No</th>
+                <th className="px-1.5 py-1.5 font-semibold">
+                  No. koli / packing list
+                </th>
+                <th className="px-1.5 py-1.5 text-right font-semibold">
+                  Jumlah
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {detail.koli.map((manifest, row) => (
+                <tr
+                  key={manifest.koli.koli_id}
+                  className="border-b border-[#ccc]"
+                >
+                  <td className="px-1.5 py-1.5">{row + 1}</td>
+                  <td className="px-1.5 py-1.5 font-mono">
+                    {manifest.koli.koli_number}
+                  </td>
+                  <td className="px-1.5 py-1.5 text-right">
+                    {quantity(manifest.koli.unit_count)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t-[1.5px] border-[#111] font-bold">
+                <td className="px-1.5 py-1.5" />
+                <td className="px-1.5 py-1.5">
+                  Subtotal {count(detail.koli.length)} koli
+                </td>
+                <td className="px-1.5 py-1.5 text-right">
+                  {quantity(piecesOf(detail))}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+          <p className="mt-4 text-[#444]">
+            Rincian isi setiap koli ada pada packing list di dalam koli. Mohon
+            periksa jumlah koli dan kondisi segel saat menerima; penerimaan
+            dicatat di aplikasi toko.
+          </p>
+          <Signatures roles={["Pengirim", "Sopir", "Penerima"]} />
+        </div>
       ))}
-      <div className="flex justify-between border-y-2 border-[#111] px-1.5 py-2 font-bold">
-        <span>
-          Total {count(stores.length)} toko · {count(totalKoli)} koli
-        </span>
-        <span>{quantity(totalPieces)}</span>
+    </>
+  )
+}
+
+/// The head of every page of a trip's surat jalan: the company, and the
+/// number the page is filed under.
+function TripLetterhead({ number }: { number: string }) {
+  return (
+    <div className="mb-3.5 flex items-start justify-between gap-4 border-b-2 border-[#111] pb-3.5">
+      <div>
+        <div className="text-[16px] font-bold tracking-[0.04em] uppercase">
+          {COMPANY.name}
+        </div>
+        <div>{COMPANY.address}</div>
+        {COMPANY.phone !== "" && <div>{COMPANY.phone}</div>}
       </div>
-      <p className="mt-4 text-[#444]">
-        Rincian isi setiap koli ada pada packing list di dalam koli. Mohon
-        periksa jumlah koli dan kondisi segel saat menerima; penerimaan
-        dicatat di aplikasi toko.
-      </p>
+      <div className="text-right">
+        <div className="text-[24px] leading-[28px] font-bold tracking-[0.02em]">
+          SURAT JALAN
+        </div>
+        <div className="mt-1 font-mono font-semibold">{number}</div>
+      </div>
     </div>
   )
 }
 
-/// One shop's block on a trip's surat jalan: its name and QR, its cartons,
-/// its subtotal.
-function TripStoreSection({
-  detail,
-  name,
-  pieces,
-}: {
-  detail: ShipmentDetail
-  name: string
-  pieces: number
-}) {
+/// The trip's free-text note (plate, driver), when there is one.
+function TripNote({ text }: { text: string | null }) {
+  const note = text?.trim() ?? ""
+  if (note === "") return null
   return (
-    <section className="mb-5 break-inside-avoid">
-      <div className="flex items-end justify-between gap-4 pb-1.5">
-        <div>
-          <div className="text-[16px] font-bold">{name}</div>
-          <div className="font-mono text-[#555]">
-            {detail.shipment.shipment_number}
-          </div>
-        </div>
-        <Qr svg={detail.qr_svg} size="size-[18mm]" />
+    <div className="mb-5">
+      <div className="text-[#555]">Data perjalanan</div>
+      <div className="mt-1 border-b border-dotted border-[#777] pb-1 whitespace-pre-wrap">
+        {note}
       </div>
-      <table className="w-full border-collapse">
-        <thead>
-          <tr className="border-b-[1.5px] border-[#111] text-left">
-            <th className="w-11 px-1.5 py-1.5 font-semibold">No</th>
-            <th className="px-1.5 py-1.5 font-semibold">
-              No. koli / packing list
-            </th>
-            <th className="px-1.5 py-1.5 text-right font-semibold">Jumlah</th>
-          </tr>
-        </thead>
-        <tbody>
-          {detail.koli.map((manifest, index) => (
-            <tr key={manifest.koli.koli_id} className="border-b border-[#ccc]">
-              <td className="px-1.5 py-1.5">{index + 1}</td>
-              <td className="px-1.5 py-1.5 font-mono">
-                {manifest.koli.koli_number}
-              </td>
-              <td className="px-1.5 py-1.5 text-right">
-                {quantity(manifest.koli.unit_count)}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-        <tfoot>
-          <tr className="font-semibold">
-            <td className="px-1.5 py-1.5" />
-            <td className="px-1.5 py-1.5">
-              Subtotal {count(detail.koli.length)} koli
-            </td>
-            <td className="px-1.5 py-1.5 text-right">{quantity(pieces)}</td>
-          </tr>
-        </tfoot>
-      </table>
-    </section>
+    </div>
+  )
+}
+
+/// Signature boxes at the foot of the page: name and date under each.
+function Signatures({ roles }: { roles: readonly string[] }) {
+  return (
+    <div
+      className="mt-auto grid gap-6 pt-10 break-inside-avoid"
+      style={{ gridTemplateColumns: `repeat(${roles.length}, minmax(0, 1fr))` }}
+    >
+      {roles.map((role) => (
+        <div key={role} className="text-center">
+          <div className="font-semibold">{role}</div>
+          <div className="mt-[22mm] border-b border-[#111]" />
+          <div className="mt-1 text-left text-[#555]">Nama</div>
+          <div className="mt-3 border-b border-dotted border-[#777]" />
+          <div className="mt-1 text-left text-[#555]">Tanggal / jam</div>
+        </div>
+      ))}
+    </div>
   )
 }
 
@@ -717,7 +796,7 @@ export function TripSuratJalanPrint({
       portrait={paperShape(paper).portrait}
       ready={ready}
       title="Delivery note"
-      note={`${paperShape(paper).size} ${paperShape(paper).portrait ? "portrait" : "landscape"} · one per trip${shipments.length > 1 ? ` · ${shipments.length} stores` : ""}`}
+      note={`${paperShape(paper).size} ${paperShape(paper).portrait ? "portrait" : "landscape"} · trip summary + ${shipments.length === 1 ? "1 store page" : `${shipments.length} store pages`}`}
     >
       {ready ? (
         <TripSuratJalanPaper

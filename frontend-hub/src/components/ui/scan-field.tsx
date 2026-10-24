@@ -30,6 +30,7 @@ export function ScanField({
   pending = false,
   hint,
   problem,
+  placeholder,
   autoFocus = true,
   onSubmit,
   className,
@@ -47,6 +48,8 @@ export function ScanField({
   /// Said here, under the field, in `{bad}`, and the box turns red with it:
   /// somebody scanning forty tags looks up at the colour, not the words.
   problem?: React.ReactNode
+  /// What the empty field asks for, and its name for a screen reader.
+  placeholder?: string
   autoFocus?: boolean
   /// Called with the trimmed value. The field is cleared for you.
   onSubmit: (value: string) => void
@@ -87,6 +90,8 @@ export function ScanField({
           autoCorrect="off"
           autoComplete="off"
           spellCheck={false}
+          placeholder={placeholder}
+          aria-label={placeholder}
           aria-invalid={refused ? true : undefined}
           aria-describedby={under}
           className={cn(

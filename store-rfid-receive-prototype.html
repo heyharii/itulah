@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RFID Receive</title>
+<style>
+@font-face{font-family:Inter;src:url('/frontend-hub/node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2') format('woff2');font-weight:100 900;font-display:swap}
+:root{--ink:#1d1d1f;--body:#3a3a3c;--mute:#6e6e73;--line:#ececf0;--soft:#f5f5f7;--blue:#2563eb;--blue-bg:#eaf1ff;--green:#1f8a3b;--green-bg:#e8f6ec;--amber:#b25e00;--amber-bg:#fff4e0;--red:#d70015;--red-bg:#fdecee;
+ --ease:cubic-bezier(.23,1,.32,1)}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;font:15px/1.45 Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:var(--ink);background:#e9e9ed;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
+.num{font-variant-numeric:tabular-nums}
+svg{flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+/* chrome: which state */
+.chrome{display:flex;justify-content:center;gap:4px;padding:14px 16px 0}
+.chrome button{height:34px;padding:0 14px;border-radius:9px;color:var(--mute);font-weight:500;background:#fff;box-shadow:0 0 0 1px rgb(0 0 0 / 6%)}
+.chrome button[aria-pressed=true]{background:var(--ink);color:#fff}
+
+/* the handheld: a Chainway-size screen */
+.device{width:390px;max-width:calc(100vw - 32px);height:780px;margin:16px auto 32px;background:#fff;border-radius:28px;box-shadow:0 0 0 10px #1d1d1f,0 30px 80px rgb(0 0 0 / 25%);overflow:hidden;display:flex;flex-direction:column;position:relative}
+.top{padding:18px 18px 12px;border-bottom:1px solid var(--line)}
+.crumb{color:var(--mute)}
+.title{font-size:17px;font-weight:650;margin-top:2px}
+.body{flex:1;overflow:auto;padding:14px 18px 18px}
+.foot{padding:12px 18px 22px;border-top:1px solid var(--line);display:flex;gap:10px}
+.btn{height:48px;border-radius:12px;padding:0 18px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;gap:8px;transition:scale .12s var(--ease),background-color .15s}
+.btn:active{scale:.97}
+.primary{background:var(--blue);color:#fff;flex:1}
+.primary[disabled]{opacity:.45;pointer-events:none}
+.tint{background:var(--blue-bg);color:var(--blue)}
+.tint-bad{background:var(--red-bg);color:var(--red)}
+
+/* list of deliveries */
+.card{border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;align-items:center;gap:12px;margin-bottom:10px;width:100%;text-align:left}
+.card .grow{flex:1;min-width:0}
+.card b{font-weight:600}
+.card .sub{color:var(--mute)}
+.pill{padding:2px 9px;border-radius:999px;font-weight:500;white-space:nowrap}
+.pill.blue{background:var(--blue-bg);color:var(--blue)}
+.pill.green{background:var(--green-bg);color:var(--green)}
+
+/* the scan figure */
+.big{display:flex;flex-direction:column;align-items:center;padding:6px 0 14px}
+.ring{position:relative;width:168px;height:168px;border-radius:50%;display:grid;place-items:center;background:var(--soft)}
+.ring.live::before,.ring.live::after{content:"";position:absolute;inset:0;border-radius:50%;border:2px solid var(--blue);opacity:0;animation:wave 1.6s var(--ease) infinite}
+.ring.live::after{animation-delay:.8s}
+@keyframes wave{0%{scale:.85;opacity:.55}100%{scale:1.25;opacity:0}}
+@media (prefers-reduced-motion:reduce){.ring.live::before,.ring.live::after{animation:none}}
+.fig{font-size:44px;font-weight:700;line-height:1}
+.of{color:var(--mute);margin-top:4px}
+.state{margin-top:12px;font-weight:600}
+.state.live{color:var(--blue)}
+.state.ok{color:var(--green)}
+.state.warn{color:var(--amber)}
+
+/* rows per article */
+.sec{margin:14px 0 6px;font-weight:600}
+.row{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--line)}
+.row:first-of-type{border-top:0}
+.ph{width:42px;height:42px;border-radius:10px;background:var(--soft);display:grid;place-items:center;color:var(--mute)}
+.row .grow{flex:1;min-width:0}
+.row .name{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .code{color:var(--mute)}
+.count{font-weight:600;white-space:nowrap}
+.count .of{display:inline;margin:0;font-weight:400}
+.count.ok{color:var(--green)}
+.count.short{color:var(--ink)}
+.count.extra{color:var(--amber)}
+.tick{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;background:var(--green);color:#fff}
+.tick svg{width:13px;height:13px;stroke-width:3}
+.bump{animation:bump .35s var(--ease)}
+@keyframes bump{0%{scale:1}40%{scale:1.12}100%{scale:1}}
+.note{padding:10px 12px;border-radius:12px;background:var(--amber-bg);color:var(--amber);margin-top:10px}
+.facts{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:4px 0 12px}
+.fact{border-radius:12px;background:var(--soft);padding:10px}
+.fact span{display:block;color:var(--mute)}
+.fact b{font-size:20px}
+.trigger{position:absolute;right:-10px;top:300px;width:6px;height:70px;border-radius:3px;background:#3a3a3c}
+.hint{color:var(--mute);text-align:center;margin-top:6px}
+</style>
+</head>
+<body>
+<div class="chrome" role="group" aria-label="Step">
+  <button data-s="list">1 · Deliveries</button>
+  <button data-s="scan">2 · Scan</button>
+  <button data-s="done">3 · Done</button>
+</div>
+
+<div class="device">
+  <span class="trigger" title="The handheld's trigger"></span>
+  <div class="top">
+    <div class="crumb" id="crumb">C001 · Cikupa</div>
+    <div class="title" id="title">Receive</div>
+  </div>
+  <div class="body" id="body"></div>
+  <div class="foot" id="foot"></div>
+</div>
+
+<script>
+const ART = [
+  { name: "87167 Jaket · HITAM · M", code: "00000004·003", sent: 10 },
+  { name: "87167 Jaket · NAVY · M", code: "00000004·103", sent: 10 },
+  { name: "87175 Jaket · HITAM · M", code: "00000003·003", sent: 10 },
+  { name: "87175 Jaket · NAVY · M", code: "00000003·103", sent: 10 },
+]
+const SENT = ART.reduce((t, a) => t + a.sent, 0)
+let got = ART.map(() => 0)
+let extra = 0
+let timer = null
+let step = "list"
+const $ = (id) => document.getElementById(id)
+const shirt = '<svg width="22" height="22" viewBox="0 0 24 24"><path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z"/></svg>'
+const check = '<svg viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></svg>'
+const radio = '<svg width="20" height="20" viewBox="0 0 24 24"><path d="M4.9 19.1a10 10 0 0 1 0-14.2M7.8 16.2a6 6 0 0 1 0-8.4M16.2 7.8a6 6 0 0 1 0 8.4M19.1 4.9a10 10 0 0 1 0 14.2"/><circle cx="12" cy="12" r="2"/></svg>'
+
+function list() {
+  $("title").textContent = "Receive"
+  $("crumb").textContent = "C001 · Cikupa"
+  $("body").innerHTML = `
+    <button class="card" onclick="go('scan')">
+      <div class="ph">${shirt}</div>
+      <div class="grow"><b>SJ-HO-GUDANG-000001</b><div class="sub num">4 koli · ${SENT} pcs · left 10:32</div></div>
+      <span class="pill blue">In transit</span>
+    </button>
+    <div class="card" style="opacity:.6">
+      <div class="ph">${shirt}</div>
+      <div class="grow"><b>SJ-HO-GUDANG-000000</b><div class="sub num">2 koli · 20 pcs · 20 Oct</div></div>
+      <span class="pill green">Received</span>
+    </div>`
+  $("foot").innerHTML = ""
+}
+
+function total() { return got.reduce((t, n) => t + n, 0) }
+
+function scan() {
+  const n = total()
+  const live = timer !== null
+  const full = n === SENT
+  $("title").textContent = "Scan delivery"
+  $("crumb").textContent = "SJ-HO-GUDANG-000001 · 4 koli"
+  const state = live ? '<div class="state live">Scanning… hold the trigger</div>'
+    : full ? '<div class="state ok">Everything is here</div>'
+    : n === 0 ? '<div class="hint">Press the trigger and walk past the koli</div>'
+    : `<div class="state warn">${SENT - n} pcs not found yet</div>`
+  $("body").innerHTML = `
+    <div class="big">
+      <div class="ring ${live ? "live" : ""}"><div style="text-align:center"><div class="fig num" id="fig">${n}</div><div class="of num">of ${SENT} pcs</div></div></div>
+      ${state}
+    </div>
+    <div class="sec">Articles</div>
+    ${ART.map((a, i) => {
+      const k = got[i]
+      const cls = k === a.sent ? "ok" : "short"
+      return `<div class="row"><div class="ph">${shirt}</div><div class="grow"><div class="name">${a.name}</div><div class="code num">${a.code}</div></div>
+        ${k === a.sent ? `<span class="tick">${check}</span>` : ""}
+        <span class="count num ${cls}" id="c${i}">${k}<span class="of"> / ${a.sent}</span></span></div>`
+    }).join("")}
+    ${extra > 0 ? `<div class="row"><div class="ph">?</div><div class="grow"><div class="name">Not on this delivery</div><div class="code">Tags HO did not send here</div></div><span class="count extra num">+${extra}</span></div>` : ""}`
+  $("foot").innerHTML = live
+    ? `<button class="btn tint" style="flex:1" onclick="stop()">Stop</button>`
+    : `<button class="btn tint" onclick="start()">${radio} ${n === 0 ? "Scan" : "Scan again"}</button>
+       <button class="btn primary" ${n === 0 ? "disabled" : ""} onclick="go('done')">Submit ${n} pcs</button>`
+}
+
+function start() {
+  if (timer) return
+  timer = setInterval(() => {
+    const open = ART.map((a, i) => i).filter((i) => got[i] < ART[i].sent)
+    // a real read never finds quite everything on the first walk
+    if (open.length === 0 || (total() >= SENT - 3 && Math.random() < 0.5)) {
+      if (Math.random() < 0.15) extra = 1
+      return stop()
+    }
+    const i = open[Math.floor(Math.random() * open.length)]
+    got[i] += 1
+    scan()
+    const c = $("c" + i); c && c.classList.add("bump")
+  }, 140)
+  scan()
+}
+function stop() { clearInterval(timer); timer = null; scan() }
+
+function done() {
+  const n = total()
+  const short = SENT - n
+  $("title").textContent = short === 0 && extra === 0 ? "Received" : "Received · sent to review"
+  $("crumb").textContent = "SJ-HO-GUDANG-000001"
+  $("body").innerHTML = `
+    <div class="facts">
+      <div class="fact"><span>Sent</span><b class="num">${SENT}</b></div>
+      <div class="fact"><span>Scanned</span><b class="num">${n}</b></div>
+      <div class="fact"><span>Missing</span><b class="num" style="color:${short ? "var(--red)" : "inherit"}">${short}</b></div>
+    </div>
+    ${short === 0 && extra === 0
+      ? `<div class="big"><div class="ring" style="background:var(--green-bg);color:var(--green)"><svg width="64" height="64" viewBox="0 0 24 24" style="stroke-width:2.4"><path d="m5 12 5 5 9-10"/></svg></div><div class="state ok">${n} pcs in stock</div></div>`
+      : `<div class="note">${n - 0} pcs matched are in stock now. ${short ? short + " pcs not found" : ""}${short && extra ? " · " : ""}${extra ? extra + " pc not on this delivery" : ""} wait On hold until MD answers.</div>`}`
+  $("foot").innerHTML = `<button class="btn primary" onclick="reset()">Done</button>`
+}
+
+function reset() { got = ART.map(() => 0); extra = 0; go("list") }
+function go(s) {
+  step = s
+  if (timer && s !== "scan") stop()
+  document.querySelectorAll(".chrome button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.s === s))
+  ;({ list, scan, done })[s]()
+}
+document.querySelectorAll(".chrome button").forEach((b) => b.addEventListener("click", () => go(b.dataset.s)))
+// The handheld's trigger is a key on the device: Space here.
+addEventListener("keydown", (e) => { if (e.code === "Space" && step === "scan") { e.preventDefault(); start() } })
+addEventListener("keyup", (e) => { if (e.code === "Space" && step === "scan") stop() })
+go("list")
+</script>
+</body>
+</html>

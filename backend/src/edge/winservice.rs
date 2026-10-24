@@ -26,7 +26,7 @@
 //! Its own virtual account, `NT SERVICE\ItulahStore`, not LocalSystem. The
 //! node needs its data directory and a port; it does not need the machine.
 
-use crate::edge::node;
+use crate::edge::{node, EdgeRole};
 use std::{
     ffi::{OsStr, OsString},
     process::Command,
@@ -46,6 +46,8 @@ use windows_service::{
 };
 
 pub const SERVICE_NAME: &str = "ItulahStore";
+/// The service is a shop's node: `cli.rs` refuses it for the Gudang's.
+const ROLE: EdgeRole = EdgeRole::Store;
 const DISPLAY_NAME: &str = "itulah Store Server";
 const DESCRIPTION: &str = "The shop's own node: sells offline, syncs with head office.";
 const FIREWALL_RULE: &str = "itulah Store Server";
@@ -109,16 +111,16 @@ fn run_service() -> Result<(), BoxError> {
     })?;
     handle.set_service_status(status(ServiceState::Running, 0))?;
 
-    let data_dir = node::installed_data_dir(true);
+    let data_dir = node::installed_data_dir(ROLE, true);
     let prepared = node::prepare_environment(data_dir.as_deref());
-    let _logs = node::init_logging(data_dir.as_deref());
+    let _logs = node::init_logging(ROLE, data_dir.as_deref());
     let result = match prepared {
         Ok(()) => tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()
             .map_err(BoxError::from)
             .and_then(|runtime| {
-                runtime.block_on(node::run(data_dir, async move {
+                runtime.block_on(node::run(ROLE, data_dir, async move {
                     let _ = stopped.await;
                     tracing::info!("stop requested by the Service Control Manager");
                 }))
@@ -197,7 +199,7 @@ pub fn install() -> Result<(), BoxError> {
 
     // The data directory: the service account may change it, administrators
     // and SYSTEM own it, and nobody else can read it — it holds the sync key.
-    if let Some(dir) = node::installed_data_dir(true) {
+    if let Some(dir) = node::installed_data_dir(ROLE, true) {
         std::fs::create_dir_all(&dir)?;
         let dir = dir.to_string_lossy().into_owned();
         let account = format!("NT SERVICE\\{SERVICE_NAME}:(OI)(CI)M");

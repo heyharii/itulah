@@ -204,6 +204,7 @@ async fn load_detail(
             skipped_epcs: Vec::new(),
             manifest_skus,
             manifest_items,
+            koli: Vec::new(),
         });
     }
     let skipped_epcs: Vec<String> = row
@@ -277,6 +278,7 @@ async fn load_detail(
         skipped_epcs,
         manifest_skus,
         manifest_items,
+        koli: Vec::new(),
     })
 }
 

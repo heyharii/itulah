@@ -6,6 +6,7 @@ import { returnBenefit } from "@/benefit"
 import { Icon } from "@/icons"
 import { PinPad } from "@/pinpad"
 import { supervisorByFinger, supervisorByPin } from "@/session"
+import { seatNow } from "@/seat"
 import { Topbar } from "@/till"
 import { readScan } from "@epc"
 import { articleId, sku } from "@/sku"
@@ -70,13 +71,13 @@ import { money } from "@itulah/contract/money"
 const DISPOSITIONS = [
   {
     value: "RESALEABLE",
-    label: "Resaleable",
-    detail: "Back on the shop floor and can be sold again",
+    label: "Bisa dijual lagi",
+    detail: "Kembali ke lantai toko dan bisa dijual lagi",
   },
   {
     value: "DAMAGED",
-    label: "Damaged",
-    detail: "Goes to the reject pool, not back on the rail",
+    label: "Rusak",
+    detail: "Masuk pool reject, tidak kembali ke lantai toko",
   },
 ] as const
 
@@ -93,11 +94,11 @@ const DISPOSITIONS = [
 /// beside it rather than copied into it. `ReturnRequest` says why in as many
 /// words: a card sale refunded in cash happens every day.
 const REFUNDS = [
-  { value: "CASH", label: "Cash" },
-  { value: "CARD", label: "Card" },
+  { value: "CASH", label: "Tunai" },
+  { value: "CARD", label: "Kartu" },
   { value: "QRIS", label: "QRIS" },
   { value: "EWALLET", label: "E-Wallet" },
-  { value: "OTHER", label: "Other" },
+  { value: "OTHER", label: "Lainnya" },
 ] as const
 
 /// The number printed on the paper is not the id this endpoint wants.
@@ -225,16 +226,16 @@ function readSale(body: unknown): Sale | null {
 function refusal(reply: api.EdgeReply<unknown>): string {
   return (
     reply.problem ??
-    `The store node refused with status ${reply.status} and gave no reason.`
+    `Server toko menolak dengan status ${reply.status} tanpa alasan.`
   )
 }
 
 /// Offered only on a sale that was paid, at least in part, from an employee's
 /// balance: the money goes back to that balance, at head office.
-const BENEFIT_REFUND = { value: "BENEFIT", label: "Back to employee balance" } as const
+const BENEFIT_REFUND = { value: "BENEFIT", label: "Kembali ke saldo karyawan" } as const
 
 function methodLabel(value: string | null): string {
-  if (value === "BENEFIT") return "Employee balance"
+  if (value === "BENEFIT") return "Diskon karyawan"
   return REFUNDS.find((one) => one.value === value)?.label ?? (value ?? "—")
 }
 
@@ -390,13 +391,13 @@ function useSupervisor() {
       release()
       setRefused({
         text:
-          `${granted.how === "PIN" ? "The PIN authorisation" : "The fingerprint authorisation"}` +
-          " is over three minutes old and has been released — the node would refuse it. " +
-          `Ask the supervisor to ${
+          `${granted.how === "PIN" ? "Persetujuan dengan PIN" : "Persetujuan dengan sidik jari"}` +
+          " sudah lebih dari tiga menit dan dilepas — server toko akan menolaknya. " +
+          `Minta kepala toko ${
             granted.how === "PIN"
-              ? "enter their PIN once more"
-              : "press their finger once more"
-          }, or use a username and password.`,
+              ? "memasukkan PIN sekali lagi"
+              : "menempelkan jarinya sekali lagi"
+          }, atau pakai username dan password.`,
         from: null,
       })
     }, 1000)
@@ -430,8 +431,8 @@ function useSupervisor() {
         text:
           answer.problem ??
           (how === "PIN"
-            ? "That PIN gave no authorisation, and nobody said why."
-            : "That fingerprint gave no authorisation, and nobody said why."),
+            ? "PIN itu tidak menghasilkan persetujuan, dan tidak ada alasannya."
+            : "Sidik jari itu tidak menghasilkan persetujuan, dan tidak ada alasannya."),
         from: how,
       })
       return
@@ -444,8 +445,8 @@ function useSupervisor() {
       release()
       setRefused({
         text:
-          "The node gave an authorisation without saying who gave it, " +
-          "so this terminal does not use it. Use a username and password.",
+          "Server toko memberi persetujuan tanpa menyebut siapa yang memberi, " +
+          "jadi kasir ini tidak memakainya. Pakai username dan password.",
         from: null,
       })
       return
@@ -488,8 +489,8 @@ function useSupervisor() {
     if (who === "" || typed === "") {
       setRefused({
         text:
-          "A PIN needs two things: the supervisor's username in the field above, and " +
-          "their PIN on the pad. The node matches both, not either one.",
+          "PIN butuh dua hal: username kepala toko di kolom atas, dan " +
+          "PIN-nya di pad. Server toko mencocokkan keduanya, bukan salah satu.",
         from: null,
       })
       return
@@ -545,12 +546,12 @@ function useSupervisor() {
         : {
             text:
               (spent === "PIN"
-                ? "That PIN was already used for the last attempt"
-                : "That fingerprint was already used for the last attempt") +
-              " — one authorisation per action. If the attempt was " +
+                ? "PIN itu sudah dipakai untuk percobaan terakhir"
+                : "Sidik jari itu sudah dipakai untuk percobaan terakhir") +
+              " — satu persetujuan untuk satu tindakan. Kalau percobaan tadi " +
               (spent === "PIN"
-                ? "refused, ask the supervisor to enter their PIN again."
-                : "refused, ask the supervisor to press their finger again."),
+                ? "ditolak, minta kepala toko memasukkan PIN lagi."
+                : "ditolak, minta kepala toko menempelkan jari lagi."),
             from: null,
           },
     )
@@ -563,13 +564,13 @@ function useSupervisor() {
   /// scanner that is going to refuse them, while a queue waits — and on a node
   /// that accepts neither, the password is the whole answer.
   const missing =
-    "No supervisor authorisation yet. Enter their username and password" +
+    "Belum ada persetujuan kepala toko. Isi username dan password-nya" +
     (stepUp === "PIN"
-      ? ", or ask the supervisor to enter their PIN on the pad"
+      ? ", atau minta kepala toko memasukkan PIN di pad"
       : stepUp === "NONE"
         ? ""
-        : ", or ask the supervisor to press their finger") +
-    " — the node checks it, not this terminal."
+        : ", atau minta kepala toko menempelkan jari") +
+    " — yang memeriksa server toko, bukan kasir ini."
 
   return {
     username,
@@ -601,29 +602,29 @@ function Authorisation({ hold }: { hold: Supervision }) {
 
   return (
     <>
-      <span className="label">Supervisor approval</span>
+      <span className="label">Persetujuan kepala toko</span>
       {granted !== null && left !== null ? (
         <>
           {/* Who, before anything else. A cashier has to be able to see that a
               real person was recognised, and the name is the node's answer —
               it is also the name that will be written on the row. */}
           <div className="notice">
-            Authorised by <strong>{granted.who}</strong> (
-            {granted.how === "PIN" ? "PIN" : "fingerprint"})
+            Disetujui oleh <strong>{granted.who}</strong> (
+            {granted.how === "PIN" ? "PIN" : "sidik jari"})
           </div>
           {left > GRANT_WARNING_MS ? (
             <p className="muted">
-              Valid for another <span className="num">{countdown(left)}</span>
+              Berlaku <span className="num">{countdown(left)}</span> lagi
             </p>
           ) : (
             <div className="notice warn">
-              Authorisation has{" "}
-              <strong className="num">{countdown(left)}</strong> left — send
-              now.
+              Persetujuan tinggal{" "}
+              <strong className="num">{countdown(left)}</strong> — kirim
+              sekarang.
             </div>
           )}
           <button className="btn ghost" type="button" onClick={hold.release}>
-            Release authorisation
+            Lepas persetujuan
           </button>
         </>
       ) : (
@@ -636,7 +637,7 @@ function Authorisation({ hold }: { hold: Supervision }) {
               there is nothing left for a PIN to buy, and getting back to it is
               the "lepas otorisasi" button below. */}
           <label className="field">
-            Supervisor username
+            Username kepala toko
             <input
               ref={hold.username}
               autoComplete="off"
@@ -645,7 +646,7 @@ function Authorisation({ hold }: { hold: Supervision }) {
             />
           </label>
           <label className="field">
-            Supervisor password
+            Password kepala toko
             <input ref={hold.password} type="password" autoComplete="off" />
           </label>
 
@@ -658,7 +659,7 @@ function Authorisation({ hold }: { hold: Supervision }) {
               has the real password — see `edition.ts`. */}
           {!isWeb && hold.stepUp === "PIN" && (
             <div>
-              <span className="label">Or the supervisor's PIN</span>
+              <span className="label">Atau PIN kepala toko</span>
               <PinPad
                 value={hold.pinValue}
                 onChange={hold.setPin}
@@ -673,8 +674,8 @@ function Authorisation({ hold }: { hold: Supervision }) {
                 onClick={() => void hold.askPin()}
               >
                 {hold.asking === "PIN"
-                  ? "Asking the node…"
-                  : "Authorise with this PIN"}
+                  ? "Menanyakan ke server toko…"
+                  : "Setujui dengan PIN ini"}
               </button>
             </div>
           )}
@@ -691,10 +692,10 @@ function Authorisation({ hold }: { hold: Supervision }) {
         onClick={() => void hold.ask()}
       >
         {hold.asking === "FINGER"
-          ? "Waiting for a finger on the scanner…"
+          ? "Tempelkan jari di sensor…"
           : granted === null
-            ? "Authorise with fingerprint"
-            : "Press a finger again"}
+            ? "Setujui dengan sidik jari"
+            : "Tempelkan jari lagi"}
       </button>
       )}
 
@@ -720,15 +721,31 @@ function useSaleLookup() {
   const [sale, setSale] = useState<Sale | null>(null)
   const [looking, setLooking] = useState(false)
   const [trouble, setTrouble] = useState<string | null>(null)
+  // The last three receipts of this drawer (owner, 23 Oct 2026: the cashier
+  // picks one, or types or scans its number — never a sale id).
+  const [recent, setRecent] = useState<readonly api.ShiftSale[]>([])
+  useEffect(() => {
+    const shift = seatNow()?.shift_id
+    if (shift === undefined || shift === null) return
+    let alive = true
+    void api.shiftSales(shift).then((reply) => {
+      if (!alive || !reply.ok) return
+      const rows = [...(reply.body ?? [])]
+      rows.sort((a, b) => b.completed_at.localeCompare(a.completed_at))
+      setRecent(rows.slice(0, 3))
+    })
+    return () => {
+      alive = false
+    }
+  }, [])
 
-  async function find(): Promise<void> {
-    const wanted = typed.trim()
+  async function find(chosen?: string): Promise<void> {
+    let wanted = (chosen ?? typed).trim()
     if (wanted === "") return
-    if (RECEIPT_NUMBER.test(wanted)) {
-      setTrouble(
-        "That is a receipt number, not a sale ID. The node looks sales up by full ID — " +
-          "take it from the sale's own screen.",
-      )
+    const byNumber = recent.find((one) => one.receipt_no.toUpperCase() === wanted.toUpperCase())
+    if (byNumber !== undefined) wanted = byNumber.sale_id
+    else if (RECEIPT_NUMBER.test(wanted)) {
+      setTrouble(`Struk ${wanted} bukan dari 3 struk terakhir shift ini.`)
       return
     }
     setLooking(true)
@@ -746,14 +763,14 @@ function useSaleLookup() {
     if (read === null) {
       setSale(null)
       setTrouble(
-        "The node answered, but it is not a sale receipt. Check the ID.",
+        "Server toko menjawab, tapi bukan struk penjualan. Cek ID-nya.",
       )
       return
     }
     setSale(read)
   }
 
-  return { typed, setTyped, sale, looking, trouble, find }
+  return { typed, setTyped, sale, looking, trouble, find, recent }
 }
 
 function SaleFinder({
@@ -772,19 +789,47 @@ function SaleFinder({
       }}
     >
       <label className="field">
-        Sale ID
+        Nomor struk
         <input
           value={hold.typed}
           onChange={(event) => hold.setTyped(event.target.value)}
-          placeholder="Paste the sale ID…"
+          placeholder="Scan atau ketik nomor struk"
           autoComplete="off"
           spellCheck={false}
           autoFocus
         />
       </label>
       {hint !== null && <p className="muted">{hint}</p>}
-      <button className="btn" type="submit" disabled={hold.looking}>
-        {hold.looking ? "Looking…" : "Open sale"}
+      <span className="label">Struk terakhir</span>
+      {hold.recent.length === 0 ? (
+        <p className="muted">Belum ada struk di shift ini</p>
+      ) : (
+        hold.recent.map((one, index) => (
+          <button
+            key={one.sale_id}
+            type="button"
+            className="btn lg"
+            style={{ justifyContent: "space-between", width: "100%" }}
+            disabled={hold.looking}
+            onClick={() => {
+              hold.setTyped(one.receipt_no)
+              void hold.find(one.sale_id)
+            }}
+          >
+            <span>
+              <span className="kbd">{index + 1}</span> {one.receipt_no}
+              <span className="muted">
+                {" "}
+                · {new Date(one.completed_at).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}
+                {one.status === "VOIDED" ? " · Void" : one.returned_minor > 0 ? " · Retur" : ""}
+              </span>
+            </span>
+            <span className="num">{money(one.total_minor, "IDR")}</span>
+          </button>
+        ))
+      )}
+      <button className="btn primary" type="submit" disabled={hold.looking}>
+        {hold.looking ? "Mencari…" : "Buka struk"}
       </button>
     </form>
   )
@@ -796,28 +841,28 @@ function SaleFinder({
 function SaleSummary({ sale }: { sale: Sale }) {
   return (
     <>
-      <span className="label">Sale</span>
+      <span className="label">Penjualan</span>
       {sale.stamp !== null && (
         <div className="notice warn">
-          This receipt is already marked <strong>{sale.stamp}</strong> — part or
-          all of it has come back before. The node refuses the same item twice.
+          Struk ini sudah bertanda <strong>{sale.stamp}</strong> — sebagian atau
+          seluruhnya pernah dikembalikan. Server toko menolak barang yang sama dua kali.
         </div>
       )}
       <div>
         <div className="kv">
-          <span className="muted">Receipt number</span>
+          <span className="muted">Nomor struk</span>
           <strong className="num">{sale.receiptNo ?? "—"}</strong>
         </div>
         <div className="kv">
-          <span className="muted">Time</span>
+          <span className="muted">Waktu</span>
           <span className="num">{sale.when ?? "—"}</span>
         </div>
         <div className="kv">
-          <span className="muted">Cashier</span>
+          <span className="muted">Kasir</span>
           <span>{sale.cashier ?? "—"}</span>
         </div>
         <div className="kv">
-          <span className="muted">Paid with</span>
+          <span className="muted">Dibayar dengan</span>
           <span>
             {sale.tenders.length === 0
               ? "—"
@@ -994,13 +1039,13 @@ export function ReturnScreen({
     if (scanned.kind !== "epc") {
       setScanNote(
         scanned.kind === "sku"
-          ? "That is a product code, not which item came back. Returns are recorded per tag — scan the RFID tag on the garment."
-          : `“${typed}” is not a tag this terminal recognises.`,
+          ? "Itu kode produk, bukan barang yang kembali. Retur dicatat per tag — scan tag RFID di barangnya."
+          : `“${typed}” bukan tag yang dikenali kasir ini.`,
       )
       return
     }
     if (coming.some((one) => one.epc === scanned.epc)) {
-      setScanNote("That tag is already in the list. One tag is one item.")
+      setScanNote("Tag itu sudah ada di daftar. Satu tag satu barang.")
       return
     }
     const line =
@@ -1025,7 +1070,7 @@ export function ReturnScreen({
     for (const one of coming) {
       if (one.disposition === null) {
         setProblem(
-          "Some tags have no destination yet. A return is not sent half-done.",
+          "Ada tag yang belum ditentukan tujuannya. Retur tidak dikirim setengah jadi.",
         )
         return
       }
@@ -1038,7 +1083,7 @@ export function ReturnScreen({
     // to erase from the backups afterwards.
     if (trimmed.replace(/\D/g, "").length >= 12) {
       setProblem(
-        "That reference looks like a card number. Enter an approval code or the acquirer's name, not the instrument number.",
+        "Referensi itu seperti nomor kartu. Isi kode persetujuan atau nama bank, bukan nomor kartunya.",
       )
       return
     }
@@ -1051,14 +1096,14 @@ export function ReturnScreen({
         : ""
     if (method === "BENEFIT" && benefitSaleRef === "") {
       setProblem(
-        "This receipt does not name an employee balance reference. Enter the reference first.",
+        "Struk ini tidak menyebut referensi saldo karyawan. Isi referensinya dulu.",
       )
       return
     }
     const authorisation = supervisor.read()
     if (authorisation === null) {
       setProblem(
-        "No supervisor authorisation yet. Enter their username and password, or ask the supervisor to press their finger — the node checks it, not this terminal.",
+        "Belum ada persetujuan kepala toko. Isi username dan password-nya, atau minta kepala toko menempelkan jari — yang memeriksa server toko, bukan kasir ini.",
       )
       return
     }
@@ -1076,7 +1121,7 @@ export function ReturnScreen({
       const amount = Math.min(goods ?? cap ?? 0, cap ?? goods ?? 0)
       if (amount <= 0) {
         setBusy(false)
-        setProblem("The amount going back to the balance is not known.")
+        setProblem("Jumlah yang kembali ke saldo belum diketahui.")
         return
       }
       const given = await returnBenefit(benefitSaleRef, amount, "return")
@@ -1125,28 +1170,28 @@ export function ReturnScreen({
           <div className="page-inner">
             <div className="page-head">
               <div>
-                <span className="label">Return recorded</span>
+                <span className="label">Retur tercatat</span>
                 <h1 className="num">
                   {done.refundMinor === null ? "—" : money(done.refundMinor)}
                 </h1>
               </div>
               <button className="btn primary" onClick={onBack}>
-                Done
+                Selesai
               </button>
             </div>
             <div>
               <div className="kv">
-                <span className="muted">Approved by</span>
+                <span className="muted">Disetujui oleh</span>
                 <strong>{done.approvedBy ?? "—"}</strong>
               </div>
               <div className="kv">
-                <span className="muted">Money goes back via</span>
+                <span className="muted">Uang kembali lewat</span>
                 <span>{methodLabel(done.method)}</span>
               </div>
               <div className="kv">
-                <span className="muted">Still with the customer</span>
+                <span className="muted">Masih di pelanggan</span>
                 <span className="num">
-                  {done.remaining === null ? "—" : `${done.remaining} unit`}
+                  {done.remaining === null ? "—" : `${done.remaining} barang`}
                 </span>
               </div>
             </div>
@@ -1163,35 +1208,35 @@ export function ReturnScreen({
         <div className="page-inner">
           <div className="page-head">
             <div>
-              <span className="label">Return</span>
-              <h1>Return items</h1>
+              <span className="label">Retur</span>
+              <h1>Retur barang</h1>
             </div>
             <button className="btn ghost" onClick={onBack}>
               <Icon name="back" />
-              Back to counter
+              Kembali ke kasir
             </button>
           </div>
 
           <div className="steps">
             <span className={sale === null ? "active" : undefined}>
-              1 · Find the sale
+              1 · Cari penjualan
             </span>
             <span
               className={
                 sale !== null && coming.length === 0 ? "active" : undefined
               }
             >
-              2 · Scan the returned tags
+              2 · Scan tag yang diretur
             </span>
             <span
               className={
                 coming.length > 0 && !ready ? "active" : undefined
               }
             >
-              3 · Destination, reason, how it goes back
+              3 · Tujuan, alasan, cara uang kembali
             </span>
             <span className={ready ? "active" : undefined}>
-              4 · Supervisor approval
+              4 · Persetujuan kepala toko
             </span>
           </div>
 
@@ -1203,7 +1248,7 @@ export function ReturnScreen({
 
           {sale === null ? (
             <div className="empty">
-              <h3>No sale opened yet</h3>
+              <h3>Belum ada penjualan dibuka</h3>
             </div>
           ) : (
             <>
@@ -1211,7 +1256,7 @@ export function ReturnScreen({
               <SaleSummary sale={sale} />
 
               <div className="divider" />
-              <span className="label">Returned items</span>
+              <span className="label">Barang diretur</span>
               <form
                 onSubmit={(event) => {
                   event.preventDefault()
@@ -1222,12 +1267,12 @@ export function ReturnScreen({
                 }}
               >
                 <label className="field">
-                  Scan the returned tags
+                  Scan tag yang diretur
                   <input
                     ref={scan}
                     autoComplete="off"
                     spellCheck={false}
-                    placeholder="Scan a tag or type the EPC"
+                    placeholder="Scan tag atau ketik EPC"
                   />
                 </label>
               </form>
@@ -1235,7 +1280,7 @@ export function ReturnScreen({
 
               {coming.length === 0 ? (
                 <div className="empty">
-                  <h3>No tags scanned yet</h3>
+                  <h3>Belum ada tag di-scan</h3>
                 </div>
               ) : (
                 <div className="rows">
@@ -1271,12 +1316,12 @@ export function ReturnScreen({
                           ))}
                           {one.disposition === null && (
                             <span className="badge warn">
-                              No destination chosen
+                              Tujuan belum dipilih
                             </span>
                           )}
                           {!one.onReceipt && (
                             <span className="badge bad">
-                              SKU not on this receipt
+                              SKU tidak ada di struk ini
                             </span>
                           )}
                         </div>
@@ -1294,7 +1339,7 @@ export function ReturnScreen({
                           )
                         }
                       >
-                        Remove
+                        Hapus
                       </button>
                     </div>
                   ))}
@@ -1303,28 +1348,28 @@ export function ReturnScreen({
 
               {undecided > 0 && (
                 <div className="notice warn">
-                  {undecided} tags have no destination yet.
+                  {undecided} tag belum ditentukan tujuannya.
                 </div>
               )}
               {overscanned.length > 0 && (
                 <div className="notice warn">
-                  There are more tags for {overscanned.join(", ")} than were
-                  sold on this receipt. The node will refuse the excess.
+                  Tag untuk {overscanned.join(", ")} lebih banyak dari yang
+                  terjual di struk ini. Server toko akan menolak kelebihannya.
                 </div>
               )}
 
               <div className="divider" />
               <label className="field">
-                Return reason
+                Alasan retur
                 <input
                   value={reason}
                   onChange={(event) => setReason(event.target.value)}
-                  placeholder="For example: wrong size"
+                  placeholder="Contoh: ukuran salah"
                   autoComplete="off"
                 />
               </label>
 
-              <span className="label">Money goes back via</span>
+              <span className="label">Uang kembali lewat</span>
               <div className="chips">
                 {(benefitTender === null ? REFUNDS : [...REFUNDS, BENEFIT_REFUND]).map((one) => (
                   <button
@@ -1350,7 +1395,7 @@ export function ReturnScreen({
 
               {method !== null && method !== "CASH" && method !== "BENEFIT" && (
                 <label className="field">
-                  Refund reference (optional)
+                  Referensi refund (opsional)
                   <input
                     value={reference}
                     onChange={(event) => setReference(event.target.value)}
@@ -1369,7 +1414,7 @@ export function ReturnScreen({
                 disabled={busy || !ready}
                 onClick={() => void send()}
               >
-                {busy ? "Sending to the node…" : "Record return"}
+                {busy ? "Mengirim ke server toko…" : "Catat retur"}
               </button>
             </>
           )}
@@ -1419,7 +1464,7 @@ export function VoidScreen({
     const authorisation = supervisor.read()
     if (authorisation === null) {
       setProblem(
-        "No supervisor authorisation yet. Enter their username and password, or ask the supervisor to press their finger — the node checks it, not this terminal.",
+        "Belum ada persetujuan kepala toko. Isi username dan password-nya, atau minta kepala toko menempelkan jari — yang memeriksa server toko, bukan kasir ini.",
       )
       return
     }
@@ -1458,31 +1503,31 @@ export function VoidScreen({
           <div className="page-inner">
             <div className="page-head">
               <div>
-                <span className="label">Sale voided</span>
+                <span className="label">Penjualan di-void</span>
                 <h1 className="num">
                   {done.refundMinor === null ? "—" : money(done.refundMinor)}
                 </h1>
                 <p>
-                  All of it goes back to the shop floor in one move, and
-                  the sale is marked VOIDED on the node.
+                  Semuanya kembali ke lantai toko sekaligus, dan penjualan
+                  ditandai Void di server toko.
                 </p>
               </div>
               <button className="btn primary" onClick={onBack}>
-                Done
+                Selesai
               </button>
             </div>
             <div>
               <div className="kv">
-                <span className="muted">Approved by</span>
+                <span className="muted">Disetujui oleh</span>
                 <strong>{done.approvedBy ?? "—"}</strong>
               </div>
               <div className="kv">
-                <span className="muted">Time</span>
+                <span className="muted">Waktu</span>
                 <span className="num">{done.voidedAt ?? "—"}</span>
               </div>
               <div className="kv">
-                <span className="muted">Items coming back</span>
-                <span className="num">{done.units} unit</span>
+                <span className="muted">Barang kembali</span>
+                <span className="num">{done.units} barang</span>
               </div>
             </div>
           </div>
@@ -1499,23 +1544,23 @@ export function VoidScreen({
           <div className="page-head">
             <div>
               <span className="label">Void</span>
-              <h1>Void sale</h1>
+              <h1>Void struk</h1>
             </div>
             <button className="btn ghost" onClick={onBack}>
               <Icon name="back" />
-              Back to counter
+              Kembali ke kasir
             </button>
           </div>
 
           <div className="steps">
             <span className={sale === null ? "active" : undefined}>
-              1 · Find the sale
+              1 · Cari penjualan
             </span>
             <span className={sale !== null && !ready ? "active" : undefined}>
-              2 · Reason for voiding
+              2 · Alasan void
             </span>
             <span className={ready ? "active" : undefined}>
-              3 · Supervisor approval
+              3 · Persetujuan kepala toko
             </span>
           </div>
 
@@ -1527,7 +1572,7 @@ export function VoidScreen({
 
           {sale === null ? (
             <div className="empty">
-              <h3>No sale opened yet</h3>
+              <h3>Belum ada penjualan dibuka</h3>
             </div>
           ) : (
             <>
@@ -1536,7 +1581,7 @@ export function VoidScreen({
 
               <div className="divider" />
               <label className="field">
-                Reason for voiding
+                Alasan void
                 <input
                   value={reason}
                   onChange={(event) => setReason(event.target.value)}
@@ -1555,8 +1600,8 @@ export function VoidScreen({
                 onClick={() => void send()}
               >
                 {busy
-                  ? "Sending to the node…"
-                  : `Void the whole sale${
+                  ? "Mengirim ke server toko…"
+                  : `Void seluruh transaksi${
                       sale.totalMinor === null
                         ? ""
                         : ` ${money(sale.totalMinor)}`

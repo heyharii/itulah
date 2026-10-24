@@ -6,6 +6,9 @@
 //!   tender rides the EDC of a bank (owner decision 25 Sep) and posts to that
 //!   bank's debit-card pair, so a terminal the register does not know sends
 //!   its QRIS lines to the sale-day exception queue.
+//!   Since 0989 the terminals of one bank at a shop are that shop's EDC
+//!   machine: what it takes (debit, credit, QRIS), the account each kind
+//!   lands in, and — read off it — the shop's card and QRIS methods.
 //! * `acquirer_fee_rate` — the MDR Finance expects per bank and kind; the
 //!   settlement checks the bank's actual fee against it.
 //! * `finance_setting` — tolerances and windows.
@@ -666,4 +669,489 @@ pub async fn add_bank(
         bank_account_id,
         terminals_registered: terminals,
     })
+}
+
+// ---------------------------------------------------------------------------
+// A shop's EDC machines (0989)
+// ---------------------------------------------------------------------------
+
+/// One shop's EDC for one bank: what it takes, and the Cash In Bank account
+/// each kind lands in (owner, 24 Oct 2026). Every active terminal of that bank
+/// at the shop is this one machine; `terminal_ids` names them.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct EdcMachine {
+    pub site_id: String,
+    pub bank_code: String,
+    pub takes_debit: bool,
+    pub takes_credit: bool,
+    pub takes_qris: bool,
+    /// The account a debit card lands in; `None` keeps the bank's link.
+    pub debit_account: Option<String>,
+    pub credit_account: Option<String>,
+    pub qris_account: Option<String>,
+    pub terminal_ids: Vec<String>,
+}
+
+/// An account of the chart, as a picker lists it.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ChartAccountChoice {
+    pub account_code: String,
+    pub name: String,
+}
+
+/// A bank a machine can belong to.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct EdcBankChoice {
+    pub code: String,
+    pub name: String,
+}
+
+/// What Shop Payment Methods reads in one go: every shop's machines, the banks
+/// a machine can be of, and the accounts one can settle to.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct EdcMachineBook {
+    pub machines: Vec<EdcMachine>,
+    /// The banks the company takes cards with, keeps an account at, or has a
+    /// machine of — not every bank of the register.
+    pub banks: Vec<EdcBankChoice>,
+    /// The chart's live Cash In Bank leaves (account type BANK).
+    pub accounts: Vec<ChartAccountChoice>,
+    /// The heading most of them sit under: where a new one goes.
+    pub heading: Option<ChartAccountChoice>,
+}
+
+/// One machine as head office sets it. An account is required for each kind
+/// the machine takes, and ignored for the rest.
+#[derive(Clone, Debug, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct SaveEdcMachineRequest {
+    pub takes_debit: bool,
+    pub takes_credit: bool,
+    pub takes_qris: bool,
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub debit_account: Option<String>,
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub credit_account: Option<String>,
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub qris_account: Option<String>,
+}
+
+/// The methods a shop takes that are not a machine's.
+#[derive(Clone, Debug, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct SetShopOtherMethodsRequest {
+    /// Every cash, voucher, employee-balance and points method the shop takes;
+    /// the others of those kinds are switched off here.
+    pub codes: Vec<String>,
+}
+
+/// The tenders a machine is, and the ones set beside it.
+const MACHINE_TENDERS: [&str; 3] = ["DEBIT_CARD", "CREDIT_CARD", "QRIS"];
+const OTHER_TENDERS: [&str; 4] = ["CASH", "VOUCHER", "BENEFIT", "POINTS"];
+
+const MACHINES: &str = "
+    SELECT site_id, bank_code,
+           bool_or(takes_debit) AS takes_debit,
+           bool_or(takes_credit) AS takes_credit,
+           bool_or(takes_qris) AS takes_qris,
+           max(debit_account) AS debit_account,
+           max(credit_account) AS credit_account,
+           max(qris_account) AS qris_account,
+           array_agg(terminal_id ORDER BY terminal_id) AS terminal_ids
+      FROM edc_terminal
+     WHERE active";
+
+fn to_machine(row: &sqlx::postgres::PgRow) -> Result<EdcMachine, AppError> {
+    Ok(EdcMachine {
+        site_id: row.try_get("site_id")?,
+        bank_code: row.try_get("bank_code")?,
+        takes_debit: row.try_get("takes_debit")?,
+        takes_credit: row.try_get("takes_credit")?,
+        takes_qris: row.try_get("takes_qris")?,
+        debit_account: row.try_get("debit_account")?,
+        credit_account: row.try_get("credit_account")?,
+        qris_account: row.try_get("qris_account")?,
+        terminal_ids: row.try_get("terminal_ids")?,
+    })
+}
+
+fn to_choice(row: &sqlx::postgres::PgRow) -> Result<ChartAccountChoice, AppError> {
+    Ok(ChartAccountChoice {
+        account_code: row.try_get("account_code")?,
+        name: row.try_get("name")?,
+    })
+}
+
+pub async fn edc_machine_book(pool: &PgPool) -> Result<EdcMachineBook, AppError> {
+    let machines = sqlx::query(&format!(
+        "{MACHINES} GROUP BY site_id, bank_code ORDER BY site_id, bank_code"
+    ))
+    .fetch_all(pool)
+    .await?
+    .iter()
+    .map(to_machine)
+    .collect::<Result<Vec<_>, _>>()?;
+    let banks = sqlx::query(
+        "SELECT b.code, b.name FROM bank b
+          WHERE b.active
+            AND (EXISTS (SELECT 1 FROM payment_method p
+                          WHERE upper(p.bank_code) = b.code
+                            AND p.tender_type IN ('DEBIT_CARD', 'CREDIT_CARD', 'QRIS'))
+                 OR EXISTS (SELECT 1 FROM bank_account a
+                             WHERE a.bank_id = b.bank_id AND a.is_company_account)
+                 OR EXISTS (SELECT 1 FROM edc_terminal e
+                             WHERE e.bank_code = b.code AND e.active))
+          ORDER BY b.code",
+    )
+    .fetch_all(pool)
+    .await?
+    .iter()
+    .map(|row| {
+        Ok(EdcBankChoice {
+            code: row.try_get("code")?,
+            name: row.try_get("name")?,
+        })
+    })
+    .collect::<Result<Vec<_>, AppError>>()?;
+    let accounts = sqlx::query(
+        "SELECT account_code, name FROM ledger_account
+          WHERE account_type = 'BANK' AND NOT is_group AND is_active
+          ORDER BY account_code",
+    )
+    .fetch_all(pool)
+    .await?
+    .iter()
+    .map(to_choice)
+    .collect::<Result<Vec<_>, _>>()?;
+    let heading = sqlx::query(
+        "SELECT h.account_code, h.name FROM ledger_account h
+          WHERE h.account_code = (
+                SELECT parent_code FROM ledger_account
+                 WHERE account_type = 'BANK' AND NOT is_group AND is_active
+                   AND parent_code IS NOT NULL
+                 GROUP BY parent_code ORDER BY count(*) DESC, parent_code LIMIT 1)",
+    )
+    .fetch_optional(pool)
+    .await?
+    .as_ref()
+    .map(to_choice)
+    .transpose()?;
+    Ok(EdcMachineBook {
+        machines,
+        banks,
+        accounts,
+        heading,
+    })
+}
+
+/// The account one kind settles to: required when the machine takes it, and a
+/// live Cash In Bank leaf of the chart.
+async fn settle_account(
+    pool: &PgPool,
+    taken: bool,
+    raw: Option<&str>,
+    word: &str,
+    bank: &str,
+) -> Result<Option<String>, AppError> {
+    if !taken {
+        return Ok(None);
+    }
+    let Some(code) = raw.map(str::trim).filter(|code| !code.is_empty()) else {
+        return Err(AppError::Validation(format!(
+            "pick the account {word} on EDC {bank} settles to"
+        )));
+    };
+    let fits: Option<bool> = sqlx::query_scalar(
+        "SELECT account_type = 'BANK' AND NOT is_group AND is_active
+           FROM ledger_account WHERE account_code = $1",
+    )
+    .bind(code)
+    .fetch_optional(pool)
+    .await?
+    .flatten();
+    match fits {
+        Some(true) => Ok(Some(code.to_string())),
+        Some(false) => Err(AppError::Validation(format!(
+            "{code} is not a live Cash In Bank account; {word} on EDC {bank} has to land in one"
+        ))),
+        None => Err(AppError::Validation(format!(
+            "no account {code} in the chart"
+        ))),
+    }
+}
+
+/// Set one shop's machine of one bank, and the shop's card and QRIS methods
+/// with it. The shop's node hears within a minute (`payment.methods.replace`).
+pub async fn save_edc_machine(
+    pool: &PgPool,
+    site_id: &str,
+    bank_raw: &str,
+    request: &SaveEdcMachineRequest,
+    actor: &str,
+) -> Result<EdcMachine, AppError> {
+    let site_id = site_id.trim();
+    let bank = bank_code_of(bank_raw)?;
+    let site_known: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM site WHERE id = $1)")
+        .bind(site_id)
+        .fetch_one(pool)
+        .await?;
+    if !site_known {
+        return Err(AppError::NotFound(format!("site {site_id}")));
+    }
+    let bank_known: bool =
+        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM bank WHERE upper(code) = $1 AND active)")
+            .bind(&bank)
+            .fetch_one(pool)
+            .await?;
+    if !bank_known {
+        return Err(AppError::Validation(format!(
+            "{bank} is not a bank this company knows"
+        )));
+    }
+    if !(request.takes_debit || request.takes_credit || request.takes_qris) {
+        return Err(AppError::Validation(format!(
+            "EDC {bank} takes nothing; pick Debit, Credit or QRIS"
+        )));
+    }
+    let debit = settle_account(
+        pool,
+        request.takes_debit,
+        request.debit_account.as_deref(),
+        "Debit",
+        &bank,
+    )
+    .await?;
+    let credit = settle_account(
+        pool,
+        request.takes_credit,
+        request.credit_account.as_deref(),
+        "Credit",
+        &bank,
+    )
+    .await?;
+    let qris = settle_account(
+        pool,
+        request.takes_qris,
+        request.qris_account.as_deref(),
+        "QRIS",
+        &bank,
+    )
+    .await?;
+
+    let mut tx = pool.begin().await?;
+    let updated = sqlx::query(
+        "UPDATE edc_terminal
+            SET takes_debit = $3, takes_credit = $4, takes_qris = $5,
+                debit_account = $6, credit_account = $7, qris_account = $8
+          WHERE site_id = $1 AND bank_code = $2 AND active",
+    )
+    .bind(site_id)
+    .bind(&bank)
+    .bind(request.takes_debit)
+    .bind(request.takes_credit)
+    .bind(request.takes_qris)
+    .bind(&debit)
+    .bind(&credit)
+    .bind(&qris)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+    if updated == 0 {
+        // A new machine is known by its bank until a terminal id matters.
+        sqlx::query(
+            "INSERT INTO edc_terminal
+                 (site_id, terminal_id, bank_code, label, active, created_by,
+                  takes_debit, takes_credit, takes_qris, debit_account, credit_account, qris_account)
+             VALUES ($1, $2, $2,
+                     'EDC ' || COALESCE((SELECT regexp_replace(name, '^Bank\\s+', '')
+                                           FROM bank WHERE upper(code) = $2), $2),
+                     true, $3, $4, $5, $6, $7, $8, $9)
+             ON CONFLICT (site_id, terminal_id) DO UPDATE
+                SET bank_code = EXCLUDED.bank_code, active = true,
+                    takes_debit = EXCLUDED.takes_debit, takes_credit = EXCLUDED.takes_credit,
+                    takes_qris = EXCLUDED.takes_qris, debit_account = EXCLUDED.debit_account,
+                    credit_account = EXCLUDED.credit_account, qris_account = EXCLUDED.qris_account",
+        )
+        .bind(site_id)
+        .bind(&bank)
+        .bind(actor)
+        .bind(request.takes_debit)
+        .bind(request.takes_credit)
+        .bind(request.takes_qris)
+        .bind(&debit)
+        .bind(&credit)
+        .bind(&qris)
+        .execute(&mut *tx)
+        .await?;
+    }
+    sync_shop_card_methods(&mut tx, site_id, actor).await?;
+    tx.commit().await?;
+
+    let row = sqlx::query(&format!(
+        "{MACHINES} AND site_id = $1 AND bank_code = $2 GROUP BY site_id, bank_code"
+    ))
+    .bind(site_id)
+    .bind(&bank)
+    .fetch_one(pool)
+    .await?;
+    to_machine(&row)
+}
+
+/// Take a bank's machine off a shop: its terminals stop, and the shop stops
+/// taking that bank's cards and QRIS.
+pub async fn remove_edc_machine(
+    pool: &PgPool,
+    site_id: &str,
+    bank_raw: &str,
+    actor: &str,
+) -> Result<(), AppError> {
+    let site_id = site_id.trim();
+    let bank = bank_code_of(bank_raw)?;
+    let mut tx = pool.begin().await?;
+    let removed = sqlx::query(
+        "UPDATE edc_terminal SET active = false
+          WHERE site_id = $1 AND bank_code = $2 AND active",
+    )
+    .bind(site_id)
+    .bind(&bank)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+    if removed == 0 {
+        return Err(AppError::NotFound(format!("EDC {bank} at {site_id}")));
+    }
+    sync_shop_card_methods(&mut tx, site_id, actor).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// A shop's debit, credit and QRIS methods are exactly what its machines take.
+/// A bank whose method the company never declared gets one, settling straight
+/// to the bank (owner, 1 Oct 2026); one switched off comes back on.
+async fn sync_shop_card_methods(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    site_id: &str,
+    actor: &str,
+) -> Result<(), AppError> {
+    const TAKEN: &str = "((p.tender_type = 'DEBIT_CARD' AND e.takes_debit)
+                       OR (p.tender_type = 'CREDIT_CARD' AND e.takes_credit)
+                       OR (p.tender_type = 'QRIS' AND e.takes_qris))";
+    sqlx::query(
+        "INSERT INTO payment_method (code, name, tender_type, bank_code, settlement_mode, created_by)
+         SELECT k.prefix || m.bank_code, k.word || ' ' || m.bank_code, k.tender, m.bank_code,
+                'DIRECT_TO_BANK', $2
+           FROM (SELECT bank_code, bool_or(takes_debit) AS d, bool_or(takes_credit) AS c,
+                        bool_or(takes_qris) AS q
+                   FROM edc_terminal WHERE site_id = $1 AND active GROUP BY bank_code) m
+          CROSS JOIN (VALUES ('DEBIT_', 'Debit', 'DEBIT_CARD'),
+                             ('CREDIT_', 'Kartu kredit', 'CREDIT_CARD'),
+                             ('QRIS_', 'QRIS', 'QRIS')) AS k (prefix, word, tender)
+          WHERE (k.tender = 'DEBIT_CARD' AND m.d)
+             OR (k.tender = 'CREDIT_CARD' AND m.c)
+             OR (k.tender = 'QRIS' AND m.q)
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(site_id)
+    .bind(actor)
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query(&format!(
+        "UPDATE payment_method p SET is_active = true
+           FROM edc_terminal e
+          WHERE e.site_id = $1 AND e.active AND upper(p.bank_code) = e.bank_code
+            AND NOT p.is_active AND {TAKEN}"
+    ))
+    .bind(site_id)
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query(
+        "DELETE FROM payment_method_site ps USING payment_method p
+          WHERE ps.site_id = $1 AND p.code = ps.method_code AND p.tender_type = ANY($2)",
+    )
+    .bind(site_id)
+    .bind(MACHINE_TENDERS.as_slice())
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query(&format!(
+        "INSERT INTO payment_method_site (method_code, site_id, set_by)
+         SELECT DISTINCT p.code, $1, $2
+           FROM payment_method p
+           JOIN edc_terminal e ON e.site_id = $1 AND e.active AND upper(p.bank_code) = e.bank_code
+          WHERE {TAKEN}
+         ON CONFLICT DO NOTHING"
+    ))
+    .bind(site_id)
+    .bind(actor)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+/// Replace the cash, voucher, employee-balance and points methods a shop
+/// takes. Its machines' methods and any e-wallet stay as they are.
+pub async fn set_shop_other_methods(
+    pool: &PgPool,
+    site_id: &str,
+    request: &SetShopOtherMethodsRequest,
+    actor: &str,
+) -> Result<Vec<super::SitePaymentMethod>, AppError> {
+    let site_id = site_id.trim();
+    let site_known: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM site WHERE id = $1)")
+        .bind(site_id)
+        .fetch_one(pool)
+        .await?;
+    if !site_known {
+        return Err(AppError::NotFound(format!("site {site_id}")));
+    }
+    let codes: Vec<String> = request
+        .codes
+        .iter()
+        .map(|code| code.trim().to_ascii_uppercase())
+        .filter(|code| !code.is_empty())
+        .collect();
+    let fitting: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM payment_method WHERE code = ANY($1) AND tender_type = ANY($2)",
+    )
+    .bind(&codes)
+    .bind(OTHER_TENDERS.as_slice())
+    .fetch_one(pool)
+    .await?;
+    let mut distinct = codes.clone();
+    distinct.sort();
+    distinct.dedup();
+    if fitting != distinct.len() as i64 {
+        return Err(AppError::Validation(
+            "only cash, voucher, employee balance and points are set here; a card or QRIS \
+             comes with the shop's EDC"
+                .into(),
+        ));
+    }
+    let mut tx = pool.begin().await?;
+    sqlx::query(
+        "DELETE FROM payment_method_site ps USING payment_method p
+          WHERE ps.site_id = $1 AND p.code = ps.method_code AND p.tender_type = ANY($2)",
+    )
+    .bind(site_id)
+    .bind(OTHER_TENDERS.as_slice())
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        "INSERT INTO payment_method_site (method_code, site_id, set_by)
+         SELECT code, $2, $3 FROM unnest($1::text[]) AS code
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(&distinct)
+    .bind(site_id)
+    .bind(actor)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    super::site_payment_methods(pool, site_id).await
 }

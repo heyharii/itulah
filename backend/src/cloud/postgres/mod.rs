@@ -244,6 +244,13 @@ mod store_actions;
 /// (0646-0648). See the module.
 mod store_exceptions;
 mod store_money;
+/// A shop's own Send of its reject: the return allotment it stands on.
+mod store_reject_return;
+/// Sales the till could not take from its own stock, matched at head office.
+mod unmatched_sales;
+/// Head office stops a till, a cashier or a whole store on the POS, and
+/// removes a store that closed for good (0990). See the module.
+mod pos_access;
 /// Opening a store: its readiness checks, head office's decision, and
 /// installing its server from the store's page. See the module.
 mod stores;
@@ -437,6 +444,9 @@ pub use stock_ledger::*;
 pub use store_actions::*;
 pub use store_exceptions::*;
 pub use store_money::*;
+pub use store_reject_return::*;
+pub use unmatched_sales::*;
+pub use pos_access::*;
 pub use stores::*;
 pub use supplier_banks::*;
 pub use supplier_contacts::*;

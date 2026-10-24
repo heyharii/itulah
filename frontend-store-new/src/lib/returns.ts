@@ -1,6 +1,7 @@
 import { queryOptions, useQuery } from "@tanstack/react-query"
 
 import { node } from "@/lib/api"
+import { cloud } from "@/lib/cloud"
 
 /// What Merchandise asked this shop to send back to head office.
 ///
@@ -36,14 +37,16 @@ export function fetchReturns(signal?: AbortSignal): Promise<StoreReturnAsk[]> {
 }
 
 /// Picks, packs, seals and dispatches the whole request in one act.
+/// `tripNote` is who carries it — courier, plate, driver — as one note.
 export function sendReturn(
   allotmentId: string,
   idempotencyKey: string,
+  tripNote?: string,
   signal?: AbortSignal,
 ): Promise<StoreReturnSent> {
   return node.post<StoreReturnSent>(
     `/api/v1/store/return-requests/${encodeURIComponent(allotmentId)}/send`,
-    { idempotency_key: idempotencyKey },
+    { idempotency_key: idempotencyKey, trip_note: tripNote ?? null },
     { signal },
   )
 }
@@ -61,4 +64,28 @@ export function useReturns() {
 /// Open requests, for the sidebar's badge.
 export function useOpenReturns(): number {
   return useReturns().data?.length ?? 0
+}
+
+/// The return a shop's Send of its reject stands on, raised at head office
+/// through the node's relay (`POST /api/v1/inventory/store-returns/reject`).
+/// The site is the node's own; the activation then reaches this node like any
+/// return, and the shop sends it with `sendReturn`.
+export interface RaisedReturn {
+  readonly id: string
+  readonly allotment_number: string
+}
+
+/// To be returned's three pockets, as the centre names them.
+export type ToReturnPocket = "reject" | "over_delivery" | "return_ho"
+
+export function raiseRejectReturn(
+  pocket: ToReturnPocket,
+  lines: readonly { sku_code: string; quantity: number }[],
+  idempotencyKey: string,
+): Promise<RaisedReturn> {
+  return cloud.post<RaisedReturn>("/api/v1/inventory/store-returns/reject", {
+    pocket,
+    lines,
+    idempotency_key: idempotencyKey,
+  })
 }

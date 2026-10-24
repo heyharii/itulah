@@ -90,7 +90,12 @@ export interface NavItem {
   /// Which tint the count wears. Only read when `useCount` returns a number
   /// above zero — on its own it draws nothing, which is why the modules that
   /// declared it before there was anything to draw are unaffected.
-  readonly badge?: "bad" | "warn"
+  ///
+  /// `quiet` is a plain grey number and not a notification: the white look's
+  /// red pill is for what waits on somebody, and a figure that only says how
+  /// many there are (Sales › Unmatched sales, owner 23 Oct 2026) is read
+  /// beside the word. A quiet count never reaches the department's rail dot.
+  readonly badge?: "bad" | "warn" | "quiet"
   /// A React hook the sidebar may call to get this item's count.
   ///
   /// A hook and not a number, because the count is live and this file is a
@@ -577,7 +582,13 @@ function withRailCount(domain: AppDomain): AppDomain {
     }
     for (const section of module.sections) {
       for (const item of section.items) {
-        if (item.useCount === undefined || item.hidden) continue
+        // A quiet count is read beside its word and never adds to the rail.
+        if (
+          item.useCount === undefined ||
+          item.hidden ||
+          item.badge === "quiet"
+        )
+          continue
         reads.push(item.useCount)
         if (item.badge === "bad" || tint === undefined) tint = item.badge
       }

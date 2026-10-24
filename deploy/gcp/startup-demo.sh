@@ -12,6 +12,7 @@
 #                        to it once it answers /api/v1/health, the old one is
 #                        stopped after it drains. A new cloud that never gets
 #                        healthy is removed and nothing else changes.
+#   caddy                write the Caddyfile and reload Caddy, nothing else
 #
 # Never down for a deploy (owner, 10 Oct 2026, after osretail.site went down
 # twice in one VM reset): nothing here restarts Caddy or Postgres, and Caddy
@@ -57,6 +58,12 @@ alias_domain="${ip//./-}.nip.io"
 public_domain="$(meta instance/attributes/itulah-public-domain 2>/dev/null || true)"
 hub_extra=""
 if [ -n "$public_domain" ]; then hub_extra=", $public_domain, www.$public_domain, hub.$public_domain"; fi
+# The till's web app answers at pos.<public domain> as well (owner, 23 Oct
+# 2026: pos.osretail.site). Its A record is the owner's to add at the domain's
+# DNS; until it resolves Caddy simply keeps asking for the certificate.
+# `itulah-ctl caddy` asks again at once.
+pos_extra=""
+if [ -n "$public_domain" ]; then pos_extra=", pos.$public_domain"; fi
 # A self-hosted Next.js UI can sit on an explicit path without replacing the
 # existing Hub bundle or its API origin. Disabled unless a VM opts in.
 next_route=""
@@ -285,7 +292,7 @@ fi
 
 site() {  # site <name> <api-block>   static bundle from $state/www/<name>
   cat <<E3
-$1.$domain, $1.$alias_domain$([ "$1" = hub ] && printf "%s" "$hub_extra") {
+$1.$domain, $1.$alias_domain$([ "$1" = hub ] && printf "%s" "$hub_extra")$([ "$1" = pos ] && printf "%s" "$pos_extra") {
   encode gzip
   log {
     output file /data/access.log {
@@ -682,6 +689,15 @@ if [ "$mode" = rollout ]; then
     docker rmi "$image_before" >/dev/null 2>&1 || true
   fi
   echo "$(date -u +%T) ROLLOUT OK: $image on $next"
+  exit 0
+fi
+
+# The Caddyfile alone, written above, loaded again — forced, so a site whose
+# certificate failed (a DNS record added since) is asked for at once. Nothing
+# is restarted.
+if [ "$mode" = caddy ]; then
+  docker exec caddy caddy reload --force --config /etc/caddy/Caddyfile --adapter caddyfile
+  echo "$(date -u +%T) CADDY OK"
   exit 0
 fi
 

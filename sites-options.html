@@ -1,0 +1,885 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sites options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet" />
+<style>
+/* GA › Sites — the list and the site sheet, tidied. List options keep the
+   List template (design-system/01-pages: head · figures · bar · framed
+   table); detail options keep the sheet anatomy (02-sheets: head · figures ·
+   lines · notes · activity · foot, no tabs, Edit swaps in place). Shell and
+   tokens copied from supplies-options.html, measured on the hub :5350. */
+:root{
+  --ink:#1d1d1f; --body:#6e6e73; --mute:#6e6e73; --nav:#344054;
+  --soft:#fafafb; --soft-2:#f2f2f5; --soft-3:#f5f5f7; --stone:#e8ebf0;
+  --hairline:#e8e8ec; --hairline-2:#dcdce1; --row-line:#eeeef1; --band:#fafafb;
+  --accent:#2862dc; --accent-bg:#eef3fc;
+  --ok:#36b827; --ok-fg:#248a3d; --warn:#c9892e; --warn-fg:#a66c1f; --bad:#d70015; --bad-fg:#d70015; --info:#2f80ed; --info-fg:#1f63c4;
+  --r-card:10px; --r-inner:8px; --r-sheet:16px;
+  --ring:0 0 0 1px rgb(0 0 0/.05),0 2px 8px rgb(0 0 0/.04);
+  --ease-out:cubic-bezier(.23,1,.32,1); --ease-drawer:cubic-bezier(.32,.72,0,1);
+  --font:"Inter",system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font-family:var(--font);font-size:15px;line-height:20px;color:var(--ink);background:#141518;letter-spacing:-.006em;-webkit-font-smoothing:antialiased;overflow:hidden}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;letter-spacing:inherit}
+.i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.i.s{width:16px;height:16px}
+
+/* prototype chrome */
+.proto{height:50px;overflow-x:auto;background:#141518;color:#fff;display:flex;align-items:center;gap:12px;padding:0 14px 0 18px}
+.proto .t{font-weight:600;white-space:nowrap}
+.seg{display:flex;gap:2px;background:#24262b;border-radius:9px;padding:3px;flex:none}
+.seg button{height:32px;padding:0 11px;border-radius:7px;color:#b9bcc3;white-space:nowrap;transition:background-color .15s ease,color .15s ease,transform .16s ease-out}
+.seg button:active{transform:scale(.97)}
+.seg button b{font-weight:600;color:#fff;margin-right:5px}
+.seg button.on{background:#fff;color:var(--ink)} .seg button.on b{color:var(--ink)}
+.seg .star{color:#f4b740;margin-left:4px}
+.proto .sp{flex:1}
+.note{min-height:36px;background:#1c1e22;color:#a7abb3;line-height:24px;padding:6px 18px;border-top:1px solid #26282d}
+.note b{color:#fff;font-weight:500}
+.stagewrap{height:calc(100vh - 50px - var(--nh,36px));overflow:hidden;display:flex;justify-content:center;background:#141518}
+
+/* hub shell */
+.app{position:relative;overflow:hidden;height:100%;display:grid;grid-template-columns:68px 216px minmax(0,1fr);background:var(--stone);flex:none}
+.rail{display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:6px;color:var(--nav)}
+.rail .ri{width:40px;height:36px;border-radius:9px;display:grid;place-items:center}
+.rail .ri.on{background:#fff;color:var(--accent);box-shadow:var(--ring)}
+.rail .sp{flex:1}
+.av{width:34px;height:34px;border-radius:50%;border:1.5px solid var(--accent);display:grid;place-items:center;color:var(--accent);font-weight:600;background:#fff}
+.panel{background:#fff;margin:12px 0;border-radius:var(--r-sheet);box-shadow:var(--ring);display:flex;flex-direction:column;min-height:0}
+.panel h2{margin:0;height:52px;padding:12px 16px 0;display:flex;align-items:center;justify-content:space-between;font-size:20px;font-weight:600;letter-spacing:-.01em;color:#1d2939}
+.navs{padding:10px 10px;display:flex;flex-direction:column}
+.nv{height:36px;display:flex;align-items:center;padding:0 10px;border-radius:var(--r-inner);color:var(--nav);width:100%;text-align:left}
+.nv.on{background:var(--accent-bg);color:var(--accent);font-weight:600}
+.navs hr{border:0;border-top:1px solid var(--hairline);margin:6px 8px}
+.clock{margin-top:auto;padding:14px 16px;border-top:1px solid var(--hairline);display:flex;gap:10px;align-items:center;color:var(--ink)}
+.main{margin:12px;background:#fff;border-radius:var(--r-sheet);box-shadow:var(--ring);overflow-y:auto;min-width:0;position:relative}
+
+/* head · figures · tabs · bar · table */
+.head{position:sticky;top:0;z-index:4;background:#fff;padding:24px 28px 16px;border-bottom:1px solid var(--hairline);display:flex;align-items:center;justify-content:space-between;min-height:76px}
+.head h1{margin:0;font-size:17px;line-height:24px;font-weight:600}
+.btn{height:36px;display:inline-flex;align-items:center;gap:6px;padding:0 12px 0 10px;border-radius:var(--r-inner);background:var(--accent);color:#fff;font-weight:600;box-shadow:0 1px 2px rgb(20 50 100/.1);transition:transform .16s var(--ease-out),background-color .15s ease}
+.btn:active{transform:scale(.97)}
+@media (hover:hover){.btn:hover{background:#2257c8}}
+.page{padding:24px 28px 64px}
+.figs{display:flex;margin-bottom:32px}
+.fig{padding:0 24px;border-left:1px solid var(--hairline)}
+.fig:first-child{border-left:0;padding-left:0}
+.fig .l{color:var(--body);white-space:nowrap;display:flex;align-items:center;gap:6px;transition:color .15s ease}
+.fig .v{font-size:16px;line-height:24px;font-weight:600;margin-top:4px;font-variant-numeric:tabular-nums;letter-spacing:-.02em;white-space:nowrap}
+.fig .v.warn{color:var(--warn-fg)} .fig .v.bad{color:var(--bad-fg)}
+button.fig{text-align:left;cursor:pointer}
+@media (hover:hover){button.fig:hover .l{color:var(--ink)}}
+button.fig.on .l{color:var(--accent)}
+.mark{display:inline-flex;align-items:center;border-radius:var(--r-inner);background:var(--soft-2);padding:0 6px;font-weight:500;color:var(--body)}
+.tabs{display:flex;gap:20px;box-shadow:inset 0 -1px 0 var(--hairline);margin-bottom:16px;overflow-x:auto;scrollbar-width:none}
+.tab{padding:8px 0 11px;color:var(--body);font-weight:500;white-space:nowrap;border-bottom:2px solid transparent;transition:color .15s ease}
+.tab .c{margin-left:6px;color:var(--mute);font-weight:400;font-variant-numeric:tabular-nums}
+.tab.on{color:var(--ink);border-bottom-color:var(--ink)}
+.bar{display:flex;gap:8px;align-items:center;margin-bottom:12px;position:relative}
+.search{width:280px;height:36px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);display:flex;align-items:center;gap:8px;padding:0 10px;color:var(--mute)}
+.search input{border:0;outline:0;font:inherit;color:var(--ink);flex:1;min-width:0;letter-spacing:inherit}
+.gb{height:36px;display:flex;align-items:center;gap:6px;padding:0 12px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);font-weight:500;white-space:nowrap;transition:background-color .15s ease,transform .16s var(--ease-out)}
+.gb:active{transform:scale(.97)}
+@media (hover:hover){.gb:hover{background:var(--soft-2)}}
+.gb .n{min-width:20px;height:20px;border-radius:10px;background:var(--ink);color:#fff;font-size:15px;line-height:20px;text-align:center;padding:0 6px;font-weight:500}
+.swp{height:36px;display:flex;align-items:center;gap:8px;padding:0 12px 0 10px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);font-weight:500;white-space:nowrap;transition:background-color .15s ease,transform .16s var(--ease-out)}
+.swp:active{transform:scale(.97)}
+@media (hover:hover){.swp:hover{background:var(--soft)}}
+.swp .tk{width:30px;height:18px;border-radius:9px;background:#e3e3e8;position:relative;transition:background-color .2s var(--ease-out)}
+.swp .tk::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgb(0 0 0/.2);transition:transform .2s var(--ease-out)}
+.swp.on .tk{background:var(--accent)} .swp.on .tk::after{transform:translateX(12px)}
+.swp .c{color:var(--mute);font-weight:400;font-variant-numeric:tabular-nums}
+.swp .c.bad{color:var(--bad-fg)}
+
+.pop{position:absolute;top:44px;width:300px;background:#fff;border-radius:12px;box-shadow:0 0 0 1px var(--hairline),0 12px 32px rgb(0 0 0/.12);padding:6px;z-index:6;opacity:0;transform:scale(.97);transform-origin:top left;pointer-events:none;transition:opacity .16s var(--ease-out),transform .16s var(--ease-out);max-height:520px;overflow-y:auto}
+.pop.right{right:0;transform-origin:top right}
+.pop.open{opacity:1;transform:none;pointer-events:auto}
+.pop .ph{padding:10px 10px 4px;color:var(--body);font-weight:500}
+.pop .fr{height:38px;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 10px;border-radius:var(--r-inner);width:100%;text-align:left}
+.pop .fr span{color:var(--mute);font-variant-numeric:tabular-nums}
+.pop .fr.on{color:var(--accent);font-weight:500} .pop .fr.on span{color:var(--accent)}
+@media (hover:hover){.pop button.fr:hover{background:var(--soft)}}
+.pop hr{border:0;border-top:1px solid var(--hairline);margin:6px 4px}
+
+/* DataTable, framed */
+.tbox{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:clip}
+table{border-collapse:collapse;width:100%;table-layout:fixed}
+th{height:40px;background:var(--band);color:var(--body);font-weight:500;text-align:left;padding:0 16px;border-bottom:1px solid var(--hairline);white-space:nowrap;position:sticky;top:76px;z-index:2}
+td{padding:12px 16px;border-top:1px solid var(--row-line);vertical-align:middle;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+tbody tr:first-child td{border-top:0}
+tbody tr.rw{cursor:pointer}
+tbody tr.rw td{transition:background-color .12s ease}
+@media (hover:hover){tbody tr.rw:hover td{background:var(--soft)}
+  tbody tr.rw:hover td:last-child::after{content:"";position:absolute;right:14px;top:50%;width:7px;height:7px;margin-top:-4px;border-right:1.6px solid var(--mute);border-top:1.6px solid var(--mute);transform:rotate(45deg)}}
+tbody tr.rw td:last-child{position:relative;padding-right:30px}
+.r{text-align:right}
+.num{font-variant-numeric:tabular-nums}
+.nm{font-weight:500;display:block;overflow:hidden;text-overflow:ellipsis}
+.q{color:var(--mute);display:block;overflow:hidden;text-overflow:ellipsis}
+.m{color:var(--mute)}
+.late{color:var(--bad-fg)}
+.grp td{height:44px;padding-top:0;padding-bottom:0;background:var(--band);font-weight:500;border-top:1px solid var(--hairline)}
+.grp td .c{color:var(--mute);font-weight:400;margin-left:6px}
+.grp + tr td{border-top:1px solid var(--hairline)}
+tfoot td{height:44px;padding-top:0;padding-bottom:0;background:var(--band);border-top:1px solid var(--hairline)}
+.st{white-space:nowrap}
+.st::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--d,var(--mute));margin:0 7px 2px 0;vertical-align:middle}
+.st.ok{--d:var(--ok);color:var(--ok-fg)} .st.warn{--d:var(--warn);color:var(--warn-fg)} .st.bad{--d:var(--bad);color:var(--bad-fg)} .st.info{--d:var(--info);color:var(--info-fg)} .st.neutral{--d:#aeaeb2}
+.empty{padding:56px 16px;text-align:center;color:var(--body)}
+
+/* Now: today's register — a banner, then a div grid in a sideways scroller */
+.banner{background:#eaf1fc;color:#3a5a92;border-radius:var(--r-card);padding:10px 14px;line-height:22px;margin-bottom:4px}
+.now-box{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden}
+.now-scroll{overflow-x:auto}
+.now-g{display:grid;grid-template-columns:9rem minmax(13rem,1.3fr) minmax(12rem,1fr) 10rem 8rem 8.5rem 8.5rem;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--hairline)}
+.now-g:last-child{border-bottom:0}
+.now-g.h{height:40px;padding:0 14px;background:var(--band);color:var(--body);font-weight:500}
+.now-g.rw{cursor:pointer} @media (hover:hover){.now-g.rw:hover{background:var(--soft)}}
+.now-g > *{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;color:var(--body);letter-spacing:0}
+.now-g .sub{display:block;color:var(--mute);overflow:hidden;text-overflow:ellipsis}
+.pill{display:inline-flex;align-items:center;gap:7px;height:24px;padding:0 9px;border-radius:12px;box-shadow:inset 0 0 0 1px currentColor;font-weight:500;white-space:nowrap}
+.pill::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor}
+.pill.ok{color:var(--ok-fg)} .pill.warn{color:var(--warn-fg)} .pill.bad{color:var(--bad-fg)} .pill.accent{color:var(--accent)} .pill.info{color:#3b7fb8} .pill.neutral{color:var(--body)}
+
+/* ── sheets: glass over the scrim, from the right ─────────────────────── */
+.scrim{position:absolute;inset:0;z-index:20;background:rgb(40 30 20/10%);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);opacity:0;pointer-events:none;transition:opacity 200ms var(--ease-out)}
+.scrim.on{opacity:1;pointer-events:auto;transition-duration:280ms}
+.sheet{position:absolute;z-index:21;top:12px;right:12px;bottom:12px;width:480px;background:#fff;border-radius:var(--r-sheet);box-shadow:0 0 0 1px rgb(0 0 0/.06),0 24px 64px rgb(0 0 0/.16);display:flex;flex-direction:column;overflow:hidden;transform:translateX(calc(100% + 24px));transition:transform 200ms var(--ease-out)}
+.sheet.on{transform:none;transition:transform 280ms var(--ease-drawer)}
+.sheet.wide{width:1040px}
+.app.w1280 .sheet.wide{width:960px}
+.sh-head{flex:none;display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:24px 28px 16px;border-bottom:1px solid var(--hairline)}
+.sh-head .tx{min-width:0;display:flex;flex-direction:column;gap:4px}
+.crumb{color:var(--mute)}
+.ttl{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px}
+.ttl h3{margin:0;font-size:17px;line-height:24px;font-weight:600;letter-spacing:-.3px}
+.cap{color:var(--mute)}
+.x{width:36px;height:36px;margin:-4px -6px 0 0;border-radius:var(--r-inner);display:grid;place-items:center;flex:none;transition:background-color .15s ease}
+@media (hover:hover){.x:hover{background:var(--soft-2)}}
+.sh-body{flex:1;min-height:0;overflow-y:auto;padding:20px 28px 24px;display:flex;flex-direction:column;gap:24px}
+.sh-foot{flex:none;min-height:64px;padding:12px 28px;border-top:1px solid var(--hairline);display:flex;align-items:center;justify-content:flex-end;gap:8px}
+.sh-foot .left{margin-right:auto;color:var(--mute)}
+.sh-body,.sh-foot{transition:opacity 160ms var(--ease-out)}
+.sheet.sw-out .sh-body,.sheet.sw-out .sh-foot{opacity:0;transition-duration:100ms}
+.sheet.sw-in .sh-body,.sheet.sw-in .sh-foot{opacity:0;transition:none}
+.b{height:36px;padding:0 16px;border-radius:var(--r-inner);display:inline-flex;align-items:center;gap:6px;font-weight:500;white-space:nowrap;transition:transform .16s var(--ease-out),background-color .15s ease}
+.b:active{transform:scale(.97)}
+.b.pri{background:var(--accent);color:#fff;font-weight:600;box-shadow:0 1px 2px rgb(20 50 100/.1)}
+.b.red{background:var(--bad);color:#fff;font-weight:600}
+.b.ghost{box-shadow:inset 0 0 0 1px var(--hairline-2)}
+.b.soft{background:var(--accent-bg);color:var(--accent)}
+@media (hover:hover){.b.pri:hover{background:#2257c8}.b.red:hover{background:#c00013}.b.ghost:hover{background:var(--soft-2)}}
+.sh-body .figs{margin:0}
+.sh-body .figs .fig{padding:0 20px}
+.sh-body .figs .fig:first-child{padding-left:0}
+.facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 32px;margin:0}
+.facts dt{color:var(--body);line-height:18px}
+.facts dd{margin:4px 0 0;line-height:22px;overflow-wrap:anywhere}
+.facts .full{grid-column:1/-1}
+.sec-t{display:flex;align-items:center;justify-content:space-between;font-weight:600;width:100%}
+.sec-t .c{color:var(--mute);font-weight:400;display:flex;align-items:center;gap:6px}
+.sec-t .chev{transition:transform .2s var(--ease-out)}
+.sec-t.open .chev{transform:rotate(90deg)}
+.act{list-style:none;margin:10px 0 0;padding:0}
+.act li{display:flex;justify-content:space-between;gap:16px;padding:10px 0;border-top:1px solid var(--row-line)}
+.act li:first-child{border-top:0}
+.act li span:last-child{color:var(--mute);white-space:nowrap}
+/* form fields */
+.fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 20px}
+.fl{display:flex;flex-direction:column;gap:8px;min-width:0}
+.fl.full{grid-column:1/-1}
+.fl > label{color:var(--mute);line-height:20px;font-weight:500}
+.req{color:var(--bad);margin-left:2px}
+.in{width:100%;height:44px;padding:0 12px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:#fff;font:inherit;color:var(--ink);letter-spacing:inherit;outline:none;transition:border-color .15s ease,box-shadow .15s ease}
+.in:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgb(40 98 220/.14)}
+.in.bad{border-color:var(--bad)}
+select.in{appearance:none;background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%236e6e73' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E") no-repeat right 12px center;padding-right:34px}
+.joined{display:flex}
+.joined .in:first-child{border-radius:var(--r-inner) 0 0 var(--r-inner);flex:1;min-width:0}
+.joined .in:last-child{border-radius:0 var(--r-inner) var(--r-inner) 0;margin-left:-1px;width:112px;flex:none}
+.joined .in:focus{position:relative;z-index:1}
+.rp{position:relative}
+.rp span{position:absolute;left:12px;top:12px;color:var(--mute)}
+.rp .in{padding-left:38px;text-align:right;font-variant-numeric:tabular-nums}
+.err{color:var(--bad-fg)}
+/* toast, bottom right */
+.toast{position:absolute;z-index:30;right:24px;bottom:24px;background:var(--ink);color:#fff;border-radius:12px;padding:12px 16px;box-shadow:0 8px 24px rgb(0 0 0/.18);display:flex;align-items:center;gap:10px;opacity:0;transform:translateY(8px);pointer-events:none;transition:opacity 200ms var(--ease-out),transform 200ms var(--ease-out)}
+.toast.on{opacity:1;transform:none}
+.toast .i{color:#7ee08a}
+@media (prefers-reduced-motion:reduce){.sheet,.sheet.on{transition:opacity .2s ease;transform:none;opacity:0}.sheet.on{opacity:1}.toast{transform:none}}
+
+/* ── this prototype ──────────────────────────────────────────────────── */
+.proto .lb{color:#8b8f97;white-space:nowrap;margin-left:6px}
+.sw{white-space:nowrap;color:var(--ink)}
+.sw::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--d,#aeaeb2);margin:0 8px 2px 0;vertical-align:middle}
+.sw.ok{--d:var(--ok)} .sw.warn{--d:var(--warn)} .sw.bad{--d:var(--bad)} .sw.info{--d:var(--info)}
+.warnfg{color:var(--warn-fg)} .badfg{color:var(--bad-fg)}
+tbody tr.sel td{background:var(--soft-2)}
+.lnk{color:var(--accent)}
+.fin{display:inline-flex;align-items:center;height:20px;border-radius:6px;background:var(--soft-2);padding:0 6px;font-weight:500;color:var(--body);margin-left:6px;vertical-align:1px}
+
+/* Now: the hub today — a div grid at 74rem in a sideways scroller */
+.obar{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.ofil{height:32px;display:inline-flex;align-items:center;gap:6px;padding:0 8px;border-radius:var(--r-inner);color:var(--body)}
+.ow{min-width:74rem}
+.og{display:grid;grid-template-columns:minmax(14rem,1.4fr) 8.5rem minmax(13rem,1fr) 11rem 5.5rem 5.5rem 7.5rem 9rem;gap:12px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--hairline)}
+.og:last-child{border-bottom:0}
+.og.h{height:40px;padding:0 14px;background:var(--band);color:var(--body);font-weight:500}
+.og.rw{cursor:pointer} @media (hover:hover){.og.rw:hover{background:var(--soft)}}
+.og > *{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.og .sub{display:block;color:var(--mute);overflow:hidden;text-overflow:ellipsis}
+.og .r{text-align:right}
+.osearch{height:32px;width:224px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:0 10px;font:inherit;letter-spacing:inherit;color:var(--ink);outline:0}
+.o-banner{border:1px solid var(--hairline-2);background:var(--soft);border-radius:var(--r-inner);padding:14px;display:flex;gap:10px;color:var(--body);line-height:22px}
+.o-h4{margin:0 0 10px;padding-bottom:6px;border-bottom:1px solid var(--hairline);font-weight:600}
+.o-sec{display:flex;flex-direction:column;gap:16px}
+.o-sec + .o-sec{border-top:1px solid var(--hairline);padding-top:24px}
+.o-sec h4{margin:0;font-weight:600}
+.o-li{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--hairline)}
+.o-li:last-child{border-bottom:0}
+.o-li .tx{min-width:0;flex:1}
+.o-li .tx b{display:block;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.o-li .tx span{display:block;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.o-li .rt{color:var(--mute);text-align:right;flex:none}
+.o-li .mono,.og .mono{font-size:15px}
+.o-p{margin:0;color:var(--body);line-height:22px}
+.o-form{border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:14px}
+.o-pill{display:inline-flex;align-items:center;gap:7px;height:24px;padding:0 9px;border-radius:12px;box-shadow:inset 0 0 0 1px currentColor;font-weight:500;white-space:nowrap}
+.o-pill::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor}
+
+/* sheet pieces */
+.shd{display:flex;align-items:baseline;justify-content:space-between;gap:12px;font-weight:600;margin:0 0 12px}
+.shd .c{color:var(--mute);font-weight:400;font-variant-numeric:tabular-nums}
+.mt{width:100%;border-collapse:collapse;table-layout:fixed}
+.sh-body .mt th{position:static;height:auto;padding:10px 12px;background:var(--band);color:var(--mute);font-weight:500;border-bottom:1px solid var(--hairline);white-space:nowrap;text-align:left}
+.sh-body .mt th:first-child,.sh-body .mt td:first-child{padding-left:0}
+.sh-body .mt th:first-child{padding-left:12px}
+.sh-body .mt td:first-child{padding-left:12px}
+.sh-body .mt td{padding:12px;border-top:1px solid var(--row-line);vertical-align:top;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sh-body .mt tr:first-child td{border-top:0}
+.sh-body .mt .r{text-align:right;font-variant-numeric:tabular-nums}
+.sh-body .mt .nm{font-weight:400}
+.sh-body .mt tr.op{cursor:pointer}
+@media (hover:hover){.sh-body .mt tr.op:hover td{background:var(--soft)}}
+.lease{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px 32px;margin:0 0 16px}
+.lease dt{color:var(--body);line-height:18px} .lease dd{margin:4px 0 0;line-height:22px}
+.unit-in{position:relative} .unit-in span{position:absolute;right:12px;top:12px;color:var(--mute)} .unit-in .in{padding-right:44px;text-align:right;font-variant-numeric:tabular-nums}
+textarea.in{height:auto;min-height:80px;padding:10px 12px;resize:vertical;line-height:22px}
+.ro{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 32px;margin:0 0 4px}
+.ro dt{color:var(--body);line-height:18px} .ro dd{margin:4px 0 0;line-height:22px}
+
+/* rail folds — the same disclosure as Activity, height through grid rows */
+.folds{border-top:1px solid var(--hairline)}
+.fold{border-bottom:1px solid var(--hairline)}
+.fold > button{width:100%;min-height:48px;display:flex;align-items:center;gap:10px;text-align:left;padding:0 2px;transition:background-color .15s ease}
+@media (hover:hover){.fold > button:hover{background:var(--soft)}}
+.fold > button .k{flex:1}
+.fold > button .v{color:var(--mute);font-variant-numeric:tabular-nums}
+.fold > button .v.warnfg{color:var(--warn-fg)}
+.fold .chev{color:var(--mute);transition:transform .2s var(--ease-out)}
+.fold.open .chev{transform:rotate(90deg)}
+.fold .bd{display:grid;grid-template-rows:0fr;transition:grid-template-rows .22s var(--ease-out)}
+.fold.open .bd{grid-template-rows:1fr}
+.fold .bd > div{overflow:hidden}
+.fold.flat > button{cursor:default} @media (hover:hover){.fold.flat > button:hover{background:none}}
+.fl-li{display:flex;gap:12px;padding:10px 0 10px 28px;border-top:1px solid var(--row-line)}
+.fl-li .tx{min-width:0;flex:1}
+.fl-li .tx b{display:block;font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fl-li .tx span{display:block;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fl-li .rt{flex:none;text-align:right;color:var(--mute);font-variant-numeric:tabular-nums}
+.fold .bd > div > :last-child{margin-bottom:8px}
+.sheet.beside{box-shadow:0 0 0 1px rgb(0 0 0/.08),0 12px 40px rgb(0 0 0/.12)}
+@media (prefers-reduced-motion:reduce){.fold .bd,.fold .chev{transition:none}}
+</style>
+</head>
+<body>
+<div class="proto">
+  <div class="t">Sites</div>
+  <span class="lb">List</span><div class="seg" id="lists"></div>
+  <span class="lb">Detail</span><div class="seg" id="details"></div>
+  <div class="sp"></div>
+  <div class="seg" id="data"></div>
+  <div class="seg" id="widths"></div>
+</div>
+<div class="note" id="note"></div>
+<div class="stagewrap" id="stagewrap">
+  <div class="app" id="app">
+    <nav class="rail">
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></div>
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><path d="M6 6h15l-2 8H8zM6 6 5 3H2"/><circle cx="9" cy="20" r="1"/><circle cx="18" cy="20" r="1"/></svg></div>
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><path d="M8 3 3 6l2 4 2-1v12h10V9l2 1 2-4-5-3c-.5 1.5-2 2.5-4 2.5S8.5 4.5 8 3z"/></svg></div>
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="18" r="1.6"/><circle cx="17" cy="18" r="1.6"/></svg></div>
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><path d="M4 10h3l8-5v14l-8-5H4zM18 9a4 4 0 0 1 0 6"/></svg></div>
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><path d="M4 10h16l-1-5H5zM5 10v9h14v-9M9 19v-5h6v5"/></svg></div>
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><path d="M3 21h18M5 21V10M19 21V10M9 21v-7M15 21v-7M2 10l10-6 10 6"/></svg></div>
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5c2 .6 3.2 2.3 3.5 5.5"/></svg></div>
+      <div class="ri on"><svg class="i" viewBox="0 0 24 24"><path d="M4 5h11v8H8l-4 3zM9 13v3h7l4 3V10h-5"/></svg></div>
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><path d="M12 6c-2-1.5-5-2-8-1.5V19c3-.5 6 0 8 1.5 2-1.5 5-2 8-1.5V4.5c-3-.5-6 0-8 1.5zM12 6v14.5"/></svg></div>
+      <div class="sp"></div>
+      <div class="av">A</div>
+    </nav>
+    <aside class="panel">
+      <h2>GA<svg class="i s" style="color:var(--body)" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg></h2>
+      <div class="navs">
+        <button class="nv">Overview</button><hr>
+        <button class="nv">Supply Requests</button><button class="nv">Repairs</button><button class="nv">Service Schedule</button><hr>
+        <button class="nv">Assets</button><button class="nv">Contracts</button><button class="nv on">Sites</button><button class="nv">Suppliers</button><hr>
+        <button class="nv">Letters</button><button class="nv">Files</button>
+      </div>
+      <div class="clock"><svg class="i s" style="color:var(--body)" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>17 Oct 2026 · 17:40</div>
+    </aside>
+    <main class="main" id="main">
+      <div class="head" id="head"></div>
+      <div class="page" id="page"></div>
+    </main>
+    <div class="scrim" id="scrim" data-close></div>
+    <section class="sheet" id="sheet" role="dialog" aria-modal="true"></section>
+    <div class="toast" id="toast"><svg class="i" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></svg><span></span></div>
+  </div>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s)
+const TODAY = new Date(2026, 9, 17)
+const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+const D = (s) => { const [y,m,d] = s.split("-").map(Number); return new Date(y, m-1, d) }
+const day = (s) => { if (!s) return "—"; const d = D(s); return `${String(d.getDate()).padStart(2,"0")} ${MON[d.getMonth()]} ${d.getFullYear()}` }
+const daysTo = (s) => Math.round((D(s) - TODAY) / 864e5)
+const rp = (n) => n == null ? "—" : "Rp " + n.toLocaleString("id-ID")
+const n0 = (n) => n.toLocaleString("id-ID")
+const esc = (s) => String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;")
+const DASH = '<span class="m">—</span>'
+const plural = (n, one, many) => `${n0(n)} ${n === 1 ? one : (many || one + "s")}`
+
+// ── the register: `site` + its unit (GET /api/v1/organisation/units, 17 Oct) ──
+// id · site.code · unit code · what people call it · kind · site.name (what the hub shows today)
+const REG = [
+  ["dc","HO-GUDANG","HO","Head Office","HO","DC"],
+  ["store-01","C001-TOKO","C001","Cikupa","STORE","Store 01"],
+  ["store-02","C002-TOKO","C002","Muaro Bungo","STORE","Store 02"],
+  ["store-03","C003-TOKO","C003","Purbalingga","STORE","Store 03"],
+  ["store-04","C004-TOKO","C004","Bumiayu","STORE","Store 04"],
+  ["store-05","C005-TOKO","C005","Jambi","STORE","Store 05"],
+  ["store-06","C006-TOKO","C006","Wiramode","STORE","Store 06"],
+  ["store-07","C007-TOKO","C007","Brebes","STORE","Store 07"],
+  ["store-08","C008-TOKO","C008","Pasuruan","STORE","Store 08"],
+  ["store-09","C009-TOKO","C009","WMJB","STORE","Store 09"],
+  ["store-10","C010-TOKO","C010","WMBA","STORE","Store 10"],
+  ["store-11","C011-TOKO","C011","Sipin","STORE","Store 11"],
+  ["store-12","C012-TOKO","C012","Banjaran","STORE","Store 12"],
+  ["store-13","C013-TOKO","C013","Wonosobo","STORE","Store 13"],
+  ["store-c014","C014-TOKO","C014","Toko Tes Claude","STORE","Toko Tes Claude"],
+]
+const KIND = {HO:"Head office", STORE:"Store"}
+
+// ── GA's half: ga_location_detail (0367). The demo rig has two rows. ──────
+// building · address · m² · contact · phone · notes
+const GA_DEMO = {
+  "dc": ["Kantor pusat & DC","Jl. Industri Raya Blok C-7, Cikarang Barat, Bekasi",2600,"Nina Oktaviani","0811-8800-2201","Gudang buka 07.00–21.00; bongkar muat lewat gerbang 2"],
+  "store-01": ["Toko ruko","Jl. Dago No. 118, Bandung",220,"Maya Anggraini","0812-2200-1101","Bongkar barang pagi sebelum 09.00, parkir depan sempit"],
+}
+// a sample of every store filled in (not the client's real addresses)
+const GA_FILL = {
+  "dc": GA_DEMO.dc,
+  "store-01": ["Ruko 2 lantai","Jl. Raya Serang Km 12 No. 8, Cikupa, Tangerang",220,"Maya Anggraini","0812-2200-1101","Bongkar barang pagi sebelum 09.00, parkir depan sempit"],
+  "store-02": ["Ruko","Jl. Sudirman No. 45, Muara Bungo, Jambi",180,"Dedi Kurniawan","0813-6612-0202",null],
+  "store-03": ["Ruko 2 lantai","Jl. Jend. Sudirman No. 120, Purbalingga",240,"Siti Rahmawati","0812-2803-0303",null],
+  "store-04": ["Standalone","Jl. Diponegoro No. 31, Bumiayu, Brebes",310,"Agus Setiawan","0857-4204-0404","Truk masuk lewat gang belakang"],
+  "store-05": ["Mall unit","Jambi Town Square Lt. 1 No. 12, Jambi",160,"Rudi Hartono","0821-7405-0505","Barang masuk lewat loading dock mall, 06.00–09.00"],
+  "store-06": ["Ruko","Jl. Ahmad Yani No. 210, Tegal",200,"Lina Marlina","0815-4806-0606",null],
+  "store-07": ["Ruko","Jl. Jend. Sudirman No. 88, Brebes",190,"Bayu Pratama","0812-2907-0707",null],
+  "store-08": ["Standalone","Jl. Soekarno-Hatta No. 17, Pasuruan",350,"Wahyu Hidayat","0838-3108-0808",null],
+  "store-09": ["Mall unit","WTC Batanghari Lt. 2 No. 7, Jambi",140,"Nurul Aini","0822-7409-0909",null],
+  "store-10": ["Ruko","Jl. Lintas Sumatera No. 56, Bangko",210,"Fajar Nugroho","0852-6610-1010",null],
+  "store-11": ["Ruko 2 lantai","Jl. Sultan Agung No. 5, Sipin, Jambi",260,"Rina Wulandari","0811-7411-1111",null],
+  "store-12": ["Ruko","Jl. Raya Banjaran No. 302, Kab. Bandung",230,"Hendra Saputra","0813-2012-1212",null],
+  "store-13": ["Standalone","Jl. A. Yani No. 47, Wonosobo",280,"Dewi Lestari","0856-4013-1313","Jalan depan satu arah, truk dari arah alun-alun"],
+}
+
+// ── what points at a site: the hub's read-back (GET /api/v1/ga/locations/{id}) ──
+// assets: number · name · where · holder · condition
+const ASSETS = {
+  "dc": [["AST-000002","Laptop GA — Lenovo ThinkPad E14",null,"Nina Oktaviani","BAIK"],["AST-000004","Lisensi POS Seventh Soft — 2 outlet",null,null,"BAIK"],["AST-000007","Mobil box pengiriman — Mitsubishi L300",null,"Yusuf Ramadhan","BAIK"],["AST-000008","Meja kerja staf HO (8 unit)",null,null,"BAIK"],["AST-000009","Mezzanine gudang DC",null,null,"BAIK"],["AST-GA-001","Tanah kantor pusat & DC",null,null,"BAIK"],["FA-DC-0001","Laptop Kasir DC",null,null,"BAIK"],["FA-DC-0002","Meja & Kursi Kantor DC",null,null,"BAIK"],["FA-HO-FFE-01","Meja & Kursi Kantor HO 2",null,null,"BAIK"],["FA-HO-KOMP-01","Komputer Kasir HO 1",null,null,"BAIK"],["FA-HO-KOMP-02","Komputer Kasir HO 2",null,null,"BAIK"],["FA-HO-KOMP-03","Laptop Finance HO",null,null,"BAIK"]],
+  "store-01": [["AST-000003","Laptop kasir toko 01 — HP 240 G9",null,"Dian Pertiwi","BAIK"],["AST-000005","Sound system toko 01 — TOA ZA-2120",null,null,"BAIK"],["AST-000006","AC split toko 01 — Daikin 2 PK","Area penjualan",null,"BAIK"],["AST-000010","Renovasi fasad toko 01 (termin 1)",null,null,"BAIK"],["AST-GA-002","AC split toko 01 (lama)","Ruang stok",null,"PERLU_SERVIS"],["AST-GA-003","Rak dinding display toko 01","Dinding kiri & kanan",null,"BAIK"],["AST-GA-004","Printer struk lama toko 01","Gudang toko",null,"RUSAK"],["FA-AC-store-01","AC Split Ruang Toko store-01",null,null,"BAIK"],["FA-RAK-store-01","Rak Display store-01",null,null,"BAIK"],["FA-ST01-0001","AC Split Ruang Kasir Store-01",null,null,"BAIK"]],
+}
+for (const [id] of REG) if (!ASSETS[id] && id !== "store-c014") ASSETS[id] = [[`FA-AC-${id}`,`AC Split Ruang Toko ${id}`,null,null,"BAIK"],[`FA-RAK-${id}`,`Rak Display ${id}`,null,null,"BAIK"]]
+
+// contracts: number · type · code · party · starts · ends · value · meter {cust, usage, unit, billed}
+const CONTRACTS_DEMO = {
+  "dc": [["CL/DC/2026-01","Cleaning","JASA_CLEANING","PT Bersih Prima Jasa","2026-01-01","2026-12-31",96000000]],
+  "store-01": [
+    ["PDAM/ST01/0412118801","Air","LANGGANAN_AIR","PDAM Tirta Bhagasasi","2024-10-01",null,null,{cust:"0412-118801",usage:34,unit:"m³",billed:0}],
+    ["SW/ST01/2024-10","Sewa toko/gudang/kantor","SEWA_TOKO","Hj. Siti Aminah","2024-10-01","2027-09-30",450000000],
+    ["MT/AC/2026-01","Kontrak maintenance","JASA_MAINTENANCE","CV Sejuk Teknik Mandiri","2026-01-01","2026-12-31",7200000],
+    ["CL/ST01/2026-03","Cleaning","JASA_CLEANING","PT Bersih Prima Jasa","2026-03-01","2027-02-28",36000000],
+  ],
+}
+const LANDLORDS = ["H. Abdul Rozak","Ibu Ratna Sari","PT Graha Niaga","H. Sutrisno","Ibu Melati Hasan","CV Sinar Properti","H. Bambang Wijaya","Ibu Yuliana","PT Mall Jambi Prima","H. Darmaji","Ibu Kartini","H. Mulyadi"]
+const RENT_END = ["2028-06-30","2027-11-30","2029-01-31","2027-03-31","2028-02-29","2026-12-31","2027-01-15","2028-09-30","2027-08-31","2029-05-31","2027-12-31","2028-04-30"]
+const CONTRACTS_FILL = {"dc": CONTRACTS_DEMO.dc, "store-01": CONTRACTS_DEMO["store-01"]}
+REG.slice(2, 14).forEach(([id, , code], i) => {
+  const no = id.slice(-2)
+  CONTRACTS_FILL[id] = [
+    [`SW/ST${no}/2024`,"Sewa toko/gudang/kantor","SEWA_TOKO",LANDLORDS[i],"2024-07-01",RENT_END[i],(120 + i * 27) * 1000000],
+    [`PLN/ST${no}`,"Listrik","LANGGANAN_LISTRIK","PLN UP3",`2023-0${1 + (i % 9)}-01`,null,null,{cust:`53210${no}88${i}4`,usage:2300 + i * 210,unit:"kWh",billed:0}],
+  ]
+})
+// repairs: title · asset · supplier · budget · status · failed on
+const REPAIRS_DEMO = {"store-01": [["AC lama ruang stok toko 01 tidak dingin","AC split toko 01 (lama)","CV Sejuk Teknik Mandiri",1750000,"IN_PROGRESS","2026-10-09"]]}
+const REPAIRS_FILL = {...REPAIRS_DEMO,
+  "store-07": [["Rolling door depan macet",null,"CV Maju Jaya Teknik",850000,"OPEN","2026-10-15"]],
+  "store-12": [["Lampu sign box mati sebagian",null,"CV Terang Reklame",1200000,"APPROVED","2026-10-12"]]}
+// service schedule: title · every · next due
+const TASKS_DEMO = {"store-01": [["Cek APAR — Toko 01","Every 6 months","2026-10-08"]]}
+const TASKS_FILL = {...TASKS_DEMO,
+  "store-03": [["Servis AC rutin","Every 3 months","2026-10-21"]],
+  "store-08": [["Cek APAR — Toko 08","Every 6 months","2026-10-20"]],
+  "dc": [["Cek APAR — Gudang","Every 6 months","2026-12-02"]]}
+// supply requests: item · category · quantity · requested by · needed by · status
+const SUPPLIES_DEMO = {"store-01": [["Kertas struk thermal 80mm","ATK & barang cetakan","30 roll","Maya Anggraini","2026-10-19","APPROVED"],["Kantong belanja kertas ukuran M","Perlengkapan toko & kantor","1.000 pcs","Maya Anggraini","2026-10-11","RECEIVED"]]}
+const SUPPLIES_FILL = {...SUPPLIES_DEMO,
+  "store-05": [["Hanger plastik hitam","Perlengkapan toko & kantor","500 pcs","Rudi Hartono","2026-10-24","REQUESTED"]],
+  "store-11": [["Tinta printer Epson 003","ATK & barang cetakan","4 pcs","Rina Wulandari","2026-10-22","APPROVED"]]}
+const BILLED_FILL = {"dc": 8000000, "store-01": 3200000, "store-05": 1450000, "store-12": 1200000}
+
+const COND = {BAIK:["Good",""], PERLU_SERVIS:["Needs service","warn"], RUSAK:["Broken","bad"]}
+const RSTAGE = {OPEN:["Open","warn"], APPROVED:["Approved","info"], IN_PROGRESS:["In progress","info"], DONE:["Done","ok"]}
+const QSTAGE = {REQUESTED:["Requested",""], APPROVED:["Approved","info"], ORDERED:["Ordered","info"], RECEIVED:["Received","ok"]}
+const sw = ([w, t]) => `<span class="sw ${t}">${w}</span>`
+
+// ── state ──────────────────────────────────────────────────────────────────
+let S = {list:"A", detail:"A", data:"demo", width:1440, q:"", kind:null, fig:null, pop:null}
+try { Object.assign(S, JSON.parse(localStorage.getItem("sites-proto") || "{}"), {pop:null}) } catch {}
+const save = () => { try { localStorage.setItem("sites-proto", JSON.stringify(S)) } catch {} }
+let SH = {id:null, mode:"read", folds:{}, act:false, oedit:false}
+let F = {}
+let GA = {}
+let SITES = []
+
+function build(){
+  const full = S.data === "full"
+  GA = Object.fromEntries(Object.entries(full ? GA_FILL : GA_DEMO).map(([k, v]) => [k, [...v]]))
+  SITES = REG.map(([id, code, unit, name, kind, old]) => ({id, code, unit, name, kind, old}))
+  for (const s of SITES) {
+    s.contracts = (full ? CONTRACTS_FILL : CONTRACTS_DEMO)[s.id] || []
+    s.assets = ASSETS[s.id] || []
+    s.repairs = (full ? REPAIRS_FILL : REPAIRS_DEMO)[s.id] || []
+    s.tasks = (full ? TASKS_FILL : TASKS_DEMO)[s.id] || []
+    s.supplies = (full ? SUPPLIES_FILL : SUPPLIES_DEMO)[s.id] || []
+    s.billed = full ? (BILLED_FILL[s.id] || 0) : 0
+  }
+}
+const det = (s) => { const g = GA[s.id]; return g ? {building:g[0], address:g[1], area:g[2], contact:g[3], phone:g[4], notes:g[5]} : {building:null, address:null, area:null, contact:null, phone:null, notes:null} }
+const missing = (s) => { const d = det(s); return !d.address && !d.contact && !d.phone }
+const openRepairs = (s) => s.repairs.filter(r => r[4] !== "DONE").length
+const dueTasks = (s) => s.tasks.filter(t => daysTo(t[2]) <= 7).length
+const openReqs = (s) => s.supplies.filter(q => q[5] !== "RECEIVED").length
+const rent = (s) => s.contracts.find(c => c[2].startsWith("SEWA"))
+const utilities = (s) => s.contracts.filter(c => c[2].startsWith("LANGGANAN"))
+
+// ── options ────────────────────────────────────────────────────────────────
+const LISTS = [
+  {id:"now", label:"Now"},
+  {id:"A", label:"Fit", star:true},
+  {id:"B", label:"Address book"},
+  {id:"C", label:"Work"},
+  {id:"D", label:"Missing first"},
+]
+const DETAILS = [
+  {id:"now", label:"Now"},
+  {id:"A", label:"Sections", star:true},
+  {id:"B", label:"Rail"},
+  {id:"C", label:"Four groups"},
+]
+const LIST_NOTE = {
+  now: "<b>Now</b> — the hub today: 8 columns at 74rem in a box that scrolls sideways, so Open repairs and Billed are cut at 1440. Code is the internal id (store-01), Type mixes GA's word with STORE.",
+  A: "<b>A · Fit</b> — today's columns, minus Type and Billed: the name is the unit's (Cikupa) over the site code, and it fits 1440 and 1280 with no sideways scroll.",
+  B: "<b>B · Address book</b> — where and who only; every count moves into the sheet.",
+  C: "<b>C · Work</b> — what needs GA at each site: repairs, service due, open requests, rent end.",
+  D: "<b>D · Missing first</b> — sites with no address or contact on top; the sheet opens on the form.",
+}
+const DETAIL_NOTE = {
+  now: "<b>Now</b> — eight sections in one wide scroll, the edit is a quiet button mid-body, the foot only Close.",
+  A: "<b>A · Sections</b> — figures, facts, then one table per thing at the site; empty ones are left out. Edit in the foot swaps the facts to fields.",
+  B: "<b>B · Rail</b> — 480 beside the list: facts, then each thing at the site folds open.",
+  C: "<b>C · Four groups</b> — Lease & utilities, Assets, Work (repairs + service), Supplies.",
+}
+
+// ── list ───────────────────────────────────────────────────────────────────
+function shown(){
+  const q = S.q.trim().toLowerCase()
+  let rows = SITES.filter(s => {
+    if (S.kind && s.kind !== S.kind) return false
+    if (!q) return true
+    const d = det(s)
+    return [s.name, s.code, s.old, s.id, d.address, d.contact].some(v => v && v.toLowerCase().includes(q))
+  })
+  if (S.fig === "missing") rows = rows.filter(missing)
+  if (S.fig === "repairs") rows = rows.filter(s => openRepairs(s) > 0)
+  if (S.fig === "due") rows = rows.filter(s => dueTasks(s) > 0)
+  if (S.fig === "reqs") rows = rows.filter(s => openReqs(s) > 0)
+  if (S.fig === "rent") rows = rows.filter(s => { const r = rent(s); return r && r[5] && daysTo(r[5]) <= 90 })
+  if (S.list === "D") rows = [...rows].sort((a, b) => missing(b) - missing(a))
+  return rows
+}
+function drawHead(){
+  const add = `<button class="btn" data-add><svg class="i s" viewBox="0 0 24 24" style="stroke-width:2"><path d="M12 5v14M5 12h14"/></svg>Add store</button>`
+  $("#head").innerHTML = S.list === "now"
+    ? `<h1>Sites</h1><div style="display:flex;gap:8px"><input class="osearch" id="q" placeholder="Search" value="${esc(S.q)}">${add}</div>`
+    : `<h1>Sites</h1>${add}`
+}
+function fig(label, value, key, tone){
+  const v = `<div class="v ${tone || ""}">${value}</div>`
+  return key
+    ? `<button class="fig ${S.fig === key ? "on" : ""}" data-fig="${key}"><div class="l">${label}</div>${v}</button>`
+    : `<div class="fig"><div class="l">${label}</div>${v}</div>`
+}
+function drawFigures(){
+  const all = SITES, stores = all.filter(s => s.kind === "STORE").length
+  const miss = all.filter(missing).length, rep = all.reduce((a, s) => a + openRepairs(s), 0)
+  const due = all.reduce((a, s) => a + dueTasks(s), 0), reqs = all.reduce((a, s) => a + openReqs(s), 0)
+  const rentSoon = all.filter(s => { const r = rent(s); return r && r[5] && daysTo(r[5]) <= 90 }).length
+  const area = all.reduce((a, s) => a + (det(s).area || 0), 0)
+  const F_ = {
+    A: [fig("Sites", n0(all.length)), fig("Stores", n0(stores)), fig("Details missing", n0(miss), "missing", miss ? "warn" : ""), fig("Open repairs", n0(rep), "repairs"), fig("Service due", n0(due), "due", due ? "warn" : "")],
+    B: [fig("Sites", n0(all.length)), fig("Stores", n0(stores)), fig("Floor area", `${n0(area)} m²`), fig("Details missing", n0(miss), "missing", miss ? "warn" : "")],
+    C: [fig("Open repairs", n0(rep), "repairs"), fig("Service due", n0(due), "due", due ? "warn" : ""), fig("Open requests", n0(reqs), "reqs"), fig("Rent ends in 90 days", n0(rentSoon), "rent", rentSoon ? "warn" : "")],
+    D: [fig("Sites", n0(all.length)), fig("Details missing", n0(miss), "missing", miss ? "warn" : ""), fig("Complete", n0(all.length - miss))],
+  }
+  return `<div class="figs">${F_[S.list].join("")}</div>`
+}
+function drawBar(){
+  const kinds = [[null, "All types"], ["HO", "Head office"], ["STORE", "Store"]]
+  const cur = kinds.find(k => k[0] === S.kind)
+  return `<div class="bar">
+    <label class="search"><svg class="i s" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" placeholder="Search name, code, address" value="${esc(S.q)}"></label>
+    <button class="gb" data-pop="kind">${S.kind ? cur[1] : "Type"}<svg class="i s" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+    <div class="pop ${S.pop === "kind" ? "open" : ""}" data-p="kind" style="left:288px;width:220px">${kinds.map(([k, l]) => `<button class="fr ${S.kind === k ? "on" : ""}" data-kind="${k ?? ""}">${l}<span>${n0(k ? SITES.filter(s => s.kind === k).length : SITES.length)}</span></button>`).join("")}</div>
+  </div>`
+}
+const siteCell = (s, sub) => `<span class="nm">${esc(s.name)}</span><span class="q">${esc(sub ?? `${s.code} · ${KIND[s.kind]}`)}</span>`
+const two = (a, b) => a ? `<span class="nm" style="font-weight:400">${esc(a)}</span>${b ? `<span class="q">${esc(b)}</span>` : ""}` : DASH
+const num = (n, tone) => `<td class="r num ${n && tone ? tone : ""}">${n0(n)}</td>`
+function drawList(){
+  const rows = shown()
+  const cols = {
+    A: [["Site","210px"],["Address",""],["Contact","190px"],["Assets","88px","r"],["Contracts","104px","r"],["Open repairs","124px","r"]],
+    B: [["Site","210px"],["Building","140px"],["Address",""],["Contact","190px"],["Floor area","110px","r"]],
+    C: [["Site","210px"],["Contact",""],["Open repairs","120px","r"],["Service due","116px","r"],["Open requests","132px","r"],["Rent until","136px","r"]],
+    D: [["Site","210px"],["Details","130px"],["Address",""],["Contact","190px"],["Assets","88px","r"]],
+  }[S.list]
+  const line = (s) => {
+    const d = det(s), sel = SH.id === s.id ? " sel" : ""
+    const cells = {
+      A: () => `<td>${siteCell(s)}</td><td>${d.address ? esc(d.address) : DASH}</td><td>${two(d.contact, d.phone)}</td>${num(s.assets.length)}${num(s.contracts.length)}${num(openRepairs(s), "warnfg")}`,
+      B: () => `<td>${siteCell(s)}</td><td>${d.building ? esc(d.building) : DASH}</td><td>${d.address ? esc(d.address) : DASH}</td><td>${two(d.contact, d.phone)}</td><td class="r num">${d.area ? `${n0(d.area)} m²` : DASH}</td>`,
+      C: () => { const r = rent(s), late = s.tasks.some(t => daysTo(t[2]) < 0); const rd = r && r[5] ? daysTo(r[5]) : null
+        return `<td>${siteCell(s)}</td><td>${two(d.contact, d.phone)}</td>${num(openRepairs(s), "warnfg")}<td class="r num ${late ? "badfg" : ""}">${n0(dueTasks(s))}</td>${num(openReqs(s))}<td class="r num ${rd !== null && rd <= 90 ? "warnfg" : ""}">${r && r[5] ? day(r[5]) : DASH}</td>` },
+      D: () => `<td>${siteCell(s)}</td><td>${missing(s) ? sw(["Missing","warn"]) : sw(["Complete",""])}</td><td>${d.address ? esc(d.address) : DASH}</td><td>${two(d.contact, d.phone)}</td>${num(s.assets.length)}`,
+    }[S.list]()
+    return `<tr class="rw${sel}" data-row="${s.id}">${cells}</tr>`
+  }
+  const sums = {
+    A: ["", "", n0(rows.reduce((a, s) => a + s.assets.length, 0)), n0(rows.reduce((a, s) => a + s.contracts.length, 0)), n0(rows.reduce((a, s) => a + openRepairs(s), 0))],
+    B: ["", "", "", `${n0(rows.reduce((a, s) => a + (det(s).area || 0), 0))} m²`],
+    C: ["", n0(rows.reduce((a, s) => a + openRepairs(s), 0)), n0(rows.reduce((a, s) => a + dueTasks(s), 0)), n0(rows.reduce((a, s) => a + openReqs(s), 0)), ""],
+    D: ["", "", "", n0(rows.reduce((a, s) => a + s.assets.length, 0))],
+  }[S.list]
+  const body = rows.length
+    ? rows.map(line).join("")
+    : `<tr><td colspan="${cols.length}" class="empty">${S.q || S.kind || S.fig ? "No site matches." : "Nothing here yet."}</td></tr>`
+  return drawFigures() + drawBar() + `<div class="tbox"><table>
+    <colgroup>${cols.map(c => `<col style="width:${c[1] || "auto"}">`).join("")}</colgroup>
+    <thead><tr>${cols.map(c => `<th class="${c[2] || ""}">${c[0]}</th>`).join("")}</tr></thead>
+    <tbody>${body}</tbody>
+    <tfoot><tr><td>${plural(rows.length, "site")}${rows.length !== SITES.length ? ` <span class="m">of ${n0(SITES.length)}</span>` : ""}</td>${sums.map((v, i) => `<td class="${cols[i + 1][2] || ""} num">${v}</td>`).join("")}</tr></tfoot>
+  </table></div>`
+}
+// today's screen, as it draws
+function drawNowList(){
+  const rows = SITES.filter(s => {
+    if (S.kind && s.kind !== S.kind) return false
+    const q = S.q.trim().toLowerCase(); if (!q) return true
+    const d = det(s); return [s.old, s.id, d.address].some(v => v && v.toLowerCase().includes(q))
+  })
+  const line = (s) => { const d = det(s), rep = openRepairs(s)
+    return `<div class="og rw" data-row="${s.id}"><div><span style="font-weight:500">${esc(s.old)}</span><span class="sub">${esc(s.id)}</span></div>
+      <span class="m" style="color:var(--body)">${esc(d.building ?? s.kind)}</span><span style="color:var(--body)">${esc(d.address ?? "—")}</span>
+      <span style="color:var(--body)">${esc(d.contact ?? "—")}${d.phone ? `<span class="sub">${esc(d.phone)}</span>` : ""}</span>
+      <span class="r num" style="color:var(--body)">${s.assets.length}</span><span class="r num" style="color:var(--body)">${s.contracts.length}</span>
+      <span class="r num ${rep ? "warnfg" : ""}" style="${rep ? "" : "color:var(--body)"}">${rep}</span><span class="r num" style="color:var(--body)">${rp(s.billed)}</span></div>` }
+  return `<div class="obar"><button class="ofil"><svg class="i s" viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/></svg>All types</button><span style="color:var(--body)"><b style="font-weight:500;color:var(--ink)">${rows.length}</b> places</span></div>
+    <div class="now-box"><div class="now-scroll"><div class="ow">
+      <div class="og h"><span>Site</span><span>Type</span><span>Address</span><span>Contact</span><span class="r">Assets</span><span class="r">Contracts</span><span class="r">Open repairs</span><span class="r">Billed this month <span class="fin">Finance</span></span></div>
+      ${rows.map(line).join("")}
+    </div></div></div>`
+}
+
+// ── sheet ──────────────────────────────────────────────────────────────────
+const X = `<button class="x" data-close aria-label="Close"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>`
+function head(crumb, title, status, caption){
+  return `<header class="sh-head"><div class="tx"><div class="crumb">${crumb}</div><div class="ttl"><h3>${esc(title)}</h3>${status || ""}</div>${caption ? `<div class="cap">${caption}</div>` : ""}</div>${X}</header>`
+}
+const sec = (title, count, inner) => `<section><div class="shd"><span>${title}</span>${count != null ? `<span class="c">${count}</span>` : ""}</div>${inner}</section>`
+const mt = (headCols, rows) => `<table class="mt"><colgroup>${headCols.map(c => `<col style="width:${c[1] || "auto"}">`).join("")}</colgroup><thead><tr>${headCols.map(c => `<th class="${c[2] || ""}">${c[0]}</th>`).join("")}</tr></thead><tbody>${rows.join("")}</tbody></table>`
+const nq = (a, b) => `<span class="nm">${esc(a)}</span>${b ? `<span class="q">${esc(b)}</span>` : ""}`
+
+function factsHtml(s){
+  const d = det(s), v = (x) => x ? esc(x) : "—"
+  return `<dl class="facts">
+    <div><dt>Type</dt><dd>${KIND[s.kind]}</dd></div>
+    <div><dt>Building</dt><dd>${v(d.building)}</dd></div>
+    <div><dt>Contact</dt><dd>${v(d.contact)}</dd></div>
+    <div><dt>Phone number</dt><dd>${v(d.phone)}</dd></div>
+    <div><dt>Floor area</dt><dd>${d.area ? `${n0(d.area)} m²` : "—"}</dd></div>
+    <div><dt>Unit</dt><dd>${esc(s.unit)} · ${esc(s.name)}</dd></div>
+    <div class="full"><dt>Address</dt><dd>${v(d.address)}</dd></div>
+  </dl>`
+}
+const notesSec = (s) => det(s).notes ? sec("Notes", null, `<div style="line-height:22px">${esc(det(s).notes)}</div>`) : ""
+function activity(s){
+  const items = missing(s) ? [["Site opened", "Setup · 02 Sep 2026"]] : [["Details edited", "Rina Kusuma · 13 Oct 2026"], ["Site opened", "Setup · 02 Sep 2026"]]
+  return `<section style="border-top:1px solid var(--hairline);padding-top:14px"><button class="sec-t ${SH.act ? "open" : ""}" data-act><span style="display:flex;align-items:center;gap:6px"><svg class="i s chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>Activity <span class="m" style="font-weight:400">(${items.length})</span></span></button>
+    ${SH.act ? `<ul class="act">${items.map(([a, b]) => `<li><span>${a}</span><span>${b}</span></li>`).join("")}</ul>` : ""}</section>`
+}
+function sheetFigs(s, set){
+  const all = {
+    assets: fig("Assets", n0(s.assets.length)),
+    contracts: fig("Contracts", n0(s.contracts.length)),
+    repairs: fig("Open repairs", n0(openRepairs(s)), null, openRepairs(s) ? "warn" : ""),
+    due: fig("Service due", n0(dueTasks(s)), null, s.tasks.some(t => daysTo(t[2]) < 0) ? "bad" : ""),
+    work: fig("Open work", n0(openRepairs(s) + dueTasks(s)), null, openRepairs(s) + dueTasks(s) ? "warn" : ""),
+    rent: (() => { const r = rent(s); return fig("Rent until", r && r[5] ? day(r[5]) : "—", null, r && r[5] && daysTo(r[5]) <= 90 ? "warn" : "") })(),
+    billed: `<div class="fig"><div class="l">Billed this month<span class="fin">Finance</span></div><div class="v">${rp(s.billed)}</div></div>`,
+  }
+  return `<div class="figs">${set.map(k => all[k]).join("")}</div>`
+}
+const T = {
+  contracts: (s) => { const rows = s.contracts.filter(c => !c[7]); return rows.length ? sec("Contracts", rows.length, mt([["Contract",""],["Party","240px"],["Ends","130px","r"],["Value","160px","r"]],
+    rows.map(c => { const dd = c[5] ? daysTo(c[5]) : null; return `<tr class="op"><td>${nq(c[1], c[0])}</td><td>${esc(c[3])}</td><td class="r ${dd !== null && dd <= 90 ? "warnfg" : ""}">${c[5] ? day(c[5]) : "—"}</td><td class="r">${rp(c[6])}</td></tr>` }))) : "" },
+  utilities: (s) => { const u = utilities(s); return u.length ? sec("Utilities", u.length, mt([["Utility",""],["Provider","240px"],["Last reading","130px","r"],["Billed","160px","r"]],
+    u.map(c => `<tr class="op"><td>${nq(c[1], c[7].cust)}</td><td>${esc(c[3])}</td><td class="r">${n0(c[7].usage)} ${c[7].unit}</td><td class="r">${c[7].billed ? rp(c[7].billed) : "—"}</td></tr>`))) : "" },
+  assets: (s) => s.assets.length ? sec("Assets", s.assets.length, mt([["Asset",""],["Where","190px"],["Holder","170px"],["Condition","150px"]],
+    s.assets.map(a => `<tr class="op"><td>${nq(a[1], a[0])}</td><td>${a[2] ? esc(a[2]) : DASH}</td><td>${a[3] ? esc(a[3]) : DASH}</td><td>${sw(COND[a[4]])}</td></tr>`))) : "",
+  repairs: (s) => s.repairs.length ? sec("Repairs", s.repairs.length, mt([["Repair",""],["Supplier","220px"],["Budget","140px","r"],["Status","140px"]],
+    s.repairs.map(r => `<tr class="op"><td>${nq(r[0], r[1] || `Reported ${day(r[5])}`)}</td><td>${esc(r[2])}</td><td class="r">${rp(r[3])}</td><td>${sw(RSTAGE[r[4]])}</td></tr>`))) : "",
+  tasks: (s) => s.tasks.length ? sec("Service schedule", s.tasks.length, mt([["Task",""],["Every","170px"],["Next due","180px","r"]],
+    s.tasks.map(t => { const dd = daysTo(t[2]); return `<tr><td>${esc(t[0])}</td><td>${t[1].replace("Every ", "")}</td><td class="r ${dd < 0 ? "badfg" : ""}">${day(t[2])}${dd < 0 ? `<span class="q">${-dd} days late</span>` : ""}</td></tr>` }))) : "",
+  supplies: (s) => s.supplies.length ? sec("Supply requests", s.supplies.length, mt([["Item",""],["Quantity","120px","r"],["Needed by","140px","r"],["Status","130px"]],
+    s.supplies.map(q => `<tr class="op"><td>${nq(q[0], `${q[1]} · ${q[3]}`)}</td><td class="r">${esc(q[2])}</td><td class="r">${day(q[4])}</td><td>${sw(QSTAGE[q[5]])}</td></tr>`))) : "",
+}
+
+function readA(s){
+  return sheetFigs(s, ["assets","contracts","repairs","due","billed"]) + factsHtml(s) + notesSec(s) +
+    T.contracts(s) + T.utilities(s) + T.assets(s) + T.repairs(s) + T.tasks(s) + T.supplies(s) + activity(s)
+}
+function readC(s){
+  const r = rent(s), others = s.contracts.filter(c => c !== r)
+  const lease = r ? `<dl class="lease"><div><dt>Landlord</dt><dd>${esc(r[3])}</dd></div><div><dt>Contract</dt><dd class="lnk">${esc(r[0])}</dd></div><div><dt>Until</dt><dd class="${r[5] && daysTo(r[5]) <= 90 ? "warnfg" : ""}">${day(r[5])}</dd></div><div><dt>Value</dt><dd>${rp(r[6])}</dd></div></dl>` : `<div class="m" style="margin-bottom:${others.length ? 16 : 0}px">No rent contract on file.</div>`
+  const otherT = others.length ? mt([["Contract or utility",""],["Party","220px"],["Ends or reading","150px","r"],["Value","150px","r"]],
+    others.map(c => `<tr class="op"><td>${nq(c[1], c[7] ? c[7].cust : c[0])}</td><td>${esc(c[3])}</td><td class="r">${c[7] ? `${n0(c[7].usage)} ${c[7].unit}` : day(c[5])}</td><td class="r">${rp(c[6])}</td></tr>`)) : ""
+  const work = [...s.repairs.map(x => ({t:x[0], q:x[1] || x[2], k:"Repair", when:x[5], st:RSTAGE[x[4]], late:false})),
+                ...s.tasks.map(x => { const dd = daysTo(x[2]); return {t:x[0], q:x[1], k:"Service", when:x[2], st:dd < 0 ? [`${-dd} days late`,"bad"] : [`Due in ${dd} days`, dd <= 7 ? "warn" : ""], late:dd < 0} })]
+  const workT = work.length ? sec("Work", work.length, mt([["Work",""],["Kind","120px"],["Date","140px","r"],["Status","160px"]],
+    work.map(w => `<tr class="op"><td>${nq(w.t, w.q)}</td><td>${w.k}</td><td class="r">${day(w.when)}</td><td>${sw(w.st)}</td></tr>`))) : ""
+  return sheetFigs(s, ["rent","assets","work","billed"]) + factsHtml(s) + notesSec(s) +
+    sec("Lease and utilities", s.contracts.length || null, lease + otherT) + T.assets(s) + workT + T.supplies(s) + activity(s)
+}
+function readB(s){
+  const r = rent(s)
+  const fold = (key, label, value, tone, items) => {
+    if (!items.length) return `<div class="fold flat"><button><span style="width:16px"></span><span class="k">${label}</span><span class="v">${value}</span></button></div>`
+    const open = !!SH.folds[key]
+    return `<div class="fold ${open ? "open" : ""}"><button data-fold="${key}"><svg class="i s chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg><span class="k">${label}</span><span class="v ${tone || ""}">${value}</span></button>
+      <div class="bd"><div>${items.map(([a, b, c]) => `<div class="fl-li"><div class="tx"><b>${a}</b>${b ? `<span>${b}</span>` : ""}</div><div class="rt">${c || ""}</div></div>`).join("")}</div></div></div>`
+  }
+  const dd = r && r[5] ? daysTo(r[5]) : null
+  return factsHtml(s) + notesSec(s) + `<div class="folds">
+    ${fold("rent", "Rent until", r && r[5] ? day(r[5]) : "—", dd !== null && dd <= 90 ? "warnfg" : "", r ? [[esc(r[3]), esc(r[0]), rp(r[6])]] : [])}
+    ${fold("contracts", "Contracts", n0(s.contracts.length), "", s.contracts.map(c => [esc(c[1]), esc(c[3]), c[7] ? `${n0(c[7].usage)} ${c[7].unit}` : (c[5] ? day(c[5]) : "")]))}
+    ${fold("assets", "Assets", n0(s.assets.length), "", s.assets.map(a => [esc(a[1]), esc([a[0], a[2]].filter(Boolean).join(" · ")), sw(COND[a[4]])]))}
+    ${fold("repairs", "Open repairs", n0(openRepairs(s)), openRepairs(s) ? "warnfg" : "", s.repairs.map(x => [esc(x[0]), esc(x[2]), sw(RSTAGE[x[4]])]))}
+    ${fold("tasks", "Service due", n0(dueTasks(s)), s.tasks.some(t => daysTo(t[2]) < 0) ? "warnfg" : "", s.tasks.map(t => [esc(t[0]), t[1], `<span class="${daysTo(t[2]) < 0 ? "badfg" : ""}">${day(t[2])}</span>`]))}
+    ${fold("supplies", "Supply requests", n0(s.supplies.length), "", s.supplies.map(q => [esc(q[0]), esc(q[2]), sw(QSTAGE[q[5]])]))}
+    <div class="fold flat"><button><span style="width:16px"></span><span class="k">Billed this month<span class="fin">Finance</span></span><span class="v">${rp(s.billed)}</span></button></div>
+  </div>` + activity(s)
+}
+function editForm(s){
+  const d = det(s), e = F.err || {}
+  const f = (k, label, inner, full) => `<div class="fl ${full ? "full" : ""}"><label>${label}</label>${inner}${e[k] ? `<span class="err">${e[k]}</span>` : ""}</div>`
+  const inp = (k, v, extra = "") => `<input class="in ${e[k] ? "bad" : ""}" data-k="${k}" value="${esc(F[k] ?? v ?? "")}" ${extra}>`
+  return `<dl class="ro"><div><dt>Name</dt><dd>${esc(s.name)}</dd></div><div><dt>Code</dt><dd>${esc(s.code)}</dd></div></dl>
+    <div class="fields">
+      ${f("building", "Building", inp("building", d.building, 'list="bld" autofocus'))}
+      ${f("area", "Floor area", `<div class="unit-in">${inp("area", d.area, 'inputmode="numeric"')}<span>m²</span></div>`)}
+      ${f("address", "Address", inp("address", d.address), true)}
+      ${f("contact", "Contact", inp("contact", d.contact))}
+      ${f("phone", "Phone number", inp("phone", d.phone, 'inputmode="tel"'))}
+      ${f("notes", "Notes", `<textarea class="in" data-k="notes" rows="3">${esc(F.notes ?? d.notes ?? "")}</textarea>`, true)}
+    </div>
+    <datalist id="bld"><option>Ruko</option><option>Ruko 2 lantai</option><option>Mall unit</option><option>Standalone</option><option>Gudang</option><option>Kantor</option><option>Mess</option></datalist>`
+}
+// today's sheet: eight sections in one scroll, Edit details in the body, Close in the foot
+function oldSheet(s){
+  const d = det(s), empty = missing(s) && !d.building
+  const li = (a, b, rt, mono) => `<div class="o-li"><div class="tx"><b>${esc(a)}</b><span class="${mono ? "mono" : ""}">${esc(b)}</span></div>${rt != null ? `<span class="rt">${rt}</span>` : ""}<svg class="i s" style="color:#c4c4c8" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></div>`
+  const osec = (title, inner) => `<div class="o-sec"><h4>${title}</h4>${inner}</div>`
+  const form = `<div class="o-form"><div class="fields">
+      <div class="fl"><label>Site type <span class="m" style="font-weight:400">store, warehouse, office, staff house</span></label><input class="in" value="${esc(d.building ?? "")}"></div>
+      <div class="fl"><label>Floor area <span class="m" style="font-weight:400">square metres</span></label><input class="in" value="${d.area ?? ""}"></div>
+      <div class="fl"><label>Address</label><input class="in" value="${esc(d.address ?? "")}"></div><div class="fl"><label>Contact</label><input class="in" value="${esc(d.contact ?? "")}"></div>
+      <div class="fl"><label>Contact phone</label><input class="in" value="${esc(d.phone ?? "")}"></div><div class="fl"><label>Notes</label><input class="in" value="${esc(d.notes ?? "")}"></div></div>
+      <div style="display:flex;gap:8px;margin-top:12px"><button class="b pri" data-oedit>Submit</button><button class="b" data-oedit>Cancel</button></div></div>`
+  const detail = `<div class="o-sec">
+    ${empty && !SH.oedit ? `<div class="o-banner"><svg class="i s" style="margin-top:3px;color:#8a8a8f" viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>This site is already registered — its address, type and contact have not been filled in yet. Complete the details so anyone delivering goods, or a technician, knows where to go.</div>` : ""}
+    <div><h4 class="o-h4">Site details</h4><dl class="facts">
+      <div><dt>Name</dt><dd>${esc(s.old)}</dd></div><div><dt>Code</dt><dd>${esc(s.id)}</dd></div>
+      <div><dt>Type</dt><dd>${esc(d.building ?? s.kind)}</dd></div><div><dt>Address</dt><dd>${esc(d.address ?? "—")}</dd></div>
+      <div><dt>Floor area</dt><dd>${d.area ? `${n0(d.area)} m²` : "—"}</dd></div><div><dt>Contact</dt><dd>${esc(d.contact ?? "—")}</dd></div>
+      <div><dt>Phone</dt><dd>${esc(d.phone ?? "—")}</dd></div>${d.notes ? `<div><dt>Notes</dt><dd>${esc(d.notes)}</dd></div>` : ""}</dl></div>
+    ${SH.oedit ? form : `<div><button class="b soft" data-oedit>${empty ? "Complete" : "Edit details"}</button></div>`}</div>`
+  const u = utilities(s)
+  const body = detail +
+    osec("Assets", s.assets.length ? s.assets.map(a => li(a[1], a[0] + (a[2] ? ` · ${a[2]}` : ""), a[3] ?? "no holder", true)).join("") : `<p class="o-p">No assets at this place yet. Assets are recorded from the register when the item arrives, and the site is recorded there too.</p>`) +
+    osec("Contracts", s.contracts.length ? s.contracts.map(c => li(c[1], c[0], c[3], true)).join("") : `<p class="o-p">No contracts point to this place. Contracts are recorded from the agreement in GA › Contracts.</p>`) +
+    osec("Utilities", u.length ? u.map(c => li(c[3], `${c[1]} · ${c[7].cust}`, `${c[7].usage} ${c[7].unit}<br>not billed yet`)).join("") : `<p class="o-p">No utilities at this place — electricity, water or phone have not yet been recorded as a Subscriptions contract.</p>`) +
+    osec("Repairs", s.repairs.length ? s.repairs.map(r => `<div class="o-li"><div class="tx"><b>${esc(r[0])}</b><span>${esc(r[1] ?? "no asset")}</span></div><span class="o-pill" style="color:#3b7fb8">${RSTAGE[r[4]][0]}</span><svg class="i s" style="color:#c4c4c8" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></div>`).join("") : `<p class="o-p">No repairs at this place.</p>`) +
+    osec("Schedule", s.tasks.length ? s.tasks.map(t => `<div class="o-li"><div class="tx"><b style="font-weight:400">${esc(t[0])}</b><span>${t[1]}</span></div><span class="o-pill" style="color:${daysTo(t[2]) < 0 ? "var(--bad-fg)" : "var(--body)"}">${daysTo(t[2]) < 0 ? "Overdue" : "Scheduled"}</span></div>`).join("") : `<p class="o-p">No service schedule for this place. Schedules are created in Maintenance › Schedule, for one place or one asset.</p>`) +
+    osec("Supply requests", s.supplies.length ? s.supplies.map(q => li(q[0], `${q[1]} · ${q[2]}`, q[3])).join("") : `<p class="o-p">No supply requests from this place.</p>`) +
+    osec("Bills (Finance)", `<div><div style="color:var(--body);font-weight:500">Billed this month <span class="fin">Finance</span></div><div style="font-size:18px;font-weight:600;margin-top:4px">${rp(s.billed)}</div></div>
+      <p class="o-p" style="color:var(--mute)">Calculated from POSTED bill lines with a site at this place, where the site is read from the GA record it references (contract, repair, asset, request). This figure belongs to Finance; GA only reads it.</p>
+      <dl class="facts"><div><dt>Supply requests</dt><dd>${s.supplies.length}</dd></div><div><dt>Due schedules</dt><dd>${dueTasks(s)}</dd></div><div><dt>Open repairs</dt><dd>${openRepairs(s)}</dd></div><div><dt>Contracts</dt><dd>${s.contracts.length}</dd></div></dl>`) + activity(s)
+  return head(`Sites / <span class="mono">${esc(s.id)}</span>`, s.old, "", `${esc(d.building ?? s.kind)}${d.address ? ` · ${esc(d.address)}` : ""}`) +
+    `<div class="sh-body" style="gap:24px">${body}</div><footer class="sh-foot"><button class="b ghost" data-close>Close</button></footer>`
+}
+function newSheet(s){
+  const miss = missing(s), editing = SH.mode === "edit"
+  const status = miss ? `<span class="sw warn">Details missing</span>` : ""
+  const body = editing ? editForm(s) : S.detail === "B" ? readB(s) : S.detail === "C" ? readC(s) : readA(s)
+  const foot = editing
+    ? `<button class="b red" data-cancel>Cancel</button><button class="b pri" data-save>Save changes</button>`
+    : `<button class="b pri" data-edit>${miss ? "Complete details" : "Edit"}</button>`
+  return head(`Sites / ${esc(s.code)}`, s.name, status, KIND[s.kind]) +
+    `<div class="sh-body">${body}</div><footer class="sh-foot">${foot}</footer>`
+}
+function renderSheet(){
+  const el = $("#sheet"), s = SITES.find(x => x.id === SH.id)
+  if (!s) return
+  const rail = S.detail === "B"
+  el.classList.toggle("wide", !rail)
+  el.classList.toggle("beside", rail && S.width >= 1300)
+  el.innerHTML = S.detail === "now" ? oldSheet(s) : newSheet(s)
+  el.querySelector("[autofocus]")?.focus({preventScroll:true})
+}
+function openSheet(id){
+  const already = !!SH.id && $("#sheet").classList.contains("on")
+  const s = SITES.find(x => x.id === id)
+  SH = {id, mode: S.list === "D" && s && missing(s) && S.detail !== "now" ? "edit" : "read", folds:{}, act:false, oedit:false}
+  F = {}
+  renderSheet(); draw()
+  const veil = !(S.detail === "B" && S.width >= 1300)
+  if (already) { $("#scrim").classList.toggle("on", veil); return }
+  requestAnimationFrame(() => requestAnimationFrame(() => { $("#sheet").classList.add("on"); $("#scrim").classList.toggle("on", veil) }))
+}
+function closeSheet(){
+  if (!SH.id) return
+  $("#sheet").classList.remove("on"); $("#scrim").classList.remove("on")
+  SH.id = null; draw()
+}
+function swap(fn){
+  const el = $("#sheet")
+  el.classList.add("sw-out")
+  setTimeout(() => { fn(); renderSheet(); el.classList.remove("sw-out"); el.classList.add("sw-in"); el.offsetWidth; el.classList.remove("sw-in") }, 100)
+}
+let toastT
+function toast(text){ const t = $("#toast"); t.querySelector("span").textContent = text; t.classList.add("on"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("on"), 2400) }
+function saveDetails(){
+  const s = SITES.find(x => x.id === SH.id), d = det(s)
+  const val = (k) => (F[k] ?? d[k] ?? "").toString().trim() || null
+  const area = val("area"), err = {}
+  if (area && !/^\d+$/.test(area.replace(/\./g, ""))) err.area = "Numbers only."
+  if (Object.keys(err).length) { F.err = err; renderSheet(); return }
+  GA[s.id] = [val("building"), val("address"), area ? Number(area.replace(/\./g, "")) : null, val("contact"), val("phone"), val("notes")]
+  swap(() => { SH.mode = "read"; F = {} }); toast("Details saved"); draw()
+}
+
+// ── frame ──────────────────────────────────────────────────────────────────
+function draw(){
+  const seg = (arr, cur, key) => arr.map(x => `<button data-${key}="${x.id}" class="${x.id === cur ? "on" : ""}">${x.id === "now" ? "" : `<b>${x.id}</b>`}${x.label}${x.star ? '<span class="star">★</span>' : ""}</button>`).join("")
+  $("#lists").innerHTML = seg(LISTS, S.list, "l")
+  $("#details").innerHTML = seg(DETAILS, S.detail, "dt")
+  $("#data").innerHTML = [["demo", "Demo rig"], ["full", "Filled sample"]].map(([k, l]) => `<button data-d="${k}" class="${k === S.data ? "on" : ""}">${l}</button>`).join("")
+  $("#widths").innerHTML = [1440, 1280].map(w => `<button data-w="${w}" class="${w === S.width ? "on" : ""}">${w}</button>`).join("")
+  $("#note").innerHTML = `${LIST_NOTE[S.list]}&nbsp;&nbsp;·&nbsp;&nbsp;${DETAIL_NOTE[S.detail]}`
+  const focused = document.activeElement?.id === "q", caret = focused ? document.activeElement.selectionStart : 0
+  drawHead()
+  $("#page").innerHTML = S.list === "now" ? drawNowList() : drawList()
+  if (focused) { const q = $("#q"); q?.focus(); q?.setSelectionRange(caret, caret) }
+  fit()
+}
+function fit(){
+  const app = $("#app"), wrap = $("#stagewrap")
+  document.documentElement.style.setProperty("--nh", $("#note").offsetHeight + "px")
+  app.style.width = S.width + "px"
+  app.classList.toggle("w1280", S.width === 1280)
+  const z = Math.min(1, wrap.clientWidth / S.width)
+  app.style.zoom = z
+  app.style.height = (wrap.clientHeight / z) + "px"
+}
+document.addEventListener("input", (e) => {
+  if (e.target.id === "q") { S.q = e.target.value; draw(); return }
+  const k = e.target.dataset?.k
+  if (!k) return
+  F[k] = e.target.value
+  if (F.err?.[k]) { delete F.err[k]; e.target.classList.remove("bad"); e.target.closest(".fl")?.querySelector(".err")?.remove() }
+})
+document.addEventListener("click", (e) => {
+  if (e.target.closest("[data-close]")) { closeSheet(); return }
+  if (e.target.closest("#sheet")) {
+    const t = e.target.closest("[data-edit],[data-cancel],[data-save],[data-act],[data-fold],[data-oedit]")
+    if (!t) return
+    if (t.hasAttribute("data-edit")) swap(() => { SH.mode = "edit"; F = {} })
+    if (t.hasAttribute("data-cancel")) swap(() => { SH.mode = "read"; F = {} })
+    if (t.hasAttribute("data-save")) saveDetails()
+    if (t.hasAttribute("data-act")) { SH.act = !SH.act; renderSheet() }
+    if (t.hasAttribute("data-oedit")) { SH.oedit = !SH.oedit; renderSheet() }
+    if (t.dataset.fold) { const k = t.dataset.fold; SH.folds[k] = !SH.folds[k]; t.closest(".fold").classList.toggle("open", SH.folds[k]) }
+    return
+  }
+  if (e.target.closest("[data-add]")) { toast("Add store opens the setup sheet, as today"); return }
+  const row = e.target.closest("[data-row]")
+  if (row) { openSheet(row.dataset.row); return }
+  const p = e.target.closest("[data-pop]")
+  if (p) { S.pop = S.pop === p.dataset.pop ? null : p.dataset.pop; draw(); return }
+  const t = e.target.closest("[data-l],[data-dt],[data-w],[data-d],[data-fig],[data-kind]")
+  if (!t) { if (S.pop && !e.target.closest(".pop")) { S.pop = null; draw() } return }
+  if (t.dataset.l) { S.list = t.dataset.l; S.fig = null; S.pop = null; closeSheet() }
+  if (t.dataset.dt) { S.detail = t.dataset.dt; if (SH.id) { SH.mode = "read"; renderSheet(); $("#scrim").classList.toggle("on", !(S.detail === "B" && S.width >= 1300)) } }
+  if (t.dataset.w) { S.width = +t.dataset.w; if (SH.id) { renderSheet(); $("#scrim").classList.toggle("on", !(S.detail === "B" && S.width >= 1300)) } }
+  if (t.dataset.d) { S.data = t.dataset.d; build(); S.fig = null; if (SH.id) { SH.mode = "read"; renderSheet() } }
+  if (t.dataset.fig) S.fig = S.fig === t.dataset.fig ? null : t.dataset.fig
+  if (t.dataset.kind !== undefined) { S.kind = t.dataset.kind || null; S.pop = null }
+  save(); draw()
+})
+addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && e.target.closest?.("#sheet") && e.target.tagName === "INPUT") { e.preventDefault(); saveDetails(); return }
+  if (e.key !== "Escape") return
+  if (SH.id && SH.mode === "edit") { swap(() => { SH.mode = "read"; F = {} }); return }
+  if (SH.id) { closeSheet(); return }
+  if (S.pop) { S.pop = null; draw() }
+})
+addEventListener("resize", fit)
+build()
+document.fonts?.ready.then(draw)
+draw()
+</script>
+</body>
+</html>

@@ -427,9 +427,12 @@ function NewAllotmentGrid() {
   /// A shop as the Outbound board and the Allotments list print it:
   /// "C001 · Cikupa", from the units register.
   const shop = useShopName()
-  const destinations = useMemo<Destination[]>(
-    () =>
-      sitesOf(fleet.data?.items ?? [], "STORE").map((site) => {
+  const destinations = useMemo<Destination[]>(() => {
+    // A store head office removed takes nothing more.
+    const removed = new Set(fleet.data?.removed_site_ids ?? [])
+    return sitesOf(fleet.data?.items ?? [], "STORE")
+      .filter((site) => !removed.has(site.site_id))
+      .map((site) => {
         const naming = storeNaming(site.site_name, shop(site.site_id))
         return {
           id: site.site_id,
@@ -440,9 +443,8 @@ function NewAllotmentGrid() {
               : `${naming.code} · ${naming.label}`,
           ...naming,
         }
-      }),
-    [fleet.data, shop]
-  )
+      })
+  }, [fleet.data, shop])
 
   /// A phone draws one store's column at a time and a store picker to change
   /// it: thirteen 7rem columns cannot share 339px with the frozen blocks.
@@ -1532,9 +1534,17 @@ function EditAllotment({ id }: { id: string }) {
     enabled: source !== "",
   })
 
-  const destinations = useMemo<Destination[]>(
-    () =>
-      sitesOf(fleet.data?.items ?? [], "STORE").map((site) => {
+  const destinations = useMemo<Destination[]>(() => {
+    // A store head office removed keeps its column only for what it was
+    // already allotted; nothing new goes to it.
+    const removed = new Set(fleet.data?.removed_site_ids ?? [])
+    return sitesOf(fleet.data?.items ?? [], "STORE")
+      .filter(
+        (site) =>
+          !removed.has(site.site_id) ||
+          lines.some((line) => line.destination_id === site.site_id)
+      )
+      .map((site) => {
         const naming = storeNaming(site.site_name, shop(site.site_id))
         return {
           id: site.site_id,
@@ -1545,9 +1555,8 @@ function EditAllotment({ id }: { id: string }) {
               : `${naming.code} · ${naming.label}`,
           ...naming,
         }
-      }),
-    [fleet.data, shop]
-  )
+      })
+  }, [fleet.data, shop, lines])
   const [chosenStore, setChosenStore] = useState<string | null>(null)
   const storeHere =
     destinations.find((one) => one.id === chosenStore) ?? destinations[0]

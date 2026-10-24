@@ -47,7 +47,8 @@ const SHAPE: Record<
   EWALLET: { label: "E-wallet", icon: "wallet", wire: "EWALLET", cardKind: null, order: 4 },
   VOUCHER: { label: "Voucher", icon: "voucher", wire: "VOUCHER", cardKind: null, order: 5 },
   BENEFIT: { label: "Employee balance", icon: "wallet", wire: "BENEFIT", cardKind: null, order: 6 },
-  // POINTS is deliberately absent: not offered on the till yet.
+  // POINTS is not a tile: a member's points are paid as a voucher from the
+  // Poin row, and the method only says whether this shop offers that row.
 }
 
 /// The banks the till offered before the master existed — every unit's chart
@@ -104,22 +105,82 @@ export function tilesFrom(
     })
 }
 
+// ── the counter's EDC machines ──────────────────────────────────────────
+
+/// One kind a machine takes, as the tender needs it: the tile gives the wire
+/// method and card kind, the choice the method code and the acquirer.
+export type EdcWay = { readonly tile: MethodTile; readonly choice: MethodChoice }
+
+/// One EDC of this shop's counter (0989): head office sets per shop and bank
+/// what the machine takes, and the shop's debit, credit and QRIS methods are
+/// read off it — so the machines come back out of the same list.
+export type EdcMachine = {
+  /// The bank, upper-cased ("BCA", "MANDIRI"): stable, and what a tender on
+  /// this machine carries as `acquirer`.
+  readonly id: string
+  /// The bank as the cashier says it: "BCA", "Mandiri".
+  readonly bank: string
+  /// "EDC BCA", or "QRIS BCA" for a bank's QR stand with no card reader.
+  readonly name: string
+  readonly debit: EdcWay | null
+  readonly credit: EdcWay | null
+  readonly qris: EdcWay | null
+}
+
+const bankWord = (code: string) =>
+  code.length <= 4 ? code : code.charAt(0) + code.slice(1).toLowerCase()
+
+/// The machines in the shop's list, in the order their banks first appear
+/// (debit, then credit, then QRIS). On a node that was never sent a list
+/// this is today's built-in four, each taking all three.
+export function edcMachinesFrom(from: readonly MethodTile[]): EdcMachine[] {
+  const banks = new Map<string, { debit: EdcWay | null; credit: EdcWay | null; qris: EdcWay | null }>()
+  for (const tile of from) {
+    const slot =
+      tile.wire === "QRIS" ? "qris" : tile.wire !== "CARD" ? null : tile.cardKind === "CREDIT" ? "credit" : "debit"
+    if (slot === null) continue
+    for (const choice of tile.choices) {
+      const id = (choice.acquirer ?? choice.label).trim().toUpperCase()
+      if (id === "") continue
+      const bank = banks.get(id) ?? { debit: null, credit: null, qris: null }
+      if (bank[slot] === null) bank[slot] = { tile, choice }
+      banks.set(id, bank)
+    }
+  }
+  return [...banks.entries()].map(([id, ways]) => ({
+    id,
+    bank: bankWord(id),
+    name: `${ways.debit === null && ways.credit === null ? "QRIS" : "EDC"} ${bankWord(id)}`,
+    ...ways,
+  }))
+}
+
 // ── the held copy ───────────────────────────────────────────────────────
 
 const STORAGE_KEY = "itulah.pos.payment-methods"
 
-function readStored(): MethodTile[] | null {
+/// Whether the shop's list offers members' points (0989). A list from before
+/// points were a method has none, and the built-in list always offered them.
+const pointsIn = (methods: readonly api.PaymentMethod[]) =>
+  methods.some((one) => one?.tender_type === "POINTS")
+
+function readStored(): { tiles: MethodTile[]; points: boolean } | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw === null) return null
     const parsed: unknown = JSON.parse(raw)
-    return Array.isArray(parsed) ? tilesFrom(parsed as api.PaymentMethod[]) : null
+    if (!Array.isArray(parsed)) return null
+    const stored = tilesFrom(parsed as api.PaymentMethod[])
+    return stored === null ? null : { tiles: stored, points: pointsIn(parsed as api.PaymentMethod[]) }
   } catch {
     return null
   }
 }
 
-let tiles: readonly MethodTile[] = readStored() ?? FALLBACK_TILES
+const held = readStored()
+let tiles: readonly MethodTile[] = held?.tiles ?? FALLBACK_TILES
+let points = held?.points ?? true
+let machines: readonly EdcMachine[] = edcMachinesFrom(tiles)
 let fromMaster = tiles !== FALLBACK_TILES
 const listeners = new Set<() => void>()
 
@@ -142,6 +203,8 @@ export async function refreshPaymentMethods(): Promise<void> {
     // Nowhere to keep it; the in-memory copy still serves this session.
   }
   tiles = next
+  machines = edcMachinesFrom(next)
+  points = pointsIn(Array.isArray(reply.body) ? reply.body : [])
   fromMaster = true
   for (const listener of listeners) listener()
 }
@@ -155,4 +218,14 @@ const subscribe = (listener: () => void) => {
 
 export function usePaymentMethods(): readonly MethodTile[] {
   return useSyncExternalStore(subscribe, () => tiles)
+}
+
+/// This shop's EDC machines, kept with the list they are read from.
+export function useEdcMachines(): readonly EdcMachine[] {
+  return useSyncExternalStore(subscribe, () => machines)
+}
+
+/// Whether Bayar offers the member's points (the Poin row) at this shop.
+export function usePointsOffered(): boolean {
+  return useSyncExternalStore(subscribe, () => points)
 }

@@ -73,6 +73,8 @@ export function ServerTab({
     },
   })
   const server = serverExtras(detail.data?.store.server ?? store.server)
+  // A removed store gets no server again: its own may only be let go.
+  const removed = (detail.data?.store.status ?? store.status) === "CLOSED"
 
   // Held, not read back from anywhere: the code is write-once and no read of
   // the store ever returns it again — same rule as the System › Nodes install
@@ -110,7 +112,11 @@ export function ServerTab({
   const disconnect = useMutation({
     mutationFn: () => disconnectStoreServer(unit),
     onSuccess: (result) => {
-      keep(result)
+      if (result) keep(result)
+      else {
+        dropHeldInstall(unit)
+        setIssued(null)
+      }
       settle()
     },
   })
@@ -148,21 +154,34 @@ export function ServerTab({
     server.last_seen_at
 
   const machine = server.machine ?? null
+  const disconnectButton = (
+    <DisconnectButton
+      machine={machine}
+      store={store.name}
+      removed={removed}
+      onDisconnect={() => disconnect.mutateAsync()}
+    />
+  )
   const machineRow = (
     <MachineRow
       machine={machine}
       connectedAt={server.connected_at ?? null}
-      store={store.name}
-      canManage={canManage}
-      onDisconnect={() => disconnect.mutateAsync()}
+      disconnect={canManage ? disconnectButton : null}
     />
   )
+  // Where the machine row carries Disconnect; a removed store whose server
+  // shows no machine there is offered it on its own.
+  const rowShown = machine !== null && (state === "SYNCING" || settled)
 
   return (
     <div className="flex max-w-3xl flex-col gap-4">
       <div className="flex items-center gap-2">
         <ServerDot state={state} />
-        <b className="text-[0.9375rem] text-ink">{serverStateLabel(state)}</b>
+        <b className="text-[0.9375rem] text-ink">
+          {removed && state === "NOT_INSTALLED"
+            ? "No server"
+            : serverStateLabel(state)}
+        </b>
         {state === "ONLINE" && dataUpTo && (
           <span className="text-meta text-mute">
             data up to {upTo(dataUpTo)}
@@ -172,7 +191,11 @@ export function ServerTab({
         {settled && <ServerActionsButton unit={unit} />}
       </div>
 
-      {state === "NOT_INSTALLED" && (
+      {removed && canManage && state !== "NOT_INSTALLED" && !rowShown && (
+        <div>{disconnectButton}</div>
+      )}
+
+      {!removed && state === "NOT_INSTALLED" && (
         <Card className="p-4">
           <p className="mb-3 text-[0.9375rem] text-body">
             {canManage
@@ -198,7 +221,7 @@ export function ServerTab({
         </Card>
       )}
 
-      {state === "WAITING_TO_INSTALL" && (
+      {!removed && state === "WAITING_TO_INSTALL" && (
         <>
           {!canManage ? (
             <Banner tone="warn">
@@ -233,7 +256,7 @@ export function ServerTab({
         </>
       )}
 
-      {state === "WAITING_FOR_APPROVAL" && (
+      {!removed && state === "WAITING_FOR_APPROVAL" && (
         <Card className="p-4">
           {claim ? (
             <div className="flex flex-col gap-3">
@@ -462,15 +485,12 @@ function Spinner() {
 function MachineRow({
   machine,
   connectedAt,
-  store,
-  canManage,
-  onDisconnect,
+  disconnect,
 }: {
   machine: ServerMachine | null
   connectedAt: string | null
-  store: string
-  canManage: boolean
-  onDisconnect: () => Promise<unknown>
+  /// Disconnect, for an Admin at head office; `null` for anybody else.
+  disconnect: React.ReactNode
 }) {
   if (machine === null) return null
   const windows = /windows/i.test(machine.os)
@@ -489,24 +509,44 @@ function MachineRow({
           {connectedAt ? ` · connected ${dayTime(connectedAt)}` : ""}
         </span>
       </span>
-      {canManage && (
-        <ConfirmButton
-          label={
-            <>
-              <Unplug />
-              Disconnect
-            </>
-          }
-          variant="quiet"
-          tone="danger"
-          title={`Disconnect ${machine.hostname}?`}
-          description={`It stops receiving ${store}’s data. A new install code is issued for the right machine.`}
-          confirmLabel="Disconnect"
-          cancelLabel="Keep"
-          onConfirm={onDisconnect}
-        />
-      )}
+      {disconnect}
     </div>
+  )
+}
+
+/// Let go of the store's server: its key stops working. An open store is
+/// issued a new install code for the right machine; a removed one is not.
+function DisconnectButton({
+  machine,
+  store,
+  removed,
+  onDisconnect,
+}: {
+  machine: ServerMachine | null
+  store: string
+  removed: boolean
+  onDisconnect: () => Promise<unknown>
+}) {
+  return (
+    <ConfirmButton
+      label={
+        <>
+          <Unplug />
+          Disconnect
+        </>
+      }
+      variant={removed ? "destructive" : "quiet"}
+      tone="danger"
+      title={`Disconnect ${machine?.hostname ?? `${store}’s server`}?`}
+      description={
+        removed
+          ? "Its key stops working. Anything it has not sent stays on the machine. No new install code is issued."
+          : `It stops receiving ${store}’s data. A new install code is issued for the right machine.`
+      }
+      confirmLabel="Disconnect"
+      cancelLabel="Keep"
+      onConfirm={onDisconnect}
+    />
   )
 }
 

@@ -48,7 +48,8 @@ import type {
   CreditNoteRefundRequest,
   CreditNoteRequest,
   DepreciationRun,
-  EdcTerminal,
+  EdcMachine,
+  EdcMachineBook,
   DisposeAssetRequest,
   CreateGiroPrintTemplateRequest,
   GeneralLedger,
@@ -102,8 +103,10 @@ import type {
   RolePermission,
   SaveAssetClassRequest,
   SaveDimensionRequest,
+  SaveEdcMachineRequest,
   SaveExpenseCategoryRequest,
   SavePaymentMethodRequest,
+  SetShopOtherMethodsRequest,
   SetSitePaymentMethodsRequest,
   SitePaymentMethod,
   SetAutomaticPostingRequest,
@@ -157,8 +160,8 @@ export const financeKeys = {
   inventoryValuation: (unit: string | null) =>
     ["finance", "inventory-valuation", unit] as const,
   stockVsLedger: () => ["finance", "stock-vs-ledger"] as const,
-  /// The card terminals each shop holds and the bank each one settles to.
-  edcTerminals: () => ["finance", "edc-terminals"] as const,
+  /// Every shop's EDC machines, the banks and the accounts they settle to.
+  edcMachines: () => ["finance", "edc-machines"] as const,
   goodsInTransit: () => ["finance", "goods-in-transit"] as const,
   cogs: (year: number) => ["finance", "cogs", year] as const,
   stockAdjustments: () => ["finance", "stock-adjustments"] as const,
@@ -905,6 +908,37 @@ export function sitePaymentMethods(
   return node.get<SitePaymentMethod[]>(
     `/api/v1/finance/sites/${encodeURIComponent(site)}/payment-methods`,
     { signal }
+  )
+}
+
+/// Set one shop's machine of one bank: what it takes and where each lands.
+/// The shop's card and QRIS methods follow it.
+export function saveEdcMachine(
+  site: string,
+  bank: string,
+  request: SaveEdcMachineRequest
+): Promise<EdcMachine> {
+  return node.put<EdcMachine>(
+    `/api/v1/finance/sites/${encodeURIComponent(site)}/edc-machines/${encodeURIComponent(bank)}`,
+    request
+  )
+}
+
+/// Take a bank's machine off a shop.
+export function removeEdcMachine(site: string, bank: string): Promise<void> {
+  return node.delete<void>(
+    `/api/v1/finance/sites/${encodeURIComponent(site)}/edc-machines/${encodeURIComponent(bank)}`
+  )
+}
+
+/// Say which cash, voucher, employee-balance and points methods a shop takes.
+export function setShopOtherMethods(
+  site: string,
+  request: SetShopOtherMethodsRequest
+): Promise<SitePaymentMethod[]> {
+  return node.put<SitePaymentMethod[]>(
+    `/api/v1/finance/sites/${encodeURIComponent(site)}/other-methods`,
+    request
   )
 }
 
@@ -3220,12 +3254,13 @@ export const postingSwitchesQuery = () =>
     queryFn: ({ signal }) => postingSwitches(signal),
   })
 
-/// Which bank each shop's card terminals belong to.
-export const edcTerminalsQuery = () =>
+/// Every shop's EDC machines, the banks one can be of, and the Cash In Bank
+/// accounts one can settle to.
+export const edcMachinesQuery = () =>
   queryOptions({
-    queryKey: financeKeys.edcTerminals(),
+    queryKey: financeKeys.edcMachines(),
     queryFn: ({ signal }) =>
-      node.get<EdcTerminal[]>("/api/v1/finance/edc-terminals", { signal }),
+      node.get<EdcMachineBook>("/api/v1/finance/edc-machines", { signal }),
   })
 
 /// Where the words go on each bank's giro leaf.

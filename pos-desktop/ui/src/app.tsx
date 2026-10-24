@@ -11,6 +11,7 @@ import { PeripheralsScreen } from "@/screens/peripherals"
 import { RedeemScreen } from "@/screens/redeem"
 import { ReturnScreen, VoidScreen } from "@/screens/returns"
 import { ShiftGate, ShiftScreen } from "@/screens/shift"
+import { isStopped, StoppedScreen, useStanding } from "@/screens/stopped"
 import { holdSeat, seatNow, type Seat } from "@/seat"
 import { useSession } from "@/session"
 import { Till, Topbar, type Where } from "@/till"
@@ -69,6 +70,20 @@ function Counter() {
     setLost(null)
     setShiftChecked(true)
   }, [])
+  // The door stays up while a Kepala toko is signed in and choosing whose till
+  // she opens (`LoginScreen`); `openedBy` is her name once she has.
+  const [holding, setHolding] = useState(false)
+  const [openedBy, setOpenedBy] = useState<string | null>(null)
+  // What head office has stopped (postgres 0990), asked every half minute,
+  // signed in or not: while the store or this till is stopped, its door is all
+  // the till shows. "Tutup kasir" on a stopped store's door lets one person in
+  // only to count and close the drawer still open here.
+  const { standing, refresh: refreshStanding } = useStanding(session.terminalId)
+  const stopped = isStopped(standing)
+  const [closing, setClosing] = useState(false)
+  useEffect(() => {
+    if (!stopped) setClosing(false)
+  }, [stopped])
 
   // Nobody signed in means nobody holds a seat — including when the session
   // ends some way other than the sign-out button, which would otherwise let the
@@ -79,6 +94,7 @@ function Counter() {
       holdSeat(null)
       setShiftChecked(false)
       setLost(null)
+      setOpenedBy(null)
     }
   }, [signedIn])
 
@@ -90,8 +106,8 @@ function Counter() {
     // closed from another window, or by a supervisor — simply ended it.
     setLost(
       by !== null
-        ? `Your shift at ${seat.label} was taken over by ${by}.`
-        : `Your shift at ${seat.label} has ended.`,
+        ? `Shift Anda di ${seat.label} diambil alih ${by}.`
+        : `Shift Anda di ${seat.label} sudah selesai.`,
     )
     setWhere("sale")
   }, [])
@@ -120,14 +136,39 @@ function Counter() {
     return () => window.clearInterval(timer)
   }, [watching, seatLost])
 
+  // A short wait shows the door's own background and nothing else: a word
+  // that flashes for a moment reads as a glitch, not as progress.
   if (!session.ready) {
+    return <div style={{ position: "fixed", inset: 0, background: "#e8ebf0" }} />
+  }
+
+  if (stopped && standing !== null) {
+    if (!closing) {
+      return (
+        <StoppedScreen
+          standing={standing}
+          terminalId={session.terminalId}
+          onCloseShift={() => setClosing(true)}
+        />
+      )
+    }
+    if (session.me === null || holding) {
+      return <LoginScreen onSignedIn={setOpenedBy} onHold={setHolding} />
+    }
+    const leave = () => {
+      void session.signOut()
+      setClosing(false)
+      refreshStanding()
+    }
     return (
-      <div id="app" data-screen="sale">
-        <Topbar />
-        <div className="empty">
-          <p>Connecting…</p>
-        </div>
-      </div>
+      <ShiftScreen
+        actorId={session.me.username}
+        finishing
+        onBack={leave}
+        onClosed={() => holdSeat(null)}
+        onLeave={leave}
+        onOpenShift={leave}
+      />
     )
   }
 
@@ -165,10 +206,14 @@ function Counter() {
     }
   }
 
-  if (session.me === null) {
+  if (session.me === null || holding) {
     return (
       <LoginScreen
-        onSignedIn={() => setWhere("sale")}
+        onSignedIn={(by) => {
+          setOpenedBy(by)
+          setWhere("sale")
+        }}
+        onHold={setHolding}
         onJoin={isWeb ? undefined : () => setWhere("join")}
       />
     )
@@ -179,7 +224,7 @@ function Counter() {
   const gate = (
     <ShiftGate
       actorId={actorId}
-      notice={lost}
+      notice={lost ?? (openedBy !== null ? `Dibukakan ${openedBy} · Kepala toko` : null)}
       onReady={shiftReady}
       onSignOut={() => {
         void session.signOut()
@@ -188,6 +233,8 @@ function Counter() {
     />
   )
 
+  // Straight after the door: the float when the till has no shift, then the
+  // till. No menu (owner, 23 Oct 2026).
   if (!shiftChecked) return gate
 
   const screen =
@@ -261,13 +308,13 @@ function Counter() {
       {lost !== null ? gate : screen}
       {idle.warningIn !== null && !idle.locked && (
         <div id="toast" role="status">
-          Locking the screen in {idle.warningIn} seconds
+          Layar terkunci dalam {idle.warningIn} detik
           <button
             className="btn ghost"
             style={{ marginLeft: 10, minHeight: 22, padding: "0 8px" }}
             onClick={idle.stayAwake}
           >
-            I&apos;m here
+            Saya di sini
           </button>
         </div>
       )}

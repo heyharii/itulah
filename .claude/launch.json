@@ -2707,6 +2707,32 @@
         "VITE_SIM_FINGERS": "dian,maya",
         "VITE_SIM_PASSWORD": "Password01"
       }
+    },
+    {
+      "name": "root-protos-node",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "-e",
+        "const h=require('http'),f=require('fs'),p=require('path'),r=process.cwd(),t={'.html':'text/html','.css':'text/css','.js':'text/javascript','.json':'application/json','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.woff2':'font/woff2'};h.createServer((q,s)=>{let u=decodeURIComponent(q.url.split('?')[0]);if(u.endsWith('/'))u+='index.html';const fp=p.join(r,u);if(!fp.startsWith(r))return s.writeHead(403).end();f.readFile(fp,(e,b)=>{if(e)return s.writeHead(404).end('not found');s.writeHead(200,{'Content-Type':t[p.extname(fp)]||'application/octet-stream','Cache-Control':'no-store'}).end(b)})}).listen(5397,'127.0.0.1',()=>console.log('serving',r,'on :5397'))"
+      ],
+      "port": 5397
+    },
+    {
+      "name": "store-new-demo2",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5296",
+        "--strictPort"
+      ],
+      "cwd": "frontend-store-new",
+      "port": 5296,
+      "env": {
+        "VITE_API_TARGET": "https://store.34-101-214-48.sslip.io"
+      }
     }
   ]
 }

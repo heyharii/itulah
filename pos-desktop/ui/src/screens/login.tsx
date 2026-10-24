@@ -28,291 +28,514 @@
 /// on mount, before anybody has signed in, which is exactly why that endpoint
 /// needs no session.
 
-import { useEffect, useState, type FormEvent } from "react"
+import { useEffect, useId, useState, type CSSProperties, type FormEvent } from "react"
 
-import { authMethods, pairTerminal, type StepUp } from "@/api"
+import { authMethods, me, pairTerminal, tillPeople, type StepUp, type TillPerson } from "@/api"
 import { isWeb } from "@/edition"
 import { Icon } from "@/icons"
 import { siteTitle, useWaitingTills } from "@/joining"
-import { PinPad } from "@/pinpad"
-import { SIMULATED, SIM_FINGERS, SIM_SECRET, titled } from "@/simulation"
-import { useNodeConfig, useSession } from "@/session"
+import { lastSignInProblem, NO_FINGER, useNodeConfig, useSession } from "@/session"
+import { useFingerWatch, useScanner } from "@/scanner"
+import { SIMULATED, SIM_FINGERS, SIM_HEAD, SIM_SECRET, titled } from "@/simulation"
+import { sound } from "@/sound"
+import { Sensor, type Read } from "@/sensor"
 import { Brand, kasirLabel, Topbar } from "@/till"
 
-/// Sign in on this terminal — with a finger.
+/// The till's door (owner, 23 Oct 2026), drawn as the prototype draws it
+/// (pos-classic-prototype.html): a cashier comes in by finger only — "welcome
+/// kasir, fingerprint, langsung masuk" — with no password and no menu. When a
+/// finger will not do, the Kepala toko opens the till: her finger or her own
+/// password, then "Buka kasir atas nama". A cashier's password is refused.
 ///
-/// `onSignedIn` fires only when the node accepted — the session store is the
-/// one that knows, and this screen does not decide it. A password and a PIN are
-/// still here, but only as the way in when no finger can be used on this till:
-/// no scanner, and nothing simulated. The settings screen is not reachable from
-/// here for now.
+/// `onSignedIn` fires once the till is the right person's. While the head is
+/// signed in and choosing, the app keeps this screen up (`onHold`), since the
+/// session already has somebody in it who is not the one who will sell.
+type Door = "touch" | "head" | "headpw" | "behalf" | "welcome"
+
+const headRole = (role: string | undefined) =>
+  (role ?? "ADMIN").toUpperCase() !== "CASHIER"
+const initials = (name: string) =>
+  name.split(/\s+/).filter(Boolean).map((word) => word[0]?.toUpperCase() ?? "").join("").slice(0, 2)
+/// The simulated finger nobody enrolled.
+const UNKNOWN = "\u0000unknown"
+const NO_SCANNER_WEB = "Tidak ada pemindai jari di browser"
+const NO_SCANNER = "Pemindai sidik jari tidak terhubung"
+const pause = (ms: number) => new Promise((done) => window.setTimeout(done, ms))
+const two = (n: number) => String(n).padStart(2, "0")
+const HARI = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"]
+const BULAN = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"]
+
+/// The app mark, Matte · Deep, as the prototype and `components/brand-mark.tsx` draw it.
+export function Mark() {
+  const id = useId().replace(/:/g, "")
+  return (
+    <svg className="d-mark" viewBox="0 0 100 100" aria-hidden="true">
+      <defs>
+        <linearGradient id={`${id}t`} x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#4277e6" /><stop offset="1" stopColor="#1f4fc0" /></linearGradient>
+        <linearGradient id={`${id}c`} x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#ffffff" /><stop offset="1" stopColor="#d3e0fa" /></linearGradient>
+        <linearGradient id={`${id}d`} x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#ffd766" /><stop offset="1" stopColor="#eaa20f" /></linearGradient>
+        <filter id={`${id}s`} x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="1.8" /></filter>
+      </defs>
+      <rect width="100" height="100" rx="23.4" fill={`url(#${id}t)`} />
+      <ellipse cx="48" cy="84" rx="25" ry="3.4" fill="#0b2466" opacity=".4" filter={`url(#${id}s)`} />
+      <path d="M64.32 28.88A28.25 28.25 0 1 0 64.32 68.12A7.25 7.25 0 0 0 53.89 58.05A13.75 13.75 0 1 1 53.89 38.95A7.25 7.25 0 0 0 64.32 28.88Z" fill={`url(#${id}c)`} />
+      <circle cx="75.5" cy="48.5" r="8" fill={`url(#${id}d)`} />
+    </svg>
+  )
+}
+
 export function LoginScreen({
   onSignedIn,
+  onHold,
   onJoin,
 }: {
-  onSignedIn: () => void
+  onSignedIn: (openedBy: string | null) => void
+  /// True while the Kepala toko is signed in and has not handed the till over.
+  onHold: (holding: boolean) => void
   /// Offered while this till holds no credential at its node: a new till's
   /// first screen should say how it becomes a till.
   onJoin?: () => void
 }) {
-  const { ready, problem, signIn, signInWithFinger, signInWithPin } =
-    useSession()
+  const { ready, problem, signIn, signInWithFinger, signOut, openFor } = useSession()
   const { config } = useNodeConfig()
+  const [door, setDoor] = useState<Door>("touch")
+  const [read, setRead] = useState<Read>("idle")
+  const [hint, setHint] = useState<string | null>(null)
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [busy, setBusy] = useState(false)
-  const [finger, setFinger] = useState<string | null>(null)
-  /// Which second way in this node accepts. Null means **not answered yet** —
-  /// which is not the same as `NONE`, and is drawn the same way on purpose: see
-  /// the effect below.
+  const [people, setPeople] = useState<readonly TillPerson[]>([])
+  const [pick, setPick] = useState(0)
+  const [head, setHead] = useState<string | null>(null)
+  const [welcome, setWelcome] = useState<{ name: string; by: string | null } | null>(null)
   const [stepUp, setStepUp] = useState<StepUp | null>(null)
-  const [mode, setMode] = useState<"password" | "pin">("password")
-  const [pin, setPin] = useState("")
-  const [pinNote, setPinNote] = useState<string | null>(null)
+  const [now, setNow] = useState(() => new Date())
 
-  // Asked once, on mount, unauthenticated — a till has to know what it may
-  // offer before anybody stands at it. While the answer is outstanding,
-  // `stepUp` is null and no button is drawn: a button that appears and then
-  // vanishes is worse than one that arrives late, because the one that vanished
-  // was pressed.
   useEffect(() => {
     let alive = true
     void (async () => {
       const reply = await authMethods()
-      if (!alive) return
-      if (!reply.ok) {
-        setStepUp(null)
-        return
-      }
-      setStepUp(reply.body?.till_step_up ?? "NONE")
+      if (alive) setStepUp(reply.ok ? (reply.body?.till_step_up ?? "NONE") : null)
     })()
+    const tick = window.setInterval(() => setNow(new Date()), 10_000)
     return () => {
       alive = false
+      window.clearInterval(tick)
     }
   }, [])
 
-  async function enter(event: FormEvent) {
-    event.preventDefault()
-    setBusy(true)
-    const accepted = await signIn(username, password)
-    setBusy(false)
-    // Dropped as soon as the node has answered, refusal included. A password
-    // left sitting in a field is a password the next cashier at this counter
-    // can submit.
-    setPassword("")
-    if (accepted) onSignedIn()
-  }
-
-  async function enterWithPin() {
-    setBusy(true)
-    setPinNote(null)
-    const refusal = await signInWithPin(username, pin)
-    setBusy(false)
-    setPin("")
-    setPinNote(refusal)
-    if (refusal === null) onSignedIn()
-  }
-
-  /// The real scanner, in the desktop shell.
-  async function scan() {
-    setBusy(true)
-    setFinger("Place your finger on the scanner…")
-    const refusal = await signInWithFinger()
-    setBusy(false)
-    setFinger(refusal)
-    if (refusal === null) onSignedIn()
-  }
-
-  /// A finger placed on the simulated scanner: a beat of "reading", then the
-  /// node is asked as that person.
-  async function touch(person: string) {
-    setBusy(true)
-    setFinger("Reading fingerprint…")
-    await new Promise((done) => window.setTimeout(done, 700))
-    const accepted = await signIn(person, SIM_SECRET)
-    setBusy(false)
-    if (accepted) {
-      setFinger(null)
-      onSignedIn()
-    } else {
-      setFinger("Fingerprint not recognised.")
-    }
-  }
-
-  const realScanner = !isWeb && stepUp === "FINGERPRINT"
+  // The scanner on this till, when the shell has one open: then a finger on
+  // it signs in against the node's roster, and the simulated chips are gone.
+  const scanner = useScanner()
+  const realScanner = !isWeb && scanner === true
   const byFinger = realScanner || SIMULATED
-  const usePin = !byFinger && stepUp === "PIN" && mode === "pin"
-  const till = config === null ? null : kasirLabel(config.terminal_id)
+  const till = config === null ? "Kasir" : kasirLabel(config.terminal_id)
+  const site = config?.joined != null ? siteTitle(config.joined) : null
+  const where = site !== null ? `${till} · ${site}` : till
+  const clock = `${two(now.getHours())}:${two(now.getMinutes())}`
+
+  function go(next: Door) {
+    setRead("idle")
+    setHint(null)
+    setDoor(next)
+  }
+
+  /// The person is in: the welcome, then the till.
+  function enter(name: string, by: string | null) {
+    setWelcome({ name, by })
+    setDoor("welcome")
+    sound.welcome()
+    window.setTimeout(() => {
+      onHold(false)
+      onSignedIn(by)
+    }, 2050)
+  }
+
+  /// Whoever is signed in now: a cashier goes in; a Kepala toko is asked
+  /// whose till she is opening.
+  async function landed(fromHeadDoor: boolean) {
+    const who = await me()
+    const body = who.ok ? who.body : null
+    if (body === null) return
+    const name = body.display_name ?? body.username
+    if (!headRole(body.role)) {
+      if (fromHeadDoor) {
+        await signOut()
+        onHold(false)
+        setRead("no")
+        setHint("Hanya kepala toko yang bisa membukakan kasir")
+        return
+      }
+      enter(name, null)
+      return
+    }
+    onHold(true)
+    setHead(name)
+    const list = await tillPeople()
+    setPeople(list.ok ? (list.body?.items ?? []) : [])
+    setPick(0)
+    setHint(list.ok ? null : list.problem)
+    setRead("idle")
+    setDoor("behalf")
+  }
+
+  /// How a finger's answer lands: a refusal shakes the sensor red and says
+  /// why; a sign-in fills it, then the person goes in.
+  async function settle(fromHeadDoor: boolean, refusal: string | null) {
+    setBusy(false)
+    if (refusal !== null) {
+      if (fromHeadDoor) onHold(false)
+      setRead("no")
+      sound.no()
+      setHint(refusal)
+      window.setTimeout(() => setRead((state) => (state === "no" ? "idle" : state)), 1700)
+      return
+    }
+    setRead("done")
+    sound.ok()
+    await pause(760)
+    await landed(fromHeadDoor)
+  }
+
+  /// The real scanner: wait for a finger, match it here against the node's
+  /// roster, and claim it at the node. A press on the sensor on screen waits
+  /// ten seconds for the finger (`watch` absent); the door listening on its
+  /// own (`watch`) shows nothing until a finger lands. Answers whether the
+  /// door should go on listening.
+  async function byScanner(fromHeadDoor: boolean, watch?: string): Promise<boolean> {
+    const explicit = watch === undefined
+    let placed = false
+    const begin = () => {
+      placed = true
+      setBusy(true)
+      setHint(null)
+      setRead("reading")
+      sound.read()
+      if (fromHeadDoor) onHold(true)
+    }
+    if (explicit) begin()
+    const refusal = await signInWithFinger(undefined, {
+      watch,
+      waitMs: explicit ? 10_000 : 15_000,
+      onPlaced: explicit ? undefined : begin,
+    })
+    if (refusal === NO_FINGER) {
+      if (explicit) {
+        setBusy(false)
+        if (fromHeadDoor) onHold(false)
+        setRead("idle")
+        setHint(refusal)
+      }
+      return true
+    }
+    if (!placed) {
+      // Before any finger: no roster, nothing enrolled, the scanner gone.
+      // Said once, quietly, and the door stops listening until it changes.
+      setHint(refusal)
+      return false
+    }
+    await settle(fromHeadDoor, refusal)
+    return refusal !== null
+  }
+
+  // The door listens to the scanner on its own: a cashier lays a finger on it
+  // and is in, without touching the screen ("fingerprint, langsung masuk").
+  useFingerWatch(
+    realScanner && ready && !busy && read !== "done" && (door === "touch" || door === "head"),
+    (watch) => byScanner(door === "head", watch),
+    door,
+  )
+
+  /// A finger on the sensor: the real scanner in the desktop shell, a named
+  /// finger on a rig (VITE_SIM_FINGERS), and on the web — which has no
+  /// scanner — a refusal that points at the Kepala toko.
+  async function press(fromHeadDoor: boolean, simulated?: string) {
+    if (busy || read === "reading" || read === "done") return
+    if (simulated === undefined && realScanner) {
+      await byScanner(fromHeadDoor)
+      return
+    }
+    setBusy(true)
+    setHint(null)
+    setRead("reading")
+    sound.read()
+    if (fromHeadDoor) onHold(true)
+    let refusal: string | null
+    // Simulation (owner, 23 Oct 2026): with no scanner, pressing the sensor
+    // counts as a finger placed — the first simulated cashier's at the door,
+    // the simulated head's at the head's door.
+    if (simulated === undefined && SIMULATED) {
+      simulated = fromHeadDoor ? SIM_HEAD : SIM_FINGERS[0]
+    }
+    if (simulated === UNKNOWN) {
+      await pause(980)
+      refusal = "Jari tidak dikenali"
+    } else if (simulated !== undefined) {
+      await pause(980)
+      if (await signIn(simulated, SIM_SECRET)) refusal = null
+      else {
+        // The node's own sentence when it is the day's rule ("… sudah tutup
+        // kasir hari ini"), not a generic "Jari tidak dikenali".
+        const said = lastSignInProblem()
+        refusal = said !== null && /sudah tutup kasir|sedang dipakai/.test(said) ? said : "Jari tidak dikenali"
+      }
+    } else {
+      await pause(980)
+      refusal = isWeb ? NO_SCANNER_WEB : NO_SCANNER
+    }
+    await settle(fromHeadDoor, refusal)
+  }
+
+  async function headPassword(event?: FormEvent) {
+    event?.preventDefault()
+    if (username === "" || password === "") return
+    setBusy(true)
+    setHint(null)
+    onHold(true)
+    const accepted = await signIn(username, password)
+    setPassword("")
+    setBusy(false)
+    if (!accepted) {
+      onHold(false)
+      return
+    }
+    await landed(true)
+  }
+
+  async function behalf(index: number) {
+    const person = people[index]
+    if (person === undefined) {
+      enter(head ?? "", null)
+      return
+    }
+    setBusy(true)
+    const refusal = await openFor(person.username)
+    setBusy(false)
+    if (refusal !== null) {
+      setHint(refusal)
+      return
+    }
+    enter(person.display_name, head)
+  }
+
+  async function back() {
+    setUsername("")
+    setPassword("")
+    if (door === "behalf") {
+      await signOut()
+      onHold(false)
+      go("touch")
+      return
+    }
+    go(door === "headpw" && byFinger ? "head" : "touch")
+  }
+
+  // Keys, for a counter with no mouse: Enter, Esc, ↑↓ and 1–9, K.
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (busy || door === "welcome") return
+      const inField = (event.target as HTMLElement | null)?.matches?.("input") ?? false
+      if (event.key === "Escape" && door !== "touch") {
+        event.preventDefault()
+        void back()
+        return
+      }
+      if (door === "touch" && !inField && (event.key === "k" || event.key === "K")) {
+        event.preventDefault()
+        go(byFinger ? "head" : "headpw")
+        return
+      }
+      if ((door === "touch" || door === "head") && event.key === "Enter" && !inField) {
+        event.preventDefault()
+        void press(door === "head")
+        return
+      }
+      if (door === "behalf") {
+        const count = people.length + 1
+        if (event.key === "ArrowDown") setPick((at) => (at + 1) % count)
+        else if (event.key === "ArrowUp") setPick((at) => (at + count - 1) % count)
+        else if (/^[1-9]$/.test(event.key) && Number(event.key) <= count) setPick(Number(event.key) - 1)
+        else if (event.key === "Enter") void behalf(pick)
+        else return
+        event.preventDefault()
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  })
+
+  // Head office stopped this person on the POS (0990): the finger was known,
+  // so the sensor does not say it was not.
+  const stoppedByHo = hint !== null && hint.includes("dihentikan kantor pusat")
+  const say = (who: "cashier" | "head") =>
+    read === "reading"
+      ? "Membaca…"
+      : read === "done"
+        ? "Dikenali"
+        : read === "no"
+          ? stoppedByHo ? "Akses POS dihentikan" : who === "head" ? "Bukan kepala toko" : "Jari tidak dikenali"
+          : who === "head" ? "Kepala toko, tempelkan jari" : "Tempelkan jari"
+  const rows = [
+    ...people.map((one) => ({ name: one.display_name, sub: `${one.role === "SUPERVISOR" ? "Supervisor" : "Kasir"} · ${one.username.toUpperCase()}` })),
+    { name: head ?? "", sub: "Kepala toko · saya sendiri" },
+  ]
+  const picked = rows[pick]?.name.split(" ")[0] ?? ""
+
+  let card
+  if (door === "welcome" && welcome !== null) {
+    card = (
+      <div className="d-in">
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+          <Mark />
+          <p className="d-word">Central<i>.</i></p>
+          <p className="d-till">{where}</p>
+        </div>
+        <div className="w-orb run">
+          <span className="w-av">{initials(welcome.name)}</span>
+          <span className="w-blue" />
+          <svg className="w-check" viewBox="0 0 24 24"><path d="M6.5 12.5l3.8 3.8 7.2-8.3" /></svg>
+        </div>
+        <p className="d-hello m-rise" style={{ "--i": 2 } as CSSProperties}>Selamat datang,</p>
+        <p className="d-name m-rise" style={{ "--i": 3 } as CSSProperties}>{welcome.name}</p>
+        <p className="d-meta m-rise" style={{ "--i": 4 } as CSSProperties}>
+          {welcome.by !== null && welcome.by !== welcome.name
+            ? `Dibukakan ${welcome.by} · Kepala toko`
+            : `${HARI[now.getDay()]}, ${now.getDate()} ${BULAN[now.getMonth()]} ${now.getFullYear()} · ${clock}`}
+        </p>
+        <span className="d-progress run"><i /></span>
+      </div>
+    )
+  } else if (door === "behalf") {
+    card = (
+      <div className="d-in d-float m-swap" key="behalf">
+        <div className="f-who">
+          <span className="av md">{initials(head ?? "")}</span>
+          <div className="f-who-t"><b>{head}</b><span>{site !== null ? `Kepala toko · ${site}` : "Kepala toko"}</span></div>
+          <button className="d-chip" type="button" onClick={() => void back()} disabled={busy}>Batal<span className="kbd">Esc</span></button>
+        </div>
+        <p className="f-title">Buka kasir atas nama</p>
+        <div className="bh-list" role="listbox" aria-label="Buka kasir atas nama">
+          {rows.map((row, index) => (
+            <button
+              key={`${row.name}-${index}`}
+              type="button"
+              role="option"
+              aria-selected={index === pick}
+              className={`bh-row${index === pick ? " on" : ""}`}
+              disabled={busy}
+              onClick={() => {
+                setPick(index)
+                void behalf(index)
+              }}
+            >
+              <span className="kbd">{index + 1}</span>
+              <span className="av">{initials(row.name)}</span>
+              <span className="bh-t"><b>{row.name}</b><span>{row.sub}</span></span>
+            </button>
+          ))}
+        </div>
+        {hint !== null && <p className="d-err" style={{ marginTop: 10 }}>{hint}</p>}
+        <button className="pd-btn f-open" type="button" disabled={busy} onClick={() => void behalf(pick)}>
+          <span>{busy ? "Membuka…" : `Buka untuk ${picked}`}</span>
+          <span className="kbd">Enter</span>
+        </button>
+      </div>
+    )
+  } else if (door === "headpw") {
+    card = (
+      <form className="d-in m-swap" key="headpw" onSubmit={(event) => void headPassword(event)}>
+        <div className="d-headtop">
+          <span className="d-ttl">Password kepala toko</span>
+          <button className="d-chip" type="button" onClick={() => void back()}>Kembali<span className="kbd">Esc</span></button>
+        </div>
+        <p className="d-sub">Hanya untuk kepala toko</p>
+        <div className="d-pw">
+          <label>
+            Username
+            <input value={username} onChange={(event) => setUsername(event.target.value)} autoFocus autoComplete="off" spellCheck={false} autoCapitalize="characters" />
+          </label>
+          <label>
+            Password
+            <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="off" />
+          </label>
+          {(hint ?? problem) !== null && <p className="d-err" role="alert">{hint ?? problem}</p>}
+          <button className="pd-btn" type="submit" disabled={busy || !ready || username === "" || password === ""}>
+            <span>{busy ? "Memeriksa…" : "Lanjut"}</span>
+            <span className="kbd">Enter</span>
+          </button>
+        </div>
+        {byFinger && (
+          <div className="d-foot">
+            <button className="d-chip" type="button" onClick={() => go("head")}>Pakai jari</button>
+          </div>
+        )}
+      </form>
+    )
+  } else if (door === "head") {
+    card = (
+      <div className="d-in m-swap" key="head">
+        <div className="d-headtop">
+          <span className="d-ttl">Dibukakan kepala toko</span>
+          <button className="d-chip" type="button" onClick={() => void back()}>Kembali<span className="kbd">Esc</span></button>
+        </div>
+        <p className="d-sub">Lalu pilih kasir yang bertugas</p>
+        <Sensor state={read} onPress={() => void press(true)} />
+        <p className={`d-say${read === "no" ? " bad" : ""}`} aria-live="polite">{say("head")}</p>
+        <p className="d-hint">{read === "no" || (hint !== null && realScanner) ? hint : ""}</p>
+        <div className="d-foot">
+          <button className="d-chip" type="button" onClick={() => go("headpw")}>Pakai password kepala toko</button>
+        </div>
+      </div>
+    )
+  } else {
+    card = (
+      <div className="d-in" key="touch">
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+          <Mark />
+          <p className="d-word">Central<i>.</i></p>
+          <p className="d-till">{where}</p>
+        </div>
+        <Sensor state={read} onPress={() => void press(false)} />
+        <p className={`d-say${read === "no" ? " bad" : ""}`} aria-live="polite">{say("cashier")}</p>
+        <p className="d-hint">{read === "no" || (hint !== null && realScanner) ? (stoppedByHo ? "Oleh kantor pusat" : hint === NO_SCANNER_WEB || hint === NO_SCANNER ? `${hint} · minta kepala toko` : hint) : ""}</p>
+        <div className="d-foot">
+          <button className="d-chip" type="button" disabled={!ready} onClick={() => go(byFinger ? "head" : "headpw")}>
+            Dibukakan kepala toko<span className="kbd">K</span>
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <div id="app" data-screen="sale">
-      <div className="overlay">
-        <form
-          className="overlay-card login-card"
-          onSubmit={(event) => {
-            if (byFinger) {
-              event.preventDefault()
-              return
-            }
-            if (usePin) {
-              event.preventDefault()
-              void enterWithPin()
-            } else void enter(event)
-          }}
-        >
-          <Brand />
-          <h3>{till ?? "Sign in"}</h3>
-
-          {byFinger ? (
-            <>
-              <button
-                className="btn primary lg"
-                type="button"
-                style={{
-                  width: 132,
-                  height: 132,
-                  borderRadius: "50%",
-                  alignSelf: "center",
-                  flexDirection: "column",
-                  gap: 8,
-                }}
-                disabled={busy || !ready || (!realScanner && true)}
-                onClick={realScanner ? () => void scan() : undefined}
-                aria-label="Fingerprint scanner"
-              >
-                <Icon name="finger" />
-                {busy ? "Reading…" : "Touch to sign in"}
-              </button>
-              {SIMULATED && !realScanner && (
-                <div style={{ width: "100%", textAlign: "left" }}>
-                  <span className="label">Simulated fingerprint — whose finger?</span>
-                  <div className="rows" style={{ marginTop: 8 }}>
-                    {SIM_FINGERS.map((person: string) => (
-                      <button
-                        key={person}
-                        className="btn lg"
-                        type="button"
-                        disabled={busy || !ready}
-                        onClick={() => void touch(person)}
-                      >
-                        <Icon name="finger" />
-                        {titled(person)}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {(finger !== null || problem !== null) && (
-                <p
-                  className={finger === null ? "error" : "muted"}
-                  style={{ fontSize: 13, textAlign: "left", width: "100%" }}
-                >
-                  {finger ?? problem}
-                </p>
-              )}
-            </>
-          ) : (
-            <>
-              {/* A PIN is claimed over the pairing channel (`claimPin` →
-                  `signedEdge`), which only the desktop shell can sign, so the
-                  web till never draws the tab that would switch to it. */}
-              {!isWeb && stepUp === "PIN" && (
-                <div className="segmented" style={{ width: "100%" }}>
-                  <button
-                    type="button"
-                    aria-pressed={!usePin}
-                    onClick={() => setMode("password")}
-                  >
-                    Password
-                  </button>
-                  <button
-                    type="button"
-                    aria-pressed={usePin}
-                    onClick={() => setMode("pin")}
-                  >
-                    PIN
-                  </button>
-                </div>
-              )}
-
-              <label className="field" style={{ width: "100%", textAlign: "left" }}>
-                Username
-                <input
-                  value={username}
-                  onChange={(event) => setUsername(event.target.value)}
-                  autoFocus
-                  // A counter is shared. Nobody's name should be waiting in the
-                  // field when the next shift walks up to it.
-                  autoComplete="off"
-                  aria-label="Username"
-                />
-              </label>
-
-              {usePin ? (
-                <div style={{ width: "100%" }}>
-                  <PinPad
-                    value={pin}
-                    onChange={setPin}
-                    onSubmit={() => void enterWithPin()}
-                    disabled={busy || !ready}
-                  />
-                  {pinNote !== null && (
-                    <p className="error" style={{ marginTop: 8, textAlign: "left" }}>
-                      {pinNote}
-                    </p>
-                  )}
-                </div>
-              ) : (
-                <label className="field" style={{ width: "100%", textAlign: "left" }}>
-                  Password
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(event) => setPassword(event.target.value)}
-                    autoComplete="off"
-                    aria-label="Password"
-                  />
-                </label>
-              )}
-
-              {!usePin && problem !== null && (
-                <p className="error" style={{ width: "100%", textAlign: "left" }}>
-                  {problem}
-                </p>
-              )}
-
-              <button
-                className="btn primary lg"
-                style={{ width: "100%" }}
-                type="submit"
-                disabled={
-                  busy ||
-                  !ready ||
-                  username === "" ||
-                  (usePin ? pin === "" : password === "")
-                }
-              >
-                {busy ? "Checking…" : !ready ? "Reading settings…" : "Sign in"}
-              </button>
-            </>
-          )}
-
-          {onJoin !== undefined && config !== null && config.pairing_id === null && (
-            <div className="notice" style={{ width: "100%", textAlign: "left" }}>
-              This till has not joined the store server yet.{" "}
-              <button
-                className="btn ghost"
-                type="button"
-                style={{ minHeight: 26, padding: "0 6px" }}
-                onClick={onJoin}
-              >
-                <Icon name="plug" />
-                Join
-              </button>
-            </div>
-          )}
-        </form>
-      </div>
+    <div className="pdoor">
+      <div className="d-card m-lift">{card}</div>
+      <p className="d-status m-lift">
+        <span className="live" />
+        <span>{stepUp !== null ? "Central online" : "Menghubungkan…"}</span>
+        <span className="dot">·</span>
+        <span>{where}</span>
+        <span className="dot">·</span>
+        <span>{clock}</span>
+      </p>
+      {SIMULATED && !realScanner && (door === "touch" || door === "head") && (
+        <div className="d-sims">
+          {SIM_FINGERS.map((person: string) => (
+            <button key={person} className="ok" type="button" disabled={busy} onClick={() => void press(door === "head", person)}>
+              Jari {titled(person)}
+              {person === SIM_HEAD ? " · Kepala toko" : ""}
+            </button>
+          ))}
+          <button className="bad" type="button" disabled={busy} onClick={() => void press(door === "head", UNKNOWN)}>
+            Jari tak dikenal
+          </button>
+        </div>
+      )}
+      {onJoin !== undefined && config !== null && config.pairing_id === null && door === "touch" && (
+        <div className="d-sims">
+          <button type="button" onClick={onJoin}>Gabungkan kasir ini ke server toko</button>
+        </div>
+      )}
     </div>
   )
 }

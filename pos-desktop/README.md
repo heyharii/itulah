@@ -73,6 +73,7 @@ src-tauri/
   src/edge.rs    Proxy to the shop node. Holds the address, the token, the timeout.
   src/device.rs  The Chainway R3 commands (off the window's thread), fingerprint and drawer status.
   src/rfid.rs    Windows SDK binding; SDK loaded once, reader kept open, one short inventory per read of the pad.
+  src/fingerprint.rs  ZKTeco scanner on Windows (libzkfp.dll): identify against the node's roster, 3-press enrolment.
   src/discovery.rs  Finds the shop's node on the LAN (mDNS), confirms each answer.
   src/join.rs       Asks the node to let this till in; the key never reaches the page.
   src/peripherals.rs  What is plugged into this till, reported to the node.
@@ -230,16 +231,14 @@ keep), and pulling a handheld's sweep onto the basket (`GET
 /api/v1/rfid/sessions`, board button or F6 — the reader's lane ends at the
 node, so the till pulls and never polls).
 
-The Chainway R3 USB binding is implemented for Windows, for the R3 and the R3S:
-the reader's firmware version must name one of them (a comma-separated part
-equal to `R3` or `R3S`, any case), and any other reader is refused with the
-firmware string it reported. **Test read** shows that string, so an R3S's real
-one can be confirmed on the bench. The **fingerprint
-scanner** remains an honest stub (`src-tauri/src/device.rs`; it needs the ZK SDK
-on Linux or Windows); the **price-check-to-basket** path for a garment whose tag has come
+The Chainway R3 USB binding is implemented for Windows, for the R3 and the R3S.
+The reader is known by its USB identity: Chainway's SDK opens only VID 0x2047 /
+PID 0x0301, so a reader that answers on the link is one of them. Its firmware
+version is read, never judged: **Test reader** shows it and every open logs it
+with the bytes the SDK handed back, so an R3S's real one can be recorded on the
+bench. Not done yet: the **price-check-to-basket** path for a garment whose tag has come
 off (it has to be re-tagged; the wire has no field for a line without one);
-the **finger enrolment screen** (the commands and the API exist; no screen
-calls them); and cash movements beyond the simple in/out — DROP and PICKUP are
+and cash movements beyond the simple in/out — DROP and PICKUP are
 wired, PAYOUT and CORRECTION are not, because their supervisor field is not.
 
 ## Windows POS build
@@ -254,6 +253,19 @@ keeps the vendor DLLs in the installer without committing them to this
 repository. A local Windows build needs the same five DLLs in
 `src-tauri/rfid-native/` (`tauri.windows.conf.json` lists them), so copy the
 three runtime DLLs from `C:\Windows\System32` beside the SDK's two.
+
+### The fingerprint scanner (ZKTeco, ZKFinger SDK 5.3.0.33)
+
+`src-tauri/src/fingerprint.rs` binds `libzkfp.dll` the way the owner's working
+attendance bridge does (`retail/attendance-terminal/zk-bridge/ZkDevice.cs`).
+The DLL is not self-contained — it needs its capture plug-ins and the vendor's
+libusb0 kernel driver — so the till ships the vendor's installer,
+`src-tauri/fingerprint-native/ZKFinger-setup.exe` (SHA-256 checked in CI), and
+loads `libzkfp.dll` from `System32`, where that installer puts it. On a new
+till: Till devices → Sidik jari → **Pasang driver**, finish the installer,
+replug the scanner, **Periksa**. The door and the Kepala toko's approval then
+listen to the scanner on their own; enrolment is in the same section (pick the
+person and the finger, press three times, saved at the node).
 
 ### The Chainway R3 at the counter
 
@@ -277,7 +289,7 @@ two first:
 |---|---|
 | Buzzer off and power as this till set it, the counter's | 2, then the read |
 | Buzzer on, power moved or changed in *Till devices*, or the last read came back with TID bytes | about 25: set up again exactly as on opening, then the read |
-| No answer | the reader is reopened, which sets everything up |
+| No answer, or the SDK reports the link lost | the reader is told to stop, then reopened, which sets everything up |
 
 A read that comes back with TID bytes shows the reader reverted anyway: it is
 not used and the cashier is asked to read again. **Blind spot:** a reset of
@@ -297,11 +309,50 @@ On the handheld's module our own tags lost 16 of 58 to FastID, answered 11 of
 31 on a Gen2X link, and stayed silent long after a read in S2 and S3. A Gen2X
 RF link (modes 10–15 in Chainway's API document) is moved to the PR-ASK mode
 with the same Miller encoding and link frequency (0–5); any other link is left
-and shown. Fast Inventory is not set. Nothing is saved in the reader, and
-everything it can read back is read back once all of it is set. A reader that
-will not take a setting, or whose link cannot be read, is not read at all and
-the cashier is told why. **Test read** shows the firmware and the profile the
-read ran with. Measure the bench values below with this profile in place.
+and shown. Fast Inventory is switched off, and a wait time between reads is
+set to 0 (the work time kept as the reader held it; the values it had are
+logged). Nothing is saved in the reader, and everything it can read back is
+read back once all of it is set. A reader that will not take a setting, or
+whose link cannot be read, is not read at all and the cashier is told why.
+What the till does not set is read too: a wait that still reads back other
+than 0, an air protocol other than Gen2 or an output other than EPC only
+refuses the reader, and the antenna mask is logged and shown, never judged (one
+reader is no proof of its byte order). The work mode, dual/single target and
+the reader's own repeat filter are not asked: on the first R3 probed each
+answered only −1 after the full 1.5 s, which would add 4.5 s to every open. A
+getter the reader does not answer is logged, never held against it. **Test
+read** shows the firmware, the profile the read ran with (the work and wait
+time among it), the antenna mask, and the region and channels the reader is
+set to, by Chainway's names (read only: the band is the owner's decision; an
+empty channel list shows as the region's own channels). Measure the bench
+values below with this profile in place.
+
+**Status and errors.** A chip beside the reader button, and the same on *Till
+devices*, says how the R3 stands: **Ready**, **Busy**, **Needs attention** or
+**Not connected**. The sale screen asks the shell every 5 s without touching
+the reader, and again after every read. Every failure is a code from one
+catalogue (`R3-05`, …) with one sentence and one action for the cashier, and
+the detail for support in the chip's tooltip and the log;
+[`docs/rfid-status-and-errors.md`](../docs/rfid-status-and-errors.md) lists
+each code with what support checks. The node's refusals of a tag (already
+sold, in the stockroom, not this shop's item) are shown as `TAG-` codes in the
+same words. *Till devices* also has:
+
+- **Check tag**: the EPC of a tag fixed at the pad, never sold. Every read
+  leaves it out of the basket and looks for it; missing, or under 2 dB above
+  the floor, the read needs attention.
+- **Test reader**: the R3 opened afresh and timed, its settings read back,
+  then three reads a second apart, with PASS or FAIL and the reason (the
+  recipe, open and read times, tags per read and whether they were the same,
+  records and distinct EPCs per read — the bench R3 stalled at about 35
+  records an inventory — the weakest tag and its margin to the floor, the
+  check tag).
+- **Calibrate**: three reads of the test items on the pad; it suggests the
+  weakest tag's RSSI less 3 dB and warns when a tag off the pad is within 6
+  dB. Saved only when the installer presses *Use*.
+- **Copy diagnostics**: app version and recipe id, SDK hashes, firmware and
+  `C8` bytes, region and channels, the profile read back, the settings, and
+  the last reads, faults and 40 SDK calls, as text on the clipboard.
 
 To take one unit off a line of several, press × on the line and read the
 garment being handed back on the pad (or scan or pick its tag): that tag is the
@@ -313,7 +364,31 @@ one removed, after the supervisor's approval, never the last one scanned.
 
 | Setting | Default | What to measure |
 |---|---|---|
-| Power | 15 dBm (1–30) | Lay garments on the pad and others where the racks, the bag shelf and the customer's side of the counter are. Lower the power until **Test read** lists only the pad's garments, then check a full pile on the pad still reads completely. Only the pad may be in reach. |
-| One read | 500 ms (200–2000) | The shortest window in which a full pile on the pad is read completely every time, over a few dozen tries. |
-| Weakest kept | −70 dBm (−100 to −20) | The signal **Test read** shows for the pad's garments against the strongest seen from off the pad; set it between the two. A second guard only: the power is what keeps the racks out of reach. |
-| Exclusive access | — | With the till holding the R3 (after a **Test read**), open Chainway's demo app and try to connect to the R3: it must fail. If it connects, another app can change the reader under the till, which the two questions before each read do not cover. |
+| Weakest kept | −70 dBm (−100 to −20) | Installation calibration, preserved when the recipe is applied. RSSI does not guarantee the pad boundary; test missing inside tags and extra outside tags together. Lay garments on the pad and others where the racks, the bag shelf and the customer's side of the counter are. **Calibrate** suggests it from the test items on the pad, and **Test reader** lists the pad's garments with their signal and, under "Left out", every tag below the floor with its own; the floor goes between the weakest of the pad's and the strongest of the rest, then check a full pile on the pad still reads completely. On the bench R3 a tag a metre away read −75 to −79 dBm and one at the pad's edge −73, so −70 cut both. |
+| Power | 15 dBm (fixed recipe) | It did not change the reach on the bench R3 (5 against 25 dBm: +0.1 dB median over 16 tags, and the tag a metre away read −75 to −78 dBm at 5, 15 and 25). At 30 dBm that R3 read nothing and fell back to its saved 12 dBm, so 25 is the top. Whether it takes effect after a power cycle is not tested yet. |
+| One read | 2000 ms (fixed recipe) | Conservative production candidate, trading speed for a longer listening window. Old saved windows are replaced when the configuration loads. Earlier bench evidence: The bench R3 read all 14 EPCs 8 times out of 8 at 1000 ms and more, at every power; at 500 ms it missed one in 1 to 3 of 8. A read stopped at about 35 records whatever the window. |
+| Between reads | 1000 ms (fixed, `R3_READ_GAP_MS`) | A read starts no sooner than this after the last one ended, waiting out the rest. Back to back, the bench R3 alternated about 30 and about 15 records; a second apart it was steady. |
+| Exclusive access | — | With the till holding the R3 (after a **Test reader** run), open Chainway's demo app and try to connect to the R3: it must fail. If it connects, another app can change the reader under the till, which the two questions before each read do not cover. |
+
+The bench's 16 test tags carry 14 EPCs: two EPCs are each on two chips. A pad
+read is keyed by EPC, so each pair counts once, which is right for a shop whose
+EPCs are unique. After a close the shell waits 1.2 s before opening the reader
+again: the SDK's USB thread for the closed link can outlive the close by up to
+a second and, when it ends, leave the next link with no queue. That is the
+likeliest cause of the bench's reads 2 to 5 failing as "disconnected" with no
+USB event; the shell also counts a lost link only by its own id now.
+
+**The first R3 probed** (23 Oct, getters only, firmware `V2.2.9,R3,2023-08-09`):
+- region 0x02 China Standard2 (920–925 MHz), not Indonesia; left as it is (the
+  band is the owner's decision);
+- saved power 12 dBm, EPC-only output, antenna mask `00 0F` with antenna 1
+  reading, and an empty channel list (the region's own channels);
+- buzzer, FastID, Tag Focus and Fast Inventory all off;
+- the work-time getter answered −1, and the work-mode, dual/single and
+  repeat-filter getters −1 after 1.5 s each;
+- a 1 s read heard 15 tags at −34 to −76 dBm and stopped cleanly, with no
+  late records. Under the −70 dBm default floor the weakest of them would
+  count as too weak: the bench decides the floor.
+
+The same R3 read again afterwards: region 0x02, saved power 12 dBm and EPC-only
+output were unchanged.

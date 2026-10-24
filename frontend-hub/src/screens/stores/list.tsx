@@ -1,6 +1,6 @@
 import { useSuspenseQuery } from "@tanstack/react-query"
 import { Link, useNavigate } from "@tanstack/react-router"
-import { Plus } from "lucide-react"
+import { Archive, CirclePause, Plus, Store } from "lucide-react"
 import { Suspense, useEffect, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Fab } from "@/components/ui/fab"
 import { Input } from "@/components/ui/field"
+import { FilterChips } from "@/components/ui/filter-chips"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { EmptyState, LoadingState } from "@/components/ui/states"
@@ -65,12 +66,52 @@ export function StoresList() {
   )
 }
 
+/// Which stores the list shows. A removed store never shows under All: it
+/// has its own chip, and its page keeps saying why.
+type StoreView = "all" | "stopped" | "removed"
+
+const VIEW_WORD: Record<StoreView, string> = {
+  all: "All",
+  stopped: "Stopped",
+  removed: "Removed",
+}
+
+const VIEW_ICON = { all: Store, stopped: CirclePause, removed: Archive }
+
+function inView(store: StoreSummary, view: StoreView): boolean {
+  switch (view) {
+    case "all":
+      return store.status !== "CLOSED"
+    case "stopped":
+      return store.status === "STOPPED"
+    case "removed":
+      return store.status === "CLOSED"
+  }
+}
+
+/// What the line under a store's name says about where it stands.
+function standing(store: StoreSummary): string {
+  switch (store.status) {
+    case "OPEN":
+      return store.opened_at ? ` · open since ${day(store.opened_at)}` : ""
+    case "STOPPED":
+      return store.stop ? ` · stopped ${day(store.stop.at)}` : " · stopped"
+    case "CLOSED":
+      return store.removed_at
+        ? ` · removed ${day(store.removed_at)}`
+        : " · removed"
+    default:
+      return " · getting ready"
+  }
+}
+
 function StoreBook() {
   // A phone keeps the search and "Add store" in the drawer over the bottom
   // bar and reads each store as a card.
   const phone = useLayout() === "phone"
   const opening = useSheet("new-stores")
   const [search, setSearch] = useState("")
+  const [view, setView] = useState<StoreView>("all")
   const navigate = useNavigate()
   const storePath = useStorePath()
 
@@ -93,16 +134,28 @@ function StoreBook() {
     })
   }, [solePosting, navigate, storePath])
 
+  const views = useMemo(
+    () =>
+      (["all", "stopped", "removed"] as const).map((one) => ({
+        value: one,
+        label: VIEW_WORD[one],
+        icon: VIEW_ICON[one],
+        count: items.filter((store) => inView(store, one)).length,
+      })),
+    [items]
+  )
+
   const rows = useMemo(() => {
     const text = search.trim().toLowerCase()
-    if (text === "") return items
-    return items.filter(
+    const shown = items.filter((store) => inView(store, view))
+    if (text === "") return shown
+    return shown.filter(
       (store) =>
         store.name.toLowerCase().includes(text) ||
         store.code.toLowerCase().includes(text) ||
         (store.city ?? "").toLowerCase().includes(text)
     )
-  }, [items, search])
+  }, [items, search, view])
 
   if (solePosting !== null) return null
 
@@ -139,8 +192,31 @@ function StoreBook() {
       {canManage && (
         <Fab label="Add store" onClick={() => opening.open(true)} />
       )}
+      {/* On a phone the chips are the dock's status; on a desk they stand
+          under the head. */}
       <DockTools
         search={{ value: search, onChange: setSearch, label: "Search Stores" }}
+        status={{
+          value: view,
+          options: views.map(({ value, label, count }) => ({
+            value,
+            label,
+            count,
+          })),
+          onChange: (next) => setView(next as StoreView),
+        }}
+      />
+      <FilterChips
+        className="mb-3.5 max-md:hidden"
+        label="Stores"
+        value={view === "all" ? null : view}
+        onChange={(next) => setView((next ?? "all") as StoreView)}
+        options={views.map(({ value, label, icon, count }) => ({
+          value: value === "all" ? null : value,
+          label,
+          icon,
+          count,
+        }))}
       />
 
       <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
@@ -150,6 +226,12 @@ function StoreBook() {
               {canManage
                 ? `No store has been added yet. "Add store" makes its unit, its shop site and its stock pools together.`
                 : "No store is posted to you yet."}
+            </EmptyState>
+          ) : search.trim() === "" && view !== "all" ? (
+            <EmptyState>
+              {view === "stopped"
+                ? "No store is stopped."
+                : "No store has been removed."}
             </EmptyState>
           ) : (
             <EmptyState>No store matches that search.</EmptyState>
@@ -206,11 +288,7 @@ function StoreRow({ store }: { store: StoreSummary }) {
           </span>
           <span className="block truncate text-meta text-body">
             {store.city || "—"}
-            {store.status === "OPEN" && store.opened_at
-              ? ` · open since ${day(store.opened_at)}`
-              : store.status === "CLOSED"
-                ? " · closed"
-                : " · getting ready"}
+            {standing(store)}
           </span>
         </span>
         <Pill tone={storeStatusTone(store.status)}>
@@ -248,11 +326,7 @@ function StoreCard({ store }: { store: StoreSummary }) {
           line={
             <>
               {store.city || "—"}
-              {store.status === "OPEN" && store.opened_at
-                ? ` · open since ${day(store.opened_at)}`
-                : store.status === "CLOSED"
-                  ? " · closed"
-                  : " · getting ready"}
+              {standing(store)}
             </>
           }
         />

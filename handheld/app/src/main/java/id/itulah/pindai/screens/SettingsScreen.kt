@@ -12,6 +12,7 @@ import androidx.compose.ui.unit.dp
 import id.itulah.pindai.BuildConfig
 import id.itulah.pindai.MainActivity
 import id.itulah.pindai.core.Reader
+import id.itulah.pindai.core.RadioRecipe
 import id.itulah.pindai.data.Api
 import id.itulah.pindai.data.ConfigStore
 import id.itulah.pindai.ui.kit.*
@@ -109,7 +110,14 @@ fun SettingsScreen(
             onDeviceKey = { settings = settings.copy(deviceKey = it) },
         )
 
-        ReaderPowerCard(vm, state)
+        if (BuildConfig.BENCH) ReaderPowerCard(vm, state)
+        else HubCard {
+            SectionLabel("Reader")
+            Spacer(Modifier.height(Space.sm))
+            Text("Consistent count · ${RadioRecipe.ID}", style = Type.cell, color = Ink.ink)
+            Spacer(Modifier.height(Space.sm))
+            Text(RadioRecipe.GUIDANCE, style = Type.meta, color = Ink.mute)
+        }
 
         OperatorCard(
             token = settings.operatorToken,

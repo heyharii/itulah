@@ -1,0 +1,623 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Files tidy options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+<style>
+/* GA › Files (/library) — Now and four tidier versions, 17 Oct 2026.
+   Tokens: frontend-hub/src/styles/white.css (All white), measured on :5350.
+   Page and sheet anatomy: frontend-hub/design-system (ListPage, ListPhone, Sheet). */
+:root{
+  --ink:#1d1d1f; --body:#6e6e73; --mute:#6e6e73; --faint:#aeaeb2;
+  --soft:#fafafb; --soft-2:#f2f2f5; --soft-3:#f5f5f7;
+  --hairline:#e8e8ec; --hairline-2:#dcdce1; --row-line:#eeeef1; --band:#fafafb;
+  --accent:#2862dc; --accent-bg:#eef3fc;
+  --ok-fg:#248a3d; --warn-fg:#a66c1f; --bad-fg:#d70015;
+  --r-card:10px; --r-inner:8px; --r-sheet:14px;
+  --ease-out:cubic-bezier(.23,1,.32,1);
+  --ease-drawer:cubic-bezier(.32,.72,0,1);
+  --font:"Inter",system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font-family:var(--font);font-size:15px;line-height:1.45;color:var(--ink);background:#e9e9ec;letter-spacing:-.006em;-webkit-font-smoothing:antialiased;overflow:hidden}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+input{font:inherit;color:inherit}
+.i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.i.s{width:16px;height:16px}
+
+/* prototype chrome */
+.proto{height:50px;overflow-x:auto;background:#141518;color:#fff;display:flex;align-items:center;gap:12px;padding:0 14px 0 18px}
+.proto .t{font-weight:600;white-space:nowrap}
+.seg{display:flex;gap:2px;background:#24262b;border-radius:9px;padding:3px;flex:none}
+.seg button{height:32px;padding:0 11px;border-radius:7px;font-size:15px;color:#b9bcc3;white-space:nowrap;transition:background-color .15s ease,color .15s ease,transform .16s ease-out}
+.seg button:active{transform:scale(.97)}
+.seg button b{font-weight:600;color:#fff;margin-right:5px}
+.seg button.on{background:#fff;color:var(--ink)} .seg button.on b{color:var(--ink)}
+.seg .star{color:#f4b740;margin-left:4px}
+.proto .sp{flex:1}
+.note{min-height:36px;background:#1c1e22;color:#a7abb3;font-size:15px;line-height:24px;padding:6px 18px;border-top:1px solid #26282d}
+.note b{color:#fff;font-weight:500}
+.stagewrap{height:calc(100vh - 50px - var(--nh,36px));overflow:hidden;display:flex;justify-content:center;position:relative}
+
+/* hub shell */
+.app{width:100%;height:100%;display:grid;grid-template-columns:68px 232px minmax(0,1fr);background:var(--soft-3);position:relative;overflow:hidden}
+.rail{display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:4px}
+.rail .ri{width:40px;height:36px;border-radius:8px;display:grid;place-items:center;color:#3a3a3c}
+.rail .ri.on{background:#fff;box-shadow:0 0 0 1px var(--hairline);color:var(--accent)}
+.rail .me{margin-top:auto;width:36px;height:36px;border-radius:50%;border:1.5px solid var(--accent);color:var(--accent);display:grid;place-items:center;font-weight:600}
+.dept{background:#fff;margin:8px 0;border-radius:12px;display:flex;flex-direction:column;box-shadow:0 1px 3px rgb(24 39 60/4%)}
+.dept h2{margin:0;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 14px 0 18px;font-size:17px;font-weight:600}
+.dept h2 .i{color:var(--mute)}
+.rows{padding:2px 10px;display:flex;flex-direction:column;gap:2px}
+.row{height:36px;display:flex;align-items:center;padding:0 10px;border-radius:8px;color:#3a3a3c;width:100%;text-align:left}
+.row.on{background:var(--accent-bg);color:var(--accent);font-weight:500}
+.rows hr{border:0;border-top:1px solid var(--hairline);margin:6px 10px}
+.dept .clock{margin-top:auto;height:48px;display:flex;align-items:center;gap:8px;padding:0 18px;color:var(--ink)}
+.main{margin:8px;background:#fff;border-radius:12px;overflow-y:auto;min-width:0;position:relative;box-shadow:0 1px 3px rgb(24 39 60/4%)}
+.head{position:sticky;top:0;z-index:4;background:#fff;height:64px;display:flex;align-items:center;justify-content:space-between;padding:0 28px;border-bottom:1px solid var(--hairline)}
+.head h1{margin:0;font-size:17px;line-height:24px;font-weight:600}
+.page{padding:22px 28px 48px}
+
+/* buttons */
+.bp{height:36px;display:inline-flex;align-items:center;gap:6px;padding:0 14px 0 11px;border-radius:var(--r-inner);background:var(--accent);color:#fff;font-weight:600;transition:transform .16s ease-out,background-color .15s ease}
+.bp.np{padding:0 12px}
+.bp:active{transform:scale(.97)}
+@media (hover:hover){.bp:hover{background:#2257c8}}
+.gb{height:36px;display:inline-flex;align-items:center;gap:6px;padding:0 12px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:#fff;font-weight:500;transition:background-color .15s ease,transform .16s ease-out}
+.gb:active{transform:scale(.97)}
+@media (hover:hover){.gb:hover{background:var(--soft-2)}}
+.gb .c{min-width:20px;height:20px;border-radius:10px;background:var(--ink);color:#fff;font-size:15px;line-height:20px;padding:0 5px;text-align:center}
+
+/* tabs, bar */
+.tabs{display:flex;gap:22px;border-bottom:1px solid var(--hairline);margin-bottom:16px}
+.tab{height:38px;color:var(--body);position:relative}
+.tab .c{margin-left:6px;color:var(--mute);font-variant-numeric:tabular-nums}
+.tab.on{color:var(--ink);font-weight:500}
+.tab.on::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--ink);border-radius:2px}
+.bar{display:flex;gap:8px;align-items:center;margin-bottom:12px;position:relative}
+.bar .sp{flex:1}
+.search{width:280px;height:36px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);display:flex;align-items:center;gap:8px;padding:0 12px;color:var(--mute);background:#fff;transition:border-color .15s ease,box-shadow .15s ease}
+.search:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.search input{border:0;outline:0;flex:1;min-width:0;background:none}
+.search input::placeholder{color:var(--mute)}
+.vs{display:flex;height:36px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);overflow:hidden}
+.vs button{width:40px;display:grid;place-items:center;color:var(--mute);transition:background-color .15s ease,color .15s ease}
+.vs button+button{border-left:1px solid var(--hairline-2)}
+.vs button.on{background:var(--soft-2);color:var(--ink)}
+.fpanel{position:absolute;left:288px;top:44px;width:300px;background:#fff;border-radius:10px;box-shadow:0 0 0 1px var(--hairline),0 12px 32px rgb(0 0 0/.12);padding:6px;opacity:0;transform:scale(.97);transform-origin:top left;pointer-events:none;transition:opacity .16s var(--ease-out),transform .16s var(--ease-out);z-index:5}
+.fpanel.open{opacity:1;transform:none;pointer-events:auto}
+.fpanel .fr{height:40px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-radius:8px;width:100%}
+@media (hover:hover){.fpanel .fr:hover{background:var(--soft)}}
+.fpanel .fr span{color:var(--mute)}
+
+/* table */
+.tbox{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:clip;background:#fff}
+table{border-collapse:collapse;width:100%;table-layout:fixed}
+th{height:40px;background:var(--band);color:var(--body);font-weight:500;text-align:left;padding:0 16px;border-bottom:1px solid var(--hairline);white-space:nowrap}
+td{height:64px;padding:0 16px;border-top:1px solid var(--row-line);vertical-align:middle;overflow:hidden}
+tbody tr:first-child td{border-top:0}
+tbody tr.f{cursor:pointer}
+tbody tr.f td{transition:background-color .12s ease}
+@media (hover:hover){tbody tr.f:hover td{background:var(--soft)}}
+tbody tr.f td:last-child{position:relative}
+@media (hover:hover){tbody tr.f:hover td:last-child::after{content:"";position:absolute;right:18px;top:50%;margin-top:-4px;width:7px;height:7px;border-right:1.6px solid var(--mute);border-top:1.6px solid var(--mute);transform:rotate(45deg)}}
+tbody tr.sel td{background:var(--soft-2)!important}
+.grp td{height:44px;background:var(--band);border-top:1px solid var(--hairline)}
+.grp + tr td{border-top:1px solid var(--hairline)}
+.grp .gl{display:flex;align-items:center;gap:8px;font-weight:500}
+.grp .gl .i{color:var(--mute)}
+.grp .gl .m{font-weight:400}
+.foot td{height:44px;background:var(--band);border-top:1px solid var(--hairline);color:var(--body)}
+.r{text-align:right}
+.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+.m{color:var(--mute)}
+.nm{font-weight:500;color:var(--ink)}
+.tr{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block;min-width:0}
+.fl{display:flex;align-items:center;gap:12px;min-width:0}
+.fl .tx{min-width:0;flex:1}
+.wh{display:flex;align-items:center;gap:8px;min-width:0;color:var(--ink)}
+.wh .i{color:var(--mute)}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:15px;letter-spacing:0}
+
+/* status: dot in the tone, the word coloured only for warn and bad */
+.st{white-space:nowrap;color:var(--ink)}
+.st::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--faint);margin:0 8px 2px 0;vertical-align:middle}
+.st.n{color:var(--mute)}
+.st.w{color:var(--warn-fg)} .st.w::before{background:var(--warn-fg)}
+.st.b{color:var(--bad-fg)} .st.b::before{background:var(--bad-fg)}
+.pill{display:inline-flex;align-items:center;height:28px;padding:0 10px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);font-weight:500;white-space:nowrap}
+.pill::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;margin-right:7px}
+.pill.w{color:var(--warn-fg)} .pill.b{color:var(--bad-fg)} .pill.n{color:var(--mute)}
+
+/* file glyphs */
+.fi{width:40px;height:40px;border-radius:var(--r-inner);background:var(--soft-3);border:1px solid var(--hairline);display:grid;place-items:center;flex:none;overflow:hidden}
+.fi .pg{width:20px}
+.fi.img{border-color:transparent}
+.pg{aspect-ratio:1/1.32;background:#fff;border:1px solid var(--hairline-2);border-radius:2px;position:relative;padding:12% 13%;display:flex;flex-direction:column;gap:7%;box-shadow:0 1px 2px rgb(0 0 0/.04)}
+.pg i{display:block;height:5%;min-height:1.5px;background:#d9d9de;border-radius:2px}
+.pg i.h{background:#9a9aa1;width:62%;height:7%}
+.pg.sh{padding:12% 10%}
+.pg .gr{flex:1;background-image:linear-gradient(#e3e3e8 1px,transparent 1px),linear-gradient(90deg,#e3e3e8 1px,transparent 1px);background-size:100% 16%,33.3% 100%;border:1px solid #e3e3e8}
+.pg.big{box-shadow:0 1px 2px rgb(0 0 0/.05),0 8px 24px rgb(0 0 0/.06);border-color:var(--hairline)}
+.ph{position:relative;overflow:hidden}
+.ph svg{position:absolute;inset:0;width:100%;height:100%}
+.gone{color:var(--mute);display:grid;place-items:center}
+
+/* C · tidy grid */
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:16px}
+.tile{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden;background:#fff;cursor:pointer;text-align:left;display:flex;flex-direction:column;transition:border-color .15s ease,box-shadow .2s ease,transform .16s ease-out;position:relative}
+.tile:active{transform:scale(.985)}
+@media (hover:hover){.tile:hover{border-color:var(--hairline-2);box-shadow:0 6px 18px rgb(0 0 0/.06)} .tile:hover .tact{opacity:1}}
+.tile .pv{height:148px;background:var(--soft-3);display:grid;place-items:center;border-bottom:1px solid var(--hairline)}
+.tile .pv .pg{width:76px}
+.tile .pv.ph{display:block}
+.tile .tx{padding:11px 14px 13px;min-width:0}
+.tile .q{display:flex;gap:8px;align-items:center;justify-content:space-between;color:var(--mute);min-width:0}
+.tact{position:absolute;top:10px;right:10px;display:flex;gap:6px;opacity:0;transition:opacity .15s ease}
+.tact span{width:32px;height:32px;border-radius:50%;background:#fff;box-shadow:0 0 0 1px var(--hairline-2);display:grid;place-items:center}
+
+/* D · preview pane */
+.split{display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:20px;align-items:start}
+.pane{position:sticky;top:86px;border:1px solid var(--hairline);border-radius:var(--r-card);background:#fff;overflow:hidden;display:flex;flex-direction:column;max-height:calc(100vh - 300px)}
+.pane .prev{height:240px}
+.pane .ph-h{padding:18px 20px 14px;border-bottom:1px solid var(--hairline)}
+.pane .ph-h h3{margin:0;font-size:17px;line-height:24px;font-weight:600;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.pane .bd{padding:16px 20px 18px;display:flex;flex-direction:column;gap:18px;overflow-y:auto;flex:1}
+.pane .acts{display:flex;justify-content:flex-end;gap:8px;padding:12px 20px;border-top:1px solid var(--hairline)}
+
+/* sheet (shared) */
+.scrim{position:absolute;inset:0;background:rgb(40 30 20/10%);backdrop-filter:blur(2px);opacity:0;pointer-events:none;transition:opacity .2s var(--ease-out);z-index:20}
+.scrim.open{opacity:1;pointer-events:auto;transition:opacity .28s var(--ease-drawer)}
+.sheet{position:absolute;top:12px;right:12px;bottom:12px;width:480px;background:#fff;border-radius:var(--r-sheet);box-shadow:0 0 0 1px rgb(0 0 0/.04),0 24px 60px rgb(0 0 0/.16);z-index:21;display:flex;flex-direction:column;transform:translateX(calc(100% + 24px));transition:transform .2s var(--ease-out)}
+.sheet.wide{width:760px}
+.sheet.open{transform:none;transition:transform .28s var(--ease-drawer)}
+.sh-h{padding:20px 24px 16px;border-bottom:1px solid var(--hairline);position:relative}
+.sh-h .crumb{color:var(--mute);display:flex;gap:6px}
+.sh-h .crumb .sep{color:var(--faint)}
+.sh-h h3{margin:4px 0 0;font-size:17px;line-height:24px;font-weight:600;padding-right:36px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.sh-h .cap{color:var(--mute);margin-top:2px}
+.sh-h .x{position:absolute;top:14px;right:14px;width:36px;height:36px;border-radius:8px;display:grid;place-items:center;color:var(--ink);transition:background-color .15s ease}
+@media (hover:hover){.sh-h .x:hover{background:var(--soft-2)}}
+.sh-b{flex:1;overflow-y:auto;padding:20px 24px 24px;display:flex;flex-direction:column;gap:24px}
+.sh-f{padding:12px 24px;border-top:1px solid var(--hairline);display:flex;justify-content:flex-end;gap:8px}
+.prev{flex:none;height:300px;border-radius:var(--r-card);background:var(--soft-3);border:1px solid var(--hairline);display:grid;place-items:center;overflow:hidden}
+.prev .pg{width:168px}
+.prev.ph{display:block}
+.prev.dark{background:#2b2b2e;border-color:#2b2b2e}
+.facts{display:grid;grid-template-columns:1fr 1fr;gap:16px 24px}
+.facts .l{color:var(--mute)}
+.facts .v{margin-top:2px;word-break:break-word}
+.sub{font-weight:600;margin-bottom:6px}
+.rl{color:var(--accent);font-weight:500;display:inline-flex;align-items:center;gap:2px}
+.rl::after{content:"›";font-weight:400;margin-left:3px}
+.tagc{display:inline-flex;align-items:center;height:26px;padding:0 8px;border:1px solid var(--hairline-2);border-radius:6px;color:var(--body);margin:0 4px 4px 0}
+
+/* Now (today's look) */
+.n-tag{display:inline-flex;align-items:center;height:24px;padding:0 8px;border-radius:6px;font-family:"JetBrains Mono",monospace;font-weight:600;font-size:15px;color:var(--accent);box-shadow:inset 0 0 0 1px #c9d7f5;letter-spacing:0}
+.n-tag.n{color:#3a3a3c;box-shadow:inset 0 0 0 1px var(--hairline-2)}
+.n-tag.i2{color:#496b9c;box-shadow:inset 0 0 0 1px #cbd6e6}
+.n-kind{width:32px;height:32px;border-radius:7px;background:var(--soft);border:1px solid var(--hairline);display:grid;place-items:center;font-size:15px;color:var(--mute);flex:none;font-family:"JetBrains Mono",monospace;letter-spacing:-.04em}
+.n-pill{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;font-weight:500}
+.n-pill::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor}
+.n-filter{height:32px;display:inline-flex;align-items:center;gap:6px;padding:0 10px;border:1px solid var(--hairline-2);border-radius:999px}
+.n-vs{display:inline-flex;border:1px solid var(--hairline-2);border-radius:999px;overflow:hidden}
+.n-vs button{height:32px;width:36px;display:grid;place-items:center;color:var(--mute)}
+.n-vs button.on{background:var(--soft-2);color:var(--ink)}
+.n-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:32px}
+.n-tile{height:288px;border:1px solid var(--hairline);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:12px;position:relative;cursor:pointer;text-align:left}
+.n-tile .th{width:60px;height:84px;border-radius:8px;border:1px solid var(--hairline);background:var(--soft);display:grid;place-items:center;overflow:hidden}
+.n-tile .th .pg{width:40px;border:0;box-shadow:none}
+.n-tile h4{margin:0;font-size:15px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.n-tile .sm{color:var(--body);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;line-height:1.6}
+.n-tile .rail2{margin-top:auto;display:flex;align-items:center;gap:6px;color:var(--mute)}
+.n-tile .rail2 .z{margin-left:auto}
+.n-tile .bdg{position:absolute;top:12px;right:12px}
+.n-ex{border:1px solid var(--hairline);border-radius:12px;margin-bottom:16px;overflow:hidden}
+.n-ex .eh{padding:12px 16px;font-weight:600;border-bottom:1px solid var(--hairline);background:var(--soft)}
+.n-ex .er{display:flex;gap:12px;align-items:center;padding:12px 16px}
+.n-ex .er .tx{flex:1;min-width:0}
+
+/* phone */
+.phone{width:414px;height:min(896px,calc(100% - 24px));margin-top:12px;background:#fff;border-radius:28px;box-shadow:0 0 0 10px #1c1c1e,0 20px 50px rgb(0 0 0/.25);overflow:hidden;position:relative;display:flex;flex-direction:column}
+.p-top{height:52px;display:flex;align-items:center;padding:0 16px;gap:6px;flex:none;border-bottom:1px solid var(--hairline)}
+.p-top .m{font-weight:400}
+.p-top b{font-weight:600;font-size:17px}
+.p-scroll{flex:1;overflow-y:auto;padding:0 0 150px;background:var(--soft-3)}
+.p-band{padding:14px 16px;background:#fff;border-bottom:1px solid var(--hairline);color:var(--body)}
+.p-band b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+.p-band b.bad{color:var(--bad-fg)}
+.p-list{padding:8px;display:flex;flex-direction:column;gap:8px}
+.p-gl{padding:10px 8px 2px;color:var(--mute);display:flex;justify-content:space-between}
+.p-card{background:#fff;border:1px solid var(--hairline);border-radius:12px;padding:12px 14px;display:flex;gap:12px;align-items:center;text-align:left;width:100%;transition:transform .16s ease-out}
+.p-card:active{transform:scale(.985)}
+.p-card .tx{flex:1;min-width:0}
+.p-card .z{color:var(--mute);white-space:nowrap;align-self:flex-start;font-variant-numeric:tabular-nums}
+.p-tiles{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:8px}
+.p-tiles .tile .pv{height:120px}
+.p-tiles .tile .pv .pg{width:62px}
+.p-tiles .tile .tx{padding:9px 12px 11px}
+.p-dock{position:absolute;left:8px;right:8px;bottom:70px;background:#fff;border-radius:16px;box-shadow:0 0 0 1px var(--hairline),0 8px 24px rgb(0 0 0/.1);padding:8px;display:flex;gap:8px;align-items:center;z-index:5}
+.p-dock .cap{flex:1;height:44px;border-radius:22px;background:var(--soft-2);display:flex;align-items:center;gap:8px;padding:0 14px;color:var(--mute)}
+.p-dock .rb{width:44px;height:44px;border-radius:22px;display:grid;place-items:center;background:var(--soft-2)}
+.p-dock .chip{height:44px;border-radius:22px;padding:0 12px;background:var(--soft-2);display:flex;align-items:center;gap:4px;font-weight:500}
+.p-dock .fab{width:44px;height:44px;border-radius:22px;display:grid;place-items:center;background:var(--accent);color:#fff;transition:transform .16s ease-out}
+.p-dock .fab:active{transform:scale(.95)}
+.p-tabbar{position:absolute;left:0;right:0;bottom:0;height:62px;background:#fff;border-top:1px solid var(--hairline);display:flex;justify-content:space-around;align-items:flex-start;padding-top:10px;color:var(--mute);z-index:5}
+.p-tabbar .on{color:var(--accent)}
+.p-now-card{background:#fff;border:1px solid var(--hairline);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:4px;text-align:left;width:100%}
+.p-now-card .t1{display:flex;justify-content:space-between;gap:12px}
+.p-now-card .lead{text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
+.p-now-card .lead .m{display:block;font-weight:400}
+.p-sheet{position:absolute;left:0;right:0;bottom:0;top:12px;background:#fff;border-radius:16px 16px 0 0;z-index:21;display:flex;flex-direction:column;transform:translateY(100%);transition:transform .2s var(--ease-out);box-shadow:0 -10px 30px rgb(0 0 0/.12)}
+.p-sheet.open{transform:none;transition:transform .32s var(--ease-drawer)}
+.p-sheet .grip{width:36px;height:5px;border-radius:3px;background:#d1d1d6;margin:8px auto 0;flex:none}
+.p-sheet .sh-h{padding:10px 20px 14px}
+.p-sheet .sh-b{padding:16px 20px 20px}
+.p-sheet .prev{height:260px}
+.p-sheet .prev .pg{width:150px}
+.p-sheet .sh-f{padding:12px 20px 30px}
+.p-sheet .sh-f .bp,.p-sheet .sh-f .gb{height:44px;flex:1;justify-content:center}
+@media (prefers-reduced-motion:reduce){.sheet,.p-sheet,.sheet.open,.p-sheet.open{transition:opacity .2s ease}}
+</style>
+</head>
+<body>
+<div class="proto">
+  <div class="t">GA › Files</div>
+  <div class="seg" id="opts"></div>
+  <div class="sp"></div>
+  <div class="seg" id="datas"></div>
+  <div class="seg" id="widths"></div>
+</div>
+<div class="note" id="note"></div>
+<div class="stagewrap" id="stage"></div>
+
+<script>
+const $ = (s, el = document) => el.querySelector(s)
+const S = { opt: "A", w: "desk", data: "full", tab: "all", q: "", view: "grid", sel: null, sheet: null, filter: false }
+
+const OPTS = [
+  { k: "now", b: "Now", l: "" },
+  { k: "A", b: "A", l: "List", star: true },
+  { k: "B", b: "B", l: "By folder" },
+  { k: "C", b: "C", l: "Grid" },
+  { k: "D", b: "D", l: "Preview beside" },
+]
+const NOTES = {
+  now: "<b>Now</b> · /library today: grid first (288px tiles, 60×84 thumb, orange Reading on every tile), list of 8 columns with FILED/CHAT caps badges, the folder shown twice, Tags and Type mostly empty, login “rina”, “2d” dates, a dark preview and a raw id in the sheet.",
+  A: "<b>A · List</b> · the Purchase Orders page: + Add file in the head, Where becomes tabs (All · Filed · In chats), 5 columns, kind and size in the grey line, full names, dates with the year, only Missing / Not read take colour. Sheet = rail 480 with a light page preview, facts and Download.",
+  B: "<b>B · By folder</b> · A's list grouped: one band per folder (GA / Aset, GA / Legal …) and one per chat or thread, so the Where column goes and the folder is said once.",
+  C: "<b>C · Grid</b> · today's grid kept but tidy: 5 across, a real page preview, the title and one grey line (where · size), Download and Copy link on hover. Grid | List switch gives A's list.",
+  D: "<b>D · Preview beside</b> · A's list in 3 columns with the picked file open beside it (preview, facts, Download): read file after file without opening and closing a sheet. On a phone it is A.",
+}
+
+const NAME = { rina: "Rina Kusuma", budi: "Budi Santoso", dewi: "Dewi Lestari", agus: "Agus Pratama" }
+// The demo rig's three, as they are on :5350 today, then a fuller GA drawer
+const FILES = [
+  { id: "stnk", rig: 1, title: "STNK Mitsubishi L300 Box", name: "STNK-B9412KXT.pdf", src: "FILED", folder: ["GA", "Aset"], kind: "pdf", size: 750, by: "rina", at: "2026-10-14T16:57", doc: "2026-09-10", st: "reading", tags: [], link: ["Asset", "Mitsubishi L300 Box"], uuid: "690d3c80-0afd-4f89-9bf9-3502e8b8b3db" },
+  { id: "sewa", rig: 1, title: "Perjanjian sewa ruko toko 01", name: "perjanjian-sewa-ruko-01.pdf", src: "FILED", folder: ["GA", "Legal"], kind: "pdf", size: 759, by: "rina", at: "2026-10-13T10:12", doc: "2026-01-02", st: "reading", tags: [], link: ["Contract", "Sewa ruko toko 01"], uuid: "1b7e0d55-4c2a-4e1f-8a1d-77c0a3f2e911" },
+  { id: "clean", rig: 1, title: "Kontrak jasa cleaning DC 2026", name: "kontrak-cleaning-dc-2026.pdf", src: "FILED", folder: ["GA", "Legal"], kind: "pdf", size: 763, by: "rina", at: "2026-10-13T10:09", doc: "2026-01-05", st: "reading", tags: [], link: ["Contract", "Cleaning DC 2026"], uuid: "c3a9f6e2-2b14-4d8e-9f60-5e1b2a7d4c08" },
+  { id: "polis", title: "Polis asuransi L300 2026", name: "polis-asuransi-L300-2026.pdf", src: "FILED", folder: ["GA", "Aset"], kind: "pdf", size: 1240000, by: "budi", at: "2026-10-16T09:40", doc: "2026-10-01", st: "ok", tags: ["Asuransi"], link: ["Asset", "Mitsubishi L300 Box"], sum: "Polis all risk Mitsubishi L300 Box B 9412 KXT, 1 Oct 2026 – 30 Sep 2027, premi Rp 6.850.000." },
+  { id: "acfoto", title: "IMG_2231.jpg", name: "IMG_2231.jpg", src: "THREAD", room: "AC bocor Toko 03", kind: "img", hue: 205, size: 2140000, by: "dewi", at: "2026-10-16T14:22", st: "ok", tags: [] },
+  { id: "acnota", title: "nota-servis-ac.jpg", name: "nota-servis-ac.jpg", src: "THREAD", room: "AC bocor Toko 03", kind: "img", hue: 38, size: 845000, by: "dewi", at: "2026-10-16T15:05", st: "ok", tags: [] },
+  { id: "cctv", title: "penawaran-cctv-sinar-jaya.pdf", name: "penawaran-cctv-sinar-jaya.pdf", src: "CHAT", room: "Sinar Jaya Teknik", kind: "pdf", size: 286000, by: "agus", at: "2026-10-15T11:30", st: "ok", tags: [] },
+  { id: "jadwal", title: "jadwal-cleaning-oktober.xlsx", name: "jadwal-cleaning-oktober.xlsx", src: "CHAT", room: "Tim GA", kind: "sheet", size: 48200, by: "rina", at: "2026-10-01T08:15", st: "ok", tags: [] },
+  { id: "shm", title: "Sertifikat ruko toko 01", name: "shm-ruko-01.pdf", src: "FILED", folder: ["GA", "Legal"], kind: "pdf", size: 2600000, by: "budi", at: "2026-09-22T13:00", doc: "2019-03-14", st: "gone", tags: ["Sewa"], link: ["Contract", "Sewa ruko toko 01"] },
+  { id: "imb", title: "IMB gudang DC Cikarang", name: "scan-imb-dc.pdf", src: "FILED", folder: ["GA", "Legal"], kind: "pdf", size: 3400000, by: "budi", at: "2026-09-30T10:20", doc: "2018-07-02", st: "failed", tags: [], link: ["Site", "DC Cikarang"] },
+  { id: "bast", title: "BAST laptop kasir toko 07", name: "bast-laptop-kasir-07.pdf", src: "FILED", folder: ["GA", "Aset"], kind: "pdf", size: 192000, by: "agus", at: "2026-10-10T16:45", doc: "2026-10-10", st: "ok", tags: [], link: ["Asset", "Laptop kasir Toko 07"], sum: "Serah terima 1 laptop kasir Lenovo V14 untuk Toko 07 dari GA ke kepala toko." },
+  { id: "faktur", title: "Faktur AC split toko 03", name: "faktur-ac-split-toko-03.pdf", src: "FILED", folder: ["GA", "Aset"], kind: "pdf", size: 418000, by: "dewi", at: "2026-10-08T09:12", doc: "2026-10-07", st: "ok", tags: ["Pembelian"], link: ["Asset", "AC split Toko 03"], sum: "Pembelian 1 unit AC split 1 PK Daikin, Rp 4.350.000 termasuk pasang." },
+  { id: "denah", title: "Denah toko Bekasi", name: "denah-toko-bekasi.png", src: "FILED", folder: ["GA", "Sites"], kind: "img", hue: 150, size: 1810000, by: "agus", at: "2026-10-05T13:30", st: "ok", tags: [], link: ["Site", "Toko Bekasi"] },
+  { id: "addendum", title: "draft-addendum-sewa-ruko-01.docx", name: "draft-addendum-sewa-ruko-01.docx", src: "THREAD", room: "Sewa ruko 01 diperpanjang", kind: "doc", size: 64300, by: "rina", at: "2026-10-12T17:02", st: "ok", tags: [] },
+]
+const TODAY = new Date("2026-10-17T16:18")
+const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+const date = (s) => { const d = new Date(s); return `${d.getDate()} ${MON[d.getMonth()]} ${d.getFullYear()}` }
+const dateTime = (s) => { const d = new Date(s); return `${date(s)}, ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}` }
+const ago = (s) => { const h = (TODAY - new Date(s)) / 36e5; return h < 24 ? `${Math.round(h)}h` : `${Math.round(h / 24)}d` }
+const bytes = (n) => n < 1000 ? `${n} B` : n < 1e6 ? `${Math.round(n / 1000)} KB` : `${(n / 1e6).toFixed(1).replace(".", ",")} MB`
+const KIND = { pdf: "PDF", img: "Image", sheet: "Spreadsheet", doc: "Word" }
+const ext = (r) => r.name.split(".").pop().toUpperCase()
+const kindWord = (r) => r.kind === "img" ? ext(r) : KIND[r.kind]
+const where = (r) => r.src === "FILED" ? r.folder.join(" / ") : r.room
+const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+
+const IC = {
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  filter: '<path d="M4 6h16M7 12h10M10 18h4"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  folder: '<path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H9l2 2h7.5A2.5 2.5 0 0 1 21 9.5v7a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 16.5z"/>',
+  thread: '<path d="M14 9a2 2 0 0 1-2 2H6l-3 3V5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2z"/><path d="M18 9h1a2 2 0 0 1 2 2v10l-3-3h-6a2 2 0 0 1-2-2v-1"/>',
+  chat: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+  download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
+  x: '<path d="M18 6 6 18M6 6l12 12"/>',
+  grid: '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
+  list: '<rect x="4" y="5" width="16" height="14" rx="2"/><path d="M4 10h16M4 15h16"/>',
+  down: '<path d="m6 9 6 6 6-6"/>',
+  left: '<path d="m15 18-6-6 6-6"/>',
+  clock: '<circle cx="12" cy="12" r="8"/><path d="M12 8v4l2.5 2"/>',
+  warn: '<path d="M12 4 2.8 19.5h18.4z"/><path d="M12 10v4M12 17h.01"/>',
+  cart: '<path d="M4 5h2l2 10h10l2-7H7"/><circle cx="9" cy="19" r="1"/><circle cx="17" cy="19" r="1"/>',
+  shirt: '<path d="M8 3 3 6l2 4 2-1v12h10V9l2 1 2-4-5-3c-.5 1.5-2 2.5-4 2.5S8.5 4.5 8 3z"/>',
+  truck: '<path d="M3 6h11v10H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="17.5" r="1.5"/><circle cx="17" cy="17.5" r="1.5"/>',
+  boxes: '<path d="M4 8l4-2 4 2v4l-4 2-4-2zM12 8l4-2 4 2v4l-4 2-4-2zM8 14l4-2 4 2v4l-4 2-4-2z"/>',
+  mega: '<path d="M4 10v4h3l7 4V6L7 10z"/><path d="M18 9a4 4 0 0 1 0 6"/>',
+  store: '<path d="M4 9 5.5 4h13L20 9M4 9h16v11H4zM9 20v-6h6v6"/>',
+  bank: '<path d="M3 9 12 4l9 5M5 10v8M10 10v8M14 10v8M19 10v8M3 20h18"/>',
+  users: '<circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.5 2.7-6 6-6s6 2.5 6 6"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M21 20c0-3-1.8-5.3-4-5.8"/>',
+  book: '<path d="M4 5c3-1 6-1 8 1 2-2 5-2 8-1v14c-3-1-6-1-8 1-2-2-5-2-8-1z"/><path d="M12 6v14"/>',
+  home: '<path d="M4 11 12 4l8 7v9h-5v-6H9v6H4z"/>',
+  bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 20a2 2 0 0 0 4 0"/>',
+  apps: '<circle cx="6" cy="6" r="2"/><circle cx="12" cy="6" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="6" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="18" cy="12" r="2"/>',
+}
+const ic = (k, cls = "") => `<svg class="i ${cls}" viewBox="0 0 24 24">${IC[k]}</svg>`
+const whereIcon = (r) => r.src === "FILED" ? "folder" : r.src === "THREAD" ? "thread" : "chat"
+
+// ---- glyphs: a page with lines, a sheet with a grid, or a photo ----------
+function page(r, cls = "") {
+  if (r.kind === "sheet") return `<div class="pg sh ${cls}"><i class="h"></i><div class="gr"></div></div>`
+  const L = r.kind === "doc" ? [96, 88, 92, 70, 0, 90, 84, 60] : [100, 92, 96, 78, 0, 88, 94, 66, 0, 50]
+  return `<div class="pg ${cls}"><i class="h"></i>${L.map((w) => w ? `<i style="width:${w}%"></i>` : `<i style="background:none"></i>`).join("")}</div>`
+}
+function photo(r) {
+  const h = r.hue
+  return `<svg viewBox="0 0 100 70" preserveAspectRatio="xMidYMid slice"><defs><linearGradient id="g${r.id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="hsl(${h} 45% 82%)"/><stop offset="1" stop-color="hsl(${h} 35% 64%)"/></linearGradient></defs><rect width="100" height="70" fill="url(#g${r.id})"/><circle cx="74" cy="20" r="7" fill="hsl(${h} 60% 94%)"/><path d="M0 70 L28 36 L46 54 L62 40 L100 70Z" fill="hsl(${h} 30% 46%)"/><path d="M0 70 L20 52 L40 70Z" fill="hsl(${h} 28% 38%)"/></svg>`
+}
+const fileIcon = (r) => r.st === "gone"
+  ? `<span class="fi gone">${ic("warn", "s")}</span>`
+  : r.kind === "img" ? `<span class="fi img ph">${photo(r)}</span>` : `<span class="fi">${page(r)}</span>`
+function preview(r, cls = "prev") {
+  if (r.st === "gone") return `<div class="${cls} gone"><span>${ic("warn")}</span></div>`
+  if (r.kind === "img") return `<div class="${cls} ph">${photo(r)}</div>`
+  return `<div class="${cls}">${page(r, "big")}</div>`
+}
+const status = (r) => r.st === "gone" ? `<span class="st b">Missing</span>`
+  : r.st === "failed" ? `<span class="st w">Not read</span>`
+  : r.st === "reading" ? `<span class="st n">Reading</span>` : ""
+const sheetPill = (r) => r.st === "gone" ? `<span class="pill b">Missing</span>` : r.st === "failed" ? `<span class="pill w">Not read</span>` : ""
+
+// ---- data in view ---------------------------------------------------------
+const rank = { gone: 0, failed: 1, reading: 2, ok: 2 }
+function all() { return FILES.filter((r) => S.data === "full" || r.rig) }
+function shown() {
+  const q = S.q.trim().toLowerCase()
+  return all()
+    .filter((r) => S.opt === "now" || S.tab === "all" || (S.tab === "filed") === (r.src === "FILED"))
+    .filter((r) => !q || `${r.title} ${r.name} ${where(r)} ${NAME[r.by]} ${r.tags.join(" ")}`.toLowerCase().includes(q))
+    .sort((a, b) => S.opt === "now"
+      ? ({ gone: 0, failed: 1, reading: 2, ok: 3 }[a.st] - { gone: 0, failed: 1, reading: 2, ok: 3 }[b.st]) || b.at.localeCompare(a.at)
+      : (rank[a.st] - rank[b.st]) || b.at.localeCompare(a.at))
+}
+
+// ---- desk ----------------------------------------------------------------
+function shell(inner) {
+  const rail = ["search", "cart", "shirt", "truck", "boxes", "mega", "store", "bank", "users"]
+  return `<div class="app" id="app">
+    <nav class="rail">${rail.map((k) => `<div class="ri">${ic(k)}</div>`).join("")}<div class="ri on">${ic("thread")}</div><div class="ri">${ic("book")}</div><div class="me">A</div></nav>
+    <aside class="dept"><h2>GA ${ic("left", "s")}</h2>
+      <div class="rows">
+        <button class="row">Overview</button><hr>
+        <button class="row">Supply Requests</button><button class="row">Repairs</button><button class="row">Service Schedule</button><hr>
+        <button class="row">Assets</button><button class="row">Contracts</button><button class="row">Sites</button><button class="row">Suppliers</button><hr>
+        <button class="row">Letters</button><button class="row on">Files</button>
+      </div>
+      <div class="clock">${ic("clock", "s")} 17 Oct 2026 · 16:18</div>
+    </aside>
+    <main class="main" id="main">${inner}</main>
+    <div class="scrim" id="scrim" data-act="close"></div>
+    <div class="sheet ${S.opt === "now" ? "wide" : ""}" id="sheet"></div>
+  </div>`
+}
+
+function tabsBar(gridSwitch) {
+  const a = all(), f = a.filter((r) => r.src === "FILED").length
+  const tabs = [["all", "All", a.length], ["filed", "Filed", f], ["chats", "In chats", a.length - f]]
+  return `<div class="tabs">${tabs.map(([k, l, c]) => `<button class="tab ${S.tab === k ? "on" : ""}" data-tab="${k}">${l}<span class="c">${c}</span></button>`).join("")}</div>
+  <div class="bar">
+    <label class="search">${ic("search", "s")}<input id="q" placeholder="Search files" value="${esc(S.q)}"></label>
+    <button class="gb" data-act="filter">${ic("filter", "s")}Filter</button>
+    <div class="sp"></div>
+    ${gridSwitch ? `<div class="vs"><button class="${S.view === "grid" ? "on" : ""}" data-view="grid" aria-label="Grid">${ic("grid", "s")}</button><button class="${S.view === "list" ? "on" : ""}" data-view="list" aria-label="List">${ic("list", "s")}</button></div>` : ""}
+    <div class="fpanel ${S.filter ? "open" : ""}" id="fpanel">${["Folder", "Type", "Added by", "Added", "Tags", "State"].map((x) => `<button class="fr">${x}<span>Any</span></button>`).join("")}</div>
+  </div>`
+}
+
+const fileCell = (r, withState) => `<div class="fl">${fileIcon(r)}<div class="tx"><span class="tr nm">${esc(r.title)}</span><span class="tr m">${withState && (r.st === "gone" || r.st === "failed") ? status(r) : kindWord(r) + " · " + bytes(r.size)}</span></div></div>`
+const whereCell = (r) => `<span class="wh">${ic(whereIcon(r), "s")}<span class="tr">${esc(where(r))}</span></span>`
+const total = (rows) => `${rows.length} ${rows.length === 1 ? "file" : "files"} · ${bytes(rows.reduce((s, r) => s + r.size, 0))}`
+const empty = (n) => `<tr><td colspan="${n}" style="height:120px;text-align:center" class="m">${S.q ? "No file matches “" + esc(S.q) + "”." : "Nothing here yet."}</td></tr>`
+
+function tableA(rows) {
+  return `<div class="tbox"><table>
+    <colgroup><col><col style="width:240px"><col style="width:170px"><col style="width:140px"><col style="width:130px"></colgroup>
+    <thead><tr><th>File</th><th>Where</th><th>Added by</th><th>Added</th><th>State</th></tr></thead>
+    <tbody>${rows.length ? rows.map((r) => `<tr class="f" data-open="${r.id}"><td>${fileCell(r)}</td><td>${whereCell(r)}</td><td><span class="tr">${NAME[r.by]}</span></td><td class="num">${date(r.at)}</td><td>${status(r)}</td></tr>`).join("") : empty(5)}
+    ${rows.length ? `<tr class="foot"><td colspan="5">${total(rows)}</td></tr>` : ""}</tbody></table></div>`
+}
+
+function tableB(rows) {
+  const groups = new Map()
+  for (const r of rows) {
+    const k = (r.src === "FILED" ? "0" : "1") + where(r)
+    if (!groups.has(k)) groups.set(k, { r, rows: [] })
+    groups.get(k).rows.push(r)
+  }
+  const keys = [...groups.keys()].sort()
+  return `<div class="tbox"><table>
+    <colgroup><col><col style="width:170px"><col style="width:140px"><col style="width:110px"><col style="width:130px"></colgroup>
+    <thead><tr><th>File</th><th>Added by</th><th>Added</th><th class="r">Size</th><th>State</th></tr></thead>
+    <tbody>${rows.length ? keys.map((k) => { const g = groups.get(k); return `<tr class="grp"><td colspan="5"><span class="gl">${ic(whereIcon(g.r), "s")}${esc(where(g.r))}<span class="m">${g.rows.length}</span></span></td></tr>` +
+      g.rows.map((r) => `<tr class="f" data-open="${r.id}"><td><div class="fl">${fileIcon(r)}<div class="tx"><span class="tr nm">${esc(r.title)}</span><span class="tr m">${kindWord(r)}${r.src === "FILED" && r.name !== r.title ? " · " + esc(r.name) : ""}</span></div></div></td><td><span class="tr">${NAME[r.by]}</span></td><td class="num">${date(r.at)}</td><td class="r num">${bytes(r.size)}</td><td>${status(r)}</td></tr>`).join("") }).join("") : empty(5)}
+    ${rows.length ? `<tr class="foot"><td colspan="5">${total(rows)}</td></tr>` : ""}</tbody></table></div>`
+}
+
+function tilesC(rows) {
+  if (!rows.length) return `<div class="tbox"><table><tbody>${empty(1)}</tbody></table></div>`
+  return `<div class="tiles">${rows.map((r) => `<button class="tile" data-open="${r.id}">
+    ${r.st === "gone" ? `<div class="pv gone">${ic("warn")}</div>` : r.kind === "img" ? `<div class="pv ph">${photo(r)}</div>` : `<div class="pv">${page(r, "big")}</div>`}
+    ${r.st === "gone" ? "" : `<span class="tact"><span title="Download">${ic("download", "s")}</span><span title="Copy link">${ic("link", "s")}</span></span>`}
+    <div class="tx"><span class="tr nm">${esc(r.title)}</span><div class="q"><span class="tr">${esc(where(r))}</span>${r.st === "gone" || r.st === "failed" ? status(r) : `<span class="num">${bytes(r.size)}</span>`}</div></div>
+  </button>`).join("")}</div>`
+}
+
+function splitD(rows) {
+  if (!rows.find((r) => r.id === S.sel)) S.sel = rows[0]?.id ?? null
+  const r = rows.find((x) => x.id === S.sel)
+  return `<div class="split"><div class="tbox"><table>
+    <colgroup><col><col style="width:200px"><col style="width:130px"></colgroup>
+    <thead><tr><th>File</th><th>Where</th><th>Added</th></tr></thead>
+    <tbody>${rows.length ? rows.map((x) => `<tr class="f ${x.id === S.sel ? "sel" : ""}" data-pick="${x.id}"><td>${fileCell(x, true)}</td><td>${whereCell(x)}</td><td class="num">${date(x.at)}</td></tr>`).join("") : empty(3)}
+    ${rows.length ? `<tr class="foot"><td colspan="3">${total(rows)}</td></tr>` : ""}</tbody></table></div>
+    ${r ? `<aside class="pane"><div class="ph-h"><div class="m">${esc(where(r))}</div><h3>${esc(r.title)} ${sheetPill(r)}</h3></div>
+      <div class="bd">${preview(r, "prev")}${facts(r)}</div>
+      <div class="acts"><button class="gb">${ic("link", "s")}Copy link</button>${r.st === "gone" ? "" : `<button class="bp">${ic("download", "s")}Download</button>`}</div></aside>` : "<div></div>"}
+  </div>`
+}
+
+function facts(r) {
+  const F = [
+    ["Added by", NAME[r.by]], ["Added", dateTime(r.at)],
+    r.doc ? ["Document date", date(r.doc)] : null,
+    ["Type", `${kindWord(r)} · ${bytes(r.size)}`],
+    r.src === "FILED" ? ["Folder", where(r)] : ["Posted in", `<a class="rl">${esc(r.room)}</a>`],
+    r.link ? [r.link[0], `<a class="rl">${esc(r.link[1])}</a>`] : null,
+    r.name !== r.title ? ["Saved as", esc(r.name)] : null,
+    r.tags.length ? ["Tags", r.tags.map((t) => `<span class="tagc">${esc(t)}</span>`).join("")] : null,
+  ].filter(Boolean)
+  return `<div class="facts">${F.map(([l, v]) => `<div><div class="l">${l}</div><div class="v">${v}</div></div>`).join("")}</div>
+    ${r.sum ? `<div><div class="sub">What it says</div><div>${esc(r.sum)}</div></div>` : ""}`
+}
+
+function sheetNew(r) {
+  return `<div class="sh-h"><div class="crumb">Files<span class="sep">/</span>${esc(where(r))}</div>
+      <h3>${esc(r.title)} ${sheetPill(r)}</h3>
+      <button class="x" data-act="close" aria-label="Close">${ic("x")}</button></div>
+    <div class="sh-b">${preview(r)}${facts(r)}</div>
+    <div class="sh-f"><button class="gb">${ic("link", "s")}Copy link</button>${r.st === "gone" ? "" : `<button class="bp">${ic("download", "s")}Download</button>`}</div>`
+}
+
+function sheetOld(r) {
+  const stw = { gone: ["Gone", "b"], failed: ["Failed", "w"], reading: ["Pending", "w"], ok: ["Completed", "n"] }[r.st]
+  const F = [["Filed as", r.name], ["Folder", r.src === "FILED" ? "/" + r.folder.join("/") : "—"], ["Document date", r.doc ? date(r.doc) : "—"], ["Added", dateTime(r.at)], ["By", r.by], ["Size", bytes(r.size)]]
+  return `<div class="sh-h"><div class="crumb">Files<span class="sep">/</span>${ext(r) === "PDF" ? "PDF" : ext(r)}</div><h3>${esc(r.title)}</h3><button class="x" data-act="close">${ic("x")}</button></div>
+    <div class="sh-b"><div style="display:flex;gap:8px;align-items:center"><span class="n-pill" style="color:var(--${stw[1] === "b" ? "bad" : stw[1] === "w" ? "warn" : "ok"}-fg)">${stw[0]}</span><span class="n-tag n" style="font-weight:400">${r.kind === "pdf" ? "application/pdf" : r.kind === "img" ? "image/" + ext(r).toLowerCase() : "application/octet-stream"}</span></div>
+    <div class="prev dark" style="height:380px"></div>
+    <div class="facts">${F.map(([l, v]) => `<div><div class="l">${l}</div><div class="v">${esc(v)}</div></div>`).join("")}</div>
+    <div><div class="sub">What it is about</div><div style="display:flex;justify-content:space-between;gap:12px"><span class="m">${r.link ? r.link[0].toLowerCase() : "—"}</span><span class="mono">${r.uuid ?? "—"}</span></div></div></div>
+    <div class="sh-f"><button class="gb">Close</button></div>`
+}
+
+// Now: today's /library, drift and all
+function deskNow(rows) {
+  const missing = rows.filter((r) => r.st === "gone")
+  const bar = `<div class="bar"><label class="search">${ic("search", "s")}<input id="q" placeholder="Search the library" value="${esc(S.q)}"></label>
+    <span class="n-filter">${ic("filter", "s")}Filter</span><div class="sp"></div>
+    <div class="n-vs"><button class="${S.view === "grid" ? "on" : ""}" data-view="grid">${ic("grid", "s")}</button><button class="${S.view === "list" ? "on" : ""}" data-view="list">${ic("list", "s")}</button></div>
+    <button class="bp np">Add a file</button></div>`
+  const ex = missing.length ? `<div class="n-ex"><div class="eh">In the drawer, but the bytes are gone</div>${missing.map((r) => `<div class="er">${ic("warn", "s")}<div class="tx"><div class="nm">${esc(r.title)}</div><div class="m">Filed, and the object is not in storage.</div></div><span class="num">${bytes(r.size)}</span></div>`).join("")}</div>` : ""
+  const stPill = (r) => r.st === "ok" ? `<span class="m">There</span>` : `<span class="n-pill" style="color:var(--${r.st === "gone" ? "bad" : "warn"}-fg)">${{ gone: "Gone", failed: "Not extracted", reading: "Reading" }[r.st]}</span>`
+  const badge = (r) => r.src === "FILED" ? `<span class="n-tag">FILED</span>` : r.src === "THREAD" ? `<span class="n-tag i2">THREAD</span>` : `<span class="n-tag n">CHAT</span>`
+  const fold = (r) => r.src === "FILED" ? "/" + r.folder.join("/") : r.name
+  const body = S.view === "grid"
+    ? `<div class="n-grid">${rows.map((r) => `<div class="n-tile" data-open="${r.id}">${r.st !== "ok" ? `<span class="bdg">${stPill(r)}</span>` : ""}
+        <div class="th">${r.kind === "img" && r.st !== "gone" ? `<div class="ph" style="width:100%;height:100%">${photo(r)}</div>` : r.st === "gone" ? ic("warn", "s") : page(r)}</div>
+        <div style="flex:1;min-height:0"><h4>${esc(r.title)}</h4>${r.src !== "FILED" ? `<div class="sm">${esc(r.room)}</div>` : r.sum ? `<div class="sm">${esc(r.sum)}</div>` : ""}</div>
+        <div class="rail2">${r.src !== "FILED" ? badge(r) : ""}${r.tags.map((t) => `<span class="n-tag">${t}</span>`).join("")}${r.src === "FILED" && !r.tags.length ? `<span>${fold(r)}</span>` : ""}<span class="z">${bytes(r.size)}</span></div></div>`).join("")}</div>`
+    : `<div class="tbox"><table style="table-layout:auto"><thead><tr><th>File</th><th>Where</th><th>Tags</th><th>Type</th><th>Added by</th><th class="r">Added</th><th class="r">Size</th><th>State</th></tr></thead><tbody>
+      ${rows.map((r) => `<tr class="f" data-open="${r.id}"><td><div class="fl" style="gap:10px"><span class="n-kind">${ext(r).slice(0, 4)}</span><div class="tx"><span class="tr nm" style="max-width:230px">${esc(r.title)}</span><span class="tr m mono" style="max-width:230px">${esc(fold(r))}</span></div></div></td>
+        <td style="white-space:nowrap">${badge(r)} <span class="m">${esc(r.src === "FILED" ? fold(r) : r.room)}</span></td>
+        <td>${r.tags.length ? r.tags.map((t) => `<span class="n-tag">${t}</span>`).join(" ") : `<span class="m">—</span>`}</td>
+        <td class="m mono">${ext(r)}</td><td>${r.by}</td><td class="r num">${ago(r.at)}</td><td class="r num">${bytes(r.size)}</td><td>${stPill(r)}</td></tr>`).join("")}</tbody></table></div>`
+  return `<div class="head"><h1>Files</h1></div><div class="page">${bar}${ex}${body}</div>`
+}
+
+function desk() {
+  const rows = shown()
+  if (S.opt === "now") return shell(deskNow(rows))
+  const head = `<div class="head"><h1>Files</h1><button class="bp">${ic("plus", "s")}Add file</button></div>`
+  const body = S.opt === "A" ? tableA(rows) : S.opt === "B" ? tableB(rows) : S.opt === "C" ? (S.view === "grid" ? tilesC(rows) : tableA(rows)) : splitD(rows)
+  return shell(`${head}<div class="page">${tabsBar(S.opt === "C")}${body}</div>`)
+}
+
+// ---- phone ---------------------------------------------------------------
+function phone() {
+  const rows = shown()
+  const a = all(), gone = a.filter((r) => r.st === "gone").length, failed = a.filter((r) => r.st === "failed").length
+  let list
+  if (S.opt === "now") {
+    list = `<div class="p-list">${rows.map((r) => `<button class="p-now-card" data-open="${r.id}"><div class="t1"><div style="min-width:0"><div class="tr nm">${esc(r.title)}</div><div class="tr m mono">${esc(r.src === "FILED" ? "/" + r.folder.join("/") : r.name)}</div></div><div class="lead">${bytes(r.size)}<span class="m">${ext(r)}</span></div></div>
+      <div class="m">${r.src === "FILED" ? "Filed · /" + r.folder.join("/") : (r.src === "THREAD" ? "Thread" : "Chat") + " · " + esc(r.room)}</div>${r.tags.length ? `<div class="m">${r.tags.join(" · ")}</div>` : ""}
+      <div class="t1"><span class="m">${r.by} · ${ago(r.at)}</span>${r.st !== "ok" ? `<span class="n-pill" style="color:var(--${r.st === "gone" ? "bad" : "warn"}-fg)">${{ gone: "Gone", failed: "Not extracted", reading: "Reading" }[r.st]}</span>` : ""}</div></button>`).join("")}</div>`
+  } else if (S.opt === "C") {
+    list = `<div class="p-tiles">${rows.map((r) => `<button class="tile" data-open="${r.id}">${r.st === "gone" ? `<div class="pv gone">${ic("warn")}</div>` : r.kind === "img" ? `<div class="pv ph">${photo(r)}</div>` : `<div class="pv">${page(r, "big")}</div>`}<div class="tx"><span class="tr nm">${esc(r.title)}</span><div class="q"><span class="tr">${esc(where(r))}</span>${r.st === "gone" || r.st === "failed" ? "" : `<span class="num">${bytes(r.size)}</span>`}</div>${r.st === "gone" || r.st === "failed" ? status(r) : ""}</div></button>`).join("")}</div>`
+  } else {
+    const card = (r, withWhere) => `<button class="p-card" data-open="${r.id}">${fileIcon(r)}<div class="tx"><span class="tr nm">${esc(r.title)}</span><span class="tr m">${withWhere ? esc(where(r)) + " · " : ""}${date(r.at)}</span>${r.st === "gone" || r.st === "failed" ? status(r) : ""}</div><span class="z">${bytes(r.size)}</span></button>`
+    if (S.opt === "B") {
+      const groups = new Map()
+      for (const r of rows) { const k = (r.src === "FILED" ? "0" : "1") + where(r); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(r) }
+      list = [...groups.keys()].sort().map((k) => `<div class="p-gl"><span>${esc(k.slice(1))}</span><span>${groups.get(k).length}</span></div><div class="p-list" style="padding-top:2px">${groups.get(k).map((r) => card(r, false)).join("")}</div>`).join("")
+      list = `<div style="padding:0 8px">${list.replace(/class="p-list" style="padding-top:2px"/g, 'class="p-list" style="padding:2px 0 4px"')}</div>`
+    } else list = `<div class="p-list">${rows.map((r) => card(r, true)).join("")}</div>`
+  }
+  const band = S.opt === "now" ? "" : `<div class="p-band"><b>${a.length}</b> ${a.length === 1 ? "file" : "files"}${gone ? `, <b class="bad">${gone}</b> missing` : ""}${failed ? `, <b>${failed}</b> not read` : ""}.</div>`
+  const tabLabel = { all: "All", filed: "Filed", chats: "In chats" }[S.tab]
+  return `<div class="phone" id="app">
+    <div class="p-top"><span class="m">GA /</span><b>Files</b>${ic("down", "s")}</div>
+    <div class="p-scroll">${band}${list}</div>
+    <div class="p-dock"><div class="cap">${ic("search", "s")}${S.opt === "now" ? "Search the library" : "Search files"}</div><span class="rb">${ic("filter", "s")}</span>${S.opt === "now" ? "" : `<button class="chip" data-act="cycle">${tabLabel}${ic("down", "s")}</button>`}<span class="fab">${ic("plus")}</span></div>
+    <div class="p-tabbar">${ic("home")}${ic("search")}<span class="on">${ic("apps")}</span>${ic("chat")}${ic("bell")}</div>
+    <div class="scrim" id="scrim" data-act="close" style="border-radius:28px"></div>
+    <div class="p-sheet" id="sheet"></div>
+  </div>`
+}
+
+// ---- wiring --------------------------------------------------------------
+function render() {
+  $("#opts").innerHTML = OPTS.map((o) => `<button class="${S.opt === o.k ? "on" : ""}" data-opt="${o.k}"><b>${o.b}</b>${o.l}${o.star ? '<span class="star">★</span>' : ""}</button>`).join("")
+  $("#datas").innerHTML = [["rig", "Rig · 3"], ["full", "Full · 14"]].map(([k, l]) => `<button class="${S.data === k ? "on" : ""}" data-data="${k}">${l}</button>`).join("")
+  $("#widths").innerHTML = [["desk", "Desktop"], ["phone", "Phone"]].map(([k, l]) => `<button class="${S.w === k ? "on" : ""}" data-w="${k}">${l}</button>`).join("")
+  $("#note").innerHTML = NOTES[S.opt]
+  document.documentElement.style.setProperty("--nh", $("#note").offsetHeight + "px")
+  const focused = document.activeElement?.id === "q", caret = focused ? document.activeElement.selectionStart : 0
+  const top = $("#main")?.scrollTop ?? 0
+  $("#stage").innerHTML = S.w === "desk" ? desk() : phone()
+  if ($("#main")) $("#main").scrollTop = top
+  if (focused && $("#q")) { $("#q").focus(); $("#q").setSelectionRange(caret, caret) }
+  if (S.sheet) openSheet(S.sheet, true)
+}
+
+function openSheet(id, instant) {
+  const r = FILES.find((x) => x.id === id); if (!r) return
+  S.sheet = id
+  const sh = $("#sheet"), sc = $("#scrim")
+  sh.innerHTML = S.opt === "now" && S.w === "desk" ? sheetOld(r) : sheetNew(r)
+  if (instant) { sh.style.transition = sc.style.transition = "none"; sh.classList.add("open"); sc.classList.add("open"); sh.offsetHeight; sh.style.transition = sc.style.transition = ""; return }
+  requestAnimationFrame(() => { sh.classList.add("open"); sc.classList.add("open") })
+}
+function closeSheet() { S.sheet = null; $("#sheet")?.classList.remove("open"); $("#scrim")?.classList.remove("open") }
+
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("[data-opt],[data-data],[data-w],[data-tab],[data-view],[data-open],[data-pick],[data-act]")
+  if (!t) { if (S.filter && !e.target.closest("#fpanel")) { S.filter = false; $("#fpanel")?.classList.remove("open") } return }
+  const d = t.dataset
+  if (d.opt) { S.opt = d.opt; S.sheet = null; S.filter = false; if (d.opt === "now" || d.opt === "C") S.view = "grid"; render(); $("#main") && ($("#main").scrollTop = 0) }
+  else if (d.data) { S.data = d.data; S.sheet = null; render() }
+  else if (d.w) { S.w = d.w; S.sheet = null; render() }
+  else if (d.tab) { S.tab = d.tab; render() }
+  else if (d.view) { S.view = d.view; render() }
+  else if (d.pick) { S.sel = d.pick; render() }
+  else if (d.open) openSheet(d.open)
+  else if (d.act === "close") closeSheet()
+  else if (d.act === "filter") { S.filter = !S.filter; $("#fpanel").classList.toggle("open", S.filter) }
+  else if (d.act === "cycle") { S.tab = { all: "filed", filed: "chats", chats: "all" }[S.tab]; render() }
+})
+document.addEventListener("input", (e) => { if (e.target.id === "q") { S.q = e.target.value; render() } })
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") { if (S.sheet) closeSheet(); else if (S.filter) { S.filter = false; $("#fpanel")?.classList.remove("open") } } })
+render()
+</script>
+</body>
+</html>

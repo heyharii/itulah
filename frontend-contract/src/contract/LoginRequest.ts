@@ -3,4 +3,10 @@
 /**
  * What a sign-in form sends. Identical at every node.
  */
-export type LoginRequest = { username: string, password: string, };
+export type LoginRequest = { username: string, password: string, 
+/**
+ * The till seat signing in (`KASIR-1`…), sent by a till only. A store
+ * node refuses a cashier who already closed that seat today (client,
+ * 23 Oct 2026). Ignored everywhere else.
+ */
+terminal_id?: string, };

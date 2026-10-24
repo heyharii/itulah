@@ -381,6 +381,101 @@ pub struct QuoteRequest {
     /// out of the preview, and the coupon is reported as still needing one.
     #[serde(default)]
     pub coupon_authorizations: Vec<pricing_engine::CouponAuthorization>,
+    /// The lines the till rings without a tag this shop holds — see
+    /// [`UntaggedLine`]. Priced here exactly as the sale will price them, and
+    /// each labelled in the answer's `untagged` so the till can say what it is.
+    #[serde(default)]
+    pub untagged: Vec<UntaggedLine>,
+    /// Who is asking — set by the router from the session, never trusted from
+    /// the body. Names the seat whose next transaction number the answer's
+    /// `receipt_no` previews.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(skip))]
+    pub actor_id: String,
+}
+
+/// A line the till rings that this shop's own stock cannot give it.
+///
+/// Owner, 23 Oct 2026: a piece the till cannot take from its own store's stock
+/// still sells ("barang harus bisa dijual"), and the sale belongs to the store
+/// where the shopper paid. Head office matches it later to a piece at a store
+/// or at HO, and that piece leaves that place's stock. Nothing moves here: the
+/// line is kept (`unmatched_sale_line`) and travels on the sale fact.
+///
+/// Three shapes, told apart by what is filled in:
+///
+/// * `sku_code` — typed off the label because the tag would not read: `NO_TAG`
+///   when this shop holds at least one of that SKU on hand, `NOT_IN_STOCK` when
+///   it holds none. Priced by the book like any line, promotions included.
+/// * `epc` alone — a tag the till already knows is not held here: `OTHER`.
+///   The node classifies `epcs` itself as well, so this is optional.
+/// * neither — `UNKNOWN`: no tag, no SKU. The Kepala toko names it, prices it
+///   and approves it once, at `POST /api/v1/store/unmatched/approve`, and the
+///   line carries that approval (`approval_id`). Charged its given price,
+///   outside promotions and points.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct UntaggedLine {
+    /// 11 digits, typed off the label.
+    #[serde(default)]
+    pub sku_code: Option<String>,
+    #[serde(default)]
+    pub epc: Option<String>,
+    /// UNKNOWN only: what the Kepala toko called it.
+    #[serde(default)]
+    pub name: Option<String>,
+    /// UNKNOWN only, and more than nought.
+    #[serde(default)]
+    pub unit_price_minor: Option<i64>,
+    /// UNKNOWN only, and required at the sale: the Kepala toko's approval of
+    /// this name at this price (`/store/unmatched/approve`). The sale spends it
+    /// — one approval, one line — and a quote only prices the line.
+    #[serde(default)]
+    pub approval_id: Option<String>,
+    /// Ignored. A finger's grant is single-use and short-lived, and the till
+    /// quotes every couple of seconds, so the supervisor is verified once, at
+    /// the approval, never on a quote or a sale.
+    #[serde(default)]
+    pub supervisor: Option<crate::edge::till::Supervisor>,
+}
+
+/// The Kepala toko approving one unknown item: its name and its price.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct UnknownItemApprovalRequest {
+    pub name: String,
+    pub unit_price_minor: i64,
+    pub supervisor: crate::edge::till::Supervisor,
+}
+
+/// The approval a sale's UNKNOWN line carries as `approval_id`.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct UnknownItemApproval {
+    pub approval_id: String,
+    /// The Kepala toko's username.
+    pub approved_by: String,
+    pub approved_by_name: String,
+}
+
+/// How the quote labels one unmatched line, so the till can show it.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct UntaggedQuoteLine {
+    /// Its position in the request's `untagged`, or null for a tag in `epcs`
+    /// this shop does not hold.
+    pub index: Option<u32>,
+    pub epc: Option<String>,
+    /// `NO_TAG`, `NOT_IN_STOCK`, `OTHER` or `UNKNOWN`.
+    pub kind: String,
+    pub sku_code: Option<String>,
+    /// The catalogue's name, or the Kepala toko's for an UNKNOWN line.
+    pub name: Option<String>,
+    /// Where an OTHER tag stands, when this node knows — "In transit" for one
+    /// in a delivery on its way here. Null reads as "Luar toko".
+    pub from_place: Option<String>,
+    /// What the line comes to, promotions included.
+    pub line_total_minor: i64,
 }
 
 /// Declaring a checkout before the money is asked for.
@@ -534,6 +629,11 @@ pub struct SaleRequest {
     /// (`promotions[].coupon_authorization_id`), where head office commits it.
     #[serde(default)]
     pub coupon_authorizations: Vec<pricing_engine::CouponAuthorization>,
+    /// The lines this shop's stock cannot give — see [`UntaggedLine`]. A tag in
+    /// `epcs` this shop does not hold joins them on its own (`OTHER`) rather
+    /// than refusing the sale.
+    #[serde(default)]
+    pub untagged: Vec<UntaggedLine>,
 }
 
 /// Quantity-only DC Pick. The server assigns this quantity to accepted
@@ -787,6 +887,12 @@ pub struct SaleResult {
     pub granted_lines: Vec<super::pricing::GrantedLine>,
     #[serde(default)]
     pub points_earned: i64,
+    /// The 7-letter transaction number (client, 23 Oct 2026): the store's two
+    /// letters, the till's letter, and the till's own running number scrambled
+    /// into four letters (`till::allocate_receipt`). Empty on a reply saved
+    /// before it existed.
+    #[serde(default)]
+    pub receipt_no: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -826,6 +932,14 @@ pub struct SkuStockRow {
     /// `total`, and nothing is promised out of it.
     #[serde(default)]
     pub reject: i64,
+    /// To be returned · Over delivery (0986): what MD sent back from a
+    /// delivery, waiting for the shop to send. Never in `total`.
+    #[serde(default)]
+    pub over_delivery: i64,
+    /// To be returned · Return HO (0986): what HO moved off the shelves,
+    /// waiting for the shop to send. Never in `total`.
+    #[serde(default)]
+    pub return_ho: i64,
 }
 
 /// `GET /api/v1/inventory/sku-stock`: every SKU with spendable units here,
@@ -1187,6 +1301,15 @@ pub trait EdgeInventory: Send + Sync {
             "announced deliveries are only available on Store Edge".into(),
         ))
     }
+    /// The delivery a scanned koli label or surat jalan opens.
+    fn store_inbound_scan(
+        &self,
+        _code: &str,
+    ) -> Result<super::inbound::StoreInboundScan, EdgeError> {
+        Err(EdgeError::Forbidden(
+            "announced deliveries are only available on Store Edge".into(),
+        ))
+    }
     /// Receive an announced delivery from what the handheld read, in one
     /// transaction, and answer with the comparison.
     fn receive_store_inbound(
@@ -1478,8 +1601,27 @@ pub trait EdgeInventory: Send + Sync {
         &self,
         request: super::till::ReturnRequest,
     ) -> Result<super::till::ReturnResult, EdgeError>;
+    /// Exchange, no money back: pieces from one receipt come back to the
+    /// floor and replacement pieces are sold against their value, in one
+    /// transaction. Only a dearer replacement takes tenders, for the
+    /// difference.
+    fn exchange_sale(
+        &self,
+        request: super::till::ExchangeRequest,
+    ) -> Result<super::till::ExchangeResult, EdgeError>;
     /// What the customer walks out with, resolved and ready to render.
     fn sale_receipt(&self, sale_id: &str) -> Result<super::escpos::ReceiptDocument, EdgeError>;
+    /// The Kepala toko approves an unknown item's name and price, once; the
+    /// sale's UNKNOWN line spends the approval (`edge::unmatched`).
+    fn approve_unknown_item(
+        &self,
+        request: UnknownItemApprovalRequest,
+    ) -> Result<UnknownItemApproval, EdgeError> {
+        let _ = request;
+        Err(EdgeError::Forbidden(
+            "unknown items are approved at a shop's till".into(),
+        ))
+    }
 
     // ── The shop's small money ──────────────────────────────────────────
     //

@@ -40,9 +40,10 @@ export function useInbound() {
   return useQuery({ ...inboundQuery(), refetchInterval: INBOUND_POLL_MS })
 }
 
-/// One delivery's lines. Only asked for once the delivery is received: in
-/// transit the node sends no lines, and there is nothing to poll for — the
-/// list's own poll is what notices the delivery arriving.
+/// One delivery's lines and koli. In transit the lines are what was packed
+/// (owner, 23 Oct 2026: the count is no longer blind); once received they are
+/// the comparison. Nothing to poll for — the list's own poll is what notices
+/// the delivery arriving.
 export function useInboundDelivery(deliveryId: string, enabled: boolean) {
   return useQuery({
     queryKey: inboundDeliveryKey(deliveryId),
@@ -94,12 +95,10 @@ export function verdictOf(delivery: StoreInboundDelivery): Verdict {
   return { tone: "ok", label: "Received" }
 }
 
-/// The result, but ONLY for a received delivery.
-///
-/// The count is blind: whoever sweeps an in-transit delivery must not know
-/// how many to expect, or the count finds that number. The node already sends
-/// no result in transit; reading it through this means a result that ever did
-/// arrive early is still never drawn.
+/// The result, but only for a received delivery: the totals of what came in
+/// against what was sent. In transit there is no result yet — what was packed
+/// is read from the delivery's lines instead (owner, 23 Oct 2026: the count is
+/// no longer blind).
 export function resultOf(delivery: StoreInboundDelivery) {
   // In review nothing is booked yet, so nothing is missing yet either.
   return delivery.status === "RECEIVED" && delivery.in_review !== true

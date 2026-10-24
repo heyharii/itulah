@@ -773,3 +773,239 @@ pub fn spend_grant(tx: &Transaction<'_>, token: &str) -> Result<String, EdgeErro
     .map_err(db)?;
     Ok(username)
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// An employee's finger opens their benefit balance
+// ════════════════════════════════════════════════════════════════════════════
+
+/// What a till says it found on the scanner when an employee lays a finger on
+/// it to pay from their benefit balance (client, 24 Oct 2026: "jari karyawan",
+/// no code).
+#[derive(Clone, Debug, Deserialize)]
+pub struct BenefitClaimRequest {
+    /// Which enrolment matched. Null when nothing did — written down all the
+    /// same, as a sign-in's miss is.
+    pub finger_id: Option<String>,
+    #[serde(default)]
+    pub score: Option<i32>,
+}
+
+/// What a matched finger buys: one grant the till puts on the benefit lookup
+/// and the spend instead of a code, and who it names.
+#[derive(Debug, Serialize)]
+pub struct BenefitFinger {
+    pub username: String,
+    pub display_name: String,
+    pub authorization: String,
+    pub expires_at: String,
+}
+
+/// How long an employee's finger stays good for their balance.
+///
+/// Longer than a supervisor's three minutes: the finger is laid at Bayar and
+/// the spend happens at "Pembayaran diterima", after the rest of the basket is
+/// paid — a card on a slow line included. Still one basket's worth: a grant
+/// left behind on the counter does not outlive the queue.
+const BENEFIT_GRANT_SECONDS: i64 = 600;
+
+/// Judge a benefit claim, and write it down either way.
+///
+/// Any active person enrolled at this shop may open their own balance — a
+/// cashier's finger is an employee's finger. What the grant is NOT is a
+/// supervisor's yes: it lives in its own table (`0088`) and nothing that spends
+/// a supervisor's grant reads it.
+pub fn benefit_claim(
+    connection: &mut Connection,
+    proof: &TerminalProof,
+    request: BenefitClaimRequest,
+    path: &str,
+    body_sha256: &str,
+) -> Result<BenefitFinger, EdgeError> {
+    let tx = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(db)?;
+    let terminal_id = verify_terminal(&tx, proof, "POST", path, body_sha256)?;
+    let now = Utc::now();
+    let score = request.score;
+
+    let refuse = |tx: Transaction<'_>,
+                  finger_id: Option<&str>,
+                  username: Option<&str>,
+                  refusal: &str,
+                  said: &str|
+     -> Result<BenefitFinger, EdgeError> {
+        tx.execute(
+            "INSERT INTO edge_benefit_finger
+               (claim_id,terminal_id,finger_id,username,accepted,refusal,score,claimed_at)
+             VALUES (?1,?2,?3,?4,0,?5,?6,?7)",
+            params![
+                Uuid::new_v4().to_string(),
+                terminal_id,
+                finger_id,
+                username,
+                refusal,
+                score,
+                now.to_rfc3339()
+            ],
+        )
+        .map_err(db)?;
+        tx.commit().map_err(db)?;
+        Err(EdgeError::Unauthorized(said.into()))
+    };
+
+    let Some(finger_id) = request
+        .finger_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+    else {
+        return refuse(
+            tx,
+            None,
+            None,
+            "no match on the terminal",
+            "that finger is not enrolled at this shop",
+        );
+    };
+
+    let row: Option<(String, String, i64)> = tx
+        .query_row(
+            "SELECT f.username,u.display_name,u.active
+             FROM edge_fingerprint f
+             JOIN edge_user u ON u.username = f.username
+             WHERE f.finger_id=?1 AND f.active=1",
+            params![finger_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()
+        .map_err(db)?;
+    let Some((username, display_name, active)) = row else {
+        return refuse(
+            tx,
+            Some(finger_id),
+            None,
+            "unknown enrolment",
+            "that finger is not enrolled at this shop",
+        );
+    };
+    if active != 1 {
+        return refuse(
+            tx,
+            Some(finger_id),
+            Some(&username),
+            "user is not active",
+            "that account is not active at this shop",
+        );
+    }
+
+    let grant = security::random_token();
+    let expires_at = now + chrono::Duration::seconds(BENEFIT_GRANT_SECONDS);
+    tx.execute(
+        "INSERT INTO edge_benefit_finger
+           (claim_id,terminal_id,finger_id,username,accepted,refusal,score,claimed_at,
+            grant_token_sha256,expires_at)
+         VALUES (?1,?2,?3,?4,1,NULL,?5,?6,?7,?8)",
+        params![
+            Uuid::new_v4().to_string(),
+            terminal_id,
+            finger_id,
+            username,
+            score,
+            now.to_rfc3339(),
+            security::sha256_hex(&grant),
+            expires_at.to_rfc3339()
+        ],
+    )
+    .map_err(db)?;
+    tx.commit().map_err(db)?;
+    Ok(BenefitFinger {
+        username,
+        display_name,
+        authorization: grant,
+        expires_at: expires_at.to_rfc3339(),
+    })
+}
+
+/// A benefit grant's row: whose, until when, and whether it was spent.
+fn benefit_grant_row(
+    connection: &Connection,
+    digest: &str,
+) -> Result<Option<(String, String, Option<String>)>, EdgeError> {
+    connection
+        .query_row(
+            "SELECT username,expires_at,spent_at FROM edge_benefit_finger
+             WHERE grant_token_sha256=?1 AND accepted=1",
+            params![digest],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()
+        .map_err(db)
+}
+
+/// Whose finger a benefit grant is, while it is still good. Reads; spends
+/// nothing — the lookup that shows the balance uses this.
+pub fn benefit_grant_holder(connection: &Connection, token: &str) -> Result<String, EdgeError> {
+    let refuse = || EdgeError::Unauthorized("that finger is no longer good; lay it again".into());
+    let Some((username, expires_at, spent_at)) =
+        benefit_grant_row(connection, &security::sha256_hex(token.trim()))?
+    else {
+        return Err(refuse());
+    };
+    if spent_at.is_some() {
+        return Err(refuse());
+    }
+    let expires = chrono::DateTime::parse_from_rfc3339(&expires_at)
+        .map_err(|error| EdgeError::Persistence(error.to_string()))?;
+    if expires <= Utc::now() {
+        return Err(EdgeError::Unauthorized(
+            "that finger has expired; lay it again".into(),
+        ));
+    }
+    Ok(username)
+}
+
+/// Spend a benefit grant on one basket, or refuse it. Single use: two spends
+/// racing for one grant meet SQLite's one writer, and the second finds it
+/// spent.
+pub fn spend_benefit_grant(
+    connection: &mut Connection,
+    token: &str,
+    sale_ref: &str,
+) -> Result<String, EdgeError> {
+    let tx = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(db)?;
+    let username = benefit_grant_holder(&tx, token)?;
+    tx.execute(
+        "UPDATE edge_benefit_finger SET spent_at=?2,sale_ref=?3
+         WHERE grant_token_sha256=?1 AND spent_at IS NULL",
+        params![
+            security::sha256_hex(token.trim()),
+            Utc::now().to_rfc3339(),
+            sale_ref.trim()
+        ],
+    )
+    .map_err(db)?;
+    tx.commit().map_err(db)?;
+    Ok(username)
+}
+
+/// Give a grant back when head office never took the spend it was used for:
+/// the line was down, or it refused. The employee is still standing there and
+/// the finger was good — making them lay it again for the node's own failure
+/// would be the till's fault passed to the queue. Only the spend it was taken
+/// for is undone.
+pub fn unspend_benefit_grant(
+    connection: &Connection,
+    token: &str,
+    sale_ref: &str,
+) -> Result<(), EdgeError> {
+    connection
+        .execute(
+            "UPDATE edge_benefit_finger SET spent_at=NULL,sale_ref=NULL
+             WHERE grant_token_sha256=?1 AND sale_ref=?2",
+            params![security::sha256_hex(token.trim()), sale_ref.trim()],
+        )
+        .map_err(db)?;
+    Ok(())
+}

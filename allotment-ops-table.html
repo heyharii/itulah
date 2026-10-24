@@ -1,0 +1,809 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Allotment Ops table</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet" />
+<style>
+/* Ops › Allotment as a table (owner, 20 Oct 2026: "allotment di ops dibuat versi tablenya") — was Return Store — one per return, like Allotments, no kanban and
+   no grouping (owner, 20 Oct 2026).
+   Tokens: frontend-hub/src/styles/white.css (All white). */
+:root{
+  --ink:#1d1d1f; --body:#6e6e73; --mute:#6e6e73; --faint:#c7c7cc;
+  --soft:#fafafb; --soft-2:#f2f2f5; --soft-3:#f5f5f7;
+  --hairline:#e8e8ec; --hairline-2:#dcdce1; --row-line:#eeeef1; --band:#fafafb;
+  --accent:#2862dc; --accent-bg:#eef3fc; --cta:#2862dc;
+  --ok-fg:#248a3d; --warn-fg:#b25000; --info:#2862dc;
+  --r-card:10px; --r-inner:8px;
+  --ease-out:cubic-bezier(.23,1,.32,1);
+  --font:"Inter",system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font-family:var(--font);font-size:15px;color:var(--ink);background:#e9e9ec;letter-spacing:-.006em;-webkit-font-smoothing:antialiased;overflow:hidden}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+.i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+
+.proto{height:50px;overflow-x:auto;background:#141518;color:#fff;display:flex;align-items:center;gap:12px;padding:0 14px 0 18px}
+.proto .t{font-weight:600;white-space:nowrap}
+.seg{display:flex;gap:2px;background:#24262b;border-radius:9px;padding:3px}
+.seg button{height:32px;padding:0 11px;border-radius:7px;font-size:15px;color:#b9bcc3;white-space:nowrap;transition:background-color .15s ease,color .15s ease,transform .16s ease-out}
+.seg button:active{transform:scale(.97)}
+.seg button b{font-weight:600;color:#fff;margin-right:5px}
+.seg button.on{background:#fff;color:var(--ink)} .seg button.on b{color:var(--ink)}
+.seg .star{color:#f4b740;margin-left:4px}
+.proto .sp{flex:1}
+.note{min-height:36px;background:#1c1e22;color:#a7abb3;font-size:15px;line-height:24px;padding:6px 18px;border-top:1px solid #26282d}
+.note b{color:#fff;font-weight:500}
+.stagewrap{height:calc(100vh - 86px);overflow:hidden;display:flex;justify-content:center}
+
+.app{height:100%;width:100%;display:grid;grid-template-columns:68px 232px minmax(0,1fr);background:var(--soft-3);position:relative;overflow:hidden}
+.rail{display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:4px}
+.logo{width:28px;height:28px;border-radius:7px;background:var(--ink);color:#fff;display:grid;place-items:center;font-weight:600;margin-bottom:10px}
+.rail .ri{width:40px;height:36px;border-radius:8px;display:grid;place-items:center;color:#3a3a3c}
+.rail .ri.on{background:#fff;box-shadow:0 0 0 1px var(--hairline)}
+.dept{background:#fff;margin:8px 0;border-radius:12px;display:flex;flex-direction:column}
+.dept h2{margin:0;height:52px;display:flex;align-items:center;padding:0 18px;font-size:17px;font-weight:600}
+.rows{padding:2px 10px;display:flex;flex-direction:column;gap:2px}
+.row{height:38px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-radius:8px;color:#3a3a3c;width:100%}
+.row.on{background:var(--accent-bg);color:var(--accent);font-weight:500}
+.badge{min-width:20px;height:20px;border-radius:10px;background:#c62828;color:#fff;font-size:13px;font-weight:600;display:grid;place-items:center;padding:0 6px}
+.main{margin:8px;background:#fff;border-radius:12px;overflow-y:auto;min-width:0}
+.head{height:52px;display:flex;align-items:center;gap:10px;padding:0 28px;border-bottom:1px solid var(--hairline)}
+.head h1{margin:0;font-size:17px;font-weight:600;flex:1}
+.page{padding:20px 28px 48px}
+.figs{display:flex;margin-bottom:24px}
+.fig{padding:0 26px 0 20px;border-left:1px solid var(--hairline)}
+.fig:first-child{border-left:0;padding-left:0}
+.fig .l{color:var(--body);white-space:nowrap}
+.fig .v{font-size:17px;font-weight:600;margin-top:4px;font-variant-numeric:tabular-nums}
+.tabs{display:flex;gap:18px;border-bottom:1px solid var(--hairline);margin-bottom:16px}
+.tab{height:38px;color:var(--body);position:relative}
+.tab .c{margin-left:5px;color:var(--mute)}
+.tab.on{color:var(--ink);font-weight:500}
+.tab.on::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--ink);border-radius:2px}
+.search{width:280px;height:36px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);display:flex;align-items:center;gap:8px;padding:0 12px;color:var(--mute);margin-bottom:14px}
+
+.tbox{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden}
+table{border-collapse:collapse;width:100%;table-layout:fixed}
+th{height:40px;background:var(--band);color:var(--body);font-weight:500;text-align:left;padding:0 16px;border-bottom:1px solid var(--hairline);white-space:nowrap}
+td{padding:0 16px;height:64px;white-space:nowrap;border-top:1px solid var(--row-line);vertical-align:middle;overflow:hidden}
+tbody tr:first-child td{border-top:0}
+tbody tr.click{cursor:pointer}
+@media (hover:hover){tbody tr.click:hover td{background:#fafafb}}
+.r{text-align:right}
+.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+.nm{font-weight:500;color:var(--ink)}
+.m{color:var(--mute)}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:15px;letter-spacing:0}
+.two{display:flex;flex-direction:column;gap:4px;min-width:0}
+.two .b{color:var(--mute)}
+.trunc{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.btn{height:32px;display:inline-flex;align-items:center;gap:6px;padding:0 12px;border-radius:var(--r-inner);font-weight:500;white-space:nowrap;transition:transform .16s ease-out,background-color .15s ease}
+.btn:active{transform:scale(.97)}
+.btn.p{background:var(--cta);color:#fff}
+.btn.t{background:var(--accent-bg);color:var(--accent);font-weight:600}
+.btn.g{border:1px solid var(--hairline-2);background:#fff}
+.st{white-space:nowrap}
+.st::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;margin:0 8px 2px 0;vertical-align:middle;background:var(--d)}
+.st.way{--d:var(--info)} .st.rev{--d:#c98a00} .st.done{--d:var(--ok-fg)}
+.warn{color:var(--warn-fg)}
+.grp td{height:52px;background:var(--band);border-top:1px solid var(--hairline)}
+.grp + tr td{border-top:1px solid var(--hairline)}
+.chev{display:inline-block;width:7px;height:7px;border-right:1.6px solid var(--mute);border-bottom:1.6px solid var(--mute);transform:rotate(-45deg);margin-right:12px;transition:transform .2s var(--ease-out)}
+.open .chev{transform:rotate(45deg) translateY(-2px)}
+.sub td:first-child{padding-left:44px}
+.dash{color:var(--faint)}
+
+/* D master-detail */
+.md{display:grid;grid-template-columns:260px minmax(0,1fr);gap:20px}
+.slist{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden;align-self:start}
+.si{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 16px;border-top:1px solid var(--row-line);width:100%;text-align:left}
+.si:first-child{border-top:0}
+.si.on{background:var(--accent-bg)}
+.si .n{font-weight:500}
+.si .sx{color:var(--mute);font-size:15px}
+.pill{display:inline-flex;align-items:center;height:24px;padding:0 8px;border-radius:12px;background:var(--accent);color:#fff;font-size:13px;font-weight:600}
+.dtitle{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px}
+.dtitle h3{margin:0;font-size:17px;font-weight:600}
+
+/* sheet */
+.scrim{position:absolute;inset:0;background:rgb(0 0 0/.18);opacity:0;pointer-events:none;transition:opacity .2s var(--ease-out);z-index:10}
+.sheet{position:absolute;top:8px;right:8px;bottom:8px;width:min(760px,calc(100% - 16px));background:#fff;border-radius:12px;box-shadow:0 20px 60px rgb(0 0 0/.18);transform:translateX(calc(100% + 16px));transition:transform .28s var(--ease-out);z-index:11;display:flex;flex-direction:column}
+.app.sheeted .scrim{opacity:1;pointer-events:auto}
+.app.sheeted .sheet{transform:none}
+.sh{padding:22px 28px 16px;border-bottom:1px solid var(--hairline);display:flex;justify-content:space-between}
+.sh .crumb{color:var(--mute)}
+.sh h2{margin:4px 0 0;font-size:19px;font-weight:600}
+.sb{padding:22px 28px;overflow:auto;flex:1}
+.facts{display:grid;grid-template-columns:1fr 1fr;gap:18px 24px;margin-bottom:22px}
+.facts .l{color:var(--mute)} .facts .v{margin-top:4px}
+.x{width:32px;height:32px;border-radius:8px;display:grid;place-items:center}
+
+.narrow .app{grid-template-columns:minmax(0,1fr)}
+.narrow .rail,.narrow .dept{display:none}
+.narrow .stagewrap .app{width:414px}
+.narrow .figs{flex-wrap:wrap;gap:12px 0}
+.narrow .md{grid-template-columns:1fr}
+.narrow .hide-n{display:none}
+.show-n{display:none} .narrow .show-n{display:block}
+.narrow table{table-layout:auto}
+.narrow td{white-space:normal;height:auto;padding-top:12px;padding-bottom:12px}
+.narrow .btn{white-space:nowrap;padding:0 10px}
+.narrow .sub td:first-child{padding-left:16px}
+.narrow td{padding-left:12px;padding-right:12px}
+.narrow th{width:auto!important}
+.narrow .sheet{width:calc(100% - 16px)}
+.narrow .facts{grid-template-columns:1fr}
+.narrow .stile{min-width:0;flex:1 1 40%}
+.narrow .rv .rh{flex-direction:column;align-items:flex-start;gap:4px;padding:12px 14px}
+.narrow .qin{width:64px}
+.narrow .sf{padding:12px 16px}
+.narrow .totals dl{min-width:0;width:100%}
+.narrow .sb,.narrow .sh{padding-left:16px;padding-right:16px}
+.narrow .sb td{padding-left:12px;padding-right:12px}
+.narrow .page{padding:16px}
+.narrow .head{padding:0 16px}
+
+/* allotment-style return card */
+.cards{display:flex;flex-direction:column;gap:12px}
+.card{border:1px solid var(--hairline);border-radius:12px;padding:18px 18px 16px 22px;display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,300px);gap:12px 24px;align-items:start;cursor:pointer}
+@media (hover:hover){.card:hover{background:#fcfcfd}}
+.card .t1{font-weight:600}
+.card .t2{color:var(--mute);margin-top:2px}
+.card .t3{margin-top:6px}
+.card .t3 b{font-weight:600}
+.mini{border:1px solid var(--hairline);border-radius:8px;overflow:hidden}
+.one{display:flex;flex-direction:column;align-items:flex-end;gap:4px;text-align:right}
+.one .st{font-weight:500}
+.one .why{color:var(--mute)}
+.narrow .one{align-items:flex-start;text-align:left}
+.mini table th{height:34px;padding:0 12px}
+.mini table td{height:40px;padding:0 12px}
+.card .acts{grid-column:3;display:flex;justify-content:flex-end;gap:8px}
+.stamp{border:2px solid currentColor;border-radius:4px;padding:2px 8px;text-align:center;font-weight:700;font-size:15px;line-height:17px;transform:rotate(-4deg);margin-top:4px;outline:1px solid currentColor;outline-offset:2px}
+.stamp.ok{color:#2e8b4e} .stamp.warn{color:#b07a2a}
+.arts{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.art{display:flex;align-items:center;gap:10px}
+.th{width:36px;height:36px;border-radius:8px;border:1px solid var(--hairline);display:grid;place-items:center;color:var(--faint);flex:none}
+.narrow .card{grid-template-columns:1fr;padding:16px}
+.narrow .card .acts{grid-column:1}
+.narrow .card .stampbox{display:none}
+
+.tiles{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+.tile{background:var(--soft-3);border-radius:10px;padding:10px 14px;min-width:96px}
+.tile .l{color:var(--body)} .tile .v{font-weight:600;margin-top:2px;font-variant-numeric:tabular-nums}
+.segtabs{display:inline-flex;gap:2px;background:var(--soft-3);border-radius:9px;padding:3px}
+.segtabs button{height:32px;padding:0 10px;border-radius:7px;color:var(--body)}
+.segtabs button.on{background:#fff;color:var(--ink);font-weight:500;box-shadow:0 0 0 1px var(--hairline)}
+tfoot td{height:52px;background:var(--band);border-top:1px solid var(--hairline)}
+
+/* New return — a wide sheet, as New PO's */
+.sheet.wide{width:min(1180px,calc(100% - 16px))}
+.sf{border-top:1px solid var(--hairline);padding:14px 28px;display:flex;justify-content:flex-end;gap:8px}
+.btn.d{background:#d70015;color:#fff}
+.btn.lg{height:40px;padding:0 16px}
+.stores{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px}
+.stile{min-width:150px;border:1px solid var(--hairline-2);border-radius:12px;padding:12px 14px;text-align:left;transition:border-color .15s ease,background-color .15s ease,transform .16s ease-out}
+.stile:active{transform:scale(.98)}
+.stile .c{font-weight:600}
+.stile .n{color:var(--mute)}
+.stile .q{margin-top:6px;font-variant-numeric:tabular-nums;color:var(--body)}
+.stile .q b{color:var(--accent);font-weight:600}
+.stile.on{border-color:var(--accent);background:var(--accent-bg);box-shadow:0 0 0 1px var(--accent)}
+.qin{width:84px;height:40px;border:1px solid var(--hairline-2);border-radius:8px;text-align:center;font:inherit;font-weight:600;font-variant-numeric:tabular-nums}
+.qin:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.qin.over{border-color:#d70015;color:#d70015}
+.reason{display:inline-flex;align-items:center;height:26px;padding:0 9px;border-radius:13px;background:var(--soft-2);color:var(--body);white-space:nowrap}
+.totals{display:flex;justify-content:flex-end;margin-top:16px}
+.totals dl{display:grid;grid-template-columns:1fr auto;gap:6px 40px;margin:0;background:var(--soft);border:1px solid var(--hairline);border-radius:10px;padding:12px 20px;min-width:320px}
+.totals dt{color:var(--ink)} .totals dd{margin:0;text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
+.rv{border:1px solid var(--hairline);border-radius:12px;margin-bottom:14px;overflow:hidden}
+.rv .rh{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;background:var(--band);border-bottom:1px solid var(--hairline)}
+.rv .rh b{font-weight:600}
+.toast{position:absolute;left:50%;bottom:24px;transform:translate(-50%,20px);opacity:0;background:#1d1d1f;color:#fff;border-radius:10px;padding:12px 18px;transition:opacity .2s var(--ease-out),transform .2s var(--ease-out);z-index:20;pointer-events:none}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+
+.flag{display:inline-flex;align-items:center;height:24px;padding:0 8px;border-radius:12px;background:#fff1e6;color:#b25000;font-weight:500;white-space:nowrap}
+.thumb{width:40px;height:40px;border-radius:8px;border:1px solid var(--hairline);display:grid;place-items:center;color:#3a3a3c;flex:none;background:#fff}
+.artc{display:flex;align-items:center;gap:12px;min-width:0}
+.search{width:340px}
+.narrow .search{width:100%}
+.stack{display:inline-flex;gap:8px;align-items:center}
+.narrow .stack{flex-direction:column;align-items:flex-end;gap:4px}
+.narrow .thumb{width:36px;height:36px}
+
+/* D · one stage at a time, big icons */
+.stages{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:18px}
+.stg{border:1px solid var(--hairline-2);border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:14px;text-align:left;background:#fff;transition:border-color .15s ease,background-color .15s ease,transform .16s ease-out}
+.stg:active{transform:scale(.98)}
+.stg .ic{width:64px;height:64px;border-radius:16px;display:grid;place-items:center;background:var(--soft-2);color:var(--ink);flex:none}
+.stg .ic svg{width:38px;height:38px;stroke-width:1.5}
+.stg .w{font-weight:600;font-size:17px}
+.stg .n{color:var(--body);margin-top:2px;font-variant-numeric:tabular-nums}
+.stg.on{border-color:var(--accent);background:var(--accent-bg);box-shadow:0 0 0 1px var(--accent)}
+.stg.on .ic{background:#fff;color:var(--accent)}
+.koli td{height:48px;background:#fcfcfd}
+.koli td:first-child{padding-left:68px}
+.kchip{display:inline-flex;align-items:center;gap:8px}
+.kchip .box{width:28px;height:28px;border-radius:7px;background:var(--soft-2);display:grid;place-items:center}
+.kchip .box svg{width:16px;height:16px}
+.addk{color:var(--accent);font-weight:500}
+
+.cb{width:18px;height:18px;accent-color:var(--accent);cursor:pointer}
+tr.sel td{background:var(--accent-bg)}
+.dbar{position:sticky;bottom:12px;margin-top:14px;display:flex;align-items:center;justify-content:space-between;gap:12px;background:#fff;border:1px solid var(--hairline-2);border-radius:12px;padding:10px 12px 10px 18px;box-shadow:0 8px 24px rgb(0 0 0/.08)}
+.dbar b{font-weight:600}
+
+/* E · four tabs, one table each (owner, 21 Oct 2026) */
+.itabs{display:flex;gap:6px;border-bottom:1px solid var(--hairline);margin-bottom:16px}
+.itab{display:flex;align-items:center;gap:10px;height:52px;padding:0 14px 0 10px;color:var(--body);position:relative;border-radius:10px 10px 0 0;transition:color .15s ease,background-color .15s ease}
+@media (hover:hover){.itab:hover{background:var(--soft)}}
+.itab .ii{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;background:var(--soft-2);color:var(--body);transition:background-color .15s ease,color .15s ease}
+.itab .ii svg{width:20px;height:20px}
+.itab .c{color:var(--mute);font-variant-numeric:tabular-nums}
+.itab.on{color:var(--ink);font-weight:500}
+.itab.on .ii{background:var(--accent-bg);color:var(--accent)}
+.itab.on::after{content:"";position:absolute;left:8px;right:8px;bottom:-1px;height:2px;background:var(--ink);border-radius:2px}
+.made{display:flex;flex-direction:column;gap:6px;margin-bottom:16px}
+.made .mk{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;background:#f0faf3;color:#1f7a37}
+.made .mk .mono{color:#1f7a37}
+.allin{padding:22px;text-align:center;border:1px dashed #bfe3c9;border-radius:12px;color:#1f7a37;background:#f6fcf8}
+
+.pwrap{display:grid;grid-template-columns:220px minmax(0,1fr);gap:16px;align-items:start}
+.prail{border:1px solid var(--hairline);border-radius:12px;overflow-y:auto;max-height:calc(100vh - 250px);position:sticky;top:0}
+.pr{width:100%;display:flex;justify-content:space-between;align-items:center;gap:10px;height:42px;padding:0 12px;border-top:1px solid var(--row-line);text-align:left;color:var(--ink);transition:background-color .12s ease}
+.pr:first-child{border-top:0;font-weight:500}
+@media (hover:hover){.pr:hover{background:var(--soft)}}
+.pr.on{background:var(--accent-bg);color:var(--accent);box-shadow:inset 3px 0 0 var(--accent);font-weight:500}
+.pr .num{font-variant-numeric:tabular-nums;color:var(--body);flex:none}
+.pr.on .num{color:var(--accent)}
+.pmain{min-width:0}
+.psel2{display:none}
+.narrow .pwrap{grid-template-columns:1fr}
+.narrow .prail{display:none}
+.narrow .psel2{display:block;width:100%;height:46px;border:1px solid var(--hairline-2);border-radius:10px;padding:0 12px;font:inherit;font-weight:500;background:#fff;margin-bottom:12px}
+
+.ebar{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.ebar .search{margin-bottom:0}
+.ebar .ebtn{margin-left:auto;flex:none}
+.narrow .ebar .search{flex:1;min-width:0;width:auto}
+
+.ebar .ebtn{display:flex;gap:8px}
+.flag.fb{background:var(--accent-bg);color:var(--accent)}
+.segv{display:flex;gap:2px;background:var(--soft-2);border-radius:9px;padding:3px}
+.segv button{height:30px;padding:0 12px;border-radius:7px;color:var(--body);transition:background-color .15s ease}
+.segv button.on{background:#fff;color:var(--ink);font-weight:500;box-shadow:0 0 0 1px var(--hairline)}
+.board{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;align-items:start}
+.elane{background:var(--soft-3);border-radius:12px;padding:8px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.elane.off{display:none}
+.lh2{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 4px 2px;min-height:40px}
+.lh2 .lt{display:flex;align-items:center;gap:8px;min-width:0}
+.lh2 .ii{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;background:#fff;color:var(--body);flex:none}
+.lh2 .ii svg{width:18px;height:18px}
+.lh2 b{font-weight:600}
+.lh2 .la{display:flex;gap:6px;flex:none}
+.lh2 .la .btn{height:30px;padding:0 10px}
+.ecard{background:#fff;border:1px solid var(--hairline);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:8px;min-width:0;overflow:hidden;transition:border-color .15s ease,background-color .15s ease}
+.ecard.selc{border-color:var(--accent);background:var(--accent-bg)}
+.ecard .ef{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}
+.ecard .ea{display:flex;justify-content:flex-end;gap:6px}
+.ecard .thumb{width:36px;height:36px}
+.strip{margin:-10px -12px 0;padding:6px 12px;font-weight:600;font-size:15px}
+.strip.am{background:#fff1e0;color:#8a4b00}
+.strip.bl{background:var(--accent-bg);color:var(--accent)}
+.narrow .board{grid-template-columns:1fr}
+.narrow .segv button{padding:0 10px}
+
+.btn.r{background:#fdeceb;color:#c0271d;font-weight:600}
+.lh2{flex-wrap:wrap}
+.lh2 .lt{flex:1 1 auto}
+.lh2 .la{margin-left:auto}
+
+.pr:first-child{font-weight:inherit}
+.cant{margin-top:14px;padding:14px;border-radius:12px;background:#fdeceb;color:#8f1d16;display:flex;flex-direction:column;gap:8px}
+.cant .m{color:#8f1d16}
+.cant textarea{min-height:64px;border:1px solid #f3b9b4;border-radius:9px;padding:8px 10px;font:inherit;background:#fff;color:var(--ink);resize:vertical}
+.fin{display:block;width:100%;height:40px;margin-top:4px;border:1px solid var(--hairline-2);border-radius:8px;padding:0 12px;font:inherit}
+.fin:focus,.cant textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.narrow .itabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:2px}
+.narrow .itab{flex-direction:column;height:auto;padding:8px 2px 10px;gap:4px;font-size:15px;text-align:center}
+.narrow .itab .lb{white-space:nowrap}
+.narrow .stages{grid-template-columns:repeat(2,minmax(0,1fr))}
+.narrow .stg{padding:12px;gap:10px}
+.narrow .stg .ic{width:40px;height:40px}
+.narrow .koli td:first-child{padding-left:16px}
+.narrow .two .b,.narrow .two .nm{white-space:normal;overflow-wrap:anywhere}
+.narrow .alt2{display:none}
+.narrow .stamp{font-size:13px}
+</style>
+</head>
+<body>
+<div class="proto">
+  <div class="t">Ops · Allotment</div>
+  <div class="seg" id="opts"></div>
+  <div class="sp"></div>
+  <div class="seg" id="widths"></div>
+</div>
+<div class="note" id="note"></div>
+<div class="stagewrap" id="stagewrap">
+  <div class="app" id="app">
+    <nav class="rail">
+      <div class="logo">C</div>
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></div>
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><path d="M6 6h15l-2 8H8z"/><circle cx="9" cy="20" r="1"/><circle cx="18" cy="20" r="1"/></svg></div>
+      <div class="ri on"><svg class="i" viewBox="0 0 24 24"><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="18" r="1.6"/><circle cx="17" cy="18" r="1.6"/></svg></div>
+    </nav>
+    <aside class="dept">
+      <h2>Ops</h2>
+      <div class="rows">
+        <div class="row">Receiving PO <span class="badge">14</span></div>
+        <div class="row">Receiving Return <span class="badge">2</span></div>
+        <div class="row">Quantity Checks <span class="badge">2</span></div>
+        <div class="row on">Allotment <span class="badge">1</span></div>
+        <div class="row">Return Store <span class="badge">3</span></div>
+        <div class="row">Printing</div>
+      </div>
+    </aside>
+    <main class="main">
+      <div class="head"><h1>Allotment</h1></div>
+      <div class="page" id="page"></div>
+    </main>
+    <div class="scrim" id="scrim"></div>
+    <section class="sheet" id="sheet"></section>
+  </div>
+</div>
+<script>
+// One allotment to one store is one delivery the Gudang works through:
+// pick → pack → dispatch → in transit → received. Board today = 4 lanes of
+// cards; these are table versions (owner, 20 Oct 2026).
+const SHIRT = '<svg class="i" viewBox="0 0 24 24"><path d="M8 4 4 7l2 3 2-1v11h8V9l2 1 2-3-4-3c-1 1.5-2.3 2-4 2s-3-.5-4-2z"/></svg>'
+const SHOE = '<svg class="i" viewBox="0 0 24 24"><path d="M3 15c0-3 1-6 2-7l4 3 4 1 7 2v3H3z"/></svg>'
+const ROWS = [
+  { alt: "ALT-00000031", store: "C004 · Bumiayu", made: "20 Oct", stage: "pick", qty: 3, done: 0, short: true, arts: [["Kemeja Test Demo", "00000022 · White · L", 3, SHIRT]] },
+  { alt: "ALT-00000034", store: "C003 · Purbalingga", made: "20 Oct", stage: "pick", qty: 12, done: 0, arts: [["Kaos Basic Katun Combed", "00000003 · Black · M L XL", 8, SHIRT], ["Celana Chino Slim Fit", "00000002 · Khaki · 30 32", 4, SHIRT]] },
+  { alt: "ALT-00000033", store: "C005 · Jambi", made: "20 Oct", stage: "picked", qty: 6, done: 6, arts: [["Flat Shoes Wanita", "00000006 · Black · 37 38", 6, SHOE]] },
+  { alt: "ALT-00000036", store: "C001 · Cikupa", made: "21 Oct", stage: "picked", qty: 8, done: 8, arts: [["Kemeja Oxford Lengan Panjang", "00000005 · White · M L", 8, SHIRT]] },
+  { alt: "ALT-00000037", store: "C001 · Cikupa", made: "21 Oct", stage: "picked", qty: 4, done: 4, arts: [["Kaos Basic Katun Combed", "00000003 · Black · L", 4, SHIRT]] },
+  { alt: "ALT-00000032", store: "C002 · Muaro Bungo", made: "20 Oct", stage: "packed", qty: 10, done: 10, koli: 2, arts: [["Kaos Anak Karakter", "00000004 · Blue · S M", 10, SHIRT]] },
+  { alt: "ALT-00000032", store: "C001 · Cikupa", made: "20 Oct", stage: "transit", qty: 2, done: 2, koli: 1, sj: "DSP-HO-GUDANG-000016", left: "20 Oct 17:52", arts: [["Kaos Anak Karakter", "00000004 · Blue · M", 2, SHIRT]] },
+  { alt: "ALT-00000030", store: "C001 · Cikupa", made: "20 Oct", stage: "transit", qty: 2, done: 2, koli: 1, sj: "DSP-HO-GUDANG-000013", left: "20 Oct 12:29", arts: [["Sneakers Kanvas Low", "00000009 · Black · 42", 2, SHOE]] },
+  { alt: "ALT-00000029", store: "C002 · Muaro Bungo", made: "20 Oct", stage: "transit", qty: 1, done: 1, koli: 1, sj: "DSP-HO-GUDANG-000012", left: "20 Oct 12:19", arts: [["Tas Selempang Kanvas", "00000010 · Khaki", 1, SHIRT]] },
+  { alt: "ALT-00000015", store: "C001 · Cikupa", made: "17 Oct", stage: "transit", qty: 11, done: 10, koli: 2, sj: "DSP-HO-GUDANG-000002", left: "17 Oct 21:24", shortBy: 1, arts: [["Blus Rayon Motif Bunga", "00000001 · Red · S M", 11, SHIRT]] },
+  { alt: "ALT-00000028", store: "C001 · Cikupa", made: "20 Oct", stage: "done", qty: 2, done: 2, koli: 1, sj: "DSP-HO-GUDANG-000011", left: "20 Oct 09:10", on: "20 Oct", arts: [["Kaos Uji Uj16", "00000012 · White · M", 2, SHIRT]] },
+  { alt: "ALT-00000024", store: "C003 · Purbalingga", made: "19 Oct", stage: "done", qty: 7, done: 6, koli: 1, sj: "DSP-HO-GUDANG-000009", left: "19 Oct 15:02", on: "20 Oct", shortBy: 1, arts: [["Celana Chino Slim Fit", "00000002 · Black · 32", 7, SHIRT]] },
+]
+const STAGE = { pick: "To pick", picked: "Picked", packed: "Packed", transit: "In transit", done: "Received" }
+const NEXT = { pick: "Pick", picked: "Pack", packed: "Dispatch" }
+const RANK = { pick: 0, picked: 1, packed: 2, transit: 3, done: 4 }
+const OPTIONS = [
+  { k: "E", t: "Four tabs", star: true, note: "<b>E · Four tabs, one table each.</b> Picklist and Picked have a store rail. Pick, Pack, Dispatch, a koli and a surat jalan open their sheets. Only a sealed koli is made. Every way back is red: Back to Picklist · Unpack · Cancel dispatch." },
+  { k: "D", t: "One stage at a time", note: "<b>D · One stage at a time.</b> Big tiles — Pick (the bag) · Pack · Dispatch · In transit — and under them only that stage's table. Pick lists pick cards (article × store); Pack = one row per store (its allotments summed): Picked not yet in a koli, then Koli 1, Koli 2; Dispatch: tick the koli for this lorry, one Dispatch button." },
+  { k: "A", t: "Like PO list", note: "<b>A · Like the PO list.</b> One row per allotment × store (one delivery). Tabs Active · Completed. Status is the next step as a blue button — Pick · Pack · Dispatch — or a word once it has left (In transit). Work first, then what is on the road." },
+  { k: "B", t: "Stage tabs", note: "<b>B · Stage tabs.</b> The board's four lanes become tabs (To pick · Picked · Packed · In transit) over one table; every row in a tab carries that tab's button." },
+  { k: "C", t: "Per article", note: "<b>C · Per article.</b> The pick card as a row: article (photo) × store × allotment — what the picker walks for. Same tabs as A." },
+]
+let opt = "E", narrow = false, tabA = "active", tabB = "pick"
+const sum = (xs, f) => xs.reduce((a, x) => a + (f(x) || 0), 0)
+const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`
+const tiles = () => `<div class="tiles">
+  <div class="tile"><div class="l">To pick</div><div class="v">${sum(ROWS.filter(r=>r.stage==="pick"), r=>r.qty)} pcs</div></div>
+  <div class="tile"><div class="l">Picked</div><div class="v">${sum(ROWS.filter(r=>r.stage==="picked"), r=>r.done)} pcs</div></div>
+  <div class="tile"><div class="l">Packed</div><div class="v">${sum(ROWS.filter(r=>r.stage==="packed"), r=>r.koli)} koli</div></div>
+  <div class="tile"><div class="l">In transit</div><div class="v">${sum(ROWS.filter(r=>r.stage==="transit"), r=>r.done)} pcs</div></div></div>`
+const segtabs = (list, cur, set) => `<div class="segtabs">${list.map(([k, w, n]) => `<button class="${cur===k?"on":""}" onclick="${set}='${k}';render()">${w} <span class="m">${n}</span></button>`).join("")}</div>`
+const search = `<div class="search" style="margin-top:14px"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>Search allotments, stores or articles</div>`
+const status = r => NEXT[r.stage] ? `<span class="stack">${r.short ? '<span class="flag">Short pick</span>' : ""}<button class="btn p" onclick="event.stopPropagation()">${NEXT[r.stage]}</button></span>`
+  : r.stage === "transit" ? `<span class="stack">${r.shortBy ? `<span class="flag">Short −${r.shortBy}</span>` : ""}<span style="color:var(--info)">In transit</span></span>`
+  : `<span class="stamp ${r.shortBy ? "warn" : "ok"}" style="display:inline-block">${r.shortBy ? "Closed short" : "Received"}<br>${r.on}</span>`
+const doc = r => `<span class="mono">${r.sj ?? r.alt}</span>${r.sj ? `<span class="alt2"> · <span class="mono">${r.alt}</span></span>` : ""}`
+const qtyCell = r => r.stage === "pick" ? `${r.qty} pcs` : `${r.done} <span class="m">/ ${r.qty}</span>`
+const when = r => r.left ?? r.made
+const empty = w => `<div class="tbox" style="padding:28px;text-align:center"><span class="m">${w}</span></div>`
+
+function tableAB(rows) {
+  return `<div class="tbox"><table>
+  <thead><tr><th style="width:34%">Allotment</th><th class="hide-n">${opt === "B" && tabB === "transit" ? "Left" : "Date"}</th><th class="r hide-n">Articles</th><th class="r hide-n">Pcs</th><th class="r hide-n">Koli</th><th class="r" style="width:220px">Status</th></tr></thead>
+  <tbody>${rows.map(r => `<tr class="click">
+    <td><div class="two"><span class="nm trunc">${r.store}</span><span class="b trunc">${doc(r)}</span><span class="b show-n">${qtyCell(r)} pcs${r.koli ? ` · ${r.koli} koli` : ""}</span></div></td>
+    <td class="hide-n">${when(r)}</td><td class="r num hide-n">${r.arts.length}</td><td class="r num hide-n">${qtyCell(r)}</td><td class="r num hide-n">${r.koli ?? '<span class="dash">—</span>'}</td>
+    <td class="r">${status(r)}</td></tr>`).join("")}</tbody>
+  <tfoot><tr><td class="m">${plural(rows.length, "delivery").replace("deliverys","deliveries")}</td><td class="hide-n"></td><td class="hide-n"></td><td class="r num hide-n"><b>${sum(rows, r => r.qty)} pcs</b></td><td class="hide-n"></td><td class="r show-n"></td><td class="hide-n"></td></tr></tfoot></table></div>`
+}
+function pageA() {
+  const active = ROWS.filter(r => r.stage !== "done").sort((a, b) => RANK[a.stage] - RANK[b.stage])
+  const done = ROWS.filter(r => r.stage === "done")
+  const rows = tabA === "active" ? active : done
+  return tiles() + segtabs([["active", "Active", active.length], ["done", "Completed", done.length]], tabA, "tabA") + search + (rows.length ? tableAB(rows) : empty("Nothing here."))
+}
+function pageB() {
+  const list = ["pick", "picked", "packed", "transit", "done"].map(k => [k, STAGE[k], ROWS.filter(r => r.stage === k).length])
+  const rows = ROWS.filter(r => r.stage === tabB)
+  return tiles() + segtabs(list, tabB, "tabB") + search + (rows.length ? tableAB(rows) : empty(`Nothing ${STAGE[tabB].toLowerCase()}.`))
+}
+function pageC() {
+  const active = ROWS.filter(r => r.stage !== "done").sort((a, b) => RANK[a.stage] - RANK[b.stage])
+  const rows = (tabA === "active" ? active : ROWS.filter(r => r.stage === "done")).flatMap(r => r.arts.map(a => ({ r, a })))
+  return tiles() + segtabs([["active", "Active", active.length], ["done", "Completed", ROWS.length - active.length]], tabA, "tabA") + search + `<div class="tbox"><table>
+  <thead><tr><th style="width:36%">Article</th><th class="hide-n">Store</th><th class="hide-n">Allotment</th><th class="r hide-n">Pcs</th><th class="r" style="width:200px">Status</th></tr></thead>
+  <tbody>${rows.map(({ r, a }) => `<tr class="click">
+    <td><div class="artc"><span class="thumb">${a[3]}</span><div class="two"><span class="nm trunc">${a[0]}</span><span class="b trunc">${a[1]}</span><span class="b show-n">${r.store} · ${a[2]} pcs</span></div></div></td>
+    <td class="hide-n"><span class="trunc">${r.store}</span></td><td class="hide-n"><span class="mono">${r.alt}</span></td><td class="r num hide-n">${a[2]}</td><td class="r">${status(r)}</td></tr>`).join("")}</tbody></table></div>`
+}
+
+// D (owner, 21 Oct 2026: "harusnya ga digabung ya semua, jadi ada pick,
+// pack, icon besar kayak kantong, dan di dalam pack udah ada koli kolinya"):
+// one stage at a time, chosen from big tiles; each stage its own table.
+const IC = {
+  pick: '<svg class="i" viewBox="0 0 24 24"><path d="M6 8h12l-1 12H7z"/><path d="M9 8a3 3 0 0 1 6 0"/></svg>',
+  pack: '<svg class="i" viewBox="0 0 24 24"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10"/></svg>',
+  dispatch: '<svg class="i" viewBox="0 0 24 24"><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="18" r="1.6"/><circle cx="17" cy="18" r="1.6"/></svg>',
+  transit: '<svg class="i" viewBox="0 0 24 24"><circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M8 18h7a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h7"/></svg>',
+}
+// Koli made so far, per store (a koli is one store's).
+const STORE_KOLI = { "C005 · Jambi": [4], "C001 · Cikupa": [5, 3, 2] }
+const KOLI = {
+  "ALT-00000033~C005 · Jambi": [4],
+  "ALT-00000036~C001 · Cikupa": [5, 3],
+}
+const DISPATCH = [
+  { store: "C002 · Muaro Bungo", alt: "ALT-00000032", koli: [6, 4] },
+  { store: "C003 · Purbalingga", alt: "ALT-00000027", koli: [5] },
+]
+let dstage = "pick"
+const picked = new Set()
+function toggleKoli(id) { picked.has(id) ? picked.delete(id) : picked.add(id); render() }
+function toggleAll(on) { picked.clear(); if (!on) DISPATCH.forEach(d => d.koli.forEach((n, i) => picked.add(`${d.alt}~${i}`))); render() }
+let tripNo = 17
+function dispatchNow() {
+  const byStore = new Map()
+  DISPATCH.forEach(d => d.koli.forEach((n, i) => { if (picked.has(`${d.alt}~${i}`)) { const x = byStore.get(d.store) ?? { d, ks: [] }; x.ks.push(n); byStore.set(d.store, x) } }))
+  byStore.forEach(({ d, ks }, store) => {
+    ROWS.unshift({ alt: d.alt, store, made: "21 Oct", stage: "transit", qty: sum(ks, x => x), done: sum(ks, x => x), koli: ks.length, sj: `DSP-HO-GUDANG-0000${tripNo++}`, left: "21 Oct now", arts: [] })
+    d.koli = d.koli.filter((n, i) => !picked.has(`${d.alt}~${i}`))
+  })
+  picked.clear(); dstage = "transit"; render()
+}
+function pageD() {
+  const picks = ROWS.filter(r => r.stage === "pick").flatMap(r => r.arts.map(a => ({ r, a })))
+  const packs = ROWS.filter(r => r.stage === "picked")
+  const away = ROWS.filter(r => r.stage === "transit")
+  const ST = [
+    ["pick", "Pick", `${picks.length} cards · ${sum(picks, x => x.a[2])} pcs`],
+    ["pack", "Pack", `${new Set(packs.map(r => r.store)).size} stores · ${sum(packs, r => r.done)} pcs`],
+    ["dispatch", "Dispatch", `${sum(DISPATCH, d => d.koli.length)} koli sealed`],
+    ["transit", "In transit", `${away.length} trips · ${sum(away, r => r.koli)} koli`],
+  ]
+  const tilesD = `<div class="stages">${ST.map(([k, w, n]) => `<button class="stg ${dstage===k?"on":""}" onclick="dstage='${k}';render()"><span class="ic">${IC[k]}</span><span><span class="w">${w}</span><span class="n" style="display:block">${n}</span></span></button>`).join("")}</div>`
+  const box = '<span class="box">' + IC.pack + '</span>'
+  let table = ""
+  if (dstage === "pick") table = `<div class="tbox"><table>
+    <thead><tr><th style="width:40%">Article</th><th class="hide-n">Store</th><th class="hide-n">Allotment</th><th class="r hide-n">Pcs</th><th class="r" style="width:200px"></th></tr></thead>
+    <tbody>${picks.map(({ r, a }) => `<tr class="click"><td><div class="artc"><span class="thumb">${a[3]}</span><div class="two"><span class="nm trunc">${a[0]}</span><span class="b trunc">${a[1]}</span><span class="b show-n">${r.store} · ${a[2]} pcs</span></div></div></td>
+      <td class="hide-n">${r.store}</td><td class="hide-n"><span class="mono">${r.alt}</span></td><td class="r num hide-n">${a[2]}</td>
+      <td class="r"><span class="stack">${r.short ? '<span class="flag">Short pick</span>' : ""}<button class="btn p">Pick</button></span></td></tr>`).join("")}</tbody></table></div>`
+  if (dstage === "pack") {
+    // One Pack per STORE, summed across its allotments (the Pack sheet of
+    // 18 Oct: Picked · Koli 1 · Koli 2 · + Koli N). A koli is one store's.
+    const stores = [...new Set(packs.map(r => r.store))].map(st => {
+      const rs = packs.filter(r => r.store === st), ks = STORE_KOLI[st] ?? []
+      const picked = sum(rs, r => r.done), inK = sum(ks, x => x)
+      return { st, rs, ks, picked, left: picked - inK }
+    })
+    table = `<div class="tbox"><table>
+    <thead><tr><th style="width:40%">Store</th><th class="hide-n">Allotments</th><th class="r">Pcs</th><th class="r hide-n">Koli</th><th class="r" style="width:200px"></th></tr></thead>
+    <tbody>${stores.map(x => `<tr class="click"><td><div class="two"><span class="nm trunc">${x.st}</span><span class="b">${plural(sum(x.rs, r => r.arts.length), "article")}</span></div></td>
+      <td class="hide-n" style="white-space:normal;padding-top:10px;padding-bottom:10px"><span class="mono" style="display:flex;flex-direction:column;gap:2px">${x.rs.map(r => `<span>${r.alt}</span>`).join("")}</span></td><td class="r num">${x.picked} pcs</td><td class="r num hide-n">${x.ks.length || '<span class="dash">—</span>'}</td>
+      <td class="r"><button class="btn ${x.left === 0 ? "p" : "t"}">${x.left === 0 ? "Seal" : "Pack"}</button></td></tr>` +
+      (x.left > 0 ? `<tr class="koli"><td colspan="2"><span class="kchip"><span class="box">${IC.pick}</span><span><b>Picked</b> <span class="m">· not in a koli yet</span></span></span></td><td class="r num">${x.left} pcs</td><td class="hide-n"></td><td class="r"><span class="addk">+ Koli ${x.ks.length + 1}</span></td></tr>` : "") +
+      x.ks.map((n, i) => `<tr class="koli"><td colspan="2"><span class="kchip">${box}<span><b>Koli ${i + 1}</b></span></span></td><td class="r num">${n} pcs</td><td class="hide-n"></td><td class="r"><span class="m">Packed</span></td></tr>`).join("")).join("")}</tbody></table></div>`
+  }
+  if (dstage === "dispatch") {
+    // One lorry, one Dispatch: tick the koli that go on it (any stores),
+    // then the one button (owner, 21 Oct 2026: "dispatch itu harusnya 1
+    // button, dispatchin koli yg mana").
+    const koli = DISPATCH.flatMap(d => d.koli.map((n, i) => ({ id: `${d.alt}~${i}`, d, n, i })))
+    const chosen = koli.filter(k => picked.has(k.id))
+    const all = chosen.length === koli.length && koli.length > 0
+    table = koli.length === 0 ? empty("Nothing sealed to dispatch.") : `<div class="tbox"><table>
+    <thead><tr><th style="width:56px"><input type="checkbox" class="cb" ${all ? "checked" : ""} onclick="toggleAll(${all})" aria-label="All koli"></th><th>Koli</th><th class="hide-n">Store</th><th class="hide-n">Allotment</th><th class="r">Pcs</th></tr></thead>
+    <tbody>${koli.map(k => `<tr class="click ${picked.has(k.id) ? "sel" : ""}" onclick="toggleKoli('${k.id}')">
+      <td><input type="checkbox" class="cb" ${picked.has(k.id) ? "checked" : ""} onclick="event.stopPropagation();toggleKoli('${k.id}')"></td>
+      <td><span class="kchip">${box}<span class="two"><span class="nm">Koli ${k.i + 1} of ${k.d.koli.length}</span><span class="b show-n">${k.d.store}</span></span></span></td>
+      <td class="hide-n">${k.d.store}</td><td class="hide-n"><span class="mono">${k.d.alt}</span></td><td class="r num">${k.n}</td></tr>`).join("")}</tbody></table></div>
+    <div class="dbar"><span>${chosen.length ? `<b>${plural(chosen.length, "koli").replace("kolis","koli")}</b> · ${sum(chosen, k => k.n)} pcs · ${new Set(chosen.map(k => k.d.store)).size} ${new Set(chosen.map(k => k.d.store)).size === 1 ? "store" : "stores"}` : '<span class="m">Tick the koli going on this lorry</span>'}</span>
+      <button class="btn p lg" ${chosen.length ? "" : "disabled style='opacity:.45'"} onclick="dispatchNow()">Dispatch ${chosen.length ? plural(chosen.length, "koli").replace("kolis","koli") : ""}</button></div>`
+  }
+  if (dstage === "transit") table = `<div class="tbox"><table>
+    <thead><tr><th style="width:40%">Trip</th><th class="hide-n">Left</th><th class="r">Koli</th><th class="r hide-n">Pcs</th><th class="r" style="width:200px"></th></tr></thead>
+    <tbody>${away.map(r => `<tr class="click"><td><div class="two"><span class="nm trunc">${r.store}</span><span class="b mono trunc">${r.sj}</span></div></td>
+      <td class="hide-n">${r.left}</td><td class="r num">${r.koli}</td><td class="r num hide-n">${r.done}</td>
+      <td class="r"><span class="stack">${r.shortBy ? `<span class="flag">Short −${r.shortBy}</span>` : ""}<span style="color:var(--info)">In transit</span></span></td></tr>`).join("")}</tbody></table></div>`
+  return tilesD + search + table
+}
+
+// E (owner, 21 Oct 2026) — four tabs with icons, one table each:
+//  · Picklist — a rail of stores (no All: "membingungkan"), the chosen
+//    store's picklists in order; Pick opens the Pick sheet, as today.
+//  · Picked — the same rail; the store's picked articles; Pack (per store)
+//    opens the Pack sheet; Back to Picklist.
+//  · Packed — the koli made; a row opens the koli; ticked koli → Dispatch
+//    (its sheet asks the trip) or Unpack.
+//  · In transit — the trips; a row opens the surat jalan; ticked → Cancel
+//    dispatch, the koli are Packed again.
+// Only a sealed koli is made. Every way back is red and one tab to the left.
+IC.ok = IC.ok ?? '<svg class="i" viewBox="0 0 24 24"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="m8 12 3 3 5-6"/></svg>'
+IC.list = '<svg class="i" viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4h6v3H9zM9 11h6M9 15h4"/></svg>'
+const ep = n => `${n} ${n === 1 ? "pc" : "pcs"}`
+const code3 = st => st.split(" · ")[0]
+/// "Black · M", "Black · L" → "Black · M L".
+const vSum = lines => { const [c] = lines[0].v.split(" · "); return lines.every(l => l.v.startsWith(c + " · ")) ? `${c} · ${lines.map(l => l.v.split(" · ")[1]).join(" ")}` : lines.map(l => l.v).join(", ") }
+const pcsOf = p => sum(p.lines, l => l.n)
+let ePickId = 10
+const E_PICKS = [
+  { id: 1, alt: "ALT-00000031", store: "C004 · Bumiayu", a: "Kemeja Test Demo", ic: SHIRT, lines: [{ v: "White · L", n: 3 }], short: true, note: "Rack empty — Inventory counting" },
+  { id: 2, alt: "ALT-00000034", store: "C003 · Purbalingga", a: "Kaos Basic Katun Combed", ic: SHIRT, lines: [{ v: "Black · M", n: 3 }, { v: "Black · L", n: 3 }, { v: "Black · XL", n: 2 }] },
+  { id: 3, alt: "ALT-00000034", store: "C003 · Purbalingga", a: "Celana Chino Slim Fit", ic: SHIRT, lines: [{ v: "Khaki · 30", n: 2 }, { v: "Khaki · 32", n: 2 }] },
+  { id: 4, alt: "ALT-00000041", store: "C003 · Purbalingga", a: "Flat Shoes Wanita", ic: SHOE, lines: [{ v: "Black · 37", n: 2 }] },
+  { id: 5, alt: "ALT-00000038", store: "C009 · WMJB", a: "Kaos Anak Karakter", ic: SHIRT, lines: [{ v: "Blue · S", n: 3 }, { v: "Blue · M", n: 3 }, { v: "Blue · L", n: 3 }] },
+  { id: 6, alt: "ALT-00000039", store: "C001 · Cikupa", a: "Sneakers Kanvas Low", ic: SHOE, lines: [{ v: "Black · 42", n: 2 }, { v: "Black · 43", n: 2 }] },
+  { id: 7, alt: "ALT-00000040", store: "C001 · Cikupa", a: "Blus Rayon Motif Bunga", ic: SHIRT, lines: [{ v: "Red · S", n: 2 }, { v: "Red · L", n: 2 }] },
+  { id: 8, alt: "ALT-00000039", store: "C005 · Jambi", a: "Sneakers Kanvas Low", ic: SHOE, lines: [{ v: "Black · 40", n: 2 }] },
+  { id: 9, alt: "ALT-00000040", store: "C006 · Wiramode", a: "Blus Rayon Motif Bunga", ic: SHIRT, lines: [{ v: "Red · S", n: 3 }, { v: "Red · M", n: 3 }] },
+]
+const E_PICKED = [
+  { store: "C001 · Cikupa", lines: [{ a: "Kemeja Oxford Lengan Panjang", v: "White · M", n: 2, ic: SHIRT, alt: "ALT-00000036" }, { a: "Kaos Basic Katun Combed", v: "Black · L", n: 2, ic: SHIRT, alt: "ALT-00000037" }] },
+  { store: "C002 · Muaro Bungo", lines: [{ a: "Celana Chino Slim Fit", v: "Khaki · 30", n: 6, ic: SHIRT, alt: "ALT-00000032" }, { a: "Celana Chino Slim Fit", v: "Khaki · 32", n: 4, ic: SHIRT, alt: "ALT-00000032" }] },
+  { store: "C005 · Jambi", lines: [{ a: "Flat Shoes Wanita", v: "Black · 37", n: 2, ic: SHOE, alt: "ALT-00000033" }] },
+  { store: "C007 · Brebes", lines: [{ a: "Tas Selempang Kanvas", v: "Khaki", n: 3, ic: SHIRT, alt: "ALT-00000035" }] },
+]
+const eK = (code, store, no, n, at, a, v, alt, ic = SHIRT) => ({ code, store, no, n, at, c: [{ a, v, n, ic, alt }] })
+const E_KOLI = [
+  eK("KOLI-HO-GUDANG-000039", "C001 · Cikupa", 5, 5, "09:40", "Kemeja Oxford Lengan Panjang", "White · M", "ALT-00000036"),
+  { code: "KOLI-HO-GUDANG-000040", store: "C001 · Cikupa", no: 6, n: 3, at: "09:52", c: [{ a: "Kemeja Oxford Lengan Panjang", v: "White · L", n: 2, ic: SHIRT, alt: "ALT-00000036" }, { a: "Kaos Basic Katun Combed", v: "Black · L", n: 1, ic: SHIRT, alt: "ALT-00000037" }] },
+  eK("KOLI-HO-GUDANG-000042", "C001 · Cikupa", 7, 2, "10:01", "Kaos Basic Katun Combed", "Black · M", "ALT-00000037"),
+  eK("KOLI-HO-GUDANG-000037", "C003 · Purbalingga", 1, 5, "08:30", "Celana Chino Slim Fit", "Black · 32", "ALT-00000027"),
+  eK("KOLI-HO-GUDANG-000043", "C005 · Jambi", 1, 4, "10:05", "Flat Shoes Wanita", "Black · 38", "ALT-00000033", SHOE),
+  eK("KOLI-HO-GUDANG-000044", "C008 · Pasuruan", 1, 6, "10:12", "Kaos Anak Karakter", "Blue · M", "ALT-00000029"),
+  eK("KOLI-HO-GUDANG-000045", "C008 · Pasuruan", 2, 4, "10:15", "Kaos Anak Karakter", "Blue · L", "ALT-00000029"),
+]
+const E_TRIPS = [
+  { sj: "DSP-HO-GUDANG-000016", store: "C001 · Cikupa", left: "20 Oct 17:52", driver: "Budi Santoso", plate: "B 9124 KQ", kl: [eK("KOLI-HO-GUDANG-000034", "C001 · Cikupa", 4, 2, "17:40", "Kaos Anak Karakter", "Blue · M", "ALT-00000032")] },
+  { sj: "DSP-HO-GUDANG-000013", store: "C001 · Cikupa", left: "20 Oct 12:29", driver: "Budi Santoso", plate: "B 9124 KQ", kl: [eK("KOLI-HO-GUDANG-000031", "C001 · Cikupa", 3, 2, "12:10", "Sneakers Kanvas Low", "Black · 42", "ALT-00000030", SHOE)] },
+  { sj: "DSP-HO-GUDANG-000012", store: "C002 · Muaro Bungo", left: "20 Oct 12:19", driver: "Agus Rahman", plate: "B 7710 PJ", kl: [eK("KOLI-HO-GUDANG-000030", "C002 · Muaro Bungo", 1, 1, "12:02", "Tas Selempang Kanvas", "Khaki", "ALT-00000029")] },
+  { sj: "DSP-HO-GUDANG-000002", store: "C001 · Cikupa", left: "17 Oct 21:24", driver: "Agus Rahman", plate: "B 7710 PJ", short: 1, kl: [eK("KOLI-HO-GUDANG-000003", "C001 · Cikupa", 1, 6, "21:00", "Blus Rayon Motif Bunga", "Red · S", "ALT-00000015"), eK("KOLI-HO-GUDANG-000004", "C001 · Cikupa", 2, 4, "21:05", "Blus Rayon Motif Bunga", "Red · M", "ALT-00000015")] },
+]
+// A koli keeps its number for good: the next one of a store is one past the
+// highest it has ever had, packed or already on the road.
+const eNo = {}
+;[...E_KOLI, ...E_TRIPS.flatMap(t => t.kl)].forEach(k => eNo[k.store] = Math.max(eNo[k.store] ?? 0, k.no))
+let eKoliNo = 46, eTrip = 17
+let etab = "picklist", eRail = { picklist: null, picked: null }, eSheet = null, eUndo = null
+const ePRows = new Set(), eSel = new Set(), eTSel = new Set()
+const eLeft = st => sum(E_PICKED.find(x => x.store === st)?.lines ?? [], l => l.n)
+const eAlts = row => [...new Set(row.lines.map(l => l.alt))]
+const eKoliOf = st => E_KOLI.filter(k => k.store === st)
+const eLineKey = (store, l) => `${store}|${l.a}|${l.v}|${l.alt}`
+function eFindLine(key) { for (const row of E_PICKED) for (const l of row.lines) if (eLineKey(row.store, l) === key) return { row, l }; return null }
+function eAddPicked(store, l) {
+  let row = E_PICKED.find(x => x.store === store); if (!row) { row = { store, lines: [] }; E_PICKED.push(row) }
+  const same = row.lines.find(x => x.a === l.a && x.v === l.v && x.alt === l.alt); same ? same.n += l.n : row.lines.push({ ...l })
+}
+const eTidyPicked = () => { E_PICKED.forEach(r => r.lines = r.lines.filter(l => l.n > 0)); E_PICKED.splice(0, E_PICKED.length, ...E_PICKED.filter(r => r.lines.length)) }
+const eSnap = () => JSON.stringify({ E_PICKS, E_PICKED, E_KOLI, E_TRIPS, eNo, eKoliNo, eTrip })
+function eUndoNow() {
+  if (!eUndo) return; const o = JSON.parse(eUndo)
+  ;[[E_PICKS, o.E_PICKS], [E_PICKED, o.E_PICKED], [E_KOLI, o.E_KOLI], [E_TRIPS, o.E_TRIPS]].forEach(([x, y]) => x.splice(0, x.length, ...y))
+  Object.keys(eNo).forEach(k => delete eNo[k]); Object.assign(eNo, o.eNo); eKoliNo = o.eKoliNo; eTrip = o.eTrip
+  eUndo = null; document.getElementById("etoast")?.classList.remove("on"); eClose(); render()
+}
+function eToast(msg, back) {
+  let t = document.getElementById("etoast")
+  if (!t) { t = document.createElement("div"); t.id = "etoast"; t.className = "toast"; document.getElementById("app").appendChild(t) }
+  eUndo = back; t.innerHTML = `${msg}${back ? ' <button style="color:#8ab4ff;font-weight:600;margin-left:14px" onclick="eUndoNow()">Undo</button>' : ""}`
+  t.classList.add("on"); clearTimeout(eToast.h); eToast.h = setTimeout(() => t.classList.remove("on"), 3800)
+}
+// ── sheets ──
+const X = '<svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>'
+const eHeadS = (crumb, title) => `<div class="sh"><div><div class="crumb">${crumb}</div><h2>${title}</h2></div><button class="x" onclick="eClose()">${X}</button></div>`
+const eArt = (ic, a, b) => `<div class="artc"><span class="thumb">${ic}</span><div class="two"><span class="nm trunc">${a}</span><span class="b trunc">${b}</span></div></div>`
+const eDis = on => on ? "" : "disabled style='opacity:.45'"
+function eOpen(sheet) { eSheet = sheet; document.getElementById("sheet").classList.remove("wide"); eDraw(); document.getElementById("app").classList.add("sheeted") }
+function eClose() { eSheet = null; closeSheet() }
+function eNum(key, fallback) { const t = eSheet.typed?.[key]; return t === undefined ? fallback : Math.max(0, Math.floor(Number(t) || 0)) }
+function eType(key, el) { eSheet.typed[key] = el.value.replace(/\D/g, ""); eDraw() }
+function eDraw() {
+  const sh = document.getElementById("sheet"); if (!eSheet) return
+  const focus = document.activeElement?.dataset?.k
+  sh.innerHTML = ({ pick: ePickSheet, pack: ePackSheet, back: eBackSheet, dispatch: eDispatchSheet, koli: eKoliSheet, trip: eTripSheet })[eSheet.kind]()
+  if (focus !== undefined) { const el = [...sh.querySelectorAll("[data-k]")].find(x => x.dataset.k === focus); if (el) { el.focus(); el.setSelectionRange?.(el.value.length, el.value.length) } }
+}
+const eInput = (key, value, over) => `<input class="qin ${over ? "over" : ""}" inputmode="numeric" data-k="${key}" value="${value}" oninput="eType('${key}', this)">`
+// Pick — the picklist's sizes, what was taken off the rack, Cannot pick.
+function ePickSheet() {
+  const p = E_PICKS.find(x => x.id === eSheet.id); if (!p) return ""
+  const got = p.lines.map((l, i) => Math.min(eNum(i, l.n), l.n)), over = p.lines.some((l, i) => eNum(i, l.n) > l.n)
+  const n = sum(got, x => x), left = pcsOf(p) - n
+  return eHeadS(`Picklist · ${p.alt} · ${p.store}`, p.a) + `<div class="sb">
+    ${p.short ? `<div class="strip am" style="margin:0 0 14px;border-radius:10px">Short pick · ${p.note ?? ""}</div>` : p.back ? `<div class="strip bl" style="margin:0 0 14px;border-radius:10px">Back from Picked</div>` : ""}
+    <div class="tbox"><table><thead><tr><th>Colour · Size</th><th class="r" style="width:110px">To pick</th><th class="r" style="width:130px">Picked</th></tr></thead>
+    <tbody>${p.lines.map((l, i) => `<tr><td>${eArt(p.ic, l.v, p.a)}</td><td class="r num">${ep(l.n)}</td><td class="r">${eInput(i, eSheet.typed[i] ?? l.n, eNum(i, l.n) > l.n)}</td></tr>`).join("")}</tbody></table></div>
+    ${eSheet.cannot ? `<div class="cant"><b>Cannot pick · ${ep(left)}</b><span class="m">${left ? "These stay on the picklist with a Short pick flag." : "Lower Picked for what is not on the rack."}</span><textarea placeholder="Note" oninput="eSheet.note=this.value">${eSheet.note ?? ""}</textarea></div>` : ""}</div>
+    <div class="sf" style="justify-content:space-between">${eSheet.cannot
+      ? `<span></span><span style="display:flex;gap:8px"><button class="btn g lg" onclick="eSheet.cannot=false;eDraw()">Keep</button><button class="btn d lg" ${eDis(left > 0 && !over)} onclick="ePickDo(true)">Cannot pick ${ep(left)}</button></span>`
+      : `<button class="btn r lg" onclick="eSheet.cannot=true;eDraw()">Cannot pick</button><span style="display:flex;gap:8px"><button class="btn g lg" style="color:var(--accent)" onclick="eToast('Picklist printing')">Print</button><button class="btn p lg" ${eDis(n > 0 && !over)} onclick="ePickDo(false)">Submit ${ep(n)}</button></span>`}</div>`
+}
+function ePickDo(cannot) {
+  const p = E_PICKS.find(x => x.id === eSheet.id); if (!p) return
+  const before = eSnap(), got = p.lines.map((l, i) => Math.min(eNum(i, l.n), l.n)), n = sum(got, x => x)
+  p.lines.forEach((l, i) => { if (got[i]) eAddPicked(p.store, { a: p.a, v: l.v, n: got[i], ic: p.ic, alt: p.alt }); l.n -= got[i] })
+  p.lines = p.lines.filter(l => l.n > 0)
+  if (!p.lines.length) E_PICKS.splice(E_PICKS.indexOf(p), 1)
+  else { p.back = false; if (cannot) { p.short = true; p.note = eSheet.note || "Cannot pick" } }
+  const rest = pcsOf(p)
+  eClose(); eToast(`${code3(p.store)} · ${ep(n)} picked${p.lines.length ? ` · ${ep(rest)} ${cannot ? "short" : "still to pick"}` : ""}`, before); render()
+}
+// Pack — only a sealed koli is made.
+function ePackSheet() {
+  const st = eSheet.store, row = E_PICKED.find(x => x.store === st), made = eKoliOf(st), next = (eNo[st] ?? 0) + 1
+  const n = row ? sum(row.lines.map((l, i) => Math.min(eNum(i, l.n), l.n)), x => x) : 0, over = row ? row.lines.some((l, i) => eNum(i, l.n) > l.n) : false
+  return eHeadS("Picked", `Pack · ${st}`) + `<div class="sb">
+    ${made.length ? `<div class="made">${made.map(k => `<div class="mk"><span class="kchip"><span class="box">${IC.ok}</span></span><b>Koli ${k.no}</b><span class="mono">${k.code}</span><span style="margin-left:auto" class="num">${ep(k.n)}</span></div>`).join("")}</div>` : ""}
+    ${row ? `<div class="dtitle"><h3>Koli ${next}</h3><span class="m">${n} of ${ep(eLeft(st))}</span></div>
+    <div class="tbox"><table><thead><tr><th>Article</th><th class="r hide-n" style="width:110px">Picked</th><th class="r" style="width:140px">Into Koli ${next}</th></tr></thead>
+    <tbody>${row.lines.map((l, i) => `<tr><td>${eArt(l.ic, l.a, `${l.v}<span class="show-n"> · ${l.n} picked</span>`)}</td><td class="r num hide-n">${ep(l.n)}</td><td class="r">${eInput(i, eSheet.typed[i] ?? l.n, eNum(i, l.n) > l.n)}</td></tr>`).join("")}</tbody></table></div>`
+      : `<div class="allin"><b>All picked pieces are in koli.</b></div>`}</div>
+    <div class="sf"><button class="btn g lg" onclick="eClose()">${row ? "Close" : "Done"}</button>${row ? `<button class="btn p lg" ${eDis(n && !over)} onclick="eSeal()">Seal Koli ${next} · ${ep(n)}</button>` : `<button class="btn p lg" onclick="eClose();etab='packed';render()">See in Packed</button>`}</div>`
+}
+function eSeal() {
+  const st = eSheet.store, row = E_PICKED.find(x => x.store === st); if (!row) return
+  const take = row.lines.map((l, i) => Math.min(eNum(i, l.n), l.n)), n = sum(take, x => x); if (!n) return
+  const before = eSnap(), code = `KOLI-HO-GUDANG-0000${eKoliNo++}`, no = (eNo[st] ?? 0) + 1
+  eNo[st] = no
+  E_KOLI.push({ code, store: st, no, n, at: "now", c: row.lines.map((l, i) => take[i] ? { ...l, n: take[i] } : null).filter(Boolean) })
+  row.lines.forEach((l, i) => l.n -= take[i]); eTidyPicked()
+  eSheet.typed = {}; eToast(`Koli ${no} sealed · ${code} · label printing`, before); eDraw(); render()
+}
+// Back to Picklist — how many per article; the picklist comes back flagged.
+function eBackSheet() {
+  const items = eSheet.keys.map(k => ({ k, f: eFindLine(k) })).filter(x => x.f)
+  const n = sum(items, x => Math.min(eNum(x.k, x.f.l.n), x.f.l.n)), over = items.some(x => eNum(x.k, x.f.l.n) > x.f.l.n)
+  return eHeadS("Picked", "Back to Picklist") + `<div class="sb"><div class="tbox"><table><thead><tr><th>Article</th><th class="r hide-n" style="width:110px">Picked</th><th class="r" style="width:130px">Back</th></tr></thead>
+    <tbody>${items.map(({ k, f }) => `<tr><td>${eArt(f.l.ic, f.l.a, `${f.l.v} · ${code3(f.row.store)} · <span class="mono">${f.l.alt}</span>`)}</td><td class="r num hide-n">${ep(f.l.n)}</td><td class="r">${eInput(k, eSheet.typed[k] ?? f.l.n, eNum(k, f.l.n) > f.l.n)}</td></tr>`).join("")}</tbody></table></div></div>
+    <div class="sf"><button class="btn g lg" onclick="eClose()">Close</button><button class="btn d lg" ${eDis(n && !over)} onclick="eBackDo()">Back to Picklist · ${ep(n)}</button></div>`
+}
+function eBackDo() {
+  const before = eSnap(); let total = 0
+  eSheet.keys.forEach(k => { const f = eFindLine(k); if (!f) return; const take = Math.min(eNum(k, f.l.n), f.l.n); if (!take) return
+    f.l.n -= take; total += take
+    let pk = E_PICKS.find(x => x.alt === f.l.alt && x.store === f.row.store && x.a === f.l.a)
+    if (!pk) { pk = { id: ++ePickId, alt: f.l.alt, store: f.row.store, a: f.l.a, ic: f.l.ic, lines: [] }; const at = E_PICKS.findIndex(x => `${x.store}${x.alt}` > `${pk.store}${pk.alt}`); at < 0 ? E_PICKS.push(pk) : E_PICKS.splice(at, 0, pk) }
+    pk.back = true; const ln = pk.lines.find(x => x.v === f.l.v); ln ? ln.n += take : pk.lines.push({ v: f.l.v, n: take }) })
+  eTidyPicked(); ePRows.clear(); eClose(); eToast(`${ep(total)} back to Picklist`, before); render()
+}
+// Dispatch — the ticked koli on one lorry; the trip's facts; one surat jalan per store.
+function eDispatchSheet() {
+  const ch = E_KOLI.filter(k => eSel.has(k.code)), stores = new Set(ch.map(k => k.store)).size
+  return eHeadS("Packed", `Dispatch ${ch.length} koli`) + `<div class="sb">
+    <div class="facts"><div><label class="l" for="drv">Driver</label><input id="drv" class="fin" value="${eSheet.driver ?? ""}" oninput="eSheet.driver=this.value" placeholder="Name"></div><div><label class="l" for="plt">Vehicle</label><input id="plt" class="fin" value="${eSheet.plate ?? ""}" oninput="eSheet.plate=this.value" placeholder="B 1234 XX"></div></div>
+    <div class="tbox"><table><thead><tr><th>Koli</th><th class="hide-n">Store</th><th class="r">Pcs</th></tr></thead>
+    <tbody>${ch.map(k => `<tr><td><span class="kchip"><span class="box">${IC.ok}</span><span class="two"><span class="nm">Koli ${k.no} · ${code3(k.store)}</span><span class="b mono">${k.code}</span></span></span></td><td class="hide-n">${k.store}</td><td class="r num">${k.n}</td></tr>`).join("")}</tbody>
+    <tfoot><tr><td class="m">${stores} ${stores === 1 ? "store" : "stores"} · ${stores} surat jalan</td><td class="hide-n"></td><td class="r num"><b>${ep(sum(ch, k => k.n))}</b></td></tr></tfoot></table></div></div>
+    <div class="sf"><button class="btn g lg" onclick="eClose()">Close</button><button class="btn p lg" ${eDis(ch.length)} onclick="eDispatch()">Dispatch ${ch.length} koli</button></div>`
+}
+function eDispatch() {
+  const ch = E_KOLI.filter(k => eSel.has(k.code)); if (!ch.length) return
+  const before = eSnap(), byStore = new Map()
+  ch.forEach(k => { const x = byStore.get(k.store) ?? []; x.push(k); byStore.set(k.store, x) })
+  byStore.forEach((kl, store) => E_TRIPS.unshift({ sj: `DSP-HO-GUDANG-0000${eTrip++}`, store, left: "21 Oct now", driver: eSheet?.driver || "—", plate: eSheet?.plate || "—", kl }))
+  E_KOLI.splice(0, E_KOLI.length, ...E_KOLI.filter(k => !eSel.has(k.code)))
+  eSel.clear(); eClose(); etab = "transit"; eToast(`${ch.length} koli dispatched · ${byStore.size} surat jalan printing`, before); render()
+}
+// A koli — what is inside; Unpack sends it back to Picked.
+function eKoliSheet() {
+  const k = E_KOLI.find(x => x.code === eSheet.code); if (!k) return ""
+  return eHeadS(`Packed · ${k.code}`, `Koli ${k.no} · ${k.store}`) + `<div class="sb"><div class="facts"><div><div class="l">Sealed</div><div class="v">${k.at}</div></div><div><div class="l">Pieces</div><div class="v">${ep(k.n)}</div></div></div>
+    <div class="tbox"><table><thead><tr><th>Article</th><th class="hide-n">Allotment</th><th class="r">Pcs</th></tr></thead><tbody>${k.c.map(c => `<tr><td>${eArt(c.ic, c.a, c.v)}</td><td class="hide-n"><span class="mono">${c.alt}</span></td><td class="r num">${c.n}</td></tr>`).join("")}</tbody></table></div></div>
+    <div class="sf"><button class="btn g lg" onclick="eClose()">Close</button><button class="btn d lg" onclick="eSel.clear();eSel.add('${k.code}');eUnpack()">Unpack</button></div>`
+}
+function eUnpack() {
+  const ch = E_KOLI.filter(k => eSel.has(k.code)); if (!ch.length) return
+  const before = eSnap()
+  ch.forEach(k => k.c.forEach(c => eAddPicked(k.store, c)))
+  E_KOLI.splice(0, E_KOLI.length, ...E_KOLI.filter(k => !eSel.has(k.code)))
+  eSel.clear(); eClose(); eToast(`${ch.length} koli unpacked · back in Picked · labels void`, before); render()
+}
+// A trip — its surat jalan; Cancel dispatch brings its koli back to Packed.
+function eTripSheet() {
+  const t = E_TRIPS.find(x => x.sj === eSheet.sj); if (!t) return ""
+  return eHeadS("In transit", t.sj) + `<div class="sb"><div class="facts"><div><div class="l">Store</div><div class="v">${t.store}</div></div><div><div class="l">Left</div><div class="v">${t.left}</div></div><div><div class="l">Driver</div><div class="v">${t.driver}</div></div><div><div class="l">Vehicle</div><div class="v">${t.plate}</div></div></div>
+    <div class="tbox"><table><thead><tr><th>Koli</th><th class="r">Pcs</th></tr></thead><tbody>${t.kl.map(k => `<tr><td><span class="kchip"><span class="box">${IC.ok}</span><span class="two"><span class="nm">Koli ${k.no}</span><span class="b mono">${k.code}</span></span></span></td><td class="r num">${k.n}</td></tr>`).join("")}</tbody></table></div></div>
+    <div class="sf"><button class="btn g lg" onclick="eClose()">Close</button><button class="btn d lg" onclick="eTSel.clear();eTSel.add('${t.sj}');eCancelTrips()">Cancel dispatch</button></div>`
+}
+function eCancelTrips() {
+  const ch = E_TRIPS.filter(t => eTSel.has(t.sj)); if (!ch.length) return
+  const before = eSnap()
+  ch.forEach(t => E_KOLI.push(...t.kl)); E_KOLI.sort((a, b) => a.store.localeCompare(b.store) || a.no - b.no)
+  E_TRIPS.splice(0, E_TRIPS.length, ...E_TRIPS.filter(t => !eTSel.has(t.sj)))
+  eTSel.clear(); eClose(); etab = "packed"; eToast(`${ch.length === 1 ? ch[0].sj : `${ch.length} surat jalan`} cancelled · ${sum(ch, t => t.kl.length)} koli back in Packed`, before); render()
+}
+// ── page ──
+const eHead = () => "<h1>Allotment</h1>"
+function eTick(set, key) { set.has(key) ? set.delete(key) : set.add(key); render() }
+function eTickAllOf(set, keys, on) { keys.forEach(k => on ? set.delete(k) : set.add(k)); render() }
+let eKeys = {}
+const eCb = (set, key) => `<input type="checkbox" class="cb" ${set.has(key) ? "checked" : ""} onclick="event.stopPropagation();eTick(${set === eSel ? "eSel" : set === eTSel ? "eTSel" : "ePRows"}, this.closest('tr').dataset.key)">`
+const eCbAll = (name, keys) => { const set = { eSel, eTSel, ePRows }[name], on = keys.length > 0 && keys.every(k => set.has(k)); eKeys[name] = keys; return `<input type="checkbox" class="cb" ${on ? "checked" : ""} onclick="eTickAllOf(${name}, eKeys.${name}, ${on})" aria-label="All">` }
+/// The thin store rail, no All; the phone's store select.
+function eRailOf(which, stores, pcs) {
+  if (!stores.includes(eRail[which])) eRail[which] = stores[0] ?? null
+  const cur = eRail[which]
+  return { cur, html: `<select class="psel2" onchange="eRail.${which}=this.value;render()">${stores.map(st => `<option value="${st}" ${st === cur ? "selected" : ""}>${st} · ${ep(pcs(st))}</option>`).join("")}</select>`,
+    rail: `<div class="prail">${stores.map(st => `<button class="pr ${st === cur ? "on" : ""}" onclick="eRail.${which}='${st}';render()"><span class="trunc">${st}</span><span class="num">${pcs(st)}</span></button>`).join("")}</div>` }
+}
+function pageE() {
+  const T = [["picklist", "Picklist", IC.list, E_PICKS.length], ["picked", "Picked", IC.pick, E_PICKED.length], ["packed", "Packed", IC.pack, E_KOLI.length], ["transit", "In transit", IC.transit, E_TRIPS.length]]
+  const figs = `<div class="figs">
+    <div class="fig"><div class="l">To pick</div><div class="v">${ep(sum(E_PICKS, pcsOf))}</div></div>
+    <div class="fig"><div class="l">Picked</div><div class="v">${ep(sum(E_PICKED, x => eLeft(x.store)))}</div></div>
+    <div class="fig"><div class="l">Packed</div><div class="v">${E_KOLI.length} koli</div></div>
+    <div class="fig"><div class="l">In transit</div><div class="v">${sum(E_TRIPS, t => t.kl.length)} koli</div></div></div>`
+  const tabs = `<div class="itabs">${T.map(([k, w, ic, n]) => `<button class="itab ${etab === k ? "on" : ""}" onclick="etab='${k}';render()"><span class="ii">${ic}</span><span class="lb">${w} <span class="c">${n}</span></span></button>`).join("")}</div>`
+  let body = "", action = ""
+  if (etab === "picklist") {
+    const stores = [...new Set(E_PICKS.map(p => p.store))].sort()
+    const r = eRailOf("picklist", stores, st => sum(E_PICKS.filter(p => p.store === st), pcsOf))
+    const rows = E_PICKS.filter(p => p.store === r.cur).sort((a, b) => a.alt.localeCompare(b.alt) || a.a.localeCompare(b.a))
+    body = stores.length ? `${r.html}<div class="pwrap">${r.rail}<div class="pmain"><div class="tbox"><table>
+      <thead><tr><th class="r" style="width:56px">No.</th><th style="width:44%">Article</th><th class="hide-n">Allotment</th><th class="r hide-n">Qty</th><th class="r" style="width:190px"></th></tr></thead>
+      <tbody>${rows.map((p, i) => `<tr class="click" onclick="eOpen({ kind: 'pick', id: ${p.id}, typed: {} })"><td class="r m num">${i + 1}</td><td>${eArt(p.ic, p.a, `${vSum(p.lines)}<span class="show-n"> · ${ep(pcsOf(p))}</span>`)}</td><td class="hide-n"><span class="mono">${p.alt}</span></td><td class="r num hide-n">${ep(pcsOf(p))}</td>
+        <td class="r"><span class="stack">${p.short ? '<span class="flag">Short pick</span>' : p.back ? '<span class="flag fb">Back</span>' : ""}<button class="btn p" onclick="event.stopPropagation();eOpen({ kind: 'pick', id: ${p.id}, typed: {} })">Pick</button></span></td></tr>`).join("")}</tbody>
+      <tfoot><tr><td></td><td class="m">${rows.length} ${rows.length === 1 ? "picklist" : "picklists"}</td><td class="hide-n"></td><td class="r num hide-n"><b>${ep(sum(rows, pcsOf))}</b></td><td></td></tr></tfoot></table></div></div></div>` : empty("Nothing to pick.")
+  }
+  if (etab === "picked") {
+    const stores = E_PICKED.map(x => x.store).sort()
+    const r = eRailOf("picked", stores, eLeft), row = E_PICKED.find(x => x.store === r.cur)
+    for (const k of [...ePRows]) if (!eFindLine(k) || !k.startsWith(`${r.cur}|`)) ePRows.delete(k)
+    const keys = row ? row.lines.map(l => eLineKey(row.store, l)) : []
+    action = `<button class="btn r" ${eDis(ePRows.size)} onclick="eOpen({ kind: 'back', keys: [...ePRows], typed: {} })">Back to Picklist</button>` + (row ? `<button class="btn p" onclick="eOpen({ kind: 'pack', store: '${row.store}', typed: {} })">Pack ${code3(row.store)}</button>` : "")
+    body = row ? `${r.html}<div class="pwrap">${r.rail}<div class="pmain"><div class="tbox"><table>
+      <thead><tr><th style="width:52px">${eCbAll("ePRows", keys)}</th><th style="width:52%">Article</th><th class="hide-n">Allotment</th><th class="r">Picked</th></tr></thead>
+      <tbody>${row.lines.map(l => { const key = eLineKey(row.store, l); return `<tr class="click ${ePRows.has(key) ? "sel" : ""}" data-key="${key}" onclick="eTick(ePRows, this.dataset.key)"><td>${eCb(ePRows, key)}</td><td>${eArt(l.ic, l.a, l.v)}</td><td class="hide-n"><span class="mono">${l.alt}</span></td><td class="r num">${ep(l.n)}</td></tr>` }).join("")}</tbody>
+      <tfoot><tr><td></td><td class="m">${row.lines.length} ${row.lines.length === 1 ? "article" : "articles"} · ${eAlts(row).join(", ")}</td><td class="hide-n"></td><td class="r num"><b>${ep(eLeft(row.store))}</b></td></tr></tfoot></table></div></div></div>` : empty("Nothing picked waits to be packed.")
+  }
+  if (etab === "packed") {
+    const ch = E_KOLI.filter(k => eSel.has(k.code))
+    action = `<button class="btn r" ${eDis(ch.length)} onclick="eUnpack()">Unpack</button><button class="btn p" ${eDis(ch.length)} onclick="eOpen({ kind: 'dispatch', typed: {} })">Dispatch${ch.length ? ` ${ch.length} koli` : ""}</button>`
+    body = E_KOLI.length ? `<div class="tbox"><table>
+      <thead><tr><th style="width:56px">${eCbAll("eSel", E_KOLI.map(k => k.code))}</th><th>Koli</th><th class="hide-n">Store</th><th class="hide-n">Sealed</th><th class="r">Pcs</th></tr></thead>
+      <tbody>${E_KOLI.map(k => `<tr class="click ${eSel.has(k.code) ? "sel" : ""}" data-key="${k.code}" onclick="eOpen({ kind: 'koli', code: '${k.code}' })"><td>${eCb(eSel, k.code)}</td>
+        <td><span class="kchip"><span class="box">${IC.ok}</span><span class="two"><span class="nm">Koli ${k.no}</span><span class="b mono">${k.code}</span><span class="b show-n">${k.store}</span></span></span></td>
+        <td class="hide-n">${k.store}</td><td class="hide-n">${k.at}</td><td class="r num">${k.n}</td></tr>`).join("")}</tbody></table></div>` : empty("No koli packed yet.")
+  }
+  if (etab === "transit") {
+    const ch = E_TRIPS.filter(t => eTSel.has(t.sj))
+    action = `<button class="btn r" ${eDis(ch.length)} onclick="eCancelTrips()">Cancel dispatch${ch.length ? ` · ${ch.length}` : ""}</button>`
+    body = E_TRIPS.length ? `<div class="tbox"><table>
+      <thead><tr><th style="width:56px">${eCbAll("eTSel", E_TRIPS.map(t => t.sj))}</th><th style="width:34%">Surat jalan</th><th class="hide-n">Store</th><th class="hide-n">Left</th><th class="r hide-n">Koli</th><th class="r">Pcs</th><th class="r" style="width:150px">Status</th></tr></thead>
+      <tbody>${E_TRIPS.map(t => `<tr class="click ${eTSel.has(t.sj) ? "sel" : ""}" data-key="${t.sj}" onclick="eOpen({ kind: 'trip', sj: '${t.sj}' })"><td>${eCb(eTSel, t.sj)}</td><td><div class="two"><span class="nm mono trunc">${t.sj}</span><span class="b trunc">${t.kl.map(k => `Koli ${k.no}`).join(" · ")}</span><span class="b show-n">${t.store}</span></div></td><td class="hide-n">${t.store}</td><td class="hide-n">${t.left}</td><td class="r num hide-n">${t.kl.length}</td><td class="r num">${sum(t.kl, k => k.n)}</td><td class="r"><span class="stack">${t.short ? `<span class="flag">Short −${t.short}</span>` : ""}<span style="color:var(--info)">In transit</span></span></td></tr>`).join("")}</tbody></table></div>` : empty("Nothing in transit.")
+  }
+  return figs + tabs + `<div class="ebar">${search}${action ? `<span class="ebtn">${action}</span>` : ""}</div>` + body
+}
+function closeSheet() { document.getElementById("app").classList.remove("sheeted") }
+function render() {
+  document.getElementById("opts").innerHTML = OPTIONS.map(o => `<button class="${o.k===opt?"on":""}" onclick="opt='${o.k}';render()"><b>${o.k}</b>${o.t}${o.star?'<span class="star">★</span>':''}</button>`).join("")
+  document.getElementById("widths").innerHTML = [["Desk",false],["Phone 414",true]].map(([t,n]) => `<button class="${narrow===n?"on":""}" onclick="narrow=${n};render()">${t}</button>`).join("")
+  document.body.classList.toggle("narrow", narrow)
+  document.getElementById("note").innerHTML = OPTIONS.find(o => o.k === opt).note
+  document.getElementById("page").innerHTML = { A: pageA, B: pageB, C: pageC, D: pageD, E: pageE }[opt]()
+  const hd = document.querySelector(".main .head"); if (hd) hd.innerHTML = opt === "E" ? eHead() : "<h1>Allotment</h1>"
+}
+document.getElementById("scrim").onclick = closeSheet
+const q = new URLSearchParams(location.search); if (q.get("o") && "ABCDE".includes(q.get("o"))) opt = q.get("o")
+render()
+</script>
+</body>
+</html>

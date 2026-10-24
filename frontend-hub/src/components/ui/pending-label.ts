@@ -41,6 +41,7 @@ const PARTICIPLE: Readonly<Record<string, string>> = {
   invite: "Inviting",
   issue: "Issuing",
   mark: "Marking",
+  match: "Matching",
   move: "Moving",
   open: "Opening",
   order: "Ordering",

@@ -186,6 +186,10 @@ pub struct TenderBucket {
     /// (`bank_giro`) instead of an acquirer receivable (owner, 1 Oct 2026:
     /// digital takings go straight to Cash in Bank).
     pub direct_bank: Option<String>,
+    /// The Cash In Bank account that EDC's kind of payment lands in, when head
+    /// office named one for the shop's machine (0989). The bank's side then
+    /// posts to that account instead of the `bank_giro` link of `direct_bank`.
+    pub direct_account: Option<String>,
 }
 
 /// A day, as the ledger has to see it.
@@ -234,6 +238,10 @@ pub struct LedgerSide {
     pub debit_minor: i64,
     pub credit_minor: i64,
     pub memo: String,
+    /// The client account the side lands in when somebody chose it — a shop
+    /// EDC's Cash In Bank account (0989). The meaning still says whose books
+    /// the side is in; the account replaces only what its link would say.
+    pub account_code: Option<String>,
 }
 
 impl LedgerSide {
@@ -244,6 +252,7 @@ impl LedgerSide {
             debit_minor: amount,
             credit_minor: 0,
             memo,
+            account_code: None,
         }
     }
 
@@ -254,7 +263,23 @@ impl LedgerSide {
             debit_minor: 0,
             credit_minor: amount,
             memo,
+            account_code: None,
         }
+    }
+
+    fn landing_in(mut self, account_code: Option<String>) -> Self {
+        self.account_code = account_code;
+        self
+    }
+}
+
+/// The account a bucket's bank side lands in: the shop EDC's own, only on the
+/// side that is the bank (0989).
+fn landing(bucket: &TenderBucket, asset_key: &str) -> Option<String> {
+    if asset_key == "bank_giro" {
+        bucket.direct_account.clone()
+    } else {
+        None
     }
 }
 
@@ -517,12 +542,15 @@ pub fn build_with(figures: &DayFigures, rules: DayRules) -> Result<DayPosting, S
                 .direct_mdr_bps
                 .map(|bps| (net * i64::from(bps) + 5_000) / 10_000)
                 .unwrap_or(0);
-            sides.push(LedgerSide::debit(
-                asset_key,
-                &asset_qualifier,
-                net - fee,
-                format!("{label} takings"),
-            ));
+            sides.push(
+                LedgerSide::debit(
+                    asset_key,
+                    &asset_qualifier,
+                    net - fee,
+                    format!("{label} takings"),
+                )
+                .landing_in(landing(bucket, asset_key)),
+            );
             if fee > 0 {
                 sides.push(LedgerSide::debit(
                     "card_fee",
@@ -539,12 +567,15 @@ pub fn build_with(figures: &DayFigures, rules: DayRules) -> Result<DayPosting, S
                 Some(bank) => ("bank_giro", bank.clone()),
                 None => (asset_key, asset_qualifier.clone()),
             };
-            sides.push(LedgerSide::credit(
-                asset_key,
-                &asset_qualifier,
-                -net,
-                format!("{label} refunded more than it took"),
-            ));
+            sides.push(
+                LedgerSide::credit(
+                    asset_key,
+                    &asset_qualifier,
+                    -net,
+                    format!("{label} refunded more than it took"),
+                )
+                .landing_in(landing(bucket, asset_key)),
+            );
         }
         if income > 0 {
             sides.push(LedgerSide::credit(
@@ -685,6 +716,7 @@ mod tests {
             tender_count: 1,
             direct_mdr_bps: None,
             direct_bank: None,
+            direct_account: None,
         }
     }
 

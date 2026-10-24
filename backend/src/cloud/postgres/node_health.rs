@@ -49,7 +49,9 @@ fn worth_an_alert(assessment: &Assessment) -> bool {
 
 /// Announce a condition starting or ending, at most once each, to every
 /// Admin. Runs inside the caller's transaction, so the alert memory and the
-/// notification commit together.
+/// notification commit together. A removed store's server (`unit.status =
+/// 'CLOSED'`, 0990) is announced nothing: it may still be sending what it
+/// had not, and its going quiet is the store being gone.
 async fn announce(
     tx: &mut Transaction<'_, Postgres>,
     origin_id: &str,
@@ -57,6 +59,18 @@ async fn announce(
     assessment: &Assessment,
     now: DateTime<Utc>,
 ) -> Result<(), AppError> {
+    let removed: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM sync_origin_credential c
+                          JOIN site s ON s.id = c.site_id
+                          JOIN unit u ON u.id = s.unit_id
+                         WHERE c.origin_id = $1 AND u.status = 'CLOSED')",
+    )
+    .bind(origin_id)
+    .fetch_one(&mut **tx)
+    .await?;
+    if removed {
+        return Ok(());
+    }
     let alerted: Option<String> = sqlx::query_scalar(
         "SELECT alerted_code FROM node_heartbeat WHERE origin_id = $1 FOR UPDATE",
     )
@@ -265,8 +279,12 @@ pub async fn record_heartbeat(
 pub async fn sweep_silent_nodes(pool: &PgPool) -> Result<u64, AppError> {
     let now = Utc::now();
     let quiet: Vec<(String, DateTime<Utc>, Value)> = sqlx::query_as(
-        "SELECT origin_id, received_at, status FROM node_heartbeat
-          WHERE received_at < $1 AND alerted_code IS DISTINCT FROM 'SILENT'",
+        "SELECT h.origin_id, h.received_at, h.status FROM node_heartbeat h
+          WHERE h.received_at < $1 AND h.alerted_code IS DISTINCT FROM 'SILENT'
+            AND NOT EXISTS (SELECT 1 FROM sync_origin_credential c
+                              JOIN site s ON s.id = c.site_id
+                              JOIN unit u ON u.id = s.unit_id
+                             WHERE c.origin_id = h.origin_id AND u.status = 'CLOSED')",
     )
     .bind(now - Duration::minutes(SILENT_ALERT_MINUTES))
     .fetch_all(pool)

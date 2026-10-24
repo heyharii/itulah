@@ -1,6 +1,5 @@
 import {
   ArrowLeftRight,
-  BarChart3,
   BellRing,
   Boxes,
   Building2,
@@ -27,6 +26,7 @@ import {
   ScanBarcode,
   Scale,
   Undo2,
+  Unlink,
   Server,
   Sun,
   TrendingUp,
@@ -214,6 +214,11 @@ const money: AppModule = {
     {
       items: [
         { path: "/money/sales", label: "Sales", icon: TrendingUp },
+        {
+          path: "/money/unmatched",
+          label: "Unmatched sales",
+          icon: Unlink,
+        },
         { path: "/money/reconciliation", label: "Reconciliation", icon: Scale },
         {
           path: "/money/petty-cash",

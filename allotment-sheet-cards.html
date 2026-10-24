@@ -1,0 +1,665 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Allotment sheet cards</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* Tokens: frontend-hub/design-system/tokens.css (All white, 17 Oct 2026) */
+:root {
+  --ink: #1d1d1f; --body: #6e6e73; --mute: #6e6e73; --faint: #c7c7cc; --crumb-sep: #aeaeb2;
+  --canvas: #fff; --soft: #fafafb; --soft-2: #f2f2f5; --band: #fafafb; --segment-track: #f2f2f4;
+  --row-line: #eeeef1; --hairline: #e8e8ec; --hairline-2: #dcdce1; --hairline-strong: #c7c7cc; --stone: #e8ebf0;
+  --scrim: rgba(208, 208, 213, .48);
+  --accent: #2862dc; --cta: #2862dc; --cta-hover: #2055c7; --danger: #d70015; --danger-hover: #bf0013;
+  --ok: #36b827; --ok-fg: #248a3d; --warn: #c9892e; --warn-fg: #a66c1f; --bad-fg: #d70015; --info: #2f86d8; --info-fg: #496b9c;
+  --shadow-sheet: 0 0 0 1px rgba(0,0,0,.05), 0 2px 8px rgba(0,0,0,.05), 0 24px 64px rgba(0,0,0,.14);
+  --shadow-primary: 0 1px 2px rgba(20,50,100,.1); --shadow-segment: 0 1px 3px rgba(0,0,0,.12);
+  --r-inner: 8px; --r-chip: 6px; --r-card: 10px; --r-sheet: 16px;
+  --ease-out: cubic-bezier(.23, 1, .32, 1);
+  --font: "Inter Variable", Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* Stage dots: the same colours as the In progress cards' store tiles */
+  --st-pick: #aeaeb2; --st-picked: #e9c88f; --st-packed: #c9892e; --st-sent: #2f86d8; --st-got: #36b827; --st-off: #c7c7cc;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { display: flex; flex-direction: column; font-family: var(--font); font-size: 15px; line-height: 1.45; color: var(--ink); background: var(--stone); -webkit-font-smoothing: antialiased; }
+button { font: inherit; color: inherit; }
+h2, dl, dd, p { margin: 0; padding: 0; }
+.num { font-variant-numeric: tabular-nums; }
+[hidden] { display: none !important; }
+
+/* ── Prototype chrome (not part of the design) ─────────────────────────── */
+.chrome { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 10px 16px; background: var(--canvas); border-bottom: 1px solid var(--hairline); }
+.seg { display: inline-flex; gap: 2px; padding: 3px; border-radius: 9px; background: var(--segment-track); max-width: 100%; overflow-x: auto; }
+.seg button { height: 30px; padding: 0 11px; border: 0; border-radius: 6px; background: none; color: var(--body); font-weight: 500; white-space: nowrap; cursor: pointer; transition: color 120ms var(--ease-out); }
+.seg button[aria-pressed="true"] { border-radius: 7px; background: var(--canvas); color: var(--ink); box-shadow: var(--shadow-segment); }
+.why { flex-basis: 100%; color: var(--body); }
+.why b { color: var(--ink); font-weight: 600; }
+
+/* ── Stage ─────────────────────────────────────────────────────────────── */
+.stage { position: relative; flex: 1; min-height: 0; display: flex; justify-content: center; padding: 12px; background: var(--scrim); }
+
+/* ── Sheet (record sheet, 1040 like today's allotment sheet) ───────────── */
+.sheet { display: flex; flex-direction: column; width: 1040px; max-width: 100%; height: 100%; border-radius: var(--r-sheet); background: var(--canvas); box-shadow: var(--shadow-sheet); overflow: hidden; }
+.phone .sheet { width: 414px; }
+.head { flex: none; display: flex; align-items: flex-start; gap: 20px; padding: 24px 28px 16px; border-bottom: 1px solid var(--hairline); }
+.back { display: inline-flex; align-items: center; gap: 4px; height: 36px; margin-top: 10px; padding: 0 8px 0 4px; border: 0; border-radius: var(--r-inner); background: none; color: var(--body); cursor: pointer; }
+.crumb { color: var(--mute); line-height: 20px; }
+.titlerow { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; }
+.title { font-size: 17px; line-height: 24px; font-weight: 600; letter-spacing: -.3px; }
+.body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 20px; padding: 20px 28px 28px; }
+.foot { flex: none; display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; min-height: 64px; padding: 12px 28px; border-top: 1px solid var(--hairline); }
+.foot-note { margin-right: auto; color: var(--mute); line-height: 20px; }
+.phone .head, .phone .body, .phone .foot { padding-left: 16px; padding-right: 16px; }
+.phone .foot { padding-bottom: 28px; }
+.phone .foot .btn { flex: 1; height: 44px; }
+.phone .foot-note { flex-basis: 100%; }
+
+/* ── Kit ───────────────────────────────────────────────────────────────── */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: none; height: 36px; padding: 0 16px; border: 1px solid transparent; border-radius: var(--r-inner); background: transparent; font-weight: 600; white-space: nowrap; cursor: pointer; transition: background-color 120ms var(--ease-out), scale 120ms var(--ease-out); }
+.btn:active { scale: .97; }
+.btn--primary { background: var(--cta); color: #fff; box-shadow: var(--shadow-primary); }
+.btn--danger { background: var(--danger); color: #fff; }
+.btn--ghost { border-color: var(--hairline-2); background: var(--canvas); font-weight: 500; }
+@media (hover: hover) and (pointer: fine) {
+  .btn--primary:hover { background: var(--cta-hover); }
+  .btn--danger:hover { background: var(--danger-hover); }
+  .btn--ghost:hover { background: var(--soft-2); }
+  .back:hover { background: var(--soft-2); }
+}
+.status { display: inline-flex; align-items: center; gap: 7px; font-weight: 500; white-space: nowrap; }
+.status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.status--bad { color: var(--bad-fg); }
+.status--info { color: var(--info-fg); }
+.status--ok { color: var(--ok-fg); }
+
+.facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px 32px; }
+.phone .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.fact dt { line-height: 20px; color: var(--body); }
+.fact dd { margin-top: 2px; line-height: 22px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+
+/* ── Store card: the supplier card of New Articles ─────────────────────── */
+.stores { display: flex; flex-direction: column; gap: 12px; }
+.store { border: 1px solid var(--hairline); border-radius: var(--r-card); background: var(--canvas); }
+.store-head { display: flex; align-items: center; gap: 12px; width: calc(100% - 12px); min-height: 44px; margin: 6px; padding: 6px 12px 6px 14px; border: 0; border-radius: var(--r-inner); background: none; text-align: left; cursor: pointer; transition: background-color 120ms var(--ease-out); }
+@media (hover: hover) and (pointer: fine) { .store-head:hover { background: var(--soft); } }
+.chev { flex: none; width: 16px; height: 16px; color: var(--mute); transition: transform 200ms var(--ease-out); }
+.store.shut .chev { transform: rotate(-90deg); }
+.store-name { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; }
+.store-name h2 { font-size: 17px; line-height: 24px; font-weight: 600; overflow-wrap: anywhere; }
+.store-count { flex: none; color: var(--mute); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.store-body { display: grid; grid-template-rows: 1fr; transition: grid-template-rows 200ms var(--ease-out); }
+.store.shut .store-body { grid-template-rows: 0fr; }
+.store-body > div { min-height: 0; overflow: hidden; }
+.lines { display: flex; flex-direction: column; gap: 8px; padding: 2px 20px 20px; }
+.phone .lines { padding: 2px 12px 12px; }
+.phone .store-head { padding-left: 10px; }
+
+/* Stage group heading inside a store (option B) */
+.group-head { display: flex; align-items: center; gap: 8px; margin: 6px 2px 0; color: var(--mute); }
+.group-head:first-child { margin-top: 0; }
+.group-head .dot { width: 6px; height: 6px; border-radius: 50%; }
+.group-head b { color: var(--ink); font-weight: 500; }
+
+/* ── Line card: LineCard of New Articles ───────────────────────────────── */
+.line { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 16px; padding: 12px 16px; border: 1px solid var(--hairline); border-radius: var(--r-card); background: var(--canvas); text-align: left; cursor: pointer; transition: background-color 150ms var(--ease-out), transform 150ms var(--ease-out); }
+.line:active { transform: scale(.99); }
+@media (hover: hover) and (pointer: fine) { .line:hover { background: var(--soft); } }
+.phone .line { gap: 12px; padding: 12px; }
+.thumb { display: grid; place-items: center; width: 48px; height: 48px; border: 1px solid var(--hairline); border-radius: var(--r-inner); background: var(--canvas); }
+.phone .thumb { width: 44px; height: 44px; }
+.thumb svg { width: 30px; height: 30px; }
+.nm { display: block; font-weight: 500; overflow-wrap: anywhere; }
+.code { display: block; color: var(--mute); font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 15px; }
+.right { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-variant-numeric: tabular-nums; }
+.pcs { font-weight: 600; white-space: nowrap; }
+.where { display: inline-flex; align-items: center; gap: 6px; color: var(--mute); white-space: nowrap; }
+.where i { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+.under { display: none; margin-top: 2px; }
+.phone .right .where { display: none; }
+.phone .under { display: flex; white-space: normal; }
+.off .nm, .off .pcs { color: var(--mute); }
+.off .pcs { text-decoration: line-through; text-decoration-color: var(--faint); }
+
+/* ── Now: today's table (for comparison) ───────────────────────────────── */
+.box { border: 1px solid var(--hairline); border-radius: var(--r-card); overflow: clip; }
+.tbl { width: 100%; border-collapse: separate; border-spacing: 0; }
+.tbl th { height: 48px; padding: 0 16px; background: var(--band); box-shadow: inset 0 -1px 0 var(--hairline); color: var(--mute); font-weight: 500; text-align: right; white-space: nowrap; }
+.tbl th:first-child { text-align: left; }
+.tbl td { padding: 12px 16px; border-bottom: 1px solid var(--row-line); text-align: right; font-variant-numeric: tabular-nums; }
+.tbl td:first-child { text-align: left; }
+.tbl tr.st td { font-weight: 500; }
+.tbl tr.ln td { background: var(--soft); }
+.tbl td.z { color: var(--faint); }
+.tbl tfoot td { background: var(--band); font-weight: 600; border-bottom: 0; }
+.tl { display: flex; align-items: center; gap: 12px; padding-left: 28px; }
+.tl .thumb { width: 40px; height: 40px; }
+.tl .thumb svg { width: 26px; height: 26px; }
+
+/* Header: supplier is the title, the number and when under it */
+.title--big { font-size: 20px; line-height: 26px; letter-spacing: -.4px; overflow-wrap: anywhere; }
+.caption { margin-top: 2px; color: var(--mute); line-height: 20px; font-variant-numeric: tabular-nums; }
+.caption .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+.caption--bad { color: var(--bad-fg); }
+
+/* Stage tag: tinted, one colour per place */
+.tag { display: inline-flex; align-items: center; height: 26px; padding: 0 9px; border-radius: var(--r-chip); font-weight: 500; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tag--pick { background: #f2f2f5; color: #55555a; }
+.tag--picked, .tag--packed { background: #fbf2e3; color: #95601a; }
+.tag--sent { background: #e9f1fc; color: #2a64b0; }
+.tag--got { background: #e8f5e6; color: #237a36; }
+.tag--off { background: #f2f2f5; color: #8e8e93; text-decoration: line-through; }
+.tags { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+.where-tags .tags { justify-content: flex-start; margin-top: 6px; }
+
+/* C Compact: rows inside the store card, not cards */
+.rows { display: flex; flex-direction: column; margin: 0 20px 14px; border-top: 1px solid var(--row-line); }
+.phone .rows { margin: 0 12px 10px; }
+.row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto 64px; align-items: center; gap: 14px; padding: 9px 4px; border-bottom: 1px solid var(--row-line); text-align: left; background: none; border-left: 0; border-right: 0; border-top: 0; cursor: pointer; transition: background-color 120ms var(--ease-out); }
+.row:last-child { border-bottom: 0; }
+@media (hover: hover) and (pointer: fine) { .row:hover { background: var(--soft); } }
+.row .thumb { width: 40px; height: 40px; }
+.row .thumb svg { width: 24px; height: 24px; }
+.row .pcs { text-align: right; }
+.phone .row { grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; }
+.phone .row .tags-cell { display: none; }
+.more { align-self: flex-start; margin: 4px 0 0 4px; padding: 6px 4px; border: 0; background: none; color: var(--accent); font-weight: 500; cursor: pointer; border-radius: 4px; }
+.store-sum { display: flex; flex-wrap: wrap; gap: 4px; }
+
+/* D Per article: the article is the card head, the stores are its rows */
+.art-head { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1; }
+.art-head .thumb { width: 44px; height: 44px; flex: none; }
+.art-head .thumb svg { width: 28px; height: 28px; }
+.art-title { display: flex; flex-direction: column; min-width: 0; gap: 2px; }
+.art-title h2 { font-size: 17px; line-height: 24px; font-weight: 600; overflow-wrap: anywhere; }
+.art-title .store-sum { margin-top: 4px; }
+.art-title .tags { justify-content: flex-start; }
+.art-sub { display: none; }
+.phone .art-sub { display: inline; }
+.phone .art-head + .store-count { display: none; }
+.row--store { grid-template-columns: minmax(0, 1fr) auto 64px; padding: 11px 4px; }
+.phone .art-title .tags { justify-content: flex-start; }
+.art-sub { display: none; }
+.phone .art-sub { display: inline; }
+.phone .art-head + .store-count { display: none; }
+.row--store { grid-template-columns: minmax(0, 1fr) auto; }
+.row--store .shop { font-weight: 500; overflow-wrap: anywhere; }
+.row--store .shop span { color: var(--mute); font-weight: 400; }
+
+/* D v2: two-line head, quiet dot marks lined up on the right */
+.d-stores { display: flex; flex-direction: column; gap: 8px; }
+.d-head { display: grid; grid-template-columns: 16px 44px minmax(0, 1fr); align-items: center; gap: 14px; width: calc(100% - 8px); margin: 4px; padding: 10px 14px 10px 12px; border: 0; border-radius: var(--r-inner); background: none; text-align: left; cursor: pointer; transition: background-color 120ms var(--ease-out); }
+@media (hover: hover) and (pointer: fine) { .d-head:hover { background: var(--soft); } }
+.d-head { align-items: start; }
+.d-head .chev { margin-top: 14px; }
+.d-head .thumb { width: 44px; height: 44px; }
+.d-head .thumb svg { width: 28px; height: 28px; }
+.d-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.d-l1, .d-l2 { display: flex; align-items: baseline; justify-content: space-between; gap: 6px 20px; min-width: 0; }
+.d-l2 { flex-wrap: wrap; }
+.d-name { font-size: 16px; line-height: 22px; font-weight: 600; overflow-wrap: anywhere; }
+.d-pcs { flex: none; font-weight: 600; font-variant-numeric: tabular-nums; }
+.d-sub { color: var(--mute); white-space: nowrap; }
+.d-sub .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 15px; }
+.marks { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px 16px; }
+.mark { display: inline-flex; align-items: center; gap: 6px; color: var(--mute); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.mark i { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.mark b { color: var(--ink); font-weight: 500; }
+.mark--off { text-decoration: line-through; text-decoration-color: var(--faint); }
+.d-rows { margin: 0 18px 12px 88px; border-top: 1px solid var(--row-line); }
+.d-row { display: grid; grid-template-columns: minmax(0, 1fr) auto 72px; align-items: center; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--row-line); }
+.d-row:last-child { border-bottom: 0; }
+.d-row .shop { overflow-wrap: anywhere; }
+.d-row .shop span { color: var(--mute); }
+.d-row .d-pcs { text-align: right; font-weight: 500; }
+.d-rows .more { margin: 6px 0 0; padding: 4px 0; }
+.phone .d-head { grid-template-columns: 16px 40px minmax(0, 1fr); gap: 10px; padding: 10px 8px; }
+.phone .d-head .thumb { width: 40px; height: 40px; }
+.phone .d-l2 { flex-direction: column; align-items: flex-start; }
+.phone .marks { justify-content: flex-start; gap: 4px 12px; }
+.phone .d-rows { margin: 0 12px 10px; }
+.phone .d-row { grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; }
+.phone .d-row .marks { grid-column: 1; grid-row: 2; }
+.phone .d-row .d-pcs { grid-column: 2; grid-row: 1 / span 2; }
+
+/* Right sheet: docked to the right edge, narrower */
+.stage.right { justify-content: flex-end; }
+.stage.right .sheet { width: 760px; }
+
+/* E/F/G: one quiet summary per article and per store */
+.word { display: inline-flex; align-items: center; gap: 6px; color: var(--mute); white-space: nowrap; }
+.word i { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.plain { color: var(--mute); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.plain b { color: var(--ink); font-weight: 500; }
+.cols { display: grid; grid-template-columns: repeat(3, 84px); gap: 0 8px; text-align: right; font-variant-numeric: tabular-nums; }
+.cols span { display: flex; flex-direction: column; }
+.cols small { font-size: 15px; color: var(--mute); line-height: 20px; }
+.cols b { font-weight: 500; line-height: 22px; }
+.cols .z { color: var(--faint); }
+.g-head { display: grid; grid-template-columns: repeat(3, 84px); gap: 0 8px; justify-content: end; padding: 0 18px 0 0; color: var(--mute); text-align: right; }
+.d-row .cols b { font-weight: 400; }
+.look-g .d-row { grid-template-columns: minmax(0, 1fr) auto; }
+.look-g .d-head .cols { margin-top: -2px; }
+.phone .look-g .d-l1 { display: contents; }
+.phone .look-g .d-l2 { order: 1; }
+.phone .look-g .d-head .cols { order: 2; margin-top: 4px; }
+.phone .look-g .d-row .cols { grid-column: 1 / -1; grid-row: 2; }
+.phone .cols { grid-template-columns: repeat(3, 1fr); width: 100%; text-align: left; }
+.phone .g-head { display: none; }
+
+/* E word styles */
+.word--plain i, .word--color i, .word--outline i, .word--chip i { display: none; }
+.word--chip.k-picked.k-grey { background: #f2f2f5; color: #55555a; }
+.word--color.k-picked.k-grey { color: #6e6e73; }
+.word--chip { height: 26px; padding: 0 9px; border-radius: var(--r-chip); font-weight: 500; }
+.word--chip.k-pick { background: #f2f2f5; color: #55555a; } .word--chip.k-picked, .word--chip.k-packed { background: #fbf2e3; color: #95601a; }
+.word--chip.k-sent { background: #e9f1fc; color: #2a64b0; } .word--chip.k-got { background: #e8f5e6; color: #237a36; } .word--chip.k-off { background: #f2f2f5; color: #8e8e93; }
+.word--color { font-weight: 500; }
+.word--color.k-pick { color: #6e6e73; } .word--color.k-picked, .word--color.k-packed { color: #95601a; }
+.word--color.k-sent { color: #2a64b0; } .word--color.k-got { color: #237a36; } .word--color.k-off { color: #8e8e93; }
+.word--outline { height: 26px; padding: 0 9px; border-radius: var(--r-chip); box-shadow: inset 0 0 0 1px var(--hairline-2); color: var(--body); font-weight: 500; }
+
+/* Activity fold, once */
+.fold { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0; border: 0; border-top: 1px solid var(--hairline); background: none; color: var(--body); cursor: pointer; }
+.fold svg { width: 16px; height: 16px; }
+</style>
+</head>
+<body>
+<div class="chrome">
+  <div class="seg" id="pickLook" role="group" aria-label="Look"></div>
+  <div class="seg" id="pickRec" role="group" aria-label="Allotment"></div>
+  <div class="seg" id="pickDev" role="group" aria-label="Device"></div>
+  <div class="seg" id="pickSide" role="group" aria-label="Sheet"></div>
+  <div class="seg" id="pickMark" role="group" aria-label="Word style"></div>
+  <div class="seg" id="pickHead" role="group" aria-label="Article head"></div>
+  <p class="why" id="why"></p>
+</div>
+<div class="stage" id="stage"><section class="sheet" id="sheet" aria-label="Allotment"></section></div>
+
+<script>
+const LOOKS = [
+  { id: "now", label: "Now", why: "<b>Now</b> — today's table: five columns per store and per article, mostly zeros." },
+  { id: "a", label: "A Cards", why: "<b>A Cards</b> — New Articles' model: one card per store that folds, one card per article inside. Each article says its pieces once and where they are in one word." },
+  { id: "b", label: "B Cards by stage", why: "<b>B Cards by stage</b> — same cards, the articles of a store sorted under where they are: To pick, Dispatched, Received, Cancelled." },
+  { id: "c", label: "C Compact", why: "<b>C Compact</b> — the store card stays, the articles inside are rows (40px photo) so a long allotment is half the height. Where the pieces are is a coloured tag: grey To pick, amber Picked/Packed, blue Dispatched, green Received. The store head shows its tags, so a folded store still tells. More than 3 stores: all start folded. More than 5 articles: the rest behind Show more." },
+  { id: "d", label: "D Per article ★", why: "<b>D Per article</b> — one card per article: name and pieces, then code · stores, then where the pieces are as chips (or outline, dots, plain, coloured text — the style buttons). The stores sit inside as rows with one chip each. More than 3 articles: all start folded. More than 5 stores: the rest behind Show more." },
+  { id: "e", label: "E One word", why: "<b>E One word</b> — each store row says where its slowest pieces are in one chip (the In progress cards' rule). The article head: one chip when all its pieces are in one place, else at most three chips with pieces — At DC, Dispatched, Received (Head: three places). Head: slowest = the old rule, which reads Picking as long as any store still waits." },
+  { id: "f", label: "F Three places", why: "<b>F Three places</b> — five stages folded into the three MD cares about: At DC (to pick, picked, packed), Dispatched, Received. Plain grey text, no dots, a place with nothing is left out." },
+  { id: "g", label: "G Three columns", why: "<b>G Three columns</b> — the same three places as fixed columns at the right of every card and every store row, label over number, so the eye runs down one column. Zero is a faint dash." },
+];
+const DEVS = [{ id: "desk", label: "Desk" }, { id: "phone", label: "Phone 414" }];
+const MARKS = [{ id: "chip", label: "Chip ★" }, { id: "dot", label: "Dot" }, { id: "plain", label: "Plain" }, { id: "color", label: "Coloured text" }, { id: "outline", label: "Outline" }];
+const HEADS = [{ id: "places", label: "Head: three places ★" }, { id: "slowest", label: "Head: slowest" }];
+const SIDES = [{ id: "center", label: "Center" }, { id: "right", label: "Right sheet" }];
+
+// Stages, least done first. `w` = the word, `c` = the dot.
+const ST = {
+  pick: { w: "To pick", c: "var(--st-pick)" },
+  picked: { w: "Picked", c: "var(--st-picked)" },
+  packed: { w: "Packed", c: "var(--st-packed)" },
+  sent: { w: "Dispatched", c: "var(--st-sent)" },
+  got: { w: "Received", c: "var(--st-got)" },
+  off: { w: "Cancelled", c: "var(--st-off)" },
+};
+const ORDER = ["pick", "picked", "packed", "sent", "got", "off"];
+
+// Garment shapes for the placeholder thumbnails.
+const SHAPE = {
+  tee: c => `<svg viewBox="0 0 32 32"><path fill="${c}" d="M11 4l-7 4 3 6 3-1.5V28h12V12.5l3 1.5 3-6-7-4c-1 2-3 3-5 3s-4-1-5-3z"/></svg>`,
+  long: c => `<svg viewBox="0 0 32 32"><path fill="${c}" d="M11 4L5 7 3 26h4l2-13v15h14V13l2 13h4L27 7l-6-3c-1 2-3 3-5 3s-4-1-5-3z"/></svg>`,
+  pants: c => `<svg viewBox="0 0 32 32"><path fill="${c}" d="M9 3h14l1 25h-5l-3-17-3 17H8z"/></svg>`,
+  shoe: c => `<svg viewBox="0 0 32 32"><path fill="${c}" d="M3 20c3 0 7-2 10-5 3 2 8 3 14 3 2 0 3 2 3 4v1H3z"/></svg>`,
+};
+
+// Every line: { name, code, shape, colour, parts: { stage: pieces } }
+const RECS = {
+  alt3: {
+    label: "ALT-00000003", number: "ALT-00000003", status: null,
+    supplier: "Garmen Nusantara", when: "16 Oct 2026, 09:12", by: "Rina Kartika",
+    facts: [["Supplier", "Garmen Nusantara"], ["Allotted", "16 Oct 2026, 09:12"], ["By", "Rina Kartika"]],
+    stores: [
+      { code: "C001", name: "Cikupa", lines: [
+        { name: "Kaos Uji UJ16", code: "00000011", shape: "tee", colour: "#1d1d1f", parts: { sent: 6 } } ] },
+      { code: "C002", name: "Muaro Bungo", lines: [
+        { name: "Kaos Uji UJ16", code: "00000011", shape: "tee", colour: "#1d1d1f", parts: { pick: 6 } } ] },
+    ],
+    foot: { note: "6 pcs to C001 already dispatched.", cancel: false, edit: true },
+    activity: 10,
+  },
+  alt2: {
+    label: "ALT-00000002 · Cancelled", number: "ALT-00000002", status: ["Cancelled", "bad"],
+    supplier: "Garmen Nusantara, Sepatu Sejahtera", when: "14 Oct 2026, 11:02", by: "Rina Kartika",
+    cancel: "Cancelled by Rina Kartika · 16 Oct 2026, 10:11 · Edited",
+    facts: [["Supplier", "Garmen Nusantara, Sepatu Sejahtera"], ["Cancelled by", "Rina Kartika"], ["On", "16 Oct 2026, 10:11"], ["Reason", "Edited"]],
+    stores: [
+      { code: "C001", name: "Cikupa", lines: [
+        { name: "Blus Rayon Motif Bunga", code: "00000001", shape: "tee", colour: "#f08fb0", parts: { sent: 1 } },
+        { name: "Celana Chino Slim Fit", code: "00000002", shape: "pants", colour: "#a8945a", parts: { sent: 1 } },
+        { name: "Flat Shoes Wanita", code: "00000006", shape: "shoe", colour: "#d9c3a0", parts: { sent: 1 } },
+        { name: "Kaos Anak Karakter", code: "00000004", shape: "tee", colour: "#f0c020", parts: { sent: 1 } },
+        { name: "Kaos Basic Katun Combed", code: "00000003", shape: "tee", colour: "#8a8a8f", parts: { off: 1 } },
+        { name: "Kemeja Oxford Lengan Panjang", code: "00000005", shape: "long", colour: "#1f2a44", parts: { off: 1 } },
+      ] },
+    ],
+    foot: null,
+    activity: 6,
+  },
+  alt7: {
+    label: "Mixed · 3 stores", number: "ALT-00000007", status: null,
+    supplier: "Garmen Nusantara", when: "15 Oct 2026, 14:30", by: "Rina Kartika",
+    facts: [["Supplier", "Garmen Nusantara"], ["Allotted", "15 Oct 2026, 14:30"], ["By", "Rina Kartika"]],
+    stores: [
+      { code: "C001", name: "Cikupa", lines: [
+        { name: "Kemeja Oxford Lengan Panjang", code: "00000005", shape: "long", colour: "#1f2a44", parts: { sent: 8, pick: 4 } },
+        { name: "Celana Chino Slim Fit", code: "00000002", shape: "pants", colour: "#a8945a", parts: { packed: 6 } },
+        { name: "Kaos Basic Katun Combed", code: "00000003", shape: "tee", colour: "#8a8a8f", parts: { got: 10 } },
+      ] },
+      { code: "C003", name: "Kota Baru Parahyangan Bandung Barat", lines: [
+        { name: "Blus Rayon Motif Bunga", code: "00000001", shape: "tee", colour: "#f08fb0", parts: { picked: 3 } },
+        { name: "Flat Shoes Wanita", code: "00000006", shape: "shoe", colour: "#d9c3a0", parts: { pick: 5 } },
+      ] },
+      { code: "C004", name: "Muara Enim", lines: [
+        { name: "Kaos Anak Karakter", code: "00000004", shape: "tee", colour: "#f0c020", parts: { got: 12 } },
+      ] },
+    ],
+    foot: { note: null, cancel: true, edit: true },
+    activity: 14,
+  },
+};
+
+// A long one: 8 stores, 9 articles each.
+(() => {
+  const arts9 = [
+    ["Kemeja Oxford Lengan Panjang", "00000005", "long", "#1f2a44"], ["Celana Chino Slim Fit", "00000002", "pants", "#a8945a"],
+    ["Kaos Basic Katun Combed", "00000003", "tee", "#8a8a8f"], ["Blus Rayon Motif Bunga", "00000001", "tee", "#f08fb0"],
+    ["Flat Shoes Wanita", "00000006", "shoe", "#d9c3a0"], ["Kaos Anak Karakter", "00000004", "tee", "#f0c020"],
+    ["Kaos Polo Pique", "00000013", "tee", "#2e7d5b"], ["Celana Jogger Fleece", "00000014", "pants", "#4a4a50"],
+    ["Sneakers Kanvas", "00000015", "shoe", "#e8e8ec"],
+  ];
+  const shops = [["C001", "Cikupa"], ["C002", "Muaro Bungo"], ["C003", "Kota Baru Parahyangan"], ["C004", "Muara Enim"], ["C005", "Lubuk Linggau"], ["C006", "Prabumulih"], ["C007", "Baturaja"], ["C008", "Lahat"]];
+  const plan = [["got"], ["sent"], ["sent"], ["packed"], ["picked", "pick"], ["pick"], ["pick"], ["pick"]];
+  RECS.many = {
+    label: "Long · 8 stores", number: "ALT-00000012", status: null,
+    supplier: "Garmen Nusantara", when: "17 Oct 2026, 08:05", by: "Rina Kartika",
+    stores: shops.map(([code, name], si) => ({ code, name, lines: arts9.map(([n, c, sh, col], ai) => {
+      const q = 2 + ((si + ai) % 5) * 2, st = plan[si];
+      return { name: n, code: c, shape: sh, colour: col, parts: st.length === 2 && ai % 3 === 0 ? { [st[0]]: q - 1, [st[1]]: 1 } : { [st[0]]: q } };
+    }) })),
+    foot: { note: null, cancel: true, edit: true },
+    activity: 31,
+  };
+})();
+
+const state = { look: "d", rec: "alt3", dev: "desk", side: "center", mark: "chip", headRule: "places", shut: new Set(), open: new Set(), full: new Set() };
+try { Object.assign(state, JSON.parse(localStorage.getItem("allotSheetCards") || "{}"), { shut: new Set(), open: new Set(), full: new Set() }); } catch {}
+if (!RECS[state.rec]) state.rec = "alt3";
+
+const sum = o => Object.values(o).reduce((a, b) => a + b, 0);
+const pcs = n => `${n} ${n === 1 ? "pc" : "pcs"}`;
+const arts = n => `${n} ${n === 1 ? "article" : "articles"}`;
+const live = parts => sum(parts) - (parts.off || 0);
+const stagesOf = parts => ORDER.filter(s => parts[s] > 0);
+
+// One store's word: the least-done stage it still has goods in.
+function storeWord(store) {
+  const all = {};
+  store.lines.forEach(l => Object.entries(l.parts).forEach(([s, n]) => all[s] = (all[s] || 0) + n));
+  const s = ORDER.find(k => k !== "off" && all[k] > 0) || "off";
+  return ST[s];
+}
+
+function where(parts) {
+  const ss = stagesOf(parts);
+  if (ss.length === 1) return `<span class="where"><i style="background:${ST[ss[0]].c}"></i>${ST[ss[0]].w}</span>`;
+  return `<span class="where">${ss.map(s => `${parts[s]} ${ST[s].w.toLowerCase()}`).join(" · ")}</span>`;
+}
+
+function tags(parts, withN) {
+  const ss = stagesOf(parts);
+  const n = withN || ss.length > 1;
+  return `<span class="tags">${ss.map(k => `<span class="tag tag--${k}">${n ? parts[k] + " " + ST[k].w.toLowerCase() : ST[k].w}</span>`).join("")}</span>`;
+}
+
+function storeSum(store) {
+  const all = {};
+  store.lines.forEach(l => Object.entries(l.parts).forEach(([k, n]) => all[k] = (all[k] || 0) + n));
+  return tags(all, true);
+}
+
+function rowLine(l) {
+  const off = stagesOf(l.parts).every(k => k === "off");
+  return `<button class="row${off ? " off" : ""}" type="button">
+    <span class="thumb">${SHAPE[l.shape](l.colour)}</span>
+    <span><span class="nm">${l.name}</span><span class="code">${l.code}</span><span class="under where-tags">${tags(l.parts)}</span></span>
+    <span class="tags-cell">${tags(l.parts)}</span>
+    <span class="pcs">${pcs(sum(l.parts))}</span>
+  </button>`;
+}
+
+function compactStore(rec, store, i) {
+  const many = rec.stores.length > 3;
+  const shut = state.open.has(i) ? false : (many || state.shut.has(i));
+  const n = store.lines.reduce((a, l) => a + live(l.parts), 0);
+  const full = state.full.has(i);
+  const shown = full ? store.lines : store.lines.slice(0, 5);
+  const rest = store.lines.length - shown.length;
+  return `<section class="store${shut ? " shut" : ""}">
+    <button class="store-head" type="button" data-cstore="${i}" aria-expanded="${!shut}">
+      <svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6l4 4 4-4"/></svg>
+      <span class="store-name"><h2>${store.code} · ${store.name}</h2><span class="store-sum">${storeSum(store)}</span></span>
+      <span class="store-count">${arts(store.lines.length)} · ${pcs(n)}</span>
+    </button>
+    <div class="store-body"><div><div class="rows">${shown.map(rowLine).join("")}${rest > 0 ? `<button class="more" type="button" data-more="${i}">Show ${rest} more</button>` : ""}</div></div></div>
+  </section>`;
+}
+
+// The record turned around: one entry per article, its stores inside.
+function byArticle(rec) {
+  const map = new Map();
+  rec.stores.forEach(st => st.lines.forEach(l => {
+    if (!map.has(l.code)) map.set(l.code, { ...l, shops: [] });
+    map.get(l.code).shops.push({ code: st.code, name: st.name, parts: l.parts });
+  }));
+  return [...map.values()];
+}
+
+// Three places MD cares about.
+function places(parts) {
+  return { dc: (parts.pick || 0) + (parts.picked || 0) + (parts.packed || 0), sent: parts.sent || 0, got: parts.got || 0, off: parts.off || 0 };
+}
+
+function summary(parts, head) {
+  const look = state.look;
+  if (look === "e" && head && state.headRule === "places") {
+    const ss = stagesOf(parts).filter(k => k !== "off");
+    if (ss.length > 1) {
+      const p = places(parts);
+      const bits = [[p.dc, "At DC", ss.find(k => ["pick", "picked", "packed"].includes(k)) || "pick"], [p.sent, "Dispatched", "sent"], [p.got, "Received", "got"]].filter(b => b[0] > 0);
+      return `<span class="tags">${bits.map(b => `<span class="word word--${state.mark} k-${b[2] === "pick" ? "pick" : b[2]}"><i style="background:${ST[b[2]].c}"></i>${b[0]} ${b[1]}</span>`).join("")}</span>`;
+    }
+  }
+  if (look === "e") {
+    const ss = stagesOf(parts).filter(k => k !== "off");
+    if (!ss.length) return `<span class="word word--${state.mark} k-off"><i style="background:${ST.off.c}"></i>Cancelled</span>`;
+    let k = ss[0];
+    let w = ST[k].w;
+    if (k === "pick" && ss.length > 1) w = "Picking";
+    return `<span class="word word--${state.mark} k-${k}"><i style="background:${ST[k].c}"></i>${w}</span>`;
+  }
+  const p = places(parts);
+  if (look === "f") {
+    const bits = [[p.dc, "at DC"], [p.sent, "dispatched"], [p.got, "received"], [p.off, "cancelled"]].filter(b => b[0] > 0);
+    return `<span class="plain">${bits.map(b => `<b>${b[0]}</b> ${b[1]}`).join(" · ")}</span>`;
+  }
+  if (look === "g") {
+    const c = n => n ? `<b>${n}</b>` : `<b class="z">–</b>`;
+    return `<span class="cols"><span>${head ? "<small>At DC</small>" : ""}${c(p.dc)}</span><span>${head ? "<small>Dispatched</small>" : ""}${c(p.sent)}</span><span>${head ? "<small>Received</small>" : ""}${c(p.got)}</span></span>`;
+  }
+  return marks(parts);
+}
+
+function marks(parts) {
+  const ss = stagesOf(parts);
+  const one = ss.length === 1;
+  if (state.look === "d") {
+    // No To pick chip (owner, 17 Oct): what is not picked yet is not shown.
+    const shown = ss.filter(k => k !== "pick");
+    const solo = shown.length === 1 && ss.length === 1;
+    return `<span class="marks" style="gap:6px 6px">${shown.map(k => `<span class="word word--${state.mark === "dot" ? "chip" : state.mark} k-${k}${k === "picked" ? " k-grey" : ""}${k === "off" ? " mark--off" : ""}"><i></i>${solo ? ST[k].w : `${parts[k]} ${ST[k].w.toLowerCase()}`}</span>`).join("")}</span>`;
+  }
+  if (state.mark !== "dot") {
+    const gap = state.mark === "chip" || state.mark === "outline" ? "6px" : "16px";
+    return `<span class="marks" style="gap:6px ${gap}">${ss.map(k => `<span class="word word--${state.mark} k-${k}${k === "off" ? " mark--off" : ""}"><i></i>${one ? ST[k].w : `${parts[k]} ${ST[k].w.toLowerCase()}`}</span>`).join("")}</span>`;
+  }
+  return `<span class="marks">${ss.map(k => `<span class="mark${k === "off" ? " mark--off" : ""}"><i style="background:${ST[k].c}"></i>${one ? ST[k].w : `<b>${parts[k]}</b>${ST[k].w.toLowerCase()}`}</span>`).join("")}</span>`;
+}
+
+function articleCard(list, a, i) {
+  const many = list.length > 3;
+  const shut = state.open.has(i) ? false : (many || state.shut.has(i));
+  const all = {};
+  a.shops.forEach(sh => Object.entries(sh.parts).forEach(([k, n]) => all[k] = (all[k] || 0) + n));
+  const shown = state.full.has(i) ? a.shops : a.shops.slice(0, 5);
+  const rest = a.shops.length - shown.length;
+  const stores = `${a.shops.length} ${a.shops.length === 1 ? "store" : "stores"}`;
+  return `<section class="store${shut ? " shut" : ""}">
+    <button class="d-head" type="button" data-cstore="${i}" aria-expanded="${!shut}">
+      <svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6l4 4 4-4"/></svg>
+      <span class="thumb">${SHAPE[a.shape](a.colour)}</span>
+      <span class="d-main">
+        <span class="d-l1"><span class="d-name">${a.name}</span>${state.look === "g" ? summary(all, true) : `<span class="d-pcs">${pcs(live(all))}</span>`}</span>
+        <span class="d-l2"><span class="d-sub"><span class="mono">${a.code}</span> · ${stores}${state.look === "g" ? ` · ${pcs(live(all))}` : ""}</span>${state.look === "g" ? "" : summary(all, true)}</span>
+      </span>
+    </button>
+    <div class="store-body"><div><div class="d-rows">${shown.map(sh => `<div class="d-row">
+        <span class="shop">${sh.code} <span>· ${sh.name}</span></span>${summary(sh.parts, false)}${state.look === "g" ? "" : `<span class="d-pcs">${pcs(sum(sh.parts))}</span>`}
+      </div>`).join("")}${rest > 0 ? `<button class="more" type="button" data-more="${i}">Show ${rest} more</button>` : ""}</div></div></div>
+  </section>`;
+}
+
+function articleCardV1(list, a, i) {
+  const many = list.length > 3;
+  const shut = state.open.has(i) ? false : (many || state.shut.has(i));
+  const all = {};
+  a.shops.forEach(sh => Object.entries(sh.parts).forEach(([k, n]) => all[k] = (all[k] || 0) + n));
+  const n = live(all);
+  const full = state.full.has(i);
+  const shown = full ? a.shops : a.shops.slice(0, 5);
+  const rest = a.shops.length - shown.length;
+  const rows = shown.map(sh => `<button class="row row--store" type="button">
+      <span class="shop">${sh.code} <span>· ${sh.name}</span><span class="under where-tags">${tags(sh.parts)}</span></span>
+      <span class="tags-cell">${tags(sh.parts)}</span>
+      <span class="pcs">${pcs(sum(sh.parts))}</span>
+    </button>`).join("");
+  return `<section class="store${shut ? " shut" : ""}">
+    <button class="store-head" type="button" data-cstore="${i}" aria-expanded="${!shut}">
+      <svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6l4 4 4-4"/></svg>
+      <span class="art-head"><span class="thumb">${SHAPE[a.shape](a.colour)}</span>
+        <span class="art-title"><h2>${a.name}</h2><span class="code">${a.code}<span class="art-sub"> · ${a.shops.length} ${a.shops.length === 1 ? "store" : "stores"} · ${pcs(n)}</span></span><span class="store-sum">${tags(all, true)}</span></span></span>
+      <span class="store-count">${a.shops.length} ${a.shops.length === 1 ? "store" : "stores"} · ${pcs(n)}</span>
+    </button>
+    <div class="store-body"><div><div class="rows">${rows}${rest > 0 ? `<button class="more" type="button" data-more="${i}">Show ${rest} more</button>` : ""}</div></div></div>
+  </section>`;
+}
+
+function lineCard(l, part) {
+  const parts = part ? { [part]: l.parts[part] } : l.parts;
+  const off = stagesOf(parts).every(s => s === "off");
+  return `<button class="line${off ? " off" : ""}" type="button">
+    <span class="thumb">${SHAPE[l.shape](l.colour)}</span>
+    <span><span class="nm">${l.name}</span><span class="code">${l.code}</span>${part ? "" : `<span class="under where-tags">${tags(parts)}</span>`}</span>
+    <span class="right"><span class="pcs">${pcs(sum(parts))}</span>${part ? "" : `<span class="where">${tags(parts)}</span>`}</span>
+  </button>`;
+}
+
+function storeCard(store, i) {
+  const shut = state.shut.has(i);
+  const word = storeWord(store);
+  const n = store.lines.reduce((a, l) => a + live(l.parts), 0);
+  let inner;
+  if (state.look === "b") {
+    inner = ORDER.filter(s => store.lines.some(l => l.parts[s] > 0)).map(s => {
+      const ls = store.lines.filter(l => l.parts[s] > 0);
+      return `<div class="group-head"><span class="dot" style="background:${ST[s].c}"></span><b>${ST[s].w}</b><span class="num">${pcs(ls.reduce((a, l) => a + l.parts[s], 0))}</span></div>` + ls.map(l => lineCard(l, s)).join("");
+    }).join("");
+  } else inner = store.lines.map(l => lineCard(l)).join("");
+  return `<section class="store${shut ? " shut" : ""}">
+    <button class="store-head" type="button" data-store="${i}" aria-expanded="${!shut}">
+      <svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6l4 4 4-4"/></svg>
+      <span class="store-name"><h2>${store.code} · ${store.name}</h2><span class="where"><i style="background:${word.c}"></i>${word.w}</span></span>
+      <span class="store-count">${arts(store.lines.length)} · ${pcs(n)}</span>
+    </button>
+    <div class="store-body"><div><div class="lines">${inner}</div></div></div>
+  </section>`;
+}
+
+function nowTable(rec) {
+  const cols = [["Allotted", p => live(p)], ["To pick", p => p.pick || 0], ["In stock", p => (p.picked || 0) + (p.packed || 0)], ["Dispatched", p => p.sent || 0], ["Received", p => p.got || 0]];
+  const td = v => `<td class="${v ? "" : "z"}">${v}</td>`;
+  const tot = cols.map(() => 0);
+  const rows = rec.stores.map(st => {
+    const agg = {};
+    st.lines.forEach(l => Object.entries(l.parts).forEach(([s, n]) => agg[s] = (agg[s] || 0) + n));
+    cols.forEach(([, f], i) => tot[i] += f(agg));
+    return `<tr class="st"><td>⌄ ${st.code} · ${st.name}</td>${cols.map(([, f]) => td(f(agg))).join("")}</tr>` +
+      st.lines.map(l => `<tr class="ln"><td><span class="tl"><span class="thumb">${SHAPE[l.shape](l.colour)}</span><span><span class="nm">${l.name}</span><span class="code">${l.code}</span></span></span></td>${cols.map(([, f]) => td(f(l.parts))).join("")}</tr>`).join("");
+  }).join("");
+  return `<div class="box"><table class="tbl"><thead><tr><th>Store</th>${cols.map(c => `<th>${c[0]}</th>`).join("")}</tr></thead><tbody>${rows}</tbody><tfoot><tr><td>Total</td>${tot.map(v => `<td>${v}</td>`).join("")}</tr></tfoot></table></div>`;
+}
+
+function render() {
+  try { localStorage.setItem("allotSheetCards", JSON.stringify({ look: state.look, rec: state.rec, dev: state.dev, side: state.side, mark: state.mark, headRule: state.headRule })); } catch {}
+  const rec = RECS[state.rec];
+  document.getElementById("stage").className = "stage" + (state.dev === "phone" ? " phone" : state.side === "right" ? " right" : "");
+  const status = rec.status ? `<span class="status status--${rec.status[1]}">${rec.status[0]}</span>` : "";
+  const foot = rec.foot ? `<footer class="foot">
+      ${rec.foot.note ? `<span class="foot-note">${rec.foot.note}</span>` : ""}
+      ${rec.foot.cancel ? `<button class="btn btn--danger">Cancel allotment</button>` : ""}
+      ${rec.foot.edit ? `<button class="btn btn--primary">Edit</button>` : ""}
+    </footer>` : `<footer class="foot"><button class="btn btn--ghost">Close</button></footer>`;
+  document.getElementById("sheet").innerHTML = `
+    <header class="head">
+      <button class="back" type="button"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 4L6 8l4 4"/></svg>Back</button>
+      ${state.look === "now"
+        ? `<div><div class="crumb">Allotments</div><div class="titlerow"><h1 class="title" style="margin:0">${rec.number}</h1>${status}</div></div>`
+        : `<div style="min-width:0"><div class="crumb">Allotments</div><div class="titlerow"><h1 class="title title--big" style="margin:0">${rec.supplier}</h1>${status}</div>
+           <p class="caption"><span class="mono">${rec.number}</span> · ${rec.when} · ${rec.by}</p>
+           ${rec.cancel ? `<p class="caption caption--bad">${rec.cancel}</p>` : ""}</div>`}
+    </header>
+    <div class="body">
+      ${state.look === "now" ? `<dl class="facts">${(rec.facts || [["Supplier", rec.supplier], ["Allotted", rec.when], ["By", rec.by]]).map(([k, v]) => `<div class="fact"><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl>` : ""}
+      ${state.look === "now" ? nowTable(rec) : state.look === "c" ? `<div class="stores">${rec.stores.map((st, i) => compactStore(rec, st, i)).join("")}</div>` : "defg".includes(state.look) ? (list => `<div class="d-stores look-${state.look}">${list.map((a, i) => articleCard(list, a, i)).join("")}</div>`)(byArticle(rec)) : `<div class="stores">${rec.stores.map(storeCard).join("")}</div>`}
+      <button class="fold" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 4l4 4-4 4"/></svg>Activity <span class="num">${rec.activity}</span></button>
+    </div>
+    ${foot}`;
+  document.querySelectorAll("[data-store]").forEach(b => b.onclick = () => {
+    const i = +b.dataset.store;
+    state.shut.has(i) ? state.shut.delete(i) : state.shut.add(i);
+    const card = b.closest(".store");
+    card.classList.toggle("shut");
+    b.setAttribute("aria-expanded", String(!card.classList.contains("shut")));
+  });
+  document.querySelectorAll("[data-cstore]").forEach(b => b.onclick = () => {
+    const i = +b.dataset.cstore, card = b.closest(".store");
+    const opening = card.classList.contains("shut");
+    if (opening) { state.open.add(i); state.shut.delete(i); } else { state.open.delete(i); state.shut.add(i); }
+    card.classList.toggle("shut", !opening);
+    b.setAttribute("aria-expanded", String(opening));
+  });
+  document.querySelectorAll("[data-more]").forEach(b => b.onclick = () => { state.full.add(+b.dataset.more); render(); });
+  document.getElementById("why").innerHTML = LOOKS.find(l => l.id === state.look).why;
+  seg("pickLook", LOOKS, "look"); seg("pickRec", Object.entries(RECS).map(([id, r]) => ({ id, label: r.label })), "rec"); seg("pickDev", DEVS, "dev"); seg("pickSide", SIDES, "side"); seg("pickMark", MARKS, "mark"); document.getElementById("pickMark").hidden = !"de".includes(state.look); seg("pickHead", HEADS, "headRule"); document.getElementById("pickHead").hidden = state.look !== "e";
+}
+
+function seg(el, items, key) {
+  const box = document.getElementById(el);
+  box.innerHTML = items.map(i => `<button type="button" aria-pressed="${state[key] === i.id}" data-v="${i.id}">${i.label}</button>`).join("");
+  box.querySelectorAll("button").forEach(b => b.onclick = () => { state[key] = b.dataset.v; if (key === "rec") { state.shut = new Set(); state.open = new Set(); state.full = new Set(); } render(); });
+}
+render();
+</script>
+</body>
+</html>

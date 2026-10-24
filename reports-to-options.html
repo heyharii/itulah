@@ -1,0 +1,631 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reports to options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&display=swap" rel="stylesheet">
+<style>
+/* People › Org chart: how the line of report, the job role (menus) and the
+   unit (data) relate, in four versions. Tokens from frontend-hub white.css. */
+:root{
+  --ink:#1d1d1f;--body:#6e6e73;--mute:#6e6e73;--faint:#c7c7cc;--ico:#8e8e93;
+  --soft:#fafafb;--soft-2:#f2f2f5;--soft-3:#f5f5f7;
+  --hairline:#e8e8ec;--hairline-2:#dcdce1;
+  --accent:#2862dc;--accent-bg:#eef3fc;--cta:#2862dc;--cta-hover:#2055c7;
+  --ok:#34c759;--ok-fg:#248a3d;--warn:#ff9f0a;--warn-fg:#a66c1f;--warn-bg:#fdf3e2;--bad:#d70015;--bad-bg:#fdecee;
+  --r-card:12px;--r-inner:8px;
+  --ease-out:cubic-bezier(.23,1,.32,1);--ease-drawer:cubic-bezier(.32,.72,0,1);
+  --scrim:rgba(255,255,255,.6);
+  --ring:0 0 0 1px rgb(0 0 0/7%),0 12px 40px rgb(0 0 0/12%);
+}
+*{box-sizing:border-box;margin:0}
+html,body{background:#e9eaee;color:var(--ink);font:400 15px/1.5 "Inter",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+button{background:none;border:0;cursor:pointer;text-align:left}
+svg.i{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+/* demo bar — not product */
+.demo{max-width:1400px;margin:0 auto;padding:16px 16px 0;display:flex;flex-direction:column;gap:10px}
+.demo .row{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
+.demo h1{font-size:17px;font-weight:600;margin-right:auto}
+.segd{display:flex;flex-wrap:wrap;gap:2px;background:#dcdde2;border-radius:10px;padding:3px}
+.segd button{height:34px;padding:0 12px;border-radius:8px;font-size:15px;color:var(--body);white-space:nowrap;transition:background-color 160ms var(--ease-out),color 160ms var(--ease-out)}
+.segd button.on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgb(0 0 0/8%)}
+.model{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.model div{background:#fff;border-radius:10px;padding:10px 14px;min-width:0}
+.model b{display:block;font-weight:600}
+.model span{color:var(--body)}
+@media (max-width:760px){.model{grid-template-columns:1fr}}
+
+.stage{max-width:1400px;margin:12px auto 24px;padding:0 16px;display:flex;justify-content:center}
+.frame{position:relative;width:100%;height:min(780px,calc(100vh - 210px));min-height:560px;background:#fff;border-radius:12px;overflow:hidden;box-shadow:var(--ring);display:flex;container:app/inline-size;isolation:isolate}
+.frame.phone{width:414px;height:896px;border-radius:40px;box-shadow:0 0 0 10px #16171a,var(--ring)}
+
+/* shell */
+.side{width:232px;flex:none;background:var(--soft-3);border-right:1px solid var(--hairline);padding:16px 10px;display:flex;flex-direction:column;gap:2px}
+.side .mk{font-weight:600;font-size:17px;padding:2px 10px 14px}
+.side a{display:flex;align-items:center;gap:10px;height:36px;padding:0 10px;border-radius:var(--r-inner);color:var(--ink);font-size:15px}
+.side a svg{color:var(--ico)}
+.side a.on{background:#fff;box-shadow:0 0 0 1px var(--hairline)}
+.side .sub{padding-left:38px;color:var(--body)}
+.side .sub.on{color:var(--ink);font-weight:500}
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.page{flex:1;overflow:auto;padding:28px 32px 40px}
+.ph{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:20px}
+.ph .crumb{color:var(--mute);margin-bottom:2px}
+.ph h2{font-size:28px;line-height:34px;font-weight:600;letter-spacing:-.02em}
+@container app (max-width:600px){
+  .side{display:none}
+  .page{padding:56px 16px 120px}
+  .ph h2{font-size:24px}
+  .tr .cnt{display:none}
+}
+
+/* buttons */
+.btn{height:36px;padding:0 14px;border-radius:var(--r-inner);font-size:15px;font-weight:500;display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap;flex:none;background:var(--accent-bg);color:var(--accent);transition:transform 120ms var(--ease-out),background-color 140ms var(--ease-out)}
+.btn:active{transform:scale(.97)}
+.btn.primary{background:var(--cta);color:#fff}
+.btn.danger{background:var(--bad-bg);color:var(--bad)}
+.btn.lg{height:44px;padding:0 18px}
+.btn[disabled]{opacity:.4;cursor:default}.btn[disabled]:active{transform:none}
+@media (hover:hover) and (pointer:fine){.btn:not(.primary):not([disabled]):hover{background:#e2ebfb}.btn.primary:not([disabled]):hover{background:var(--cta-hover)}}
+
+/* tree */
+.tree{display:flex;flex-direction:column}
+.tr{display:flex;align-items:center;gap:12px;min-height:56px;padding:6px 12px;border-radius:var(--r-inner);width:100%;transition:background-color 140ms var(--ease-out)}
+@media (hover:hover) and (pointer:fine){.tr:hover{background:var(--soft-2)}}
+.tr:active{background:var(--soft-2)}
+.tr.flash{animation:flash 1800ms var(--ease-out)}
+@keyframes flash{from{background:var(--accent-bg)}}
+.tr .chev{width:24px;height:24px;display:grid;place-items:center;color:var(--ico);flex:none;border-radius:6px}
+.tr .chev svg{transition:transform 200ms var(--ease-out)}
+.tr .chev.shut svg{transform:rotate(-90deg)}
+.tr .gap{width:24px;flex:none}
+.tr .tx{min-width:0;flex:1;line-height:1.3}
+.tr .tx b{display:block;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tr .tx span{display:block;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tr .cnt{color:var(--mute);white-space:nowrap;font-variant-numeric:tabular-nums}
+.guide{border-left:1px solid var(--hairline);margin-left:23px;padding-left:8px}
+.av{width:36px;height:36px;border-radius:50%;flex:none;display:grid;place-items:center;font-weight:600;font-size:15px;background:linear-gradient(135deg,#e5e9f4,#f3e6ee)}
+.av.v{background:none;box-shadow:inset 0 0 0 1.5px var(--faint);color:var(--ico)}
+.av.sm{width:28px;height:28px;font-size:15px}
+.st{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+.st i{width:6px;height:6px;border-radius:50%;background:var(--warn)}
+.st.warn{color:var(--warn-fg)}
+
+/* sheets */
+.veil{position:absolute;inset:0;background:var(--scrim);z-index:50;opacity:0;pointer-events:none;transition:opacity 200ms var(--ease-out)}
+.veil.on{opacity:1;pointer-events:auto}
+.sheet{position:absolute;top:12px;right:12px;bottom:12px;width:min(480px,calc(100% - 24px));background:#fff;border-radius:14px;box-shadow:var(--ring);z-index:60;display:flex;flex-direction:column;transform:translateX(calc(100% + 24px));visibility:hidden;transition:transform 220ms var(--ease-drawer),visibility 0s linear 220ms}
+.sheet.on{transform:none;visibility:visible;transition:transform 320ms var(--ease-drawer),visibility 0s}
+#s2{z-index:70;width:min(440px,calc(100% - 24px))}
+@container app (max-width:600px){
+  .sheet,#s2{top:auto;left:0;right:0;bottom:0;width:100%;height:92%;border-radius:20px 20px 0 0;transform:translateY(100%)}
+  .sheet.on{transform:none}
+}
+.sh-h{display:flex;gap:12px;align-items:flex-start;padding:20px 16px 12px 20px}
+.sh-h .tt{flex:1;min-width:0}
+.sh-h h3{font-size:20px;line-height:26px;font-weight:600;letter-spacing:-.01em}
+.sh-h .cap{color:var(--mute)}
+.x{width:36px;height:36px;border-radius:var(--r-inner);display:grid;place-items:center;color:var(--ico);flex:none}
+@media (hover:hover) and (pointer:fine){.x:hover{background:var(--soft-2)}}
+.sh-b{flex:1;overflow:auto;padding:4px 20px 20px;display:flex;flex-direction:column;gap:22px}
+.sh-f{display:flex;gap:8px;justify-content:flex-end;padding:12px 16px 16px;border-top:1px solid var(--hairline)}
+@container app (max-width:600px){.sh-f{padding-bottom:28px}.sh-f .btn{flex:1;height:47px}}
+.sec h4{font-size:15px;font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:8px}
+.sec h4 .n{margin-left:auto;color:var(--mute);font-weight:400}
+.kv{display:flex;align-items:center;gap:12px;min-height:48px;border-top:1px solid var(--hairline);padding:6px 0}
+.kv:first-of-type{border-top:0}
+.kv .k{width:120px;flex:none;color:var(--mute)}
+.kv .v{flex:1;min-width:0;line-height:1.35}
+.kv .v small{display:block;font-size:15px;color:var(--mute)}
+.kv .from{color:var(--mute)}
+.pr{display:flex;align-items:center;gap:10px;min-height:48px;border-top:1px solid var(--hairline);width:100%}
+.pr:first-of-type{border-top:0}
+.pr .tx{flex:1;min-width:0;line-height:1.3}
+.pr .tx span{display:block;color:var(--mute)}
+.chain{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.chain .arrow{color:var(--faint)}
+.tagline{color:var(--mute)}
+.plus{color:var(--ok-fg)}.minus{color:var(--bad)}
+
+/* fields */
+.f{display:flex;flex-direction:column;gap:6px}
+.f label{font-weight:500}
+.in{width:100%;height:47px;flex:none;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:0 12px;background:#fff;font-size:15px;outline:none;transition:border-color 160ms var(--ease-out),box-shadow 160ms var(--ease-out)}
+.in:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+select.in{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238e8e93' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:36px}
+.ro{min-height:47px;display:flex;align-items:center;gap:10px;padding:6px 12px;border-radius:var(--r-inner);background:var(--soft-2)}
+.ro .grow{flex:1;min-width:0;line-height:1.35}
+.ro small{display:block;font-size:15px;color:var(--mute)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{height:36px;padding:0 12px;border-radius:18px;box-shadow:inset 0 0 0 1px var(--hairline-2);display:inline-flex;align-items:center;gap:6px;transition:background-color 140ms var(--ease-out)}
+.chip.on{background:var(--accent-bg);box-shadow:inset 0 0 0 1px var(--accent);color:var(--accent)}
+.pick{display:flex;flex-direction:column}
+.pick button{display:flex;align-items:center;gap:10px;min-height:52px;padding:4px 10px;border-radius:var(--r-inner);width:100%}
+.pick button .tx{flex:1;min-width:0;line-height:1.3}
+.pick button .tx span{display:block;color:var(--mute)}
+.pick button.on{background:var(--accent-bg)}
+.pick button[disabled]{opacity:.45;cursor:default}
+@media (hover:hover) and (pointer:fine){.pick button:not([disabled]):not(.on):hover{background:var(--soft-2)}}
+.tick{color:var(--accent)}
+.sw{display:flex;align-items:center;gap:12px;min-height:48px;cursor:pointer}
+.sw .grow{flex:1}
+.sw input{appearance:none;width:44px;height:26px;border-radius:13px;background:var(--hairline-2);position:relative;transition:background-color 200ms var(--ease-out);flex:none;cursor:pointer}
+.sw input::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgb(0 0 0/20%);transition:transform 200ms var(--ease-out)}
+.sw input:checked{background:var(--ok)}
+.sw input:checked::after{transform:translateX(18px)}
+.diff{background:var(--soft-3);border-radius:var(--r-inner);padding:10px 14px;display:flex;flex-direction:column;gap:4px}
+
+.ck{display:flex;align-items:center;gap:12px;min-height:46px;cursor:pointer;border-top:1px solid var(--hairline)}
+.ck:first-of-type{border-top:0}
+.ck input{width:20px;height:20px;accent-color:var(--accent);flex:none;cursor:pointer}
+.ck .grow{flex:1;min-width:0}
+.lv{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;min-height:54px;border-top:1px solid var(--hairline);padding:7px 0}
+.lv:first-of-type{border-top:0}
+.lv .t{flex:1;min-width:110px}
+.seg{display:inline-flex;background:var(--soft-2);border-radius:var(--r-inner);padding:2px;flex:none}
+.seg button{height:34px;padding:0 12px;border-radius:6px;color:var(--body);white-space:nowrap;transition:background-color 140ms var(--ease-out),color 140ms var(--ease-out)}
+.lv .seg button{min-width:76px;text-align:center}
+.seg button.ghost{visibility:hidden}
+.seg button.on{background:#fff;color:var(--ink);font-weight:500;box-shadow:0 1px 2px rgb(0 0 0/8%)}
+.lim{display:flex;align-items:center;gap:10px;width:100%;padding:2px 0 6px}
+.lim span{color:var(--mute);white-space:nowrap}
+.lim input{height:40px;width:auto;flex:1;min-width:0}
+.grp{margin-top:6px}
+.grp h5{font-size:15px;font-weight:600;padding:10px 0 2px}
+.toast{position:absolute;left:50%;bottom:24px;transform:translate(-50%,16px);opacity:0;z-index:90;background:#1d1d1f;color:#fff;border-radius:12px;padding:8px 8px 8px 16px;display:flex;align-items:center;gap:12px;max-width:calc(100% - 32px);transition:opacity 200ms var(--ease-out),transform 200ms var(--ease-out);pointer-events:none}
+.toast.on{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+.toast .btn{background:rgb(255 255 255/14%);color:#fff}
+@media (prefers-reduced-motion:reduce){*{transition-duration:0s!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="demo">
+  <div class="row">
+    <h1>Reports to · role · access</h1>
+    <div class="segd" id="ver"></div>
+    <div class="segd" id="dev"><button data-d="desk" class="on">Desktop</button><button data-d="phone">Phone</button></div>
+  </div>
+  <div class="model" id="model"></div>
+</div>
+<div class="stage"><div class="frame" id="frame">
+  <nav class="side">
+    <div class="mk">Central</div>
+    <a><svg class="i" viewBox="0 0 24 24"><path d="M3 11 12 4l9 7v9H3z"/></svg>Home</a>
+    <a><svg class="i" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Sales</a>
+    <a><svg class="i" viewBox="0 0 24 24"><path d="M3 7h18v13H3zM8 7V4h8v3"/></svg>Operations</a>
+    <a class="on"><svg class="i" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c1.8.8 3 2.5 3.5 5.2"/></svg>People</a>
+    <a class="sub">Employees</a>
+    <a class="sub" data-nav="org">Org chart</a>
+    <a class="sub" data-nav="roles">Roles</a>
+    <a><svg class="i" viewBox="0 0 24 24"><path d="M4 4h16v16H4zM4 10h16M10 10v10"/></svg>Finance</a>
+  </nav>
+  <div class="main"><div class="page" id="page"></div></div>
+  <div class="veil" id="veil"></div>
+  <aside class="sheet" id="s1"></aside>
+  <aside class="sheet" id="s2"></aside>
+  <div class="toast" id="toast"><span id="tmsg"></span><button class="btn" id="undo">Undo</button></div>
+</div></div>
+
+<script>
+const VERSIONS = {
+  A: {name:"A · Three separate", model:[
+    ["Role","Which menus"],["Units","Whose data — picked by hand"],["Reports to","Who approves. Nothing else"]]},
+  B: {name:"B · Seats", model:[
+    ["Seat","The chart is seats, not people. A seat has its role, unit and the seat above"],["Person","Sits in a seat and takes all of it"],["Leaves","The seat stays, empty. Approvals skip to the seat above"]]},
+  C: {name:"C · Line gives reach ★", model:[
+    ["Role","Which menus"],["Unit","Where they work"],["Reports to","Who approves, and they see their whole team's units"]]},
+  D: {name:"D · One pick", model:[
+    ["Job","One pick sets role and level"],["Unit","Where they work"],["Reports to","Filled in from the job and unit; change it if needed"]]},
+}
+const UNITS = {HO:"Head office",DC:"Gudang",C001:"C001 Kemang",C002:"C002 PIK"}
+const MENUS = {Owner:"Everything",Operations:"Operations, Inventory","Store manager":"Stores, Sales, Inventory","Store supervisor":"Stores",Cashier:"Store app only","Store staff":"Store app only",Finance:"Finance",Merchandise:"Merchandise, Purchasing"}
+const ROLES = Object.keys(MENUS)
+const SECS = [
+  {k:"procurement",t:"Procurement",a:[["view","See POs"],["do","Create and send POs"],["approve","Approve POs",1]]},
+  {k:"finance",t:"Finance",a:[["view","See the books"],["do","Record and post journals"],["approve","Approve payments",1]]},
+  {k:"merchandise",t:"Merchandise",a:[["view","See articles and allotments"],["do","Make allotments, change prices"]]},
+  {k:"operations",t:"Operations",a:[["view","See the board"],["do","Pick, pack, dispatch"]]},
+  {k:"inventory",t:"Inventory",a:[["view","See stock"],["do","Count stock"],["approve","Approve stock adjustments"]]},
+  {k:"stores",t:"Stores",a:[["view","See the store"],["do","Receive, move stock, close the till"],["approve","Approve voids and returns"]]},
+  {k:"sales",t:"Sales",a:[["view","See sales"]]},
+  {k:"people",t:"People",a:[["view","See people"],["do","Edit people and reports to"],["approve","Approve leave"]]},
+  {k:"system",t:"System",a:[["view","See settings"],["do","Edit roles and users"]]},
+]
+const LVL = {none:"None",view:"See",do:"Do",approve:"Approve"}
+const ALL_ACTS = SECS.flatMap(x=>x.a.map(([l])=>x.k+"."+l))
+const DATA_LABEL = {unit:"Own unit",team:"Unit + team",every:"Every unit"}
+let ROLE_DEF = {
+  Owner:{acts:ALL_ACTS,limit:{},data:"every"},
+  Operations:{acts:["operations.view","operations.do","inventory.view","inventory.do","inventory.approve","procurement.view"],limit:{},data:"team"},
+  "Store manager":{acts:["stores.view","stores.do","stores.approve","sales.view","inventory.view","inventory.do","people.approve"],limit:{},data:"team"},
+  "Store supervisor":{acts:["stores.view","stores.do","stores.approve","inventory.view","inventory.do","people.approve"],limit:{},data:"unit"},
+  Cashier:{acts:[],limit:{},data:"unit"},
+  "Store staff":{acts:[],limit:{},data:"unit"},
+  Finance:{acts:["finance.view","finance.do","finance.approve","procurement.view","sales.view"],limit:{finance:25000000},data:"every"},
+  Merchandise:{acts:["merchandise.view","merchandise.do","sales.view","inventory.view","procurement.view","procurement.do","procurement.approve"],limit:{procurement:50000000},data:"every"},
+}
+const PVERS = {
+  E:{name:"E · Sections (today)",model:[["Sections","Tick the menus"],["Read only","One switch for the whole role"],["Approves","Tick what it approves, with a limit"]]},
+  F:{name:"F · Levels ★",model:[["Each menu","None · See · Do · Approve"],["Limit","Approve can carry a rupiah limit"],["Data","Own unit · Unit + team · Every unit"]]},
+  G:{name:"G · Actions",model:[["Each action","Ticked in plain words"],["Limit","Next to each approval"],["Data","Own unit · Unit + team · Every unit"]]},
+}
+const rp = n => "Rp " + Number(n).toLocaleString("id-ID")
+const holds = (role, key) => role==="Owner" || ROLE_DEF[role].acts.includes(key)
+const limitOf = (role, sec) => role==="Owner" ? Infinity : (ROLE_DEF[role].limit[sec] || Infinity)
+function menusOf(role){
+  if(role==="Owner") return "Everything"
+  const ss = SECS.filter(x=>ROLE_DEF[role].acts.some(a=>a.startsWith(x.k+"."))).map(x=>x.t)
+  return ss.length ? ss.join(", ") : "Store app only"
+}
+const JOBS = [
+  {t:"Cashier",role:"Cashier",store:true,up:u=>pic(u,"Store supervisor")},
+  {t:"Store staff",role:"Store staff",store:true,up:u=>pic(u,"Store supervisor")},
+  {t:"Store supervisor",role:"Store supervisor",store:true,up:u=>pic(u,"Store manager")},
+  {t:"Store manager",role:"Store manager",store:true,up:()=>"p3"},
+  {t:"Picker",role:"Operations",unit:"DC",up:()=>"p10"},
+  {t:"Finance staff",role:"Finance",unit:"HO",up:()=>"p12"},
+  {t:"Merchandiser",role:"Merchandise",unit:"HO",up:()=>"p14"},
+]
+const SEED = [
+  {id:"p1",name:"Budi Santoso",title:"Owner",role:"Owner",unit:"HO",mgr:null},
+  {id:"p2",name:"Andi Wijaya",title:"Head of operations",role:"Operations",unit:"HO",mgr:"p1",units:["DC","C001","C002"]},
+  {id:"p3",name:"Rina Kurnia",title:"Area manager Jakarta",role:"Store manager",unit:"HO",mgr:"p2",units:["C001","C002"]},
+  {id:"p4",name:"Sari Lestari",title:"Store manager",role:"Store manager",unit:"C001",mgr:"p3"},
+  {id:"p5",name:"Dimas Saputra",title:"Store supervisor",role:"Store supervisor",unit:"C001",mgr:"p4"},
+  {id:"v2",name:null,title:"Cashier",role:"Cashier",unit:"C001",mgr:"p5",vacant:true},
+  {id:"p6",name:"Putri Ayu",title:"Cashier",role:"Cashier",unit:"C001",mgr:"p5"},
+  {id:"p7",name:"Fajar Nugroho",title:"Store staff",role:"Store staff",unit:"C001",mgr:"p5"},
+  {id:"p8",name:"Yoga Pratama",title:"Store manager",role:"Store manager",unit:"C002",mgr:"p3"},
+  {id:"v1",name:null,title:"Store supervisor",role:"Store supervisor",unit:"C002",mgr:"p8",vacant:true},
+  {id:"p9",name:"Lina Marlina",title:"Cashier",role:"Cashier",unit:"C002",mgr:"v1"},
+  {id:"p10",name:"Dewi Anggraini",title:"DC manager",role:"Operations",unit:"DC",mgr:"p2"},
+  {id:"p11",name:"Bayu Setiawan",title:"Picker",role:"Operations",unit:"DC",mgr:"p10"},
+  {id:"p12",name:"Maya Hartono",title:"Head of finance",role:"Finance",unit:"HO",mgr:"p1"},
+  {id:"p13",name:"Agus Salim",title:"Finance staff",role:"Finance",unit:"HO",mgr:"p12"},
+  {id:"p14",name:"Kevin Tanoto",title:"Head of merchandise",role:"Merchandise",unit:"HO",mgr:"p1"},
+  {id:"p15",name:"Citra Dewanti",title:"Merchandiser",role:"Merchandise",unit:"HO",mgr:"p14"},
+]
+let page = "org", pv = "F", people = clone(SEED), v = "C", shut = new Set(), undoSnap = null, seq = 1, flashIds = []
+const ICON = {
+  chev:'<svg class="i" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>',
+  x:'<svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+  plus:'<svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+  tick:'<svg class="i tick" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></svg>',
+}
+function clone(x){return JSON.parse(JSON.stringify(x))}
+const $ = id => document.getElementById(id)
+const get = id => people.find(p => p.id === id)
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))
+const visible = p => !p.vacant || v === "B"
+const label = p => p.vacant ? p.title : p.name
+const initials = p => p.vacant ? "" : p.name.split(" ").map(w => w[0]).slice(0,2).join("")
+const av = (p, sm) => `<span class="av${sm?" sm":""}${p.vacant?" v":""}">${initials(p)}</span>`
+function effMgr(p){let m=p.mgr;while(m&&!visible(get(m)))m=get(m).mgr;return m}
+function approver(p){let m=p.mgr;while(m&&get(m).vacant)m=get(m).mgr;return m}
+function kids(id){return people.filter(p=>visible(p)&&effMgr(p)===id)}
+function team(id){const out=[];(function walk(i){for(const k of kids(i)){out.push(k);walk(k.id)}})(id);return out}
+function pic(unit, role){const hit=people.find(p=>!p.vacant&&p.unit===unit&&p.role===role);return hit?hit.id:(people.find(p=>!p.vacant&&p.unit===unit&&p.role==="Store manager")||{}).id}
+function reach(p){
+  const d = ROLE_DEF[p.role].data
+  if(d==="every")return Object.keys(UNITS)
+  if(v==="A")return p.units||[p.unit]
+  if(v==="C"&&d==="team"){const s=new Set([p.unit]);team(p.id).forEach(t=>s.add(t.unit));return [...s]}
+  return [p.unit]
+}
+const unitList = us => us.map(u=>UNITS[u]).join(", ")
+const today = "20 Oct 2026"
+
+/* ── page ─────────────────────────────────────────────────────────── */
+function render(){
+  document.querySelectorAll("[data-nav]").forEach(a=>a.classList.toggle("on",a.dataset.nav===page))
+  if(page==="roles"){
+    $("ver").innerHTML = Object.entries(PVERS).map(([k,o])=>`<button data-pv="${k}" class="${k===pv?"on":""}">${o.name}</button>`).join("")
+    $("model").innerHTML = PVERS[pv].model.map(([a,b])=>`<div><b>${a}</b><span>${b}</span></div>`).join("")
+    renderRoles(); return
+  }
+  $("ver").innerHTML = Object.entries(VERSIONS).map(([k,o])=>`<button data-v="${k}" class="${k===v?"on":""}">${o.name}</button>`).join("")
+  $("model").innerHTML = VERSIONS[v].model.map(([a,b])=>`<div><b>${a}</b><span>${b}</span></div>`).join("")
+  const roots = people.filter(p=>visible(p)&&!effMgr(p))
+  $("page").innerHTML = `<div class="ph"><div><div class="crumb">People</div><h2>Org chart</h2></div>
+    <button class="btn primary" data-act="add">${ICON.plus}${v==="B"?"Fill a seat":"Add person"}</button></div>
+    <div class="tree">${roots.map(r=>branch(r)).join("")}</div>`
+  flashIds = []
+}
+function branch(p){
+  const ks = kids(p.id), open = !shut.has(p.id), all = team(p.id).filter(t=>!t.vacant).length
+  const sub = v==="B" ? (p.vacant ? `<span class="st warn"><i></i>Vacant</span>` : `${esc(p.name)} · ${UNITS[p.unit]}`) : `${esc(p.title)} · ${UNITS[p.unit]}`
+  const main = v==="B" ? `${esc(p.title)}${p.unit!=="HO"&&!p.title.includes(p.unit)?"":""}` : esc(p.name)
+  const cnt = ks.length ? `${ks.length} direct${all>ks.length?` · ${all} in team`:""}` : ""
+  return `<div><button class="tr${flashIds.includes(p.id)?" flash":""}" data-act="open" data-id="${p.id}">
+    ${ks.length?`<span class="chev${open?"":" shut"}" data-act="fold" data-id="${p.id}">${ICON.chev}</span>`:`<span class="gap"></span>`}
+    ${av(p)}<span class="tx"><b>${main}</b><span>${sub}</span></span><span class="cnt">${cnt}</span></button>
+    ${ks.length&&open?`<div class="guide">${ks.map(k=>branch(k)).join("")}</div>`:""}</div>`
+}
+
+/* ── person sheet ─────────────────────────────────────────────────── */
+let s1Id = null
+function openPerson(id){
+  s1Id = id; const p = get(id); if(!p){closeAll();return}
+  const m = effMgr(p) && get(effMgr(p)), ap = approver(p) && get(approver(p)), ks = kids(id), all = team(id).filter(t=>!t.vacant)
+  const reportsTo = m ? `${esc(label(m))}${m.vacant?` <span class="st warn"><i></i>Vacant</span>`:""}<small>${m.vacant?`Approvals go to ${esc(ap?ap.name:"—")}`:`${esc(m.title)} · from 1 Jul 2026`}</small>` : "Nobody"
+  const changeBtn = p.role==="Owner" ? "" : `<button class="btn" data-act="change" data-ids="${id}">Change</button>`
+  let facts = ""
+  if(v==="A") facts = kv("Role", p.role, `<button class="btn" data-act="role" data-r="${esc(p.role)}">Permissions</button>`) + kv("Units", unitList(reach(p)), `<button class="btn" data-act="units" data-id="${id}">Edit</button>`) + kv("Reports to", reportsTo, changeBtn)
+  if(v==="B") facts = kv("Seat", esc(p.title)) + kv("Held by", p.vacant?`<span class="st warn"><i></i>Vacant</span>`:esc(p.name), `<button class="btn" data-act="${p.vacant?"add":"vacate"}" data-id="${id}">${p.vacant?"Fill":"Empty seat"}</button>`) + kv("Role", p.role) + kv("Unit", UNITS[p.unit]) + kv("Seat above", reportsTo, changeBtn)
+  if(v==="C") facts = kv("Role", p.role, `<button class="btn" data-act="role" data-r="${esc(p.role)}">Permissions</button>`) + kv("Unit", UNITS[p.unit]) + kv("Reports to", reportsTo, changeBtn)
+  if(v==="D") facts = kv("Job", esc(p.title)) + kv("Unit", UNITS[p.unit]) + kv("Reports to", reportsTo, changeBtn)
+  const chainArr = []; let c = ap; while(c){chainArr.push(c); c = approver(c) && get(approver(c))}
+  const access = p.role==="Owner" ? kv("Sees","Everything") :
+    kv("Menus", menusOf(p.role)) +
+    kv("Data", unitList(reach(p)) + (v==="C"&&ROLE_DEF[p.role].data==="team"&&reach(p).length>1?`<small>${UNITS[p.unit]} + ${all.length} people in the team</small>`:"")) +
+    approvalRows(p, chainArr)
+  const reps = ks.length ? `<div class="sec"><h4>Direct reports<span class="n">${ks.length}</span></h4>
+    ${ks.map(k=>`<button class="pr" data-act="open" data-id="${k.id}">${av(k,1)}<span class="tx">${esc(label(k))}<span>${v==="B"&&!k.vacant?esc(k.name):k.vacant?"Vacant":esc(k.title)} · ${UNITS[k.unit]}</span></span></button>`).join("")}
+    <div style="display:flex;gap:8px;margin-top:10px"><button class="btn" data-act="change" data-ids="${ks.map(k=>k.id).join(",")}">Move all ${ks.length}</button></div></div>` : ""
+  $("s1").innerHTML = `<div class="sh-h">${av(p)}<div class="tt"><h3>${esc(v==="B"?p.title:label(p))}</h3><div class="cap">${v==="B"&&!p.vacant?esc(p.name)+" · ":""}${v!=="B"?esc(p.title)+" · ":""}${UNITS[p.unit]}</div></div><button class="x" data-act="close">${ICON.x}</button></div>
+    <div class="sh-b"><div class="sec">${facts}</div><div class="sec"><h4>${v==="A"?"Access":v==="B"?"From the seat":"Reach"}</h4>${access}</div>${reps}</div>`
+  show("s1")
+}
+function kv(k, val, act=""){return `<div class="kv"><span class="k">${k}</span><span class="v">${val}</span>${act}</div>`}
+
+/* Who decides a request: walk up the line, skipping anyone whose role cannot
+   approve that kind; a limit hands bigger amounts further up. */
+function approvalRows(p, up){
+  const first = key => { const skipped=[]; for(const x of up){ if(holds(x.role,key)) return {who:x,skipped}; skipped.push(x) } return {who:null,skipped} }
+  const row = (k, key) => { const r=first(key); return kv(k, r.who ? esc(r.who.name) + (r.skipped.length?`<small>Skips ${r.skipped.map(x=>esc(x.name)).join(", ")}</small>`:"") : "—") }
+  const limited = (k, sec) => {
+    const out=[]; for(const x of up){ if(!holds(x.role,sec+".approve")) continue; const l=limitOf(x.role,sec); out.push(esc(x.name)+(l===Infinity?"":` <span class="tagline">up to ${rp(l)}</span>`)); if(l===Infinity) break }
+    return kv(k, out.length?`<span class="chain">${out.join('<span class="arrow">→</span>')}</span>`:"—")
+  }
+  let h = row("Leave","people.approve")
+  if(p.unit.startsWith("C") && !holds(p.role,"stores.approve")) h += row("Voids","stores.approve")
+  if(holds(p.role,"procurement.do")) h += limited("POs","procurement")
+  if(holds(p.role,"finance.do")) h += limited("Payments","finance")
+  return h
+}
+
+/* ── roles page + permission editor ───────────────────────────────── */
+function renderRoles(){
+  const count = r => people.filter(p=>!p.vacant&&p.role===r).length
+  $("page").innerHTML = `<div class="ph"><div><div class="crumb">People</div><h2>Roles</h2></div></div>
+    <div class="tree">${ROLES.map(r=>`<button class="tr${flashIds.includes(r)?" flash":""}" data-act="role" data-r="${esc(r)}"><span class="tx"><b>${esc(r)}</b><span>${menusOf(r)} · ${DATA_LABEL[ROLE_DEF[r].data]}</span></span><span class="cnt">${count(r)} ${count(r)===1?"person":"people"}</span></button>`).join("")}</div>`
+  flashIds = []
+}
+let rd = null
+function openRole(r, layer){
+  rd = {r, layer, d:clone(ROLE_DEF[r]), ro:false}
+  rd.ro = rd.d.acts.length>0 && !rd.d.acts.some(a=>!a.endsWith(".view"))
+  drawRole(); show(layer)
+}
+const has = a => rd.d.acts.includes(a)
+const levelOf = x => { let l="none"; for(const [k] of x.a) if(has(x.k+"."+k)) l=k; return l }
+function setLevel(x, l){ const ks=x.a.map(([k])=>k), upto=l==="none"?-1:ks.indexOf(l); rd.d.acts = rd.d.acts.filter(a=>!a.startsWith(x.k+".")).concat(ks.slice(0,upto+1).map(k=>x.k+"."+k)) }
+function toggleAct(a){ rd.d.acts = has(a) ? rd.d.acts.filter(x=>x!==a) : [...rd.d.acts, a] }
+function limField(x){ const l=rd.d.limit[x.k]; return `<label class="lim"><span>Up to</span><input class="in" data-lim="${x.k}" inputmode="numeric" placeholder="No limit" value="${l?rp(l):""}"></label>` }
+function drawRole(){
+  const r = rd.r, n = people.filter(p=>!p.vacant&&p.role===r).length, close = rd.layer==="s2"?"close2":"close"
+  let body
+  if(r==="Owner") body = `<div class="sec">${kv("Can","Everything")}${kv("Data","Every unit")}</div>`
+  else {
+    const data = `<div class="sec"><h4>Data</h4><div class="seg">${Object.entries(DATA_LABEL).map(([k,t])=>`<button data-act="rdata" data-k="${k}" class="${rd.d.data===k?"on":""}">${t}</button>`).join("")}</div></div>`
+    if(pv==="E"){
+      const appr = SECS.filter(x=>x.a.some(([l])=>l==="approve"))
+      body = data + `<div class="sec"><label class="sw"><span class="grow">Read only</span><input type="checkbox" data-act="rro" ${rd.ro?"checked":""}></label></div>
+        <div class="sec"><h4>Sections</h4>${SECS.map(x=>`<label class="ck"><input type="checkbox" data-act="rsec" data-k="${x.k}" ${has(x.k+".view")?"checked":""}><span class="grow">${x.t}</span></label>`).join("")}</div>
+        ${rd.ro?"":`<div class="sec"><h4>Approves</h4><div class="chips">${appr.map(x=>{const a=x.a.find(([l])=>l==="approve");return `<button class="chip${has(x.k+".approve")?" on":""}" data-act="ract" data-a="${x.k}.approve">${a[1]}</button>`}).join("")}</div>
+          ${appr.filter(x=>has(x.k+".approve")&&x.a.find(([l])=>l==="approve")[2]).map(x=>`<div class="f" style="margin-top:12px"><label>${x.a.find(([l])=>l==="approve")[1]}</label>${limField(x)}</div>`).join("")}</div>`}`
+    }
+    if(pv==="F"){
+      body = data + `<div class="sec"><h4>Access</h4>${SECS.map(x=>{const cur=levelOf(x), money=x.a.find(([l,,m])=>l==="approve"&&m);return `<div class="lv"><span class="t">${x.t}</span><span class="seg">${Object.keys(LVL).map(k=>k==="none"||x.a.some(([l])=>l===k)?`<button data-act="rlvl" data-s="${x.k}" data-l="${k}" class="${cur===k?"on":""}">${LVL[k]}</button>`:`<button class="ghost" tabindex="-1" aria-hidden="true">${LVL[k]}</button>`).join("")}</span>${money&&cur==="approve"?limField(x):""}</div>`}).join("")}</div>`
+    }
+    if(pv==="G"){
+      body = data + SECS.map(x=>`<div class="sec grp"><h5>${x.t}</h5>${x.a.map(([l,t,m])=>{const a=x.k+"."+l;return `<label class="ck"><input type="checkbox" data-act="ract" data-a="${a}" ${has(a)?"checked":""}><span class="grow">${t}</span></label>${m&&has(a)?limField(x):""}`}).join("")}</div>`).join("")
+    }
+  }
+  $(rd.layer).innerHTML = `<div class="sh-h"><div class="tt"><h3>${esc(r)}</h3><div class="cap">${n} ${n===1?"person":"people"}</div></div><button class="x" data-act="${close}">${ICON.x}</button></div>
+    <div class="sh-b">${body}</div>
+    ${r==="Owner"?"":`<div class="sh-f"><button class="btn lg" data-act="${close}">Cancel</button><button class="btn lg primary" data-act="rsave">Save</button></div>`}`
+  $(rd.layer).querySelectorAll("[data-lim]").forEach(i=>i.oninput=e=>{const n=+e.target.value.replace(/\D/g,"");if(n)rd.d.limit[e.target.dataset.lim]=n;else delete rd.d.limit[e.target.dataset.lim]})
+  $(rd.layer).querySelectorAll("[data-lim]").forEach(i=>i.onblur=e=>{const n=rd.d.limit[e.target.dataset.lim];e.target.value=n?rp(n):""})
+}
+function roleAct(act, a){
+  if(act==="rdata") rd.d.data = a.dataset.k
+  if(act==="rlvl") setLevel(SECS.find(x=>x.k===a.dataset.s), a.dataset.l)
+  if(act==="ract"){ toggleAct(a.dataset.a); const sec=a.dataset.a.split(".")[0]; if(pv==="E"&&has(a.dataset.a)&&!has(sec+".view")) rd.d.acts.push(sec+".view") }
+  if(act==="rsec"){ const k=a.dataset.k, x=SECS.find(y=>y.k===k); if(has(k+".view")) rd.d.acts=rd.d.acts.filter(y=>!y.startsWith(k+".")); else { rd.d.acts.push(k+".view"); if(!rd.ro&&x.a.some(([l])=>l==="do")) rd.d.acts.push(k+".do") } }
+  if(act==="rro"){ rd.ro=!rd.ro; if(rd.ro) rd.d.acts=rd.d.acts.filter(y=>y.endsWith(".view")); else rd.d.acts=rd.d.acts.concat(rd.d.acts.filter(y=>y.endsWith(".view")).map(y=>y.replace(".view",".do")).filter(y=>ALL_ACTS.includes(y)&&!has(y))) }
+  const keep = $(rd.layer).querySelector(".sh-b").scrollTop
+  drawRole(); $(rd.layer).querySelector(".sh-b").scrollTop = keep
+}
+function saveRole(){
+  undoSnap = snap(); ROLE_DEF[rd.r] = rd.d; flashIds=[rd.r]
+  const n = people.filter(p=>!p.vacant&&p.role===rd.r).length
+  toast(`${rd.r} saved · ${n} ${n===1?"person":"people"}`)
+  hide(rd.layer); if(rd.layer==="s1") s1Id=null
+  render(); if(rd.layer==="s2"&&s1Id) openPerson(s1Id)
+}
+const snap = () => ({people:clone(people), roles:clone(ROLE_DEF)})
+
+/* ── change reports to ────────────────────────────────────────────── */
+let ch = null
+function openChange(ids){
+  ch = {ids, to:null, q:"", along:true, from:"2026-10-20"}
+  drawChange(); show("s2")
+}
+function drawChange(){
+  const movers = ch.ids.map(get), one = movers.length===1 ? movers[0] : null
+  const blocked = new Set(ch.ids); movers.forEach(m=>team(m.id).forEach(t=>blocked.add(t.id)))
+  const cur = one && effMgr(one)
+  const list = people.filter(p=>visible(p) && !ch.ids.includes(p.id) && (!ch.q || label(p).toLowerCase().includes(ch.q.toLowerCase()) || p.title.toLowerCase().includes(ch.q.toLowerCase())))
+  const title = one ? (v==="B"?`${esc(one.title)} reports to`:`${esc(one.name)} reports to`) : `Move ${movers.length} people`
+  const hasTeam = one && kids(one.id).length
+  let diff = ""
+  if(ch.to && v==="C"){
+    const before = new Map(people.map(p=>[p.id,new Set(reach(p))]))
+    const keep = people; people = applied(); const after = new Map(people.map(p=>[p.id,new Set(reach(p))])); people = keep
+    const lines = []
+    for(const p of people){ if(p.vacant||p.role==="Owner")continue
+      const b = before.get(p.id), a = after.get(p.id) || new Set()
+      const gain = [...a].filter(u=>!b.has(u)), lose = [...b].filter(u=>!a.has(u))
+      if(gain.length||lose.length) lines.push(`<div><b style="font-weight:500">${esc(p.name)}</b> ${gain.map(u=>`<span class="plus">+${UNITS[u]}</span>`).join(" ")} ${lose.map(u=>`<span class="minus">−${UNITS[u]}</span>`).join(" ")}</div>`)
+    }
+    diff = `<div class="sec"><h4>Data changes</h4><div class="diff">${lines.length?lines.join(""):'<div class="tagline">Nobody\'s data changes</div>'}</div></div>`
+  }
+  $("s2").innerHTML = `<div class="sh-h"><div class="tt"><h3>${title}</h3>${one?"":`<div class="cap">${movers.map(m=>esc(label(m))).join(", ")}</div>`}</div><button class="x" data-act="close2">${ICON.x}</button></div>
+    <div class="sh-b">
+      <input class="in" id="q" placeholder="Search name or job" value="${esc(ch.q)}">
+      <div class="pick">${list.map(p=>{const no=blocked.has(p.id);return `<button data-act="to" data-id="${p.id}" class="${ch.to===p.id?"on":""}" ${no?"disabled":""}>${av(p,1)}<span class="tx">${esc(label(p))}<span>${no?"In their team":p.id===cur?"Now":`${v==="B"&&!p.vacant?esc(p.name):p.vacant?"Vacant":esc(p.title)} · ${UNITS[p.unit]}`}</span></span>${ch.to===p.id?ICON.tick:""}</button>`}).join("")}</div>
+      <div class="f"><label>From</label><input class="in" type="date" id="from" value="${ch.from}"></div>
+      ${hasTeam?`<label class="sw"><span class="grow">Team moves too<br><span class="tagline">${kids(one.id).length} direct reports</span></span><input type="checkbox" id="along" ${ch.along?"checked":""}></label>`:""}
+      ${diff}
+    </div>
+    <div class="sh-f"><button class="btn lg" data-act="close2">Cancel</button><button class="btn lg primary" data-act="save" ${ch.to?"":"disabled"}>Save</button></div>`
+  const q = $("q"); q.oninput = e => {ch.q = e.target.value; const pos=e.target.selectionStart; drawChange(); const n=$("q"); n.focus(); n.setSelectionRange(pos,pos)}
+  $("from").onchange = e => ch.from = e.target.value
+  if($("along")) $("along").onchange = e => {ch.along = e.target.checked; drawChange()}
+}
+function applied(){
+  const next = clone(people)
+  for(const id of ch.ids){
+    const p = next.find(x=>x.id===id)
+    if(!ch.along && ch.ids.length===1){
+      const old = p.mgr
+      next.filter(x=>x.mgr===id).forEach(x=>x.mgr=old)
+    }
+    p.mgr = ch.to
+  }
+  return next
+}
+function saveChange(){
+  undoSnap = snap()
+  const movers = ch.ids.map(get), to = get(ch.to)
+  people = applied(); flashIds = [...ch.ids]
+  const d = new Date(ch.from+"T00:00"), when = isNaN(d) ? today : d.toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"})
+  toast(movers.length===1 ? `${label(movers[0])} reports to ${label(to)} from ${when}` : `${movers.length} people report to ${label(to)} from ${when}`)
+  hide("s2"); render(); if(s1Id) openPerson(s1Id)
+}
+
+/* ── add person / fill seat ───────────────────────────────────────── */
+let ad = null
+function openAdd(seatId){
+  ad = {name:"", wa:"", role:"Cashier", unit:"C001", units:["C001"], mgr:null, job:0, seat:seatId || (people.find(p=>p.vacant)||{}).id}
+  ad.mgr = pic(ad.unit,"Store supervisor")
+  drawAdd(); show("s2")
+}
+function drawAdd(){
+  const opt = (arr, cur) => arr.map(([val,txt])=>`<option value="${val}" ${val===cur?"selected":""}>${esc(txt)}</option>`).join("")
+  const peopleOpts = people.filter(p=>!p.vacant).map(p=>[p.id,`${p.name} · ${p.title}`])
+  const unitOpts = Object.entries(UNITS)
+  let body = `<div class="f"><label>Name</label><input class="in" id="nm" value="${esc(ad.name)}" placeholder="Full name"></div>
+    <div class="f"><label>WhatsApp</label><input class="in" id="wa" value="${esc(ad.wa)}" placeholder="0812…" inputmode="tel"></div>`
+  if(v==="A"){
+    body += sel("Role","role",opt(ROLES.map(r=>[r,r]),ad.role))
+    body += `<div class="f"><label>Units</label><div class="chips">${unitOpts.map(([k,t])=>`<button class="chip${ad.units.includes(k)?" on":""}" data-act="unit" data-u="${k}">${t}</button>`).join("")}</div></div>`
+    body += sel("Reports to","mgr",opt(peopleOpts,ad.mgr))
+  }
+  if(v==="B"){
+    const seats = people.filter(p=>p.vacant)
+    body += seats.length ? sel("Seat","seat",opt(seats.map(s=>[s.id,`${s.title} · ${UNITS[s.unit]}`]),ad.seat)) : `<div class="tagline">No empty seat. Add one from a person's sheet.</div>`
+    const s = get(ad.seat)
+    if(s){const up=get(effMgr(s)); body += `<div class="ro"><div class="grow">${s.role} · ${UNITS[s.unit]}<small>Reports to ${esc(up?label(up):"—")}</small></div></div>`}
+  }
+  if(v==="C"){
+    body += sel("Role","role",opt(ROLES.map(r=>[r,r]),ad.role)) + sel("Unit","unit",opt(unitOpts,ad.unit)) + sel("Reports to","mgr",opt(peopleOpts,ad.mgr))
+  }
+  if(v==="D"){
+    const j = JOBS[ad.job]
+    body += sel("Job","job",opt(JOBS.map((x,i)=>[String(i),x.t]),String(ad.job)))
+    if(j.store) body += sel("Store","unit",opt(unitOpts.filter(([k])=>k.startsWith("C")),ad.unit))
+    const up = get(ad.mgr)
+    body += `<div class="f"><label>Reports to</label><div class="ro">${up?av(up,1):""}<div class="grow">${esc(up?up.name:"—")}<small>${esc(up?up.title:"")}</small></div><button class="btn" data-act="addmgr">Change</button></div></div>`
+  }
+  $("s2").innerHTML = `<div class="sh-h"><div class="tt"><h3>${v==="B"?"Fill a seat":"Add person"}</h3></div><button class="x" data-act="close2">${ICON.x}</button></div>
+    <div class="sh-b">${body}</div>
+    <div class="sh-f"><button class="btn lg" data-act="close2">Cancel</button><button class="btn lg primary" data-act="addsave">Send via WhatsApp</button></div>`
+  const bind = (id, fn) => { const el=$(id); if(el) el.onchange = e => {fn(e.target.value); drawAdd()} }
+  $("nm").oninput = e => ad.name = e.target.value
+  $("wa").oninput = e => ad.wa = e.target.value
+  bind("role", x => ad.role = x)
+  bind("mgr", x => ad.mgr = x)
+  bind("seat", x => ad.seat = x)
+  bind("unit", x => {ad.unit = x; if(v==="C") ad.mgr = suggested(x); if(v==="D") ad.mgr = JOBS[ad.job].up(x)})
+  bind("job", x => {ad.job = +x; const j=JOBS[ad.job]; if(!j.store) ad.unit=j.unit; else if(!ad.unit.startsWith("C")) ad.unit="C001"; ad.mgr = j.up(ad.unit)})
+}
+function suggested(u){return u==="DC"?"p10":u==="HO"?"p1":pic(u,"Store manager")}
+function sel(lab,id,opts){return `<div class="f"><label>${lab}</label><select class="in" id="${id}">${opts}</select></div>`}
+function saveAdd(){
+  const name = ad.name.trim() || "New person"
+  undoSnap = snap()
+  if(v==="B"){ const s=get(ad.seat); if(!s){hide("s2");return} s.name=name; s.vacant=false; flashIds=[s.id] }
+  else {
+    const j = JOBS[ad.job], id = "n"+(seq++)
+    const p = v==="D" ? {id,name,title:j.t,role:j.role,unit:j.store?ad.unit:j.unit,mgr:ad.mgr}
+      : {id,name,title:ad.role,role:ad.role,unit:v==="A"?(ad.units[0]||"HO"):ad.unit,mgr:ad.mgr,units:[...ad.units]}
+    people.push(p); flashIds=[id]
+    let m = get(p.mgr); while(m){shut.delete(m.id); m = m.mgr && get(m.mgr)}
+  }
+  toast(`Link for ${name} is ready in WhatsApp`)
+  hide("s2"); render(); if(s1Id) openPerson(s1Id)
+}
+
+/* ── sheets, toast ────────────────────────────────────────────────── */
+function show(id){$(id).classList.add("on");$("veil").classList.add("on")}
+function hide(id){$(id).classList.remove("on");if(!$("s1").classList.contains("on")&&!$("s2").classList.contains("on"))$("veil").classList.remove("on")}
+function closeAll(){hide("s2");hide("s1");s1Id=null}
+let tt
+function toast(msg){$("tmsg").textContent=msg;$("toast").classList.add("on");clearTimeout(tt);tt=setTimeout(()=>$("toast").classList.remove("on"),5000)}
+$("undo").onclick = () => {if(undoSnap){people=undoSnap.people;ROLE_DEF=undoSnap.roles;undoSnap=null;render();if(s1Id)openPerson(s1Id)}$("toast").classList.remove("on")}
+$("veil").onclick = () => $("s2").classList.contains("on") ? hide("s2") : closeAll()
+
+document.addEventListener("click", e => {
+  const vb = e.target.closest("#ver button"); if(vb){if(vb.dataset.pv)pv=vb.dataset.pv;else v=vb.dataset.v;closeAll();render();return}
+  const nv = e.target.closest("[data-nav]"); if(nv){page=nv.dataset.nav;closeAll();render();return}
+  const db = e.target.closest("#dev button"); if(db){document.querySelectorAll("#dev button").forEach(b=>b.classList.toggle("on",b===db));$("frame").classList.toggle("phone",db.dataset.d==="phone");return}
+  const a = e.target.closest("[data-act]"); if(!a) return
+  const act = a.dataset.act, id = a.dataset.id
+  if(act==="role"){openRole(a.dataset.r, page==="roles"?"s1":"s2");return}
+  if(["rdata","rlvl","ract","rsec","rro"].includes(act)){if(a.tagName==="INPUT")e.preventDefault();roleAct(act,a);return}
+  if(act==="rsave"){saveRole();return}
+  if(act==="fold"){e.stopPropagation();shut.has(id)?shut.delete(id):shut.add(id);render();return}
+  if(act==="open"){hide("s2");openPerson(id)}
+  if(act==="close")closeAll()
+  if(act==="close2")hide("s2")
+  if(act==="change")openChange(a.dataset.ids.split(","))
+  if(act==="to"){ch.to=id;drawChange()}
+  if(act==="save")saveChange()
+  if(act==="add")openAdd(id && get(id) && get(id).vacant ? id : undefined)
+  if(act==="addsave")saveAdd()
+  if(act==="unit"){const u=a.dataset.u;ad.units=ad.units.includes(u)?ad.units.filter(x=>x!==u):[...ad.units,u];drawAdd()}
+  if(act==="addmgr")drawAddD()
+  if(act==="vacate"){undoSnap=snap();const p=get(id);const was=p.name;p.name=null;p.vacant=true;flashIds=[id];toast(`${was} left the seat`);render();openPerson(id)}
+  if(act==="units"){openUnitsA(id)}
+})
+/* D: reports to stays a picker when changed by hand */
+function drawAddD(){
+  const up = ad.mgr
+  const peopleOpts = people.filter(p=>!p.vacant).map(p=>`<option value="${p.id}" ${p.id===up?"selected":""}>${esc(p.name)} · ${esc(p.title)}</option>`).join("")
+  drawAdd()
+  const f = [...$("s2").querySelectorAll(".f")].pop()
+  f.innerHTML = `<label>Reports to</label><select class="in" id="mgr2">${peopleOpts}</select>`
+  $("mgr2").onchange = e => {ad.mgr = e.target.value}
+}
+/* A: units are picked by hand on the person */
+function openUnitsA(id){
+  const p = get(id); let pick = [...(p.units||[p.unit])]
+  const draw = () => {
+    $("s2").innerHTML = `<div class="sh-h"><div class="tt"><h3>Units</h3><div class="cap">${esc(p.name)}</div></div><button class="x" data-act="close2">${ICON.x}</button></div>
+      <div class="sh-b"><div class="chips">${Object.entries(UNITS).map(([k,t])=>`<button class="chip${pick.includes(k)?" on":""}" data-u2="${k}">${t}</button>`).join("")}</div></div>
+      <div class="sh-f"><button class="btn lg" data-act="close2">Cancel</button><button class="btn lg primary" id="usave">Save</button></div>`
+    $("s2").querySelectorAll("[data-u2]").forEach(b=>b.onclick=()=>{const u=b.dataset.u2;pick=pick.includes(u)?pick.filter(x=>x!==u):[...pick,u];draw()})
+    $("usave").onclick=()=>{undoSnap=snap();p.units=pick;toast(`${p.name} sees ${unitList(pick)||"no units"}`);hide("s2");openPerson(id)}
+  }
+  draw(); show("s2")
+}
+render()
+</script>
+</body>
+</html>

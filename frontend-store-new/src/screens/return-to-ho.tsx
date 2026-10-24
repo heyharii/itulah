@@ -41,6 +41,29 @@ import { idempotencyKey } from "@itulah/contract/client"
 /// and the shop only answers it.
 export function ReturnToHo() {
   const returns = useReturns()
+  const rows = returns.data ?? []
+  const pieces = rows.reduce((sum, ask) => sum + ask.quantity, 0)
+  const items = rows.reduce((sum, ask) => sum + ask.lines.length, 0)
+  const ready = returns.data !== undefined
+
+  return (
+    <Screen counter>
+      <KpiStrip>
+        <Kpi label="Requests" value={ready ? count(rows.length) : "—"} />
+        <Kpi label="Items" value={ready ? count(items) : "—"} />
+        <Kpi label="Pieces to send" value={ready ? count(pieces) : "—"} />
+      </KpiStrip>
+      <ReturnRequests />
+    </Screen>
+  )
+}
+
+/// The requests as cards and the sheet one opens into — the whole of this
+/// screen under its figures, and Stock's To be returned · Return HO, where the
+/// cards only show what is waiting (`sendable` off): Stock sends through its
+/// one Send to HO sheet, with the Trip note.
+export function ReturnRequests({ sendable = true }: { sendable?: boolean }) {
+  const returns = useReturns()
   const record = useOpenRecord("returning")
   const [done, setDone] = useState<StoreReturnSent | null>(null)
   // One key per request, however it is sent — from its card or from its sheet —
@@ -54,21 +77,10 @@ export function ReturnToHo() {
     }
     return key
   }
-
   const rows = returns.data ?? []
-  const pieces = rows.reduce((sum, ask) => sum + ask.quantity, 0)
-  const items = rows.reduce((sum, ask) => sum + ask.lines.length, 0)
-
-  const ready = returns.data !== undefined
 
   return (
-    <Screen counter>
-      <KpiStrip>
-        <Kpi label="Requests" value={ready ? count(rows.length) : "—"} />
-        <Kpi label="Items" value={ready ? count(items) : "—"} />
-        <Kpi label="Pieces to send" value={ready ? count(pieces) : "—"} />
-      </KpiStrip>
-
+    <>
       {queryState(returns, {
         loading: "Reading the return requests…",
         render: () => (
@@ -82,20 +94,19 @@ export function ReturnToHo() {
             {rows.length === 0 ? (
               <EmptyState>Nothing to send.</EmptyState>
             ) : (
-              <>
-                <CardList grid>
-                  {rows.map((ask) => (
-                    <AskCard
-                      key={ask.allotment_id}
-                      ask={ask}
-                      keyFor={keyFor}
-                      onSent={setDone}
-                      selected={record.value === ask.allotment_id}
-                      onOpen={() => record.open(ask.allotment_id)}
-                    />
-                  ))}
-                </CardList>
-              </>
+              <CardList grid>
+                {rows.map((ask) => (
+                  <AskCard
+                    key={ask.allotment_id}
+                    ask={ask}
+                    sendable={sendable}
+                    keyFor={keyFor}
+                    onSent={setDone}
+                    selected={record.value === ask.allotment_id}
+                    onOpen={() => record.open(ask.allotment_id)}
+                  />
+                ))}
+              </CardList>
             )}
           </>
         ),
@@ -103,11 +114,12 @@ export function ReturnToHo() {
 
       <ReturnSheet
         ask={rows.find((ask) => ask.allotment_id === record.value)}
+        sendable={sendable}
         keyFor={keyFor}
         onSent={setDone}
         onClose={record.close}
       />
-    </Screen>
+    </>
   )
 }
 
@@ -140,12 +152,14 @@ function useSendReturn(
 /// the press was.
 function AskCard({
   ask,
+  sendable,
   keyFor,
   onSent,
   selected,
   onOpen,
 }: {
   ask: StoreReturnAsk
+  sendable: boolean
   keyFor: (id: string) => string
   onSent: (sent: StoreReturnSent) => void
   selected: boolean
@@ -167,11 +181,13 @@ function AskCard({
         }}
         foot={{
           info: `Asked ${moment(ask.requested_at)}`,
-          action: {
-            label: send.isPending ? "Sending…" : "Pack and send",
-            onClick: confirm,
-            pending: send.isPending,
-          },
+          action: sendable
+            ? {
+                label: send.isPending ? "Sending…" : "Pack and send",
+                onClick: confirm,
+                pending: send.isPending,
+              }
+            : undefined,
         }}
       />
       {send.isError && <Banner tone="bad">{describe(send.error)}</Banner>}
@@ -185,11 +201,13 @@ function AskCard({
 /// has just been sent leaves the list before the sheet has gone).
 function ReturnSheet({
   ask,
+  sendable,
   keyFor,
   onSent,
   onClose,
 }: {
   ask: StoreReturnAsk | undefined
+  sendable: boolean
   keyFor: (id: string) => string
   onSent: (sent: StoreReturnSent) => void
   onClose: () => void
@@ -200,6 +218,7 @@ function ReturnSheet({
     <ReturnSheetFor
       key={held.allotment_id}
       ask={held}
+      sendable={sendable}
       open={ask !== undefined}
       keyFor={keyFor}
       onSent={onSent}
@@ -210,12 +229,14 @@ function ReturnSheet({
 
 function ReturnSheetFor({
   ask,
+  sendable,
   open,
   keyFor,
   onSent,
   onClose,
 }: {
   ask: StoreReturnAsk
+  sendable: boolean
   open: boolean
   keyFor: (id: string) => string
   onSent: (sent: StoreReturnSent) => void
@@ -234,16 +255,18 @@ function ReturnSheetFor({
       badge={<Pill tone="warn">To send</Pill>}
       caption={`Asked ${moment(ask.requested_at)}`}
       footer={
-        <div className="flex justify-end">
-          <Button
-            variant="primary"
-            className={`${FOOT} max-md:w-full`}
-            pending={send.isPending}
-            onClick={confirm}
-          >
-            {send.isPending ? "Sending…" : "Pack and send"}
-          </Button>
-        </div>
+        sendable ? (
+          <div className="flex justify-end">
+            <Button
+              variant="primary"
+              className={`${FOOT} max-md:w-full`}
+              pending={send.isPending}
+              onClick={confirm}
+            >
+              {send.isPending ? "Sending…" : "Pack and send"}
+            </Button>
+          </div>
+        ) : undefined
       }
     >
       <div className="flex flex-col gap-6">

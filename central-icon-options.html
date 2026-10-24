@@ -1,0 +1,631 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Central icon options</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&display=swap" rel="stylesheet">
+<style>
+/* frontend-hub tokens, All white look (styles/white.css) */
+:root {
+  --ink: #1d1d1f;
+  --body: #6e6e73;
+  --faint: #c7c7cc;
+  --line-ico: #8e8e93;
+  --canvas: #ffffff;
+  --soft: #fafafb;
+  --soft-2: #f2f2f5;
+  --soft-3: #f5f5f7;
+  --hairline: #e8e8ec;
+  --hairline-2: #dcdce1;
+  --accent: #2862dc;
+  --accent-bg: #eef3fc;
+  --rail-2: #f5f5f7;
+  --r-inner: 8px;
+  --r-card: 10px;
+  --r-sheet: 16px;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --font: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --os: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; }
+html, body { min-height: 100%; }
+body {
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 20px;
+  color: var(--ink);
+  background: var(--soft-3);
+  -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
+}
+button { font: inherit; color: inherit; border: 0; background: none; padding: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+h1, h2, h3, p { font: inherit; }
+svg.ico { display: block; flex: none; }
+body[data-chrome="off"] .proto-picker { display: none; }
+
+.board { max-width: 1180px; margin: 0 auto; padding: 116px 24px 64px; }
+body[data-chrome="off"] .board { padding-top: 32px; }
+
+/* arrival: only on first paint and on Replay — flipping variants is instant */
+.rise { animation: rise 420ms var(--ease-out) both; animation-delay: calc(var(--i, 0) * 45ms); }
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+@media (prefers-reduced-motion: reduce) { .rise { animation-name: fade; } @keyframes fade { from { opacity: 0; } } }
+
+/* ── hero ── */
+.hero { display: flex; align-items: center; gap: 28px; padding: 28px; border-radius: var(--r-sheet); background: var(--canvas); box-shadow: 0 0 0 1px rgb(0 0 0 / 5%); margin-bottom: 20px; }
+.hero-ico { filter: drop-shadow(0 10px 22px rgb(0 0 0 / 16%)) drop-shadow(0 2px 4px rgb(0 0 0 / 8%)); }
+.hero h1 { font-size: 28px; line-height: 34px; font-weight: 600; letter-spacing: -0.02em; display: flex; align-items: center; gap: 12px; }
+.hero p { color: var(--body); margin-top: 6px; max-width: 560px; }
+.hero.dk { background: #111113; box-shadow: none; }
+.hero.dk h1 { color: #f5f5f7; }
+.hero.dk p { color: #a1a1a6; }
+.pill { display: inline-flex; align-items: center; gap: 7px; height: 26px; padding: 0 10px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--hairline-2); font-size: 15px; font-weight: 500; color: var(--body); letter-spacing: 0; }
+.pill i { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+.hero.dk .pill { box-shadow: inset 0 0 0 1px #3a3a3c; color: #a1a1a6; }
+
+/* ── context grid ── */
+.grid { display: grid; grid-template-columns: 372px minmax(0, 1fr); gap: 20px; align-items: start; }
+.stack { display: grid; gap: 20px; min-width: 0; }
+.pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; }
+.card { background: var(--canvas); border-radius: var(--r-sheet); box-shadow: 0 0 0 1px rgb(0 0 0 / 5%); padding: 20px; min-width: 0; }
+.lbl { color: var(--body); font-weight: 500; margin-bottom: 14px; }
+@media (max-width: 1000px) {
+  .grid { grid-template-columns: minmax(0, 1fr); }
+  .card.phonecard { display: flex; flex-direction: column; align-items: center; }
+  .card.phonecard .lbl { align-self: flex-start; }
+}
+@media (max-width: 700px) {
+  .board { padding: 96px 16px 48px; }
+  .pair { grid-template-columns: minmax(0, 1fr); }
+  .hero { flex-direction: column; align-items: flex-start; gap: 20px; padding: 20px; }
+}
+
+/* ── iPhone home screen (iOS proportions, 0.846 of a 390pt phone) ── */
+.phone { width: 330px; height: 714px; border-radius: 54px; padding: 9px; background: #1d1d1f; box-shadow: 0 0 0 1px #3a3a3c inset, 0 20px 50px rgb(0 0 0 / 18%); }
+.screen { position: relative; width: 100%; height: 100%; border-radius: 45px; overflow: hidden; font-family: var(--os); color: #fff;
+  background: radial-gradient(120% 70% at 20% 0%, #a8c3ee 0%, transparent 60%), radial-gradient(100% 70% at 100% 100%, #e9b9a0 0%, transparent 60%), linear-gradient(170deg, #9db6dc, #c9b3c9 55%, #e6c1a8); }
+.screen.dk { background: radial-gradient(120% 70% at 15% 0%, #1d2a4a 0%, transparent 60%), radial-gradient(100% 70% at 100% 100%, #2a1c2c 0%, transparent 60%), linear-gradient(170deg, #0c0f18, #141522 55%, #1b1520); }
+.status { display: flex; justify-content: space-between; align-items: center; height: 46px; padding: 6px 30px 0 34px; font-size: 15px; font-weight: 600; }
+.status .r { display: flex; gap: 5px; align-items: center; }
+.status .r i { display: block; background: #fff; border-radius: 2px; }
+.island { position: absolute; top: 10px; left: 50%; width: 104px; height: 31px; margin-left: -52px; border-radius: 20px; background: #000; }
+.apps { display: grid; grid-template-columns: repeat(4, 51px); justify-content: space-between; row-gap: 20px; padding: 22px 22px 0; }
+.app { position: relative; display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.app span { font-size: 11px; line-height: 13px; letter-spacing: 0.01em; text-shadow: 0 1px 2px rgb(0 0 0 / 22%); white-space: nowrap; }
+.app .ph { filter: none; }
+.screen.dk .ph { filter: brightness(0.55) saturate(1.1); }
+.badge { position: absolute; top: -7px; right: -8px; min-width: 24px; height: 24px; padding: 0 7px; border-radius: 12px; background: #ff3b30; color: #fff; font-size: 15px; line-height: 24px; font-weight: 500; text-align: center; text-shadow: none; }
+.search { position: absolute; left: 50%; bottom: 108px; transform: translateX(-50%); height: 26px; padding: 0 12px; border-radius: 13px; background: rgb(255 255 255 / 26%); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); font-size: 13px; line-height: 26px; }
+.screen.dk .search { background: rgb(255 255 255 / 12%); }
+.dock { position: absolute; left: 10px; right: 10px; bottom: 10px; height: 84px; border-radius: 34px; background: rgb(255 255 255 / 28%); -webkit-backdrop-filter: blur(24px) saturate(1.4); backdrop-filter: blur(24px) saturate(1.4); display: flex; justify-content: space-around; align-items: center; padding: 0 12px; }
+.screen.dk .dock { background: rgb(255 255 255 / 10%); }
+
+/* ── browser + hub sidebar ── */
+.browser { border-radius: 12px; overflow: hidden; box-shadow: 0 0 0 1px rgb(0 0 0 / 8%), 0 8px 24px rgb(0 0 0 / 6%); background: #fff; }
+.tabs { display: flex; align-items: flex-end; gap: 2px; height: 42px; padding: 0 10px; background: #e7e7ec; font-family: var(--os); font-size: 13px; }
+.tabs .dots { display: flex; gap: 7px; align-self: center; margin-right: 12px; }
+.tabs .dots i { width: 11px; height: 11px; border-radius: 50%; background: #ff5f57; }
+.tabs .dots i:nth-child(2) { background: #febc2e; }
+.tabs .dots i:nth-child(3) { background: #28c840; }
+.tab { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px; border-radius: 9px 9px 0 0; color: #3a3a3c; min-width: 0; max-width: 230px; flex: 0 1 230px; }
+.tab span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.tab.on { background: #fff; color: #1d1d1f; }
+.tab b { font-weight: 400; color: #8e8e93; }
+.addr { height: 40px; display: flex; align-items: center; padding: 0 14px; border-bottom: 1px solid var(--hairline); }
+.addr span { flex: 1; height: 28px; line-height: 28px; padding: 0 12px; border-radius: 14px; background: var(--soft-3); font-family: var(--os); font-size: 13px; color: #6e6e73; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.hub { display: flex; height: 352px; }
+.side { width: 212px; flex: none; padding: 14px 10px; border-right: 1px solid var(--hairline); }
+.side-head { display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 8px; margin-bottom: 10px; }
+.side-head b { font-weight: 600; letter-spacing: -0.01em; }
+.nav { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border-radius: var(--r-inner); color: #3a3a3c; }
+.nav svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; color: #8e8e93; flex: none; }
+.nav.on { background: var(--rail-2); color: var(--ink); font-weight: 500; }
+.nav.on svg { color: var(--ink); }
+.page { flex: 1; min-width: 0; padding: 22px 24px; }
+.page h3 { font-size: 22px; line-height: 28px; font-weight: 600; letter-spacing: -0.015em; margin-bottom: 16px; }
+.tbl { width: 100%; border-collapse: collapse; }
+.tbl th { text-align: left; font-weight: 500; color: var(--body); height: 40px; border-bottom: 1px solid var(--hairline); padding: 0 10px 0 0; white-space: nowrap; }
+.tbl td { height: 48px; border-bottom: 1px solid #eeeef1; padding: 0 10px 0 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
+.tbl .num { text-align: right; font-variant-numeric: tabular-nums; }
+@media (max-width: 760px) { .side { width: 64px; } .side-head b, .nav span { display: none; } .side-head { justify-content: center; padding: 0; } .nav { justify-content: center; padding: 0; } .tbl .sup { display: none; } }
+
+/* ── notification ── */
+.lock { border-radius: 14px; padding: 22px 14px; font-family: var(--os);
+  background: radial-gradient(120% 90% at 10% 0%, #a8c3ee 0%, transparent 60%), linear-gradient(160deg, #9db6dc, #d8b9b4); }
+.lock.dk { background: radial-gradient(120% 90% at 10% 0%, #1d2a4a 0%, transparent 60%), linear-gradient(160deg, #0c0f18, #1b1520); }
+.banner { display: flex; gap: 11px; align-items: flex-start; padding: 13px 14px; border-radius: 22px; background: rgb(250 250 252 / 78%); -webkit-backdrop-filter: blur(20px) saturate(1.6); backdrop-filter: blur(20px) saturate(1.6); box-shadow: 0 6px 20px rgb(0 0 0 / 10%); }
+.lock.dk .banner { background: rgb(44 44 48 / 78%); color: #f5f5f7; }
+.banner > div { flex: 1; min-width: 0; }
+.nt { display: flex; justify-content: space-between; gap: 8px; }
+.nt b { font-weight: 600; }
+.nt span { color: #6e6e73; }
+.lock.dk .nt span { color: #98989d; }
+.banner p { margin-top: 1px; }
+
+/* ── sign in ── */
+.signin { display: flex; flex-direction: column; align-items: center; padding: 8px 8px 4px; }
+.signin .mk { filter: drop-shadow(0 4px 10px rgb(0 0 0 / 12%)); }
+.wm { font-size: 28px; line-height: 34px; font-weight: 600; letter-spacing: -0.02em; margin: 14px 0 20px; }
+.wm span { color: var(--accent); }
+.fld { width: 100%; max-width: 280px; height: 40px; border-radius: var(--r-inner); box-shadow: inset 0 0 0 1px var(--hairline-2); padding: 0 12px; line-height: 40px; color: #8e8e93; margin-bottom: 10px; }
+.go { width: 100%; max-width: 280px; height: 40px; border-radius: var(--r-inner); background: var(--accent); color: #fff; font-weight: 500; line-height: 40px; text-align: center; margin-top: 4px; }
+
+/* ── sizes ── */
+.sizes { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 22px 26px; }
+.sizes figure { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.sizes figcaption { color: var(--body); font-variant-numeric: tabular-nums; }
+.statusbar { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; border-radius: 8px; background: #1d1d1f; color: #fff; font-family: var(--os); font-size: 13px; font-weight: 600; }
+
+/* ── all, side by side ── */
+.lineup { display: grid; grid-template-columns: repeat(var(--n, 7), minmax(0, 1fr)); gap: 0; border-radius: var(--r-sheet); overflow: hidden; box-shadow: 0 0 0 1px rgb(0 0 0 / 5%); background: var(--canvas); }
+.lineup.dk { background: #111113; }
+.lineup + .lineup { margin-top: 20px; }
+.lane { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 22px 8px 24px; background: var(--canvas); cursor: pointer; transition: background-color 150ms ease; }
+@media (hover: hover) and (pointer: fine) { .lane:hover { background: var(--soft); } .lineup.dk .lane:hover { background: #18181b; } }
+.lane b { font-weight: 600; }
+.lane .row { display: flex; align-items: center; gap: 10px; }
+.lineup.dk .lane { background: #111113; color: #f5f5f7; }
+.homerow { display: grid; grid-template-columns: repeat(var(--n, 7), minmax(0, 1fr)); margin-top: 20px; border-radius: var(--r-sheet); overflow: hidden; }
+.homerow .cell { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 22px 0 18px; font-family: var(--os); color: #fff; }
+.homerow .cell span { font-size: 13px; text-shadow: 0 1px 2px rgb(0 0 0 / 22%); }
+.group { margin: 40px 0 14px; color: var(--body); font-weight: 500; }
+@media (max-width: 900px) { .lineup, .homerow { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (max-width: 520px) { .lineup, .homerow { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* ── picker chrome (prototype skill, verbatim) ── */
+.proto-picker { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 2147483647; display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: 999px; background: rgba(10, 10, 10, 0.82); -webkit-backdrop-filter: blur(12px) saturate(1.4); backdrop-filter: blur(12px) saturate(1.4); box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset, 0 8px 24px rgba(0, 0, 0, 0.24), 0 2px 6px rgba(0, 0, 0, 0.12); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 13px; line-height: 1; -webkit-font-smoothing: antialiased; user-select: none; -webkit-user-select: none; }
+.proto-picker-highlight { position: absolute; top: 4px; left: 0; height: 28px; border-radius: 999px; background: rgba(255, 255, 255, 0.12); will-change: transform; }
+.proto-picker[data-ready] .proto-picker-highlight { transition: transform 250ms cubic-bezier(0.23, 1, 0.32, 1), width 250ms cubic-bezier(0.23, 1, 0.32, 1); }
+@media (prefers-reduced-motion: reduce) { .proto-picker[data-ready] .proto-picker-highlight { transition: none; } }
+.proto-picker-item { position: relative; display: flex; align-items: center; height: 28px; padding: 0 12px; border: 0; border-radius: 999px; background: transparent; color: rgba(255, 255, 255, 0.55); font: inherit; cursor: pointer; transition: color 150ms ease-out; }
+.proto-picker-item:hover { color: rgba(255, 255, 255, 0.85); }
+.proto-picker-item:active { transform: scale(0.97); }
+.proto-picker-item:focus-visible { outline: 2px solid rgba(255, 255, 255, 0.4); outline-offset: 2px; }
+.proto-picker-item[data-active] { color: #fff; }
+.proto-picker-divider { width: 1px; height: 16px; margin: 0 4px; background: rgba(255, 255, 255, 0.12); }
+.proto-picker-replay { padding: 0 10px; font-size: 14px; }
+.proto-picker[data-position="top"] { bottom: auto; top: 24px; }
+.proto-picker.proto-states { top: 64px; white-space: nowrap; }
+.proto-picker.proto-matte { top: 104px; white-space: nowrap; display: none; }
+body[data-matte] .proto-picker.proto-matte { display: flex; }
+body[data-matte] .board { padding-top: 156px; }
+body[data-chrome="off"] .proto-picker.proto-matte { display: none; }
+body[data-chrome="off"][data-matte] .board { padding-top: 32px; }
+@media (max-width: 767px) { .proto-picker[data-position="top"] { top: 8px; } .proto-picker.proto-states { top: 44px; } .proto-picker.proto-matte { top: 80px; } body[data-matte] .board { padding-top: 132px; } .proto-picker-item { padding: 0 8px; } }
+@media (max-width: 440px) { .proto-picker-item { padding: 0 6px; font-size: 12px; } }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+
+<nav class="proto-picker" id="variants" data-position="top" aria-label="Prototype variants">
+  <span class="proto-picker-highlight" aria-hidden="true"></span>
+  <button class="proto-picker-item">Now</button>
+  <button class="proto-picker-item">Period</button>
+  <button class="proto-picker-item">Nodes</button>
+  <button class="proto-picker-item">Ring</button>
+  <button class="proto-picker-item">Glass</button>
+  <button class="proto-picker-item">Matte</button>
+  <button class="proto-picker-item">Tag</button>
+  <button class="proto-picker-item">All</button>
+  <span class="proto-picker-divider" aria-hidden="true"></span>
+  <button class="proto-picker-item proto-picker-replay" aria-label="Replay animation (R)">↻</button>
+</nav>
+
+<nav class="proto-picker proto-matte" id="mattes" data-position="top" aria-label="Matte versions">
+  <span class="proto-picker-highlight" aria-hidden="true"></span>
+  <button class="proto-picker-item">Matte</button>
+  <button class="proto-picker-item">Deep</button>
+  <button class="proto-picker-item">Step out</button>
+  <button class="proto-picker-item">Block</button>
+  <button class="proto-picker-item">Ink</button>
+  <button class="proto-picker-item">Graphite</button>
+</nav>
+
+<nav class="proto-picker proto-states" id="states" data-position="top" aria-label="Appearance">
+  <span class="proto-picker-highlight" aria-hidden="true"></span>
+  <button class="proto-picker-item">Light</button>
+  <button class="proto-picker-item">Dark</button>
+</nav>
+
+<script>
+const ACCENT = "#2862dc";
+const INK = "#111214";
+let uid = 0;
+const f = (n) => +n.toFixed(2);
+
+/* The iOS tile is a superellipse, not a rounded rect: n = 5 draws its continuous corner. */
+const SQ = (() => {
+  const n = 5, pts = [];
+  for (let i = 0; i < 180; i++) {
+    const t = (i / 180) * Math.PI * 2, c = Math.cos(t), s = Math.sin(t);
+    pts.push(`${f(50 + 50 * Math.sign(c) * Math.abs(c) ** (2 / n))} ${f(50 + 50 * Math.sign(s) * Math.abs(s) ** (2 / n))}`);
+  }
+  return "M" + pts.join("L") + "Z";
+})();
+const CIRCLE = "M50 0A50 50 0 1 1 50 100A50 50 0 1 1 50 0Z";
+const dotPath = (cx, cy, r) => `M${f(cx + r)} ${cy}A${r} ${r} 0 1 1 ${f(cx - r)} ${cy}A${r} ${r} 0 1 1 ${f(cx + r)} ${cy}Z`;
+
+/* The C as a filled shape (not a stroke), so glass and matte can light its edge.
+   Centre cx,cy · radius r of the stroke's middle · width w · half-mouth a degrees. */
+function cShape(cx, cy, r, w, a, cap = "round") {
+  const R = r + w / 2, ri = r - w / 2, h = w / 2, t = (a * Math.PI) / 180, c = Math.cos(t), s = Math.sin(t);
+  const p = (x, y) => `${f(x)} ${f(y)}`;
+  const P1 = p(cx + R * c, cy - R * s), P2 = p(cx + R * c, cy + R * s), P3 = p(cx + ri * c, cy + ri * s), P4 = p(cx + ri * c, cy - ri * s);
+  const to = (P) => (cap === "round" ? `A${h} ${h} 0 0 0 ${P}` : `L${P}`);
+  return `M${P1}A${R} ${R} 0 1 0 ${P2}${to(P3)}A${ri} ${ri} 0 1 1 ${P4}${to(P1)}Z`;
+}
+const stops = (...cs) => cs.map((c, i) => `<stop offset="${i / (cs.length - 1)}" stop-color="${c}"/>`).join("");
+const blur = (id, sd) => `<filter id="${id}" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="${sd}"/></filter>`;
+
+/* ── the seven marks ── */
+const NOW_C = cShape(41.94, 50, 20.31, 11.25, 42.6);
+const PERIOD_C = cShape(45, 50, 22, 14, 38, "butt");
+const RING_C = cShape(43, 50, 21, 13.5, 47);
+const GLASS_C = cShape(43, 50, 21, 14, 46);
+const MATTE_C = cShape(44, 48.5, 21, 14.5, 44);
+const NODE_A = [60, 108, 156, 204, 252, 300].map((d) => [50 + 28 * Math.cos((d * Math.PI) / 180), 50 + 28 * Math.sin((d * Math.PI) / 180)]);
+const TAG = "M-23 -11L-9 -28Q0 -35 9 -28L23 -11L23 25Q23 30 18 30L-18 30Q-23 30 -23 25Z";
+
+const DESIGNS = [
+  {
+    name: "Now", today: true,
+    line: "Near-black tile, white C, the blue dot in its mouth.",
+    paint: () => ({
+      bg: `<rect width="100" height="100" fill="${INK}"/>`,
+      glyph: `<path d="${NOW_C}" fill="#fff"/><circle cx="73.13" cy="50" r="6.88" fill="${ACCENT}"/>`,
+      rim: "rgb(255 255 255 / 10%)",
+    }),
+    mono: `<path d="${NOW_C}"/><circle cx="73.13" cy="50" r="6.88"/>`,
+  },
+  {
+    name: "Period",
+    line: "A heavier C with flat ends, and the dot drops to the baseline as a full stop: the icon reads “C.” the way the sign-in reads “Central.”",
+    paint: () => ({
+      bg: `<rect width="100" height="100" fill="${INK}"/>`,
+      glyph: `<path d="${PERIOD_C}" fill="#fff"/><circle cx="77.5" cy="71.8" r="7.2" fill="${ACCENT}"/>`,
+      rim: "rgb(255 255 255 / 10%)",
+    }),
+    mono: `<path d="${PERIOD_C}"/><circle cx="77.5" cy="71.8" r="7.2"/>`,
+  },
+  {
+    name: "Nodes",
+    line: "Six stores in the shape of a C, each joined to one blue centre: what Central is.",
+    paint: () => ({
+      bg: `<rect width="100" height="100" fill="${INK}"/>`,
+      glyph:
+        NODE_A.map(([x, y]) => `<line x1="50" y1="50" x2="${f(x)}" y2="${f(y)}" stroke="rgb(255 255 255 / 30%)" stroke-width="2.6" stroke-linecap="round"/>`).join("") +
+        NODE_A.map(([x, y]) => `<circle cx="${f(x)}" cy="${f(y)}" r="6.6" fill="#fff"/>`).join("") +
+        `<circle cx="50" cy="50" r="10.5" fill="${ACCENT}"/>`,
+      rim: "rgb(255 255 255 / 10%)",
+    }),
+    mono: NODE_A.map(([x, y]) => `<circle cx="${f(x)}" cy="${f(y)}" r="7.5"/>`).join("") + `<circle cx="50" cy="50" r="11.5"/>`,
+  },
+  {
+    name: "Ring",
+    line: "The C itself turns blue, lit from the top and glowing on the black; the dot goes white.",
+    paint: ({ id }) => ({
+      defs: `<linearGradient id="${id}g" x1="0" y1="0" x2="0" y2="1">${stops("#a4c6ff", "#3f7cf2", "#1c45bd")}</linearGradient>${blur(id + "b", 5)}`,
+      bg: `<rect width="100" height="100" fill="#0d0e11"/>`,
+      glyph: `<path d="${RING_C}" fill="#2a63e6" opacity=".6" filter="url(#${id}b)"/><path d="${RING_C}" fill="url(#${id}g)"/><circle cx="74.5" cy="50" r="7.5" fill="#fff"/>`,
+      rim: "rgb(255 255 255 / 9%)",
+    }),
+    mono: `<path d="${RING_C}"/><circle cx="74.5" cy="50" r="7.5"/>`,
+  },
+  {
+    name: "Glass",
+    line: "A frosted-glass C on the accent blue, lit from the top-left, the way iOS 26 draws its icons.",
+    paint: ({ id, dark }) => {
+      const dot = dotPath(74, 50, 7.5);
+      return {
+        defs:
+          `<linearGradient id="${id}bg" x1="0" y1="0" x2="0" y2="1">${dark ? stops("#121c3a", "#05070d") : stops("#5d95ff", "#1d4fd0")}</linearGradient>` +
+          `<radialGradient id="${id}hl" cx=".2" cy="0" r=".9"><stop offset="0" stop-color="#fff" stop-opacity="${dark ? 0.1 : 0.3}"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>` +
+          `<linearGradient id="${id}body" x1="0" y1="0" x2="0" y2="1">${dark
+            ? `<stop offset="0" stop-color="#8fb4ff" stop-opacity=".82"/><stop offset="1" stop-color="#3f74ee" stop-opacity=".5"/>`
+            : `<stop offset="0" stop-color="#fff" stop-opacity=".96"/><stop offset="1" stop-color="#fff" stop-opacity=".6"/>`}</linearGradient>` +
+          `<linearGradient id="${id}rim" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".95"/><stop offset=".55" stop-color="#fff" stop-opacity=".12"/><stop offset="1" stop-color="#fff" stop-opacity=".45"/></linearGradient>` +
+          blur(id + "s", 2.6),
+        bg: `<rect width="100" height="100" fill="url(#${id}bg)"/><rect width="100" height="100" fill="url(#${id}hl)"/>`,
+        glyph:
+          `<g filter="url(#${id}s)" opacity="${dark ? 0.7 : 0.38}" transform="translate(0 3.5)"><path d="${GLASS_C}" fill="${dark ? "#000" : "#0a2470"}"/><path d="${dot}" fill="${dark ? "#000" : "#0a2470"}"/></g>` +
+          `<path d="${GLASS_C}" fill="url(#${id}body)"/><path d="${GLASS_C}" fill="none" stroke="url(#${id}rim)" stroke-width="1.1"/>` +
+          `<path d="${dot}" fill="${dark ? "#5b93ff" : `url(#${id}body)`}"/><path d="${dot}" fill="none" stroke="url(#${id}rim)" stroke-width="1.1"/>`,
+      };
+    },
+    mono: `<path d="${GLASS_C}"/><path d="${dotPath(74, 50, 7.5)}"/>`,
+  },
+  null, // Matte: whichever version the third pill shows (MATTES below)
+  {
+    name: "Tag",
+    line: "A garment tag on the black: the eyelet is the blue dot, the C is printed on the card.",
+    paint: () => ({
+      bg: `<rect width="100" height="100" fill="${INK}"/>`,
+      glyph:
+        `<g transform="translate(52 55) rotate(-16)">` +
+        `<path d="${TAG}" fill="#fff"/>` +
+        `<circle cx="0" cy="-18" r="6.4" fill="${ACCENT}"/><circle cx="0" cy="-18" r="2.6" fill="${INK}"/>` +
+        `<path d="M0 -18C-3 -30 -12 -41 -31 -60" fill="none" stroke="rgb(255 255 255 / 72%)" stroke-width="2.2" stroke-linecap="round"/>` +
+        `<path d="${cShape(-1, 9, 9.5, 5.4, 44)}" fill="${INK}"/></g>`,
+      rim: "rgb(255 255 255 / 10%)",
+    }),
+    mono: `<g transform="translate(52 55) rotate(-16)"><path d="${TAG}"/></g>`,
+  },
+];
+
+/* ── Matte, six ways. Every version: no shine, tones run top → foot, a soft contact shadow,
+   one accent dot. Matte itself is the round-1 icon, unchanged. ── */
+const MATTE_MONO = `<path d="${MATTE_C}"/><circle cx="75.5" cy="48.5" r="8"/>`;
+const yellow = (id) => `<linearGradient id="${id}d" x1="0" y1="0" x2="0" y2="1">${stops("#ffd766", "#eaa20f")}</linearGradient>`;
+const floor = (id, cx, cy, rx, color, op) => `<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="3.4" fill="${color}" opacity="${op}" filter="url(#${id}s)"/>`;
+const STEP_C = cShape(50, 57, 19, 13.5, 44);
+const BLOCK_C = cShape(42, 47, 21, 14.5, 44);
+const MATTES = [
+  {
+    name: "Matte",
+    line: "Drawn like the department icons on the phone grid: pastel tile, a matte blue C with no shine, one yellow dot.",
+    paint: ({ id, dark }) => ({
+      defs:
+        `<linearGradient id="${id}c" x1="0" y1="0" x2="0" y2="1">${dark ? stops("#8aaef5", "#3a6ad8") : stops("#6390ea", "#1c48ab")}</linearGradient>` +
+        yellow(id) + blur(id + "s", 1.6),
+      bg: `<rect width="100" height="100" fill="${dark ? "#182133" : "#e3ebfb"}"/>`,
+      glyph:
+        floor(id, 48, 84, 25, dark ? "#000" : "#1a4191", dark ? 0.4 : 0.18) +
+        `<path d="${MATTE_C}" fill="url(#${id}c)"/><circle cx="75.5" cy="48.5" r="8" fill="url(#${id}d)"/>`,
+    }),
+    mono: MATTE_MONO,
+  },
+  {
+    name: "Deep", family: "Matte",
+    line: "Turned inside out: the tile is the matte blue and the C is pale, so it holds its own on a bright wallpaper.",
+    paint: ({ id, dark }) => ({
+      defs:
+        `<linearGradient id="${id}bg" x1="0" y1="0" x2="0" y2="1">${dark ? stops("#2b56b9", "#16378a") : stops("#4277e6", "#1f4fc0")}</linearGradient>` +
+        `<linearGradient id="${id}c" x1="0" y1="0" x2="0" y2="1">${stops("#ffffff", "#d3e0fa")}</linearGradient>` +
+        yellow(id) + blur(id + "s", 1.8),
+      bg: `<rect width="100" height="100" fill="url(#${id}bg)"/>`,
+      glyph:
+        floor(id, 48, 84, 25, "#0b2466", 0.4) +
+        `<path d="${MATTE_C}" fill="url(#${id}c)"/><circle cx="75.5" cy="48.5" r="8" fill="url(#${id}d)"/>`,
+    }),
+    mono: MATTE_MONO,
+  },
+  {
+    name: "Step out", family: "Matte",
+    line: "The grid's own layout on a white tile: a pastel square at the top-left and the C stepping out of it.",
+    paint: ({ id, dark }) => ({
+      defs:
+        `<linearGradient id="${id}c" x1="0" y1="0" x2="0" y2="1">${dark ? stops("#8aaef5", "#3a6ad8") : stops("#6390ea", "#1c48ab")}</linearGradient>` +
+        yellow(id) + blur(id + "s", 1.6),
+      bg: `<rect width="100" height="100" fill="${dark ? "#1c1c1e" : "#fff"}"/><rect x="13" y="13" width="50" height="50" rx="13" fill="${dark ? "#22304a" : "#dfe8fb"}"/>`,
+      glyph:
+        floor(id, 53, 89, 22, dark ? "#000" : "#1a4191", dark ? 0.45 : 0.16) +
+        `<path d="${STEP_C}" fill="url(#${id}c)"/><circle cx="79.5" cy="57" r="7.2" fill="url(#${id}d)"/>`,
+      rim: dark ? "rgb(255 255 255 / 8%)" : "rgb(0 0 0 / 7%)",
+    }),
+    mono: `<path d="${STEP_C}"/><circle cx="79.5" cy="57" r="7.2"/>`,
+  },
+  {
+    name: "Block", family: "Matte",
+    line: "The C as a thick matte object: a darker side face under it, like a block you could pick up. Still no shine.",
+    paint: ({ id, dark }) => {
+      const side = (d, color) => Array.from({ length: 8 }, (_, k) => `<path d="${d}" fill="${color}" transform="translate(${f((k + 1) * 0.45)} ${f((k + 1) * 0.55)})"/>`).join("");
+      const dot = dotPath(73.5, 47, 8);
+      return {
+        defs:
+          `<linearGradient id="${id}c" x1="0" y1="0" x2="0" y2="1">${dark ? stops("#93b4f6", "#4573dc") : stops("#719bef", "#2e5fd0")}</linearGradient>` +
+          yellow(id) + blur(id + "s", 1.8),
+        bg: `<rect width="100" height="100" fill="${dark ? "#182133" : "#e3ebfb"}"/>`,
+        glyph:
+          floor(id, 49, 85, 26, dark ? "#000" : "#1a4191", dark ? 0.45 : 0.2) +
+          side(BLOCK_C, dark ? "#1d3f8e" : "#183f9c") + side(dot, "#c4860a") +
+          `<path d="${BLOCK_C}" fill="url(#${id}c)"/><path d="${dot}" fill="url(#${id}d)"/>`,
+      };
+    },
+    mono: `<path d="${BLOCK_C}"/><circle cx="73.5" cy="47" r="8"/>`,
+  },
+  {
+    name: "Ink", family: "Matte",
+    line: "Today's dark tile kept, the C and the dot drawn the matte way: blue C, yellow dot.",
+    paint: ({ id }) => ({
+      defs:
+        `<linearGradient id="${id}bg" x1="0" y1="0" x2="0" y2="1">${stops("#27282c", "#141416")}</linearGradient>` +
+        `<linearGradient id="${id}c" x1="0" y1="0" x2="0" y2="1">${stops("#7ea4f2", "#2e5fd2")}</linearGradient>` +
+        yellow(id) + blur(id + "s", 1.8),
+      bg: `<rect width="100" height="100" fill="url(#${id}bg)"/>`,
+      glyph:
+        floor(id, 48, 84, 25, "#000", 0.55) +
+        `<path d="${MATTE_C}" fill="url(#${id}c)"/><circle cx="75.5" cy="48.5" r="8" fill="url(#${id}d)"/>`,
+      rim: "rgb(255 255 255 / 8%)",
+    }),
+    mono: MATTE_MONO,
+  },
+  {
+    name: "Graphite", family: "Matte",
+    line: "Today's colours in matte: a grey tile, an ink C and the blue dot.",
+    paint: ({ id, dark }) => ({
+      defs:
+        `<linearGradient id="${id}c" x1="0" y1="0" x2="0" y2="1">${dark ? stops("#f5f5f7", "#c2c2c8") : stops("#5a5a60", "#1d1d1f")}</linearGradient>` +
+        `<linearGradient id="${id}d" x1="0" y1="0" x2="0" y2="1">${stops("#5d90f3", "#2256d0")}</linearGradient>` +
+        blur(id + "s", 1.6),
+      bg: `<rect width="100" height="100" fill="${dark ? "#2a2a2d" : "#ededf1"}"/>`,
+      glyph:
+        floor(id, 48, 84, 25, dark ? "#000" : "#1d1d1f", dark ? 0.45 : 0.15) +
+        `<path d="${MATTE_C}" fill="url(#${id}c)"/><circle cx="75.5" cy="48.5" r="8" fill="url(#${id}d)"/>`,
+    }),
+    mono: MATTE_MONO,
+  },
+];
+let mi = 0;
+DESIGNS[5] = MATTES[0];
+const title = (d) => (d.family ? `${d.family} · ${d.name}` : d.name);
+
+/* One icon at any size. circle = Android's mask, the mark shrunk into the safe zone.
+   mono = the status-bar badge: white shapes on nothing (Android draws the alpha only). */
+function icon(d, size, o = {}) {
+  const id = "i" + ++uid;
+  if (o.mono) return `<svg class="ico" viewBox="0 0 100 100" width="${size}" height="${size}" aria-hidden="true"><g fill="#fff">${d.mono}</g></svg>`;
+  const p = d.paint({ id, dark: !!o.dark });
+  const shape = o.circle ? CIRCLE : SQ;
+  const glyph = o.circle ? `<g transform="translate(50 50) scale(.8) translate(-50 -50)">${p.glyph}</g>` : p.glyph;
+  return `<svg class="ico${o.cls ? " " + o.cls : ""}" viewBox="0 0 100 100" width="${size}" height="${size}" aria-hidden="true"><defs><clipPath id="${id}k"><path d="${shape}"/></clipPath>${p.defs || ""}</defs><g clip-path="url(#${id}k)">${p.bg}${glyph}${p.rim ? `<path d="${shape}" fill="none" stroke="${p.rim}" stroke-width="3"/>` : ""}</g></svg>`;
+}
+
+/* Other apps on the home screen: plain tiles, no glyphs, so only Central is a picture. */
+const OTHERS = [
+  ["Mail", "#6aa7ff", "#2468e8"], ["Calendar", "#ffffff", "#ececf0"], ["Photos", "#ffe39a", "#f5a623"], ["Camera", "#c4c7cc", "#6b7078"],
+  ["Maps", "#a6e8b4", "#3fb35a"], ["Clock", "#3a3a3c", "#121214"], ["Weather", "#8fd3ff", "#2f74e6"],
+  ["Notes", "#fff6b0", "#f6d33c"], ["Music", "#ff8a9c", "#ee2b4a"], ["Files", "#a9cbff", "#4a86f0"], ["Wallet", "#4a4a4f", "#1c1c1e"],
+  ["Settings", "#e3e3e8", "#8e8e93"], ["Books", "#ffc27a", "#f2811d"], ["Podcasts", "#d6b8ff", "#8a46e8"], ["Health", "#ffffff", "#f2f2f5"],
+];
+function plain(c1, c2, size) {
+  const id = "p" + ++uid;
+  return `<svg class="ico ph" viewBox="0 0 100 100" width="${size}" height="${size}" aria-hidden="true"><defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">${stops(c1, c2)}</linearGradient></defs><path d="${SQ}" fill="url(#${id})"/></svg>`;
+}
+
+const NAV_ICONS = {
+  Home: `<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>`,
+  Procurement: `<circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2.5 3h2.6l2.3 11.2a1.6 1.6 0 0 0 1.6 1.3h8.6a1.6 1.6 0 0 0 1.6-1.2L21 7H6"/>`,
+  Merchandise: `<path d="M8 3 3 6l2 5 3-1v11h8V10l3 1 2-5-5-3a4 4 0 0 1-8 0z"/>`,
+  Operations: `<path d="M2 6h11v10H2zM13 9h4l4 4v3h-8"/><circle cx="6" cy="18" r="2"/><circle cx="17" cy="18" r="2"/>`,
+  Inventory: `<path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5zM3 7.5 12 12l9-4.5M12 12v9"/>`,
+  Finance: `<rect x="3" y="6" width="18" height="14" rx="2"/><path d="M3 10h18M16 15h2"/>`,
+};
+const POS = [
+  ["PO-201026-004", "Batik Keris", "1,240"],
+  ["PO-201026-003", "Sritex Garment", "860"],
+  ["PO-191026-011", "Kencana Denim", "2,415"],
+  ["PO-191026-009", "Batik Keris", "312"],
+  ["PO-181026-002", "Mitra Rajut", "1,056"],
+];
+
+let dark = false;
+let animateNext = true;
+
+function phone(d) {
+  const tiles = OTHERS.map(([n, a, b]) => `<div class="app">${plain(a, b, 51)}<span>${n}</span></div>`);
+  tiles.splice(5, 0, `<div class="app">${icon(d, 51, { dark })}<i class="badge">3</i><span>Central</span></div>`);
+  return `<div class="phone"><div class="screen${dark ? " dk" : ""}"><div class="island"></div>
+    <div class="status"><span>9:41</span><span class="r"><i style="width:17px;height:10px;opacity:.95"></i><i style="width:22px;height:11px;border-radius:3px"></i></span></div>
+    <div class="apps">${tiles.slice(0, 16).join("")}</div>
+    <div class="search">Search</div>
+    <div class="dock">${[["#9ef0a8", "#2fc24a"], ["#7fd0ff", "#1f8ff2"], ["#ffffff", "#ececf0"], ["#ffb3a8", "#f2553c"]].map(([a, b]) => plain(a, b, 51)).join("")}</div>
+  </div></div>`;
+}
+
+function hub(d) {
+  const nav = Object.entries(NAV_ICONS).map(([n, svg]) => `<div class="nav${n === "Procurement" ? " on" : ""}"><svg viewBox="0 0 24 24">${svg}</svg><span>${n}</span></div>`).join("");
+  return `<div class="browser">
+    <div class="tabs"><span class="dots"><i></i><i></i><i></i></span>
+      <div class="tab on">${icon(d, 16)}<span>Purchase orders · Central</span><b>×</b></div>
+      <div class="tab">${icon(d, 16)}<span>Receiving · Central</span></div></div>
+    <div class="addr"><span>osretail.site/procurement/purchase-orders</span></div>
+    <div class="hub"><aside class="side"><div class="side-head">${icon(d, 28)}<b>Central</b></div>${nav}</aside>
+      <section class="page"><h3>Purchase orders</h3>
+        <table class="tbl"><thead><tr><th>Number</th><th class="sup">Supplier</th><th class="num">Pieces</th></tr></thead>
+        <tbody>${POS.map(([n, s, q]) => `<tr><td>${n}</td><td class="sup">${s}</td><td class="num">${q}</td></tr>`).join("")}</tbody></table>
+      </section></div>
+  </div>`;
+}
+
+function single(d) {
+  let i = 0;
+  const r = () => (animateNext ? ` rise" style="--i:${i++}` : "");
+  return `<main class="board">
+    <header class="hero${dark ? " dk" : ""}${r()}"><div class="hero-ico">${icon(d, 148, { dark })}</div>
+      <div><h1>${title(d)}${d.today ? `<span class="pill"><i></i>Today</span>` : ""}</h1><p>${d.line}</p></div></header>
+    <div class="grid">
+      <section class="card phonecard${r()}"><h2 class="lbl">Home screen</h2>${phone(d)}</section>
+      <div class="stack">
+        <section class="card${r()}"><h2 class="lbl">Hub</h2>${hub(d)}</section>
+        <div class="pair">
+          <section class="card${r()}"><h2 class="lbl">Notification</h2><div class="lock${dark ? " dk" : ""}"><div class="banner">${icon(d, 38, { dark })}<div><div class="nt"><b>Central</b><span>now</span></div><p>PO-201026-004 from Batik Keris is waiting for your approval.</p></div></div></div></section>
+          <section class="card${r()}"><h2 class="lbl">Sign in</h2><div class="signin">${icon(d, 64, { cls: "mk" })}<div class="wm">Central<span>.</span></div><div class="fld">Username</div><div class="fld">Password</div><div class="go">Sign in</div></div></section>
+        </div>
+        <section class="card${r()}"><h2 class="lbl">Sizes</h2><div class="sizes">
+          ${[128, 64, 40, 32, 16].map((s) => `<figure>${icon(d, s, { dark })}<figcaption>${s}</figcaption></figure>`).join("")}
+          <figure>${icon(d, 64, { circle: true, dark })}<figcaption>Android</figcaption></figure>
+          <figure><span class="statusbar">${icon(d, 15, { mono: true })}9:41</span><figcaption>Status bar</figcaption></figure>
+        </div></section>
+      </div>
+    </div>
+  </main>`;
+}
+
+function all() {
+  const a = animateNext ? " rise" : "";
+  const lane = (d, i, dk, m) => `<div class="lane" data-go="${i}"${m === undefined ? "" : ` data-m="${m}"`}><b>${m === undefined ? d.family || d.name : d.name}</b>${icon(d, 96, { dark: dk })}<div class="row">${icon(d, 48, { dark: dk })}${icon(d, 32, { dark: dk })}${icon(d, 16, { dark: dk })}</div></div>`;
+  return `<main class="board">
+    <div class="lineup${a}" style="--i:0">${DESIGNS.map((d, i) => lane(d, i, false)).join("")}</div>
+    <div class="lineup dk${a}" style="--i:1">${DESIGNS.map((d, i) => lane(d, i, true)).join("")}</div>
+    <div class="homerow screen${dark ? " dk" : ""}${a}" style="--i:2">${DESIGNS.map((d) => `<div class="cell">${icon(d, 60, { dark })}<span>${d.family || d.name}</span></div>`).join("")}</div>
+    <h2 class="group${a}" style="--i:3">Matte</h2>
+    <div class="lineup${a}" style="--i:4;--n:6">${MATTES.map((d, k) => lane(d, 5, false, k)).join("")}</div>
+    <div class="lineup dk${a}" style="--i:5;--n:6">${MATTES.map((d, k) => lane(d, 5, true, k)).join("")}</div>
+    <div class="homerow screen${dark ? " dk" : ""}${a}" style="--i:6;--n:6">${MATTES.map((d) => `<div class="cell">${icon(d, 60, { dark })}<span>${d.name}</span></div>`).join("")}</div>
+  </main>`;
+}
+
+/* ── picker harness (prototype skill wiring, two pills) ── */
+const stage = document.getElementById("stage");
+const VIEWS = [...DESIGNS.map((_, k) => () => single(DESIGNS[k])), all];
+let current = 0;
+function mount(i) {
+  uid = 0;
+  stage.innerHTML = VIEWS[i]();
+  animateNext = false;
+  stage.querySelectorAll("[data-go]").forEach((el) => el.addEventListener("click", () => { if (el.dataset.m !== undefined) mattes.set(+el.dataset.m); picker.set(+el.dataset.go); }));
+}
+function makePicker(nav, param, count, onChange) {
+  const highlight = nav.querySelector(".proto-picker-highlight");
+  const items = [...nav.querySelectorAll(".proto-picker-item:not(.proto-picker-replay)")];
+  let at = 0;
+  const move = () => { const el = items[at]; highlight.style.width = el.offsetWidth + "px"; highlight.style.transform = `translateX(${el.offsetLeft}px)`; };
+  function set(i) {
+    if (i < 0 || i >= count) return;
+    at = i;
+    items.forEach((el, j) => { el.toggleAttribute("data-active", j === i); if (j === i) el.setAttribute("aria-current", "true"); else el.removeAttribute("aria-current"); });
+    move();
+    const url = new URL(location); url.searchParams.set(param, i + 1); history.replaceState(null, "", url);
+    onChange(i);
+  }
+  items.forEach((el, i) => el.addEventListener("click", () => set(i)));
+  window.addEventListener("resize", move);
+  const start = (parseInt(new URLSearchParams(location.search).get(param), 10) || 1) - 1;
+  return { set, move, start: () => set(start), get at() { return at; }, ready: () => nav.setAttribute("data-ready", "") };
+}
+let booted = false;
+const mattes = makePicker(document.getElementById("mattes"), "m", MATTES.length, (k) => { mi = k; DESIGNS[5] = MATTES[k]; if (booted && current === 5) mount(5); });
+const picker = makePicker(document.getElementById("variants"), "v", VIEWS.length, (i) => {
+  current = i;
+  document.body.toggleAttribute("data-matte", i === 5);
+  if (i === 5) mattes.move();
+  if (booted) mount(i);
+});
+const states = makePicker(document.getElementById("states"), "s", 2, (i) => { dark = i === 1; if (booted) mount(current); });
+document.querySelector(".proto-picker-replay").addEventListener("click", () => { animateNext = true; mount(current); });
+
+document.addEventListener("keydown", (e) => {
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const n = parseInt(e.key, 10);
+  if (n >= 1 && n <= VIEWS.length) picker.set(n - 1);
+  else if (e.key === "ArrowRight") picker.set((current + 1) % VIEWS.length);
+  else if (e.key === "ArrowLeft") picker.set((current - 1 + VIEWS.length) % VIEWS.length);
+  else if (e.key === "r" || e.key === "R") { animateNext = true; mount(current); }
+  else if (e.key === "s" || e.key === "S" || e.key === "d" || e.key === "D") states.set((states.at + 1) % 2);
+  else if (e.key === "m" || e.key === "M") { if (current !== 5) picker.set(5); else mattes.set((mattes.at + 1) % MATTES.length); }
+  else if (e.key === "h" || e.key === "H") document.body.dataset.chrome = document.body.dataset.chrome === "off" ? "" : "off";
+});
+
+states.start();
+mattes.start();
+picker.start();
+booted = true;
+mount(current);
+requestAnimationFrame(() => requestAnimationFrame(() => { picker.ready(); states.ready(); mattes.ready(); }));
+</script>
+</body>
+</html>

@@ -1,0 +1,28 @@
+/* ── F3 Laci dialogs (Tambah modal kasir, Setoran sementara, the slip): the
+   prototype's `.slip`, `.sg` and `.unk-amt`, scoped under .xchd. ── */
+
+.xchd .dlg.laci{width:480px;max-width:calc(100% - 48px);min-height:0}
+.xchd .dlg.laci .dlg-body{flex:none}
+.xchd .laci-f{display:flex;flex-direction:column;gap:8px;color:var(--body)}
+.xchd .unk-amt{display:flex;align-items:center;gap:10px;height:56px;padding:0 16px;border:1px solid var(--hairline-2);border-radius:10px;background:#fff;transition:border-color 120ms ease,box-shadow 120ms ease}
+.xchd .unk-amt:focus-within{border-color:var(--accent);box-shadow:var(--shadow-focus)}
+.xchd .unk-amt .cur{color:var(--body);font-size:20px;font-weight:500}
+.xchd .unk-amt input{flex:1;min-width:0;height:100%;padding:0;border:0;box-shadow:none;outline:0;background:none;font-size:28px;font-weight:600;letter-spacing:-.03em;font-variant-numeric:tabular-nums;color:var(--ink)}
+.xchd .ds-btn--tint{padding:0 14px;background:var(--accent-bg);color:var(--accent);font-weight:600}
+.xchd .laci-err{color:var(--bad-fg)}
+
+.xchd .slip{width:360px;max-width:100%;margin:6px auto 0;padding:18px 20px;border:1px dashed var(--hairline-2);border-radius:8px;font-family:ui-monospace,Menlo,monospace;font-size:15px;line-height:1.6}
+.xchd .slip h4{margin:0 0 8px;text-align:center;font-size:15px}
+.xchd .slip .sg{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:22px;text-align:center}
+.xchd .slip .sg span{display:block;border-top:1px solid var(--ink);padding-top:4px}
+
+/* The printer's copy: only this is visible on paper, as the closing paper. */
+.slip-print{display:none}
+@media print{
+  body *{visibility:hidden}
+  .slip-print,.slip-print *{visibility:visible}
+  .slip-print{display:block;position:absolute;left:0;top:0;width:76mm;padding:2mm;color:#000;font:12px/1.5 ui-monospace,Menlo,monospace}
+  .slip-print h4{margin:0 0 6px;text-align:center;font-size:13px}
+  .slip-print .sg{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:26px;text-align:center}
+  .slip-print .sg span{display:block;border-top:1px solid #000;padding-top:2px}
+}

@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Review per store</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+<style>
+:root{--font:"Inter",system-ui,-apple-system,sans-serif;--ink:#16181d;--body:#5c6170;--mute:#8a8f9c;--hair:#e7e8ec;--soft:#f6f7f9;--accent:#2862dc;--bad:#d70015;--warn:#b26a00;--ok:#1f8a3b}
+*{box-sizing:border-box}html,body{margin:0}
+body{background:#e9e9ee;font-family:var(--font);font-size:15px;line-height:1.45;color:var(--ink);-webkit-font-smoothing:antialiased}
+button{font:inherit;cursor:pointer}
+.seg{display:inline-flex;gap:2px;padding:3px;border-radius:9px;background:#ececf0}
+.seg button{border:0;background:none;padding:5px 12px;border-radius:7px;color:var(--body)}
+.seg button.on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.star{color:var(--accent)}
+.reset{margin-left:auto;border:1px solid var(--hair);background:#fff;border-radius:8px;padding:5px 12px}
+/* sheet */
+.stage{display:flex;justify-content:flex-end;padding:16px}
+.sheet{width:min(1320px,100%);background:#fff;border-radius:16px;box-shadow:0 10px 40px rgba(0,0,0,.12);display:flex;flex-direction:column;min-height:calc(100vh - 32px)}
+.head{padding:20px 28px;border-bottom:1px solid var(--hair)}
+.crumb{color:var(--mute)}
+.title{font-size:17px;font-weight:600;margin-top:2px}
+.sub{color:var(--body);margin-top:2px}
+.body{padding:20px 28px;display:flex;flex-direction:column;gap:18px;flex:1}
+.kpis{display:flex;gap:0}
+.kpi{padding-right:24px;margin-right:24px;border-right:1px solid var(--hair)}
+.kpi:last-child{border:0}
+.kpi .l{color:var(--body)}.kpi .v{font-size:17px;font-weight:600;font-variant-numeric:tabular-nums}
+.kpi .v.bad{color:var(--bad)}
+.foot{padding:14px 28px;border-top:1px solid var(--hair);display:flex;align-items:center;gap:10px}
+.foot .note{color:var(--body);margin-right:auto}
+.btn{border:0;border-radius:8px;padding:7px 14px;font-weight:500;white-space:nowrap}
+.btn.sm{padding:4px 10px;font-size:14.5px}
+.btn.blue{background:var(--accent);color:#fff}
+.btn.red{background:var(--bad);color:#fff}
+.btn.ghost{background:#fff;border:1px solid var(--hair);color:var(--ink)}
+.btn.tint{background:#eef3fc;color:var(--accent)}
+.btn:disabled{opacity:.45;cursor:default}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:1px}
+.s-short{background:var(--bad)}.s-extra{background:var(--warn)}.s-wait{background:var(--mute)}.s-ok{background:var(--ok)}.s-wrong{background:var(--warn)}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.muted{color:var(--body)}
+.done{color:var(--ok);font-weight:500}
+/* A · table rows with actions */
+table{width:100%;border-collapse:collapse}
+.tbl{border:1px solid var(--hair);border-radius:10px;overflow:hidden}
+.tbl th{background:var(--soft);color:var(--mute);font-weight:400;text-align:left;padding:8px 12px}
+.tbl td{padding:10px 12px;border-top:1px solid var(--hair);vertical-align:middle}
+.tbl th.num{text-align:right}
+.tbl td.act{text-align:right;white-space:nowrap}
+.tbl td.act .btn{margin-left:6px}
+.what{color:var(--body);font-size:14.5px}
+/* A · the store's own review sheet */
+.veil{position:fixed;inset:0;background:rgba(20,22,28,.28);display:flex;justify-content:flex-end;padding:16px;z-index:10}
+.veil .sheet{width:min(900px,100%);min-height:auto;height:calc(100vh - 32px)}
+.back{color:var(--body);border:0;background:none;padding:0;margin-bottom:6px}
+.plan td,.plan th{padding:9px 12px}
+.plan .diff.bad{color:var(--bad);font-weight:600}.plan .diff.warn{color:var(--warn);font-weight:600}
+.plan tr.art{border-top:1px solid #c7c7cc}
+.plan tr.art:nth-child(2){border-top:0}
+.plan tr.art td,.plan tr.var td{border-top:0;padding:12px 16px;height:64px}
+.plan tr.var{border-top:0}
+.plan .who{display:flex;align-items:center;gap:12px;min-width:0}
+.plan .who b{font-weight:600}
+.plan .who .v{color:var(--body)}
+.guide{position:relative;width:40px;align-self:stretch;flex-shrink:0}
+.guide::before{content:"";position:absolute;top:-24px;bottom:-24px;left:19px;border-left:1.5px solid #d4d4da}
+.guide.end::before{bottom:50%}
+.guide::after{content:"";position:absolute;top:50%;left:19px;width:33px;border-top:1.5px solid #d4d4da}
+.plan table{border-collapse:collapse}
+.plan th{padding:10px 16px}
+.th{width:40px;height:40px;border-radius:9px;border:1px solid var(--hair);background:#f6f6f8;display:grid;place-items:center;flex-shrink:0}
+.th i{width:16px;height:24px;border-radius:3px;background:#c9c9d0}
+.plan .where{color:var(--body)}
+.choose{display:flex;gap:8px;padding:3px;border-radius:9px;background:#ececf0;width:fit-content}
+.choose button{border:0;background:none;padding:6px 14px;border-radius:7px;color:var(--body)}
+.choose button.on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+/* the confirm, as Close Short on a PO */
+.dlg-veil{position:fixed;inset:0;background:rgba(20,22,28,.32);display:grid;place-items:center;z-index:20;padding:16px}
+.dlg{width:min(560px,100%);background:#fff;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,.2);display:flex;flex-direction:column;overflow:hidden}
+.dlg .in{padding:22px 24px 6px;display:flex;flex-direction:column;gap:14px}
+.dlg h3{margin:0;font-size:17px;font-weight:600}
+.dlg .lead{margin:0;color:var(--body)}
+.dlg .grp{border:1px solid var(--hair);border-radius:12px;overflow:hidden}
+.dlg .gh{display:flex;align-items:center;gap:8px;padding:9px 14px;background:var(--soft);font-weight:600}
+.dlg .gh .to{margin-left:auto;font-weight:400;color:var(--body)}
+.dlg .gr{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;padding:8px 14px;border-top:1px solid var(--hair)}
+.dlg .gr .n{font-weight:600;font-variant-numeric:tabular-nums}
+.dlg label{color:var(--body)}
+.dlg textarea{width:100%;min-height:64px;border:1px solid var(--hair);border-radius:10px;padding:8px 10px;font:inherit;resize:vertical}
+.dlg .ft{display:flex;justify-content:flex-end;gap:8px;padding:14px 24px;border-top:1px solid var(--hair);margin-top:14px}
+.tag{display:inline-flex;align-items:center;height:24px;padding:0 8px;border-radius:6px;font-weight:500;font-size:15px}
+.tag.blue{background:#eef3fc;color:var(--accent)}.tag.red{background:#fdecee;color:var(--bad)}.tag.amber{background:#fdf3e1;color:var(--warn)}.tag.green{background:#e9f6ec;color:var(--ok)}.tag.grey{background:#f0f0f3;color:var(--body)}
+/* B · one block per store */
+.store{border:1px solid var(--hair);border-radius:12px;overflow:hidden}
+.store .sh{display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--soft)}
+.store .sh b{font-weight:600}
+.store .sh .st{margin-left:6px}
+.store .sh .fig{margin-left:auto;font-variant-numeric:tabular-nums}
+.store .lines td{padding:8px 16px;border-top:1px solid var(--hair)}
+.store .acts{display:flex;justify-content:flex-end;gap:8px;padding:10px 16px;border-top:1px solid var(--hair)}
+.store.dim{opacity:.65}
+/* C · tick stores, one decision */
+.chk{width:18px;height:18px}
+.bar{position:sticky;bottom:0;display:flex;align-items:center;gap:10px;padding:12px 16px;border:1px solid var(--hair);border-radius:12px;background:#fff;box-shadow:0 4px 16px rgba(0,0,0,.08)}
+.bar .sel{margin-right:auto}
+/* resolution: where every piece went */
+.res td{padding:10px 12px}
+.res .from{color:var(--body);white-space:nowrap}
+.res .arrow{color:var(--mute);padding:0 4px}
+.stamp{display:inline-flex;align-items:center;height:30px;padding:0 12px;border:2px solid var(--ok);border-radius:8px;color:var(--ok);font-weight:600;letter-spacing:.04em;transform:rotate(-4deg)}
+.sum{display:flex;flex-wrap:wrap;gap:8px}
+/* the three looks of where every piece went */
+.looks{display:inline-flex;flex-wrap:wrap;gap:2px;padding:3px;border-radius:9px;background:#ececf0;width:fit-content}
+.looks button{border:0;background:none;padding:4px 12px;border-radius:7px;color:var(--body)}
+.looks button.on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.say{display:flex;flex-direction:column;border:1px solid var(--hair);border-radius:12px;overflow:hidden}
+.say .ln{display:grid;grid-template-columns:40px minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 14px;border-top:1px solid var(--hair)}
+.say .ln:first-child{border-top:0}
+.say .ln .t b{font-weight:600}
+.say .ln .t .m{color:var(--body)}
+.per{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
+.per .c{border:1px solid var(--hair);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:6px}
+.per .c .h{display:flex;justify-content:space-between;font-weight:600}
+.per .c .i{color:var(--body)}
+.per .c .i b{color:var(--ink);font-weight:600}
+.og{border:1px solid var(--hair);border-radius:12px;overflow:hidden}
+.og .gh{display:flex;align-items:center;gap:8px;padding:9px 14px;background:var(--soft)}
+.og .gh .n{margin-left:auto;font-weight:600}
+.og .gr{display:grid;grid-template-columns:40px minmax(0,1fr) auto;gap:12px;align-items:center;padding:9px 14px;border-top:1px solid var(--hair)}
+.og .gr .m{color:var(--body)}
+.groups{display:flex;flex-direction:column;gap:10px}
+.arr{display:grid;grid-template-columns:40px minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 14px;border-top:1px solid var(--hair)}
+.arr:first-child{border-top:0}
+.chip{display:inline-flex;align-items:center;height:28px;padding:0 10px;border-radius:999px;border:1px solid var(--hair);background:#fff;font-weight:500}
+.chip.end{background:var(--soft)}
+.flow{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
+.flow .to{color:var(--mute)}
+.mx td,.mx th{text-align:center;padding:8px 10px}
+.mx td:first-child,.mx th:first-child{text-align:left}
+.mx .self{color:var(--ok);font-weight:600}
+.mx .off{color:var(--warn);font-weight:600;background:#fffaf1}
+.mx .lost{color:var(--bad);font-weight:600;background:#fff5f6}
+.mx .zero{color:#c4c6cd}
+/* the hub's review matrix (review-matrix.tsx), as it is today */
+.rm{overflow-x:auto;border:1px solid #c7c7cc;border-radius:14px}
+.rm table{width:100%;table-layout:fixed;border-collapse:separate;border-spacing:0;font-size:15px}
+.rm th,.rm td{border-bottom:1px solid var(--hair);border-right:1px solid var(--hair);text-align:center;padding:0 10px;font-variant-numeric:tabular-nums}
+.rm th{height:44px;background:var(--soft);color:var(--body);font-weight:500}
+.rm th.g{height:60px;border-right-color:#c7c7cc}
+.rm th.g b{display:block;color:var(--accent);font-weight:600}
+.rm th.g.all b{color:var(--ink)}
+.rm thead tr:last-child th{border-bottom-color:#c7c7cc}
+.rm th.a,.rm td.a{text-align:left;border-right-color:#c7c7cc;position:sticky;left:0;z-index:1}
+.rm th.a{background:var(--soft)}
+.rm td{height:52px}
+.rm td.end{border-right-color:#c7c7cc}
+.rm tr.art td{background:var(--soft);font-weight:600;height:auto;padding-top:12px;padding-bottom:12px}
+.rm tr.art td.a .n{color:var(--accent)}
+.rm tr.art td.a .c{color:var(--mute);font-weight:400}
+.rm tr.sz td.a{background:#fff}
+.rm .who{display:flex;align-items:center;gap:10px}
+.rm .sw{width:28px;height:28px;border-radius:6px;background:#e9e9ee;flex-shrink:0}
+.rm .bad{background:#fdecee;color:var(--bad);font-weight:600}
+.rm .warn{background:#fdf3e1;color:var(--warn);font-weight:600}
+.rm .wait{background:var(--soft);color:var(--mute)}
+.rm tr.art .t-bad{color:var(--bad)}.rm tr.art .t-warn{color:var(--warn)}.rm tr.art .t-wait{color:var(--mute)}
+.rm .say{display:block;font-size:15px;font-weight:500;line-height:1.2}
+.rm .dash{color:#c4c6cd}
+.rm tbody tr:last-child td{border-bottom:0}
+.rm tr > *:last-child{border-right:0}
+.rm .out{display:block;font-size:15px;font-weight:600;line-height:1.2;margin-top:2px}
+.rm td.click{cursor:pointer}
+.rm td.click:hover{outline:2px solid var(--accent);outline-offset:-2px}
+.mbar{display:flex;align-items:center;gap:10px}
+.mbar label{display:inline-flex;align-items:center;gap:8px;color:var(--ink)}
+.mbar input{width:18px;height:18px}
+.plan tr.focus td{background:#eef3fc !important}
+.rm th.g.prob{background:#fdecee}
+.rm th.g.prob b{color:var(--bad)}
+.rm th.g.prob span{color:var(--bad)}
+.tbl tr.prob td{background:#fff7f8}
+.rm .sw-btn{margin-top:4px;border:0;border-radius:7px;background:#eef3fc;color:var(--accent);font-weight:600;padding:3px 10px;font-size:15px}
+.rm .ok{background:#e9f6ec;color:var(--ok);font-weight:600}
+/* store app view */
+.phone{width:414px;max-width:100%;background:#fff;border-radius:22px;box-shadow:0 10px 40px rgba(0,0,0,.12);overflow:hidden;align-self:flex-start}
+.phone .ph{padding:18px 16px 10px;border-bottom:1px solid var(--hair)}
+.phone .ph .title{font-size:20px}
+.phone .sec{padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+.phone .sec h4{margin:0;font-size:15px;color:var(--body);font-weight:500}
+.pk{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:11px 14px;border:1px solid var(--hair);border-radius:12px;align-items:center}
+.pk b{font-variant-numeric:tabular-nums}
+.pk .s{color:var(--body)}
+.pk.hold{border-color:#f0d9b5;background:#fffaf1}
+.pk.hold .s{color:var(--warn)}
+.hold-row{display:grid;grid-template-columns:40px minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 14px;border:1px solid var(--hair);border-radius:12px}
+.hold-row .w{color:var(--body)}
+.stage.two{gap:24px;justify-content:center;align-items:flex-start;flex-wrap:wrap}
+.wait{color:var(--mute)}
+.sim{border:1px dashed #b9bcc6;background:#fff;border-radius:8px;padding:5px 12px}
+</style>
+</head>
+<body>
+<div class="stage" id="stage"><div class="sheet" id="sheet"></div></div>
+
+<script>
+const TRIP = { number: "DSP-HO-GUDANG-000002", left: "17 Oct, 21:27" };
+// Each store: its allotment, what was sent (article, size, pcs) and what it
+// counted (null = not counted yet). Pieces that match go into stock at once;
+// a gap is decided by MD.
+const START = () => [
+  { code: "C001", name: "Cikupa", alt: "ALT-00000015", by: "Maya Anggraini", lines: [
+    ["Celana Chino Slim Fit", "Black · L", 2, 1], ["Celana Chino Slim Fit", "Black · M", 4, 4], ["Celana Chino Slim Fit", "Navy · L", 4, 4], ["Kaos Uji UJ16", "White · M", 3, 3]] },
+  { code: "C002", name: "Muaro Bungo", alt: "ALT-00000015", by: "Rina Putri", lines: [
+    ["Celana Chino Slim Fit", "Khaki · L", 1, null], ["Celana Chino Slim Fit", "Khaki · XL", 1, null], ["Celana Chino Slim Fit", "Black · M", 1, null], ["Celana Chino Slim Fit", "Black · L", 1, null]] },
+  { code: "C003", name: "Purbalingga", alt: "ALT-00000016", by: "Dewi Lestari", lines: [
+    ["Kaos Basic Katun Combed", "White · M", 2, 3], ["Kaos Basic Katun Combed", "Black · M", 4, 4]] },
+  { code: "C004", name: "Bumiayu", alt: "ALT-00000016", by: "Agus Salim", lines: [
+    ["Kaos Basic Katun Combed", "Black · M", 5, 5]] },
+];
+let stores = START(), view = new URLSearchParams(location.search).get("v") === "store" ? "store" : "md", open = null, confirm = null, onlyDiff = false, focus = null;
+// Every piece of a gap, once decided: what it is, from where, to where, and why.
+function movesOf(s) {
+  if (!s.decided) return gaps(s).filter(({ l, d }) => !(d < 0 && pairOf(s, l, d))).map(({ l, d }) => {
+    const w = waitingFor(s);
+    return [sku(l), d < 0 ? "In transit" : `On hold · ${s.code}`, "?", Math.abs(d), ["grey", w.length ? `Waiting for ${w.join(", ")}` : "To decide"], d < 0 ? `short at ${s.code}` : `extra at ${s.code}`];
+  });
+  const as = s.decided === "Settled";
+  const out = [];
+  for (const { l, d } of gaps(s)) {
+    const pair = pairOf(s, l, d), n = Math.abs(d);
+    if (d < 0) {
+      // A piece found at another store is told once, on that store's side.
+      if (!as) out.push([sku(l), "DC", s.code, n, ["blue", "Reallot"], "new allotment"]);
+      else if (!pair) out.push([sku(l), "In transit", "Missing", n, ["red", "Missing"], `meant for ${s.code}`]);
+    } else {
+      if (as) out.push([sku(l), `On hold · ${s.code}`, `Stockroom · ${s.code}`, n, pair ? ["amber", "Wrong store"] : ["green", "Kept"], pair ? `meant for ${pair.code}` : "extra"]);
+      else out.push([sku(l), `On hold · ${s.code}`, "HO", n, ["amber", "Return to HO"], "return note"]);
+    }
+  }
+  return out;
+}
+// The hub's review matrix as it is today: per article and size, per store
+// Sent | Received, All stores first and Difference last. A gap that pairs
+// with another store is amber and says so ("1 from C001").
+function resolution() {
+  const multi = stores.length > 1;
+  const arts = new Map();
+  for (const o of stores) for (const l of o.lines) {
+    const a = arts.get(l[0]) ?? new Map(); a.set(l[1], true); arts.set(l[0], a);
+  }
+  const at = (o, art, size) => { const l = o.lines.find(x => x[0] === art && x[1] === size); return l ? { b: l[2], a: l[3] } : { b: 0, a: counted(o) ? 0 : null }; };
+  const cellOf = (o, art, size) => {
+    const c = at(o, art, size);
+    const line = o.lines.find(x => x[0] === art && x[1] === size);
+    if (line?.[4]) return { ...c, switched: line[4], store: o.code, size };
+    if (c.a === null || c.a === c.b) return { ...c };
+    const l = [art, size, c.b, c.a], d = c.a - c.b, pair = pairOf(o, l, d);
+    // Once MD decided the store, the cell says what became of the gap.
+    const as = o.decided === "Settled", re = o.decided === "Return & reallot";
+    const out = !o.decided ? "" : d < 0
+      ? (re ? "sent again" : pair ? "" : "Missing")
+      : (re ? "→ HO" : "kept");
+    return { ...c, wrong: !!pair, say: pair ? (d > 0 ? `${Math.abs(d)} from ${pair.code}` : `${Math.abs(d)} to ${pair.code}`) : "", out, store: o.code, size };
+  };
+  const sumOf = (cells) => cells.reduce((t, c) => ({ b: t.b + c.b, a: t.a === null || c.a === null ? null : t.a + c.a }), { b: 0, a: 0 });
+  const fig = n => n === 0 ? `<span class="dash">—</span>` : n;
+  const tone = c => c.a === null ? "wait" : c.a === c.b ? "" : c.wrong ? "warn" : "bad";
+  const pair2 = (c, total) => {
+    // Switched: the allotment now says where the pieces went; green, and says so.
+    if (!total && c.switched) return `<td>${fig(c.b)}</td><td class="end ok">${fig(c.a)}<span class="say">${c.switched}</span></td>`;
+    const hot = !total && c.store && tone(c) && tone(c) !== "wait";
+    // A wrong-store pair gets one button that moves the allotment to match.
+    const sw = "";
+    return `<td>${fig(c.b)}</td><td class="end ${total ? `t-${tone(c)}` : tone(c)} ${hot && !sw ? "click" : ""}" ${hot && !sw ? `data-cell="${c.store}|${c.size}"` : ""}>${c.a === null ? "…" : fig(c.a)}${!total && c.say ? `<span class="say">${c.say}</span>` : ""}${!total && c.out ? `<span class="out">${c.out}</span>` : ""}${sw}</td>`;
+  };
+  const diff = (c, total) => { const d = c.a === null ? null : c.a - c.b;
+    return `<td class="${d === null ? "wait" : d !== 0 ? (total ? "t-bad" : "bad") : ""}">${d === null ? "…" : d === 0 ? `<span class="dash">—</span>` : d > 0 ? `+${d}` : `−${-d}`}</td>`; };
+  const groups = [...(multi ? ["all"] : []), ...stores];
+  const head = `<tr><th class="a" rowspan="2">Article</th>${groups.map(g => g === "all" ? `<th class="g all" colspan="2"><b>All stores</b></th>` : `<th class="g ${gaps(g).length && !g.decided ? "prob" : ""}" colspan="2"><b>${g.code}</b><span>${g.name}</span></th>`).join("")}${multi ? `<th rowspan="2">Difference</th>` : ""}</tr>
+    <tr>${groups.map(() => `<th>Sent</th><th style="border-right-color:#c7c7cc">Received</th>`).join("")}</tr>`;
+  const rows = [...arts.entries()].map(([art, sizes]) => {
+    const differs = z => stores.some(o => { const c = at(o, art, z); return c.a === null || c.a !== c.b; });
+    const sz = [...sizes.keys()].filter(z => !onlyDiff || differs(z));
+    if (sz.length === 0) return "";
+    const g = (grp, list) => grp === "all" ? sumOf(stores.flatMap(o => list.map(z => at(o, art, z)))) : sumOf(list.map(z => at(grp, art, z)));
+    const artRow = `<tr class="art"><td class="a"><span class="who"><span class="th"><i></i></span><span><span class="n">${art}</span><br><span class="c">${({ "Celana Chino Slim Fit": "00000016", "Kaos Uji UJ16": "00000012", "Kaos Basic Katun Combed": "00000017" })[art] ?? ""}</span></span></span></td>${groups.map(grp => pair2(g(grp, sz), true)).join("")}${multi ? diff(g("all", sz), true) : ""}</tr>`;
+    const szRows = sz.map(z => `<tr class="sz"><td class="a"><span class="who"><span class="sw"></span>${z}</span></td>${groups.map(grp => pair2(grp === "all" ? g("all", [z]) : cellOf(grp, art, z), false)).join("")}${multi ? diff(g("all", [z]), false) : ""}</tr>`).join("");
+    return artRow + szRows;
+  }).join("");
+  return `<div class="mbar"><label><input type="checkbox" data-only="1" ${onlyDiff ? "checked" : ""}>Only differences</label></div><div class="rm"><table><colgroup><col style="width:17rem">${groups.map(() => "<col><col>").join("")}${multi ? "<col>" : ""}</colgroup><thead>${head}</thead><tbody>${rows}</tbody></table></div>`;
+}
+// The trip once everything is decided: stamped, and where every piece went.
+function done() {
+  return `<div class="head" style="display:flex;align-items:flex-start"><div style="flex:1"><div class="crumb">Allotments / Completed</div>
+    <div class="title">Trip ${TRIP.number}</div><div class="sub">ALT-00000015 · ALT-00000016 · left ${TRIP.left}</div></div>
+    <span class="stamp">COMPLETED</span></div>
+    <div class="body"><h4 style="margin:0">Where every piece went</h4>${resolution()}</div>`;
+}
+const pcs = n => n === 1 ? "1 pc" : `${n} pcs`;
+const counted = s => s.lines.every(l => l[3] !== null);
+const sum = (s, i) => s.lines.reduce((n, l) => n + (l[i] ?? 0), 0);
+const sku = l => `${l[0]} · ${l[1]}`;
+const gaps = s => counted(s) ? s.lines.filter(l => l[3] !== l[2]).map(l => ({ l, d: l[3] - l[2] })) : [];
+// A short can be at any store still to count; an extra can belong to a
+// store that was sent the same size and has not counted.
+function waitingFor(s) {
+  const out = new Set();
+  for (const { l, d } of gaps(s))
+    for (const o of stores) if (o !== s && !counted(o) && (d < 0 || o.lines.some(x => sku(x) === sku(l)))) out.add(o.code);
+  return [...out];
+}
+// The other side of a gap: the store with the opposite gap on the same size.
+const pairOf = (s, l, d) => stores.find(o => o !== s && gaps(o).some(g => sku(g.l) === sku(l) && Math.sign(g.d) === -Math.sign(d)));
+const kindOf = s => !counted(s) ? "wait" : gaps(s).length === 0 ? "ok" : gaps(s).some(g => g.d < 0) ? "short" : "extra";
+function STATUS(s) {
+  if (s.decided) return `<span class="done">✓ ${s.decided}</span>`;
+  const k = kindOf(s), n = Math.abs(sum(s, 3) - sum(s, 2));
+  const w = waitingFor(s);
+  const why = w.length ? `<div class="what">Waiting for ${w.join(", ")} to count</div>` : "";
+  return k === "short" ? `<span class="dot s-short"></span>Short ${n}${why}` : k === "extra" ? `<span class="dot s-extra"></span>Extra ${n} · on hold${why}` :
+    k === "wait" ? `<span class="dot s-wait"></span>Not received yet` : `<span class="dot s-ok"></span>Received`;
+}
+const RECEIVED = s => !counted(s) ? `<span class="muted">${pcs(sum(s, 2))} sent</span>` : `<b>${sum(s, 3)}</b> <span class="muted">of ${pcs(sum(s, 2))}</span>`;
+function act(s) {
+  const k = kindOf(s);
+  if (s.decided) return "";
+  if (k === "wait") return `<span class="muted">Waiting for the store</span>`;
+  if (k === "ok") return `<span class="muted">Nothing to decide</span>`;
+  return `<button class="btn sm blue" data-review="${s.code}">Review</button>`;
+}
+function md() {
+  const sent = stores.reduce((a, s) => a + sum(s, 2), 0), got = stores.reduce((a, s) => a + sum(s, 3), 0);
+  const todo = stores.filter(s => !s.decided && (kindOf(s) === "short" || kindOf(s) === "extra")).length;
+  return `<div class="head"><div class="crumb">Allotments / In review</div>
+    <div class="title">Trip ${TRIP.number}</div><div class="sub">ALT-00000015 · ALT-00000016 · left ${TRIP.left}</div></div>
+    <div class="body"><div class="kpis">
+      <div class="kpi"><div class="l">Sent</div><div class="v">${pcs(sent)}</div></div>
+      <div class="kpi"><div class="l">Received</div><div class="v">${pcs(got)}</div></div>
+      <div class="kpi"><div class="l">To decide</div><div class="v ${todo ? "bad" : ""}">${todo} ${todo === 1 ? "store" : "stores"}</div></div>
+      <div class="kpi"><div class="l">Waiting</div><div class="v">${stores.filter(s => !counted(s)).length} store</div></div></div>
+    <div class="tbl"><table><tr><th>Store</th><th>Status</th><th class="num">Received</th><th></th></tr>${stores.map(s => `
+      <tr class="${gaps(s).length && !s.decided ? "prob" : ""}"><td><b>${s.code}</b> <span class="muted">· ${s.name}</span></td><td>${STATUS(s)}</td>
+      <td class="num">${RECEIVED(s)}</td><td class="act">${act(s)}</td></tr>`).join("")}</table></div>
+    ${resolution()}</div>
+    <div class="foot"><span class="note">${todo ? `${todo} ${todo === 1 ? "store" : "stores"} to decide` : "Everything decided"}</span><button class="btn blue">Done</button></div>`;
+}
+function storeSheet(s) {
+  const byArt = new Map();
+  for (const l of s.lines) byArt.set(l[0], [...(byArt.get(l[0]) ?? []), l]);
+  const cell = (plan, got) => { const d = got - plan;
+    return `<td class="num">${plan}</td><td class="num">${d === 0 ? got : `<span class="diff bad">${got} (${d > 0 ? `+${d}` : `−${-d}`})</span>`}</td>`; };
+  const rows = [...byArt.entries()].map(([a, ls]) => ls.map(([, v, plan, got], i) => i === 0
+    ? `<tr class="art ${focus === v ? "focus" : ""}"><td><span class="who"><span class="th"><i></i></span><span><b>${a}</b><br><span class="v">${v}</span></span></span></td>${cell(plan, got)}</tr>`
+    : `<tr class="var ${focus === v ? "focus" : ""}"><td><span class="who"><span class="guide ${i === ls.length - 1 ? "end" : ""}"></span><span class="th"><i></i></span><span class="v">${v}</span></span></td>${cell(plan, got)}</tr>`).join("")).join("");
+  const w = waitingFor(s), k = kindOf(s);
+  return `<div class="veil"><div class="sheet">
+    <div class="head"><button class="back" data-close="1">‹ Back to the trip</button>
+      <div class="crumb">Trip ${TRIP.number}</div><div class="title">${s.code} · ${s.name}</div>
+      <div class="sub">Received by ${s.by} · 17 Oct, 21:27</div></div>
+    <div class="body"><div class="kpis">
+      <div class="kpi"><div class="l">Allotment</div><div class="v">${pcs(sum(s, 2))}</div></div>
+      <div class="kpi"><div class="l">Received</div><div class="v">${pcs(sum(s, 3))}</div></div>
+      <div class="kpi"><div class="l">${k === "short" ? "Short" : "Extra"}</div><div class="v bad">${pcs(Math.abs(sum(s, 3) - sum(s, 2)))}</div></div></div>
+      <div class="tbl plan"><table><tr><th>Article</th><th class="num">Allotment</th><th class="num">Received</th></tr>${rows}</table></div></div>
+    <div class="foot"><span class="note">${w.length ? `Waiting for ${w.join(", ")} to count` : ""}</span>
+      <button class="btn red" data-ask="${s.code}" data-as="re" ${w.length ? "disabled" : ""}>Return &amp; reallot</button>
+      <button class="btn blue" data-ask="${s.code}" data-as="as" ${w.length ? "disabled" : ""}>Settlement</button></div>
+  </div></div>`;
+}
+// What a decision does, worked out from the gaps and their pairs.
+function plan(s, as) {
+  const groups = [];
+  const add = (tag, to, row) => { let g = groups.find(x => x.to === to); if (!g) groups.push(g = { tag, to, rows: [] }); g.rows.push(row); };
+  for (const { l, d } of gaps(s)) {
+    const pair = pairOf(s, l, d), n = Math.abs(d);
+    if (as === "as") {
+      add(["green", "Allotment"], `${s.alt} · ${s.code} ${sum(s, 2)} → ${sum(s, 3)} pcs`, [sku(l), `${l[2]} → ${l[3]}`]);
+      if (d < 0) pair ? add(["amber", "Wrong store"], `At ${pair.code} · its allotment takes it`, [sku(l), pcs(n)])
+                      : add(["red", "Missing"], `In transit · ${s.name}`, [sku(l), pcs(n)]);
+      else add(["blue", "Stock"], `On hold → Stockroom · ${s.name}`, [sku(l), pcs(n)]);
+    } else {
+      if (d < 0) add(["blue", "Reallot"], `New allotment · DC → ${s.code}`, [sku(l), pcs(n)]);
+      else add(["amber", "Return to HO"], `On hold at ${s.code} → HO`, [sku(l), pcs(n)]);
+    }
+  }
+  return groups;
+}
+function confirmDialog(code, as) {
+  const s = stores.find(o => o.code === code);
+  const word = as === "as" ? "Settlement" : "Return & reallot";
+  return `<div class="dlg-veil"><div class="dlg" role="dialog">
+    <div class="in"><h3>${word} at ${code}?</h3><p class="lead">${s.name} · Trip ${TRIP.number}</p>
+      ${plan(s, as).map(g => `<div class="grp"><div class="gh"><span class="tag ${g.tag[0]}">${g.tag[1]}</span><span class="to">${g.to}</span></div>
+        ${g.rows.map(([a, n]) => `<div class="gr"><span>${a}</span><span class="n">${n}</span></div>`).join("")}</div>`).join("")}
+      <label>Note <span style="color:var(--mute)">· optional</span><textarea></textarea></label></div>
+    <div class="ft"><button class="btn ghost" data-unconfirm="1">Keep</button>
+      <button class="btn ${as === "as" ? "blue" : "red"}" data-sure="${code}" data-as="${as}">${word}</button></div>
+  </div></div>`;
+}
+// The store's side: what it received went into stock at once; the extra
+// sits in its own On hold pocket — counted at the store, never sold.
+function storeApp() {
+  const s = stores.find(o => o.code === "C003");
+  const held = gaps(s).filter(g => g.d > 0);
+  const kept = s.decided === "Settled", back = s.decided === "Return & reallot";
+  const hold = s.decided ? 0 : held.reduce((n, g) => n + g.d, 0);
+  return `<div class="phone"><div class="ph"><div class="crumb">Stock · C003 Purbalingga</div><div class="title">Pockets</div></div>
+    <div class="sec">
+      <div class="pk"><span>Floor</span><b>212</b></div>
+      <div class="pk"><span>Stockroom</span><b>${96 + 6 + (kept ? 1 : 0)}</b></div>
+      <div class="pk hold"><span>On hold<br><span class="s">Counted here · not for sale</span></span><b>${hold}</b></div>
+      <div class="pk"><span>Missing</span><b>0</b></div>
+    </div>
+    <div class="sec"><h4>On hold</h4>
+      ${s.decided ? `<div class="hold-row"><span class="th"><i></i></span><span>Kaos Basic Katun Combed · White · M<br><span class="w">${kept ? "Moved to Stockroom" : "Send back to HO · Return RS-0007"}</span></span><b>1</b></div>`
+        : held.map(g => `<div class="hold-row"><span class="th"><i></i></span><span>${sku(g.l)}<br><span class="w">Waiting for MD</span></span><b>${g.d}</b></div>`).join("")}
+    </div>
+    <div class="sec"><h4>Receive · Trip ${TRIP.number}</h4>
+      <div class="pk"><span>Into Stockroom<br><span class="s">Matched the delivery note</span></span><b>6</b></div>
+      <div class="pk hold"><span>On hold<br><span class="s">More than the delivery note</span></span><b>1</b></div>
+    </div></div>`;
+}
+function render() {
+  const stage = document.getElementById("stage");
+  if (view === "store") { stage.className = "stage two"; stage.innerHTML = storeApp(); }
+  else if (view === "done") {
+    // The finished trip as it would read after C002 counted and MD accepted
+    // C001, C002 and C004 (one never found) and returned C003's extra.
+    const was = stores; stores = START();
+    stores[1].lines = [["Celana Chino Slim Fit", "Khaki · L", 1, 1], ["Celana Chino Slim Fit", "Khaki · XL", 1, 1], ["Celana Chino Slim Fit", "Black · M", 1, 1], ["Celana Chino Slim Fit", "Black · L", 1, 2]];
+    stores[3].lines = [["Kaos Basic Katun Combed", "Black · M", 5, 4]];
+    stores[0].decided = "Settled"; stores[1].decided = "Settled"; stores[2].decided = "Return & reallot"; stores[3].decided = "Settled";
+    stage.className = "stage"; stage.innerHTML = `<div class="sheet">${done()}</div>`;
+    stores = was;
+  }
+  else {
+    stage.className = "stage"; stage.innerHTML = `<div class="sheet" id="sheet"></div>`;
+    const s = open && stores.find(o => o.code === open);
+    document.getElementById("sheet").innerHTML = md() + (s ? storeSheet(s) : "") + (confirm ? confirmDialog(confirm.code, confirm.as) : "");
+  }
+  document.querySelectorAll("#seg button").forEach(b => b.classList.toggle("on", b.dataset.v === view));
+  const simEl = document.getElementById("sim"); if (simEl) simEl.disabled = counted(stores[1]);
+}
+document.addEventListener("click", e => {
+  if (e.target.classList?.contains("dlg-veil")) { confirm = null; render(); return; }
+  if (e.target.classList?.contains("veil")) { open = null; render(); return; }
+  const swEl = e.target.closest("[data-switch]");
+  if (swEl) {
+    // Move the allotment of this size from the store that is short to the
+    // store that got it: both now match, and both say so.
+    const [code, size] = swEl.dataset.switch.split("|");
+    const o = stores.find(x => x.code === code), l = o.lines.find(x => x[1] === size);
+    const d = l[3] - l[2], pair = pairOf(o, l, d), pl = pair.lines.find(x => x[1] === size);
+    const n = Math.min(Math.abs(d), Math.abs(pl[3] - pl[2]));
+    const [short, extra, sl, el] = d < 0 ? [o, pair, l, pl] : [pair, o, pl, l];
+    sl[2] -= n; el[2] += n;
+    sl[4] = `${n} switched to ${extra.code}`; el[4] = `${n} switched from ${short.code}`;
+    render(); return;
+  }
+  const cellEl = e.target.closest("td[data-cell]");
+  if (cellEl) { const [code, size] = cellEl.dataset.cell.split("|"); open = code; focus = size; render(); return; }
+  if (e.target.dataset?.only) { onlyDiff = e.target.checked; render(); return; }
+  const t = e.target.closest("button");
+  if (!t) return;
+  if (t.dataset.v) { view = t.dataset.v; open = confirm = null; render(); }
+  if (t.id === "sim") { stores[1].lines = [["Celana Chino Slim Fit", "Khaki · L", 1, 1], ["Celana Chino Slim Fit", "Khaki · XL", 1, 1], ["Celana Chino Slim Fit", "Black · M", 1, 1], ["Celana Chino Slim Fit", "Black · L", 1, 2]]; render(); }
+  if (t.dataset.review) { open = t.dataset.review; focus = null; render(); }
+  if (t.dataset.close) { open = null; render(); }
+  if (t.dataset.ask) { confirm = { code: t.dataset.ask, as: t.dataset.as }; render(); }
+  if (t.dataset.unconfirm) { confirm = null; render(); }
+  if (t.dataset.sure) { stores.find(s => s.code === t.dataset.sure).decided = t.dataset.as === "as" ? "Settled" : "Return & reallot"; confirm = open = null; render(); }
+  if (t.id === "all") {
+    // Everything counted and decided, still In review until MD presses Done.
+    stores = START();
+    stores[1].lines = [["Celana Chino Slim Fit", "Khaki · L", 1, 1], ["Celana Chino Slim Fit", "Khaki · XL", 1, 1], ["Celana Chino Slim Fit", "Black · M", 1, 1], ["Celana Chino Slim Fit", "Black · L", 1, 2]];
+    stores[3].lines = [["Kaos Basic Katun Combed", "Black · M", 5, 4]];
+    stores[0].decided = stores[1].decided = stores[3].decided = "Settled"; stores[2].decided = "Return & reallot";
+    view = "md"; render(); return;
+  }
+  if (t.id === "reset") { stores = START(); open = confirm = null; render(); }
+});
+render();
+</script>
+</body>
+</html>

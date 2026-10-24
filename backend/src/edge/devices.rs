@@ -855,9 +855,11 @@ fn apply_status(
     Ok(Some(kind))
 }
 
-/// A supervisor at the shop suspends, reactivates or revokes a till or a
-/// printer. A suspended till's signed requests are refused until it is
-/// reactivated; a revoked one's for good.
+/// A supervisor at the shop suspends, reactivates or revokes a printer. A
+/// till is refused here: only head office stops, resumes or removes one
+/// (postgres 0990), and its decision arrives as [`apply_status_command`]. A
+/// suspended till's signed requests are refused until it is reactivated; a
+/// revoked one's for good.
 pub fn set_status(
     connection: &mut Connection,
     device_id: &str,
@@ -887,6 +889,22 @@ pub fn set_status(
         return Err(EdgeError::Conflict(
             "an RFID reader or handheld is switched on and off at head office \
              (System → Access), where its key is kept"
+                .into(),
+        ));
+    }
+    // A till is head office's alone to stop, resume or remove (client, 23 Oct
+    // 2026; postgres 0990): it arrives as `device.status.set.v1`.
+    let till: bool = tx
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM edge_terminal WHERE terminal_id=?1)",
+            params![device_id],
+            |row| row.get(0),
+        )
+        .map_err(db)?;
+    if till {
+        return Err(EdgeError::Forbidden(
+            "only head office stops, resumes or removes a till, from the store's Tills tab \
+             in the hub"
                 .into(),
         ));
     }

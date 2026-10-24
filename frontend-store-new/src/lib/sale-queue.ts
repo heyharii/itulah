@@ -235,6 +235,11 @@ export function enqueueSale(draft: SaleDraft): QueuedSale {
       /// both spellings replay against the same stored request.
       charges: [],
       customer_id: draft.customer_id,
+      /// Empty for the same reason, and `#[serde(default)]` on the node the
+      /// same way: this surface asks head office for no coupon holds, and
+      /// every line it sells is a scanned tag.
+      coupon_authorizations: [],
+      untagged: [],
     },
     lines: draft.lines,
     currency: draft.currency,

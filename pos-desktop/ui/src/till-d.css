@@ -1,0 +1,390 @@
+/* ── The sale screen, version D ★ "Lebar penuh" of pos-classic-prototype.html
+   (owner 23 Oct 2026: "kan saya bilang sama dengan prototype"). The lines take
+   the whole page: brand + 7Soft's key row + the person on top, the hero (who,
+   promo, the big total and Bayar), the scan row, the grid, the status strip.
+   Ported rule for rule from the prototype's "The till" section, scoped under
+   .tilld with the prototype's own tokens — the way .pdoor scopes the door in
+   pos.css — so nothing here reaches the dialogs that open over it. ── */
+
+@font-face{font-family:"Inter Variable";src:url("./fonts/inter-variable.woff2") format("woff2");font-weight:100 900;font-style:normal;font-display:swap}
+
+.tilld{
+  --ink:#1d1d1f;--text:var(--ink);--body:#6e6e73;--faint:#c7c7cc;--line-ico:#8e8e93;--canvas:#fff;--soft:#fafafb;--soft-2:#f2f2f5;--soft-3:#f5f5f7;--band:#fafafb;
+  --row-line:#eeeef1;--hairline:#e8e8ec;--hairline-2:#dcdce1;--stone:#e8ebf0;
+  --accent:#2862dc;--accent-bg:#eef3fc;--cta:var(--accent);--cta-hover:#2055c7;--cta-fg:#fff;
+  --ok:#36b827;--ok-bg:#d9f4d2;--ok-fg:#248a3d;--warn:#c9892e;--warn-bg:#faeacd;--warn-fg:#a66c1f;--bad:#d70015;--bad-bg:#fbeaea;--bad-fg:#d70015;--bad-hover:#b80013;
+  --avatar-from:#e8def4;--avatar-to:#f8dde8;
+  --shadow-page:0 0 0 1px rgba(0,0,0,.05),0 2px 8px rgba(0,0,0,.04),0 24px 72px rgba(0,0,0,.08);
+  --shadow-primary:0 1px 2px rgba(20,50,100,.1);
+  --shadow-pop:0 4px 8px rgba(24,39,60,.04),0 12px 32px rgba(24,39,60,.08);
+  --shadow-focus:0 0 0 2px rgba(40,98,220,.12);
+  --icon-gap:6px;--control:36px;--r-inner:8px;--r-chip:6px;--r-card:10px;--r-sheet:16px;--r-full:999px;
+  --t-press:120ms;--ease-out:cubic-bezier(.23,1,.32,1);
+  --font-sans:"Inter Variable",Inter,system-ui,-apple-system,"Segoe UI",sans-serif;
+  position:relative;flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:60px minmax(0,1fr) 36px;
+  background:var(--stone);color:var(--ink);font-family:var(--font-sans);font-size:15px;line-height:1.45;letter-spacing:normal;
+  -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;overflow:hidden}
+/* Resets at zero specificity: pos.css already zeroes buttons, and the person
+   menu (pos.css .t-pop) keeps its own padding inside this root. */
+:where(.tilld) *{box-sizing:border-box}
+:where(.tilld) :where(p,h2,h3){margin:0}
+:where(.tilld) :where(button,input){font:inherit;color:inherit}
+:where(.tilld) button{-webkit-tap-highlight-color:transparent}
+:where(.tilld) input{border:0;outline:none;background:none;min-width:0}
+.tilld input:focus-visible{outline:none}
+.tilld button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* pos.css presses with transform; the prototype presses with scale. One, not both. */
+.tilld button:active:not(:disabled){transform:none}
+:where(.tilld) svg{flex:none;display:block}
+.tilld .num{font-variant-numeric:tabular-nums}
+.tilld .sp{flex:1}
+.tilld .mute{color:var(--body)}
+.tilld .faint{color:var(--faint)}
+.tilld .ok{color:var(--ok-fg)}
+
+/* shared bits */
+.tilld .kbd{display:inline-grid;place-items:center;min-width:26px;height:22px;padding:0 5px;border-radius:5px;background:var(--soft-3);box-shadow:inset 0 0 0 1px var(--hairline-2);font-size:15px;line-height:1;font-weight:500;color:var(--body);font-variant-numeric:tabular-nums;white-space:nowrap}
+.tilld .av{display:inline-grid;place-items:center;flex:none;width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,var(--avatar-from),var(--avatar-to));color:var(--ink);font-size:15px;font-weight:600;letter-spacing:-.01em}
+.tilld .live{width:8px;height:8px;border-radius:50%;background:var(--ok);flex:none;animation:tdLive 2.4s var(--ease-out) infinite}
+.tilld .live.warn{background:var(--warn);animation:none}
+.tilld .live.off{background:var(--faint);animation:none}
+@keyframes tdLive{from{box-shadow:0 0 0 0 rgb(54 184 39/45%)}to{box-shadow:0 0 0 6px rgb(54 184 39/0%)}}
+
+/* Button (button.tsx · button-style.ts) */
+.tilld .ds-btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--icon-gap);flex:none;height:var(--control);padding:0 10px;border:1px solid transparent;border-radius:var(--r-inner);background:transparent;color:var(--ink);font-size:15px;line-height:20px;font-weight:500;white-space:nowrap;cursor:pointer;text-decoration:none;
+  transition:color var(--t-press) var(--ease-out),background-color var(--t-press) var(--ease-out),border-color var(--t-press) var(--ease-out),box-shadow var(--t-press) var(--ease-out),scale var(--t-press) var(--ease-out)}
+.tilld .ds-btn:active:not(:disabled){scale:.97}
+.tilld .ds-btn--primary{background:var(--cta);color:var(--cta-fg);font-weight:600;box-shadow:var(--shadow-primary)}
+.tilld .ds-btn--ghost{border-color:var(--hairline-2);background:var(--canvas);color:var(--ink)}
+.tilld .ds-btn--sm{height:28px;padding:0 8px}
+.tilld .ds-btn--tint,.tilld .ds-btn--tint-bad{padding:0 14px;font-weight:600}
+.tilld .ds-btn--tint{background:var(--accent-bg);color:var(--accent)}
+.tilld .ds-btn--tint-bad{background:var(--bad-bg);color:var(--bad-fg)}
+.tilld .ds-btn--primary .kbd{background:rgba(255,255,255,.16);box-shadow:inset 0 0 0 1px rgba(255,255,255,.25);color:#fff}
+.tilld .ds-btn--tint .kbd{background:transparent;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 30%,transparent);color:var(--accent)}
+/* pos.css greys every disabled button with !important; here a disabled
+   button keeps its own colour and only fades, as the prototype draws it. */
+.tilld .ds-btn:disabled{opacity:.5;pointer-events:none;cursor:default!important;background:transparent!important;border-color:transparent!important;color:var(--ink)!important;box-shadow:none!important}
+.tilld .ds-btn--ghost:disabled{background:var(--canvas)!important;border-color:var(--hairline-2)!important}
+.tilld .ds-btn--primary:disabled{background:var(--cta)!important;color:var(--cta-fg)!important;opacity:.4}
+.tilld .ds-btn--tint:disabled{background:var(--accent-bg)!important;color:var(--accent)!important;opacity:.4}
+@media (hover:hover) and (pointer:fine){
+  .tilld .ds-btn--primary:hover{background:var(--cta-hover)}
+  .tilld .ds-btn--ghost:hover{background:var(--soft-2)}
+  .tilld .ds-btn--tint:hover{background:color-mix(in srgb,var(--accent) 15%,transparent)}
+  .tilld .ds-btn--tint-bad:hover{background:color-mix(in srgb,var(--bad-fg) 15%,transparent)}
+}
+
+/* ── Toolbar: the mark, 7Soft's keys (a keycap over its word), the person ── */
+.tilld .t-top{position:relative;z-index:20;display:flex;align-items:center;gap:8px;padding:0 12px 0 18px;min-width:0}
+.tilld .t-brand{display:flex;align-items:center;gap:9px;margin-right:14px;flex:none}
+.tilld .t-brand svg{width:30px;height:30px}
+.tilld .t-brand b{font-size:19px;font-weight:700;letter-spacing:-.045em}
+.tilld .t-brand b i{font-style:normal;color:#efa614}
+.tilld .t-keys7{display:flex;align-items:center;gap:2px;min-width:0;margin-left:0}
+.tilld .k7-gap{flex:none;width:12px}
+.tilld .k7{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;height:52px;min-width:54px;padding:0 8px;border-radius:var(--r-inner);white-space:nowrap;transition:background-color 150ms ease,scale 120ms var(--ease-out)}
+.tilld .k7:active:not(:disabled){scale:.96}
+.tilld .k7-k{display:inline-grid;place-items:center;min-width:30px;height:22px;padding:0 6px;border-radius:5px;background:#fff;box-shadow:inset 0 0 0 1px var(--hairline-2),0 1px 0 var(--hairline-2);font-size:15px;line-height:1;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.tilld .k7-l{font-size:15px;line-height:18px;color:var(--body)}
+.tilld .k7.bad .k7-l{color:var(--bad-fg)}
+.tilld .k7.go .k7-k{background:var(--accent);color:#fff;box-shadow:none}
+.tilld .k7.go .k7-l{color:var(--accent);font-weight:600}
+.tilld .k7.on{background:rgb(0 0 0/6%)}
+.tilld .k7-n{background:var(--accent)}
+.tilld .k7:disabled{opacity:.4;pointer-events:none}
+@media (hover:hover) and (pointer:fine){.tilld .k7:hover:not(:disabled){background:rgb(0 0 0/4%)}}
+.tilld .t-person{margin-left:8px;display:flex;align-items:center;gap:6px;height:46px;padding:0 6px;border-radius:var(--r-inner);flex:none;text-align:left;transition:background-color 120ms ease}
+.tilld .t-person svg{color:var(--line-ico)}
+.tilld .t-person.on{background:rgb(0 0 0/4%)}
+@media (hover:hover) and (pointer:fine){.tilld .t-person:hover{background:rgb(0 0 0/4%)}}
+.tilld .t-flagbtn{display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 12px;border-radius:var(--r-inner);background:var(--warn-bg);color:var(--warn-fg);font-weight:500;white-space:nowrap;flex:none}
+.tilld .t-flagbtn::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--warn);flex:none}
+
+/* ── The page: one white card, full width ───────────────────────────────── */
+.tilld .t-main{display:flex;flex-direction:column;gap:12px;padding:0 12px;min-height:0;overflow:visible;transition:opacity .2s ease}
+.tilld .t-main.dim{opacity:.5}
+.tilld .t-page{flex:1;background:#fff;border-radius:16px;box-shadow:var(--shadow-page);min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.tilld .t-alert{flex:none;display:flex;align-items:center;gap:12px;min-height:48px;padding:8px 10px 8px 16px;border-radius:12px;background:var(--warn-bg);color:var(--warn-fg);font-weight:500}
+.tilld .t-alert.bad{background:var(--bad-bg);color:var(--bad-fg)}
+.tilld .t-alert>span{flex:1;min-width:0}
+.tilld .t-alert .ds-btn{height:32px;padding:0 14px}
+
+/* hero: who the sale is for, its promos, the total and Bayar */
+.tilld .t-hero{flex:none;display:flex;align-items:flex-end;gap:24px;padding:18px 24px 18px;border-bottom:1px solid var(--hairline)}
+.tilld .t-hfacts{flex:1;min-width:0;display:flex;align-items:flex-end;padding-bottom:4px;overflow:hidden}
+.tilld .t-total{flex:none;text-align:right}
+.tilld .t-total-k{color:var(--body);line-height:20px}
+.tilld .t-total-k .ok{color:var(--ok-fg)}
+.tilld .t-total-fig{display:flex;align-items:baseline;justify-content:flex-end;gap:10px;margin-top:2px}
+.tilld .t-total-fig .cur{font-size:26px;font-weight:500;color:var(--body);letter-spacing:-.02em}
+.tilld .t-total-fig .big{font-size:64px;line-height:64px;font-weight:600;letter-spacing:-.045em;font-variant-numeric:tabular-nums}
+.tilld .t-total.wait .big{color:var(--body)}
+.tilld .t-fact{position:relative;display:flex;flex-direction:column;justify-content:center;flex:none;min-width:0;padding:0 22px}
+.tilld .t-ell{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.tilld .t-fact:first-child{padding-left:0}
+.tilld .t-fact+.t-fact::before{content:"";position:absolute;left:0;top:3px;bottom:3px;width:1px;background:var(--hairline)}
+.tilld .t-fact .k{color:var(--body);line-height:20px;white-space:nowrap}
+.tilld .t-fact .k .warn{color:var(--warn-fg)}
+.tilld .t-fact .v{display:flex;align-items:center;gap:8px;min-height:28px;font-weight:500;white-space:nowrap;min-width:0}
+.tilld .t-fact .v .mute{font-weight:400}
+.tilld .t-fact .ds-btn--sm{height:28px;gap:6px;padding:0 6px 0 10px}
+.tilld .t-fact .ds-btn--sm .kbd{height:20px;min-width:24px}
+.tilld .t-mname{max-width:260px;font-weight:500;text-align:left;white-space:nowrap}
+.tilld .t-x{position:static;display:grid;place-items:center;width:28px;height:28px;border-radius:8px;color:var(--line-ico);flex:none}
+@media (hover:hover) and (pointer:fine){.tilld .t-x:hover{background:var(--soft-2);color:var(--ink)}}
+.tilld .t-code{display:inline-flex;align-items:center;gap:2px;font-variant-numeric:tabular-nums}
+.tilld .t-code+.t-code{margin-left:6px}
+.tilld .t-code.off{color:var(--warn-fg)}
+.tilld .t-promo{display:inline-flex;align-items:center;gap:6px;height:28px;margin:0 -6px;padding:0 6px;border-radius:8px;font-weight:500;white-space:nowrap}
+.tilld .t-promo svg{color:var(--line-ico)}
+.tilld .t-promo .mute{font-weight:400}
+@media (hover:hover) and (pointer:fine){.tilld .t-promo:hover{background:var(--soft-2)}}
+.tilld .t-wait{display:inline-flex;align-items:center;height:22px;padding:0 7px;border-radius:var(--r-chip);background:var(--accent-bg);color:var(--accent);font-weight:500}
+.tilld .t-wait.warn{background:var(--warn-bg);color:var(--warn-fg)}
+.tilld .t-pay{height:56px;padding:0 12px 0 22px;gap:20px;border-radius:var(--r-inner);font-size:17px;margin-bottom:4px}
+
+/* scan row: the RFID reader, the one field, bags */
+.tilld .t-scan{flex:none;display:flex;align-items:center;gap:8px;padding:12px 24px 10px}
+.tilld .t-rfid{display:flex;align-items:center;gap:11px;flex:none;height:48px;padding:0 18px 0 14px;border-radius:var(--r-inner);background:var(--soft-2);text-align:left}
+.tilld .t-rfid:disabled{background:var(--soft-2)!important;color:var(--ink)!important;cursor:default!important}
+.tilld .t-rfid-dot{width:10px;height:10px;border-radius:50%;background:var(--ok);flex:none}
+.tilld .t-rfid.on .t-rfid-dot{background:var(--accent);animation:tdRfidPulse 900ms var(--ease-out) infinite}
+.tilld .t-rfid.warn .t-rfid-dot{background:var(--warn)}
+.tilld .t-rfid.bad .t-rfid-dot{background:var(--bad)}
+@keyframes tdRfidPulse{from{box-shadow:0 0 0 0 rgb(40 98 220/45%)}to{box-shadow:0 0 0 8px rgb(40 98 220/0%)}}
+.tilld .t-rfid-t{display:flex;flex-direction:column;line-height:19px;white-space:nowrap}
+.tilld .t-rfid-t b{font-weight:600}
+.tilld .t-rfid-t span{color:var(--body);font-variant-numeric:tabular-nums}
+.tilld .t-rfid.on .t-rfid-t span{color:var(--accent)}
+.tilld .t-rfid.warn .t-rfid-t span{color:var(--warn-fg)}
+.tilld .t-rfid.bad .t-rfid-t span{color:var(--bad-fg)}
+.tilld .t-scanbox{flex:1;min-width:0;display:flex;align-items:center;gap:10px;height:48px;margin:0;padding:0 10px 0 14px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:#fff;cursor:text;transition:border-color 120ms ease,box-shadow 120ms ease}
+.tilld .t-scanbox:focus-within{border-color:var(--accent);box-shadow:var(--shadow-focus)}
+.tilld .t-scanbox.check{border-color:var(--accent)}
+.tilld .t-scanbox.bad{border-color:var(--bad);box-shadow:0 0 0 2px rgb(215 0 21/10%)}
+.tilld .t-scanbox>svg{color:var(--line-ico)}
+.tilld .t-scanbox input{flex:1;height:100%;font-size:17px;letter-spacing:.01em}
+.tilld .t-scanbox input::placeholder{color:var(--line-ico)}
+/* Nothing found: the words and the one way on, inside the field (prototype
+   step 8, `.t-scanerr`). The box wears .bad, the red edge above. */
+.tilld .t-scanerr{color:var(--bad-fg);white-space:nowrap}
+.tilld .t-scanerr .ds-btn{margin-left:12px;height:30px;gap:8px}
+.tilld .t-sib{display:grid;place-items:center;width:32px;height:32px;border-radius:var(--r-inner);color:var(--line-ico);flex:none}
+.tilld .t-sib:disabled{background:none!important;color:var(--faint)!important}
+@media (hover:hover) and (pointer:fine){.tilld .t-sib:hover:not(:disabled){background:var(--soft-2);color:var(--ink)}}
+.tilld .t-bagw{position:relative;flex:none;display:flex}
+.tilld .t-big{height:48px;padding:0 14px;gap:8px;border-radius:var(--r-inner)}
+.tilld .t-big svg{color:var(--line-ico)}
+.tilld .t-big[aria-expanded="true"]{background:var(--soft-2)}
+.tilld .pop{position:absolute;top:calc(100% + 6px);right:0;z-index:40;border-radius:var(--r-card);background:#fff;box-shadow:0 0 0 1px var(--hairline),var(--shadow-pop);padding:8px;transform-origin:top right}
+.tilld .pop-bags{width:280px}
+.tilld .bag-row{display:grid;grid-template-columns:40px minmax(0,1fr) auto;align-items:center;gap:12px;width:100%;padding:6px 10px 6px 6px;border-radius:8px;text-align:left}
+.tilld .bag-row:focus-visible{outline:none;background:var(--accent-bg)}
+@media (hover:hover) and (pointer:fine){.tilld .bag-row:hover{background:var(--soft-2)}}
+.tilld .bag-row .thumb{display:grid;place-items:center;width:40px;height:40px;border-radius:9px;background:var(--soft-2);color:var(--body)}
+.tilld .bag-row .p{color:var(--body);font-variant-numeric:tabular-nums}
+
+/* what the till has to say: a refusal, a check, a tag to pick */
+.tilld .t-msgs{flex:none;display:flex;flex-direction:column;gap:8px;padding:0 24px 10px}
+.tilld .t-hnote{flex:none;padding:10px 24px 0}
+.tilld .t-msg{display:flex;align-items:center;gap:10px;min-height:40px;padding:9px 14px;border-radius:var(--r-inner);background:var(--accent-bg);color:var(--ink);line-height:20px}
+.tilld .t-msg>svg{color:var(--accent)}
+.tilld .t-msg.bad{background:var(--bad-bg);color:var(--bad-fg)}
+.tilld .t-msg.bad>svg{color:var(--bad-fg)}
+.tilld .t-msg.warn{background:var(--warn-bg);color:var(--warn-fg)}
+.tilld .t-msg.warn>svg{color:var(--warn-fg)}
+.tilld .t-msg .grow{flex:1;min-width:0}
+.tilld .t-msg.col{flex-direction:column;align-items:stretch;gap:8px}
+.tilld .t-msg-acts{display:flex;flex-wrap:wrap;gap:8px}
+.tilld .t-msg-acts .ds-btn{height:32px;padding:0 12px;background:#fff}
+.tilld .t-card{border:1px solid var(--hairline);border-radius:10px;background:#fff;overflow:hidden}
+.tilld .t-card-h{display:flex;align-items:center;gap:8px;height:40px;padding:0 6px 0 16px;background:var(--band);box-shadow:inset 0 -1px 0 var(--hairline);color:var(--body);font-weight:500}
+.tilld .t-card-h span{flex:1}
+.tilld .t-card-b{max-height:232px;overflow:auto;overscroll-behavior:contain}
+.tilld .t-card-b>.t-pad{padding:12px 16px}
+.tilld .t-chk{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:0 16px;min-height:48px;padding:6px 16px;border-bottom:1px solid var(--row-line)}
+.tilld .t-chk:last-child{border-bottom-color:transparent}
+.tilld .t-chk .nm{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tilld .t-chk .mt{color:var(--body);font-variant-numeric:tabular-nums}
+.tilld .t-chk .pr{grid-row:span 2;font-weight:600;font-variant-numeric:tabular-nums}
+.tilld .t-chk-pick{width:100%;text-align:left;cursor:pointer;transition:background-color 150ms ease}
+.tilld .t-chk-pick.on{background:#eef3fc}
+@media (hover:hover) and (pointer:fine){.tilld .t-chk-pick:not(.on):hover{background:#f5f5f7}}
+.tilld .t-chk-pick .kbd{margin-right:6px}
+
+/* the grid: one row per article, 7Soft's columns */
+.tilld .t-grid{flex:1;min-height:0;overflow:auto;margin:0 24px 14px;border:1px solid var(--hairline);border-radius:10px;overscroll-behavior:contain}
+.tilld .t-grid table{width:100%;border-collapse:separate;border-spacing:0;table-layout:fixed}
+.tilld .t-grid th{position:sticky;top:0;z-index:1;height:40px;padding:0 12px;background:var(--band);box-shadow:inset 0 -1px 0 var(--hairline);color:var(--body);font-weight:500;text-align:left;white-space:nowrap}
+.tilld .t-grid td{height:51px;padding:0 12px;border-bottom:1px solid var(--row-line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:default}
+.tilld .t-grid tbody tr:last-child td{border-bottom-color:transparent}
+.tilld .t-grid th:first-child,.tilld .t-grid td:first-child{padding-left:18px}
+.tilld .t-grid tr.sel td{background:var(--accent-bg)}
+.tilld .t-grid tr.sel td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
+@media (hover:hover) and (pointer:fine){.tilld .t-grid tbody tr:not(.sel):hover td{background:var(--soft)}}
+.tilld .t-grid .r{text-align:right;font-variant-numeric:tabular-nums}
+.tilld .t-grid .c{text-align:center}
+.tilld .t-grid .b{font-weight:500}
+.tilld .t-grid .disc{color:var(--ok-fg)}
+/* Promotions on a line (pos-discount-types.html): green tags under the name;
+   a markdown strikes the old price; a piece given away is its own row. */
+.tilld .t-ptags{display:flex;flex-wrap:wrap;gap:4px 10px;margin-top:2px}
+.tilld .t-ptag{color:var(--ok-fg);font-size:15px;font-weight:500;white-space:nowrap}
+.tilld .t-grid td:has(.t-ptags){white-space:normal;padding-top:6px;padding-bottom:6px}
+.tilld .t-was{margin-right:8px;color:var(--body);font-weight:400}
+.tilld .t-grid tr.t-free td{height:44px;border-bottom:1px dashed var(--hairline-2);color:var(--body)}
+.tilld .t-free-n{padding-left:6px}
+.tilld .t-free-n b{color:var(--ok-fg);font-weight:600}
+.tilld .nm-w{display:flex;align-items:baseline;gap:10px;min-width:0}
+.tilld .nm-t{flex:0 1 auto;min-width:112px;font-weight:500;overflow:hidden;text-overflow:ellipsis}
+.tilld .nm-t.none{font-weight:400;color:var(--body)}
+.tilld .nm-v{flex:0 4 auto;min-width:0;color:var(--body);overflow:hidden;text-overflow:ellipsis}
+.tilld .promo-tag{flex:none;display:inline-flex;align-items:center;height:24px;padding:0 8px;border-radius:var(--r-chip);color:var(--ok-fg);font-weight:500;white-space:nowrap}
+.tilld .nm-w.two .nm-t{min-width:72px}
+/* Where a line's piece came from when the till could not take it from this
+   store's own stock (Tanpa tag, Luar toko, Dari Cikupa, Tak dikenal): a pill
+   after the name, grey, amber when head office has to look at it. */
+.tilld .id-tag{flex:none;display:inline-flex;align-items:center;height:24px;padding:0 8px;border-radius:var(--r-chip);background:var(--soft-2);color:var(--body);font-weight:500;white-space:nowrap}
+.tilld .id-tag.warn{background:var(--warn-bg);color:var(--warn-fg)}
+.tilld .t-flag{display:inline-flex;align-items:center;height:24px;padding:0 8px;border-radius:var(--r-chip);background:var(--warn-bg);color:var(--warn-fg);font-weight:600;white-space:nowrap}
+.tilld .t-grid td.t-notec{padding:0 8px;cursor:text}
+.tilld .t-grid th.t-noteh{padding-left:8px}
+.tilld .t-note{width:100%;height:34px;padding:0 10px;border:1px solid var(--hairline-2);border-radius:8px;background:#fff;transition:border-color 120ms ease,box-shadow 120ms ease}
+.tilld .t-note:focus{border-color:var(--accent);box-shadow:var(--shadow-focus)}
+.tilld .t-note::placeholder{color:var(--line-ico)}
+.tilld .t-rm{display:grid;place-items:center;width:32px;height:32px;border-radius:var(--r-inner);color:var(--bad-fg)}
+@media (hover:hover) and (pointer:fine){.tilld .t-rm:hover{background:var(--bad-bg)}}
+.tilld .t-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;height:100%;min-height:180px;padding:0;border:0;color:var(--body);text-align:center}
+.tilld .t-empty svg{color:var(--faint)}
+
+/* status strip, on the stone */
+.tilld .t-status{display:flex;align-items:center;gap:10px;padding:0 22px;color:var(--body);white-space:nowrap;min-width:0;overflow:hidden}
+.tilld .t-status .dot{color:var(--faint)}
+.tilld .t-status .t-dev{display:inline-flex;align-items:center;gap:7px}
+.tilld .t-status .t-dev i{width:7px;height:7px;border-radius:50%;background:var(--ok)}
+.tilld .t-status .t-dev.off i{background:var(--faint)}
+.tilld .t-status .t-dev.warn i{background:var(--warn)}
+.tilld .t-status .t-sync.warn{color:var(--warn-fg)}
+
+/* a PC at 1920: the figure grows */
+@media (min-width:1700px){
+  .tilld .t-total-fig .big{font-size:84px;line-height:84px}
+  .tilld .t-hero{min-height:138px}
+}
+/* a 1024 screen: words fold into keycaps, the SKU column goes */
+@media (max-width:1199px){
+  .tilld .t-brand b{display:none}
+  .tilld .k7{min-width:0;padding:0 4px}
+  .tilld .k7-gap{width:4px}
+  .tilld .t-total-fig .big{font-size:52px;line-height:56px}
+  .tilld .t-fact{padding:0 14px}
+  .tilld .t-rfid{padding:0 12px}
+  .tilld .t-big span{display:none}
+  .tilld .t-big{width:48px;padding:0;justify-content:center}
+  .tilld .nm-v{display:none}
+}
+
+@media (prefers-reduced-motion:reduce){
+  .tilld .t-rfid.on .t-rfid-dot,.tilld .live{animation:none}
+  .tilld :active{scale:none!important}
+  .tilld .bag-veil.enter>.bag-dlg{animation:posFade 150ms var(--ease-out)}
+}
+
+/* Kantong F6: a dialog over the till, not a drop-down (owner, 23 Oct 2026) */
+.tilld .bag-veil{position:fixed;inset:0;z-index:60;display:grid;place-items:center;background:rgba(29,29,31,.32);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px)}
+.tilld .bag-dlg{width:440px;max-width:calc(100vw - 32px);padding:20px 20px 16px;border-radius:16px;background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.05),0 24px 72px rgba(0,0,0,.16);display:flex;flex-direction:column;gap:6px}
+/* F6 shows it at once; a tap pops it in like every till dialog (pos.css posPop). */
+.tilld .bag-veil.enter{animation:posFade var(--t-panel) var(--ease-out)}
+.tilld .bag-veil.enter>.bag-dlg{animation:posPop var(--t-panel) var(--ease-out)}
+.tilld .bag-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.tilld .bag-head b{font-size:17px;font-weight:600}
+.tilld .bag-x{display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 10px;border-radius:8px;background:#eef3fc;color:#2862dc;font-weight:600}
+.tilld .bag-dlg .bag-row{display:grid;grid-template-columns:auto 40px minmax(0,1fr) auto;align-items:center;gap:12px;width:100%;min-height:56px;padding:0 14px 0 12px;border-radius:8px;background:#f2f2f5;text-align:left;transition:scale 120ms cubic-bezier(.23,1,.32,1),background-color 150ms ease}
+.tilld .bag-dlg .bag-row:active{scale:.98}
+.tilld .bag-dlg .bag-row:focus-visible{outline:none;background:#eef3fc;box-shadow:inset 0 0 0 1.5px #2862dc}
+.tilld .bag-dlg .bag-row .thumb{display:grid;place-items:center}
+.tilld .bag-dlg .bag-row .p{font-variant-numeric:tabular-nums;color:#6e6e73}
+
+/* Barang tak dikenal (prototype step 9): a small dialog over the till — the
+   name, the price in big figures. The overlay and its buttons are .xchd's
+   (exchange-d.css), the way Void is drawn. */
+.xchd .dlg.unk{width:480px;max-width:calc(100% - 48px);min-height:0}
+.xchd .dlg.unk .dlg-body{flex:none}
+.xchd .unk-f{display:flex;flex-direction:column;gap:8px;color:var(--body)}
+.xchd .unk-f>input{height:40px;padding:0 14px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:#fff;font-size:16px;color:var(--ink);transition:border-color 120ms ease,box-shadow 120ms ease}
+.xchd .unk-f>input:focus{border-color:var(--accent);box-shadow:var(--shadow-focus)}
+.xchd .unk-amt{display:flex;align-items:center;gap:10px;height:56px;padding:0 16px;border:1px solid var(--hairline-2);border-radius:10px;background:#fff;transition:border-color 120ms ease,box-shadow 120ms ease}
+.xchd .unk-amt:focus-within{border-color:var(--accent);box-shadow:var(--shadow-focus)}
+.xchd .unk-amt .cur{color:var(--body);font-size:20px;font-weight:500}
+.xchd .unk-amt input{flex:1;min-width:0;height:100%;padding:0;border:0;box-shadow:none;outline:0;background:none;font-size:28px;font-weight:600;letter-spacing:-.03em;font-variant-numeric:tabular-nums;color:var(--ink)}
+
+/* ── Client feedback, 23–24 Oct 2026 (pos-classic-prototype.html, version D) ── */
+/* One floating card at the foot of the list (prototype `.t-float`, foot B):
+   Kantong at the left in solid green, the Return chip beside it, the total
+   and Bayar at the right. */
+.tilld .t-float{position:sticky;bottom:10px;display:flex;align-items:center;gap:12px;margin:auto 0 0;padding:10px 10px 10px 12px;border-radius:16px;background:#fff;box-shadow:0 0 0 1px rgb(0 0 0/6%),0 8px 28px rgb(0 0 0/12%)}
+.tilld .t-float .sp{flex:1}
+.tilld .tf-total{display:flex;flex-direction:column;align-items:flex-end;margin-right:8px;line-height:1.1}
+.tilld .tf-k{color:var(--body);white-space:nowrap}
+.tilld .tf-v{font-size:36px;letter-spacing:-.03em;font-variant-numeric:tabular-nums;white-space:nowrap}
+.tilld .tf-v b{font-weight:700}
+.tilld .tf-v .cur{font-size:18px;font-weight:500;color:var(--body);margin-right:6px}
+.tilld .tf-chip{display:inline-flex;align-items:center;gap:8px;height:48px;padding:0 12px;border-radius:var(--r-inner);background:var(--soft-2);white-space:nowrap}
+.tilld .t-float .t-bags,.tilld .t-float .t-bags[aria-expanded="true"]{background:var(--ok-fg);color:#fff;box-shadow:0 1px 2px rgb(0 0 0/12%)}
+.tilld .t-float .t-bags svg{color:#fff}
+@media (hover:hover) and (pointer:fine){.tilld .t-float .t-bags:hover{background:#1e7a35}}
+.tilld .t-float .t-pay{margin:0;min-width:260px}
+/* What the counter is doing, above the table (prototype `.t-mode`). */
+.tilld .t-mode{display:flex;align-items:center;gap:10px;padding:2px 24px 10px}
+.tilld .mode-flag{display:inline-flex;align-items:center;height:28px;padding:0 12px;border-radius:7px;background:var(--accent-bg);color:var(--accent);font-weight:600}
+.tilld .mode-flag.ret{background:var(--warn-bg);color:var(--warn-fg)}
+.tilld .t-coupons{display:inline-flex;align-items:center;gap:8px}
+.tilld .t-coupons .warn{color:var(--warn-fg)}
+/* The name over its division and tags (prototype `.nm-2`, `.nm-sub`). */
+.tilld .nm-2{display:flex;flex-direction:column;min-width:0;line-height:20px}
+.tilld .nm-sub{color:var(--body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Return, look D "Tenang": a returned piece is grey with its price struck
+   through; a replacement sits under it with ↳; ▾ moves it. */
+.tilld tr.rsel td{background:var(--accent-bg)}
+.tilld tr.rb-d td{color:var(--body)}
+.tilld tr.rb-d .rb-sub{text-decoration:line-through}
+.tilld .rb-sub{color:var(--body)!important}
+.tilld .rep-pick{display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 8px;border-radius:6px;color:var(--body);font-weight:500;cursor:pointer}
+.tilld .rep-pick:hover{background:var(--soft-2);color:var(--ink)}
+.tilld .rep-arrow{color:var(--line-ico);margin-right:6px}
+/* Keterangan is written by the till, never typed in. */
+.tilld .t-grid td.t-notec{padding:0 8px;cursor:default}
+.tilld .t-marks{display:inline-flex;gap:6px;flex-wrap:nowrap;overflow:hidden}
+
+/* F3 Laci menu, under the key. */
+.t-lacipop{position:fixed;top:64px;z-index:40;width:260px;padding:8px;border-radius:10px;background:#fff;box-shadow:0 0 0 1px #e8e8ec,0 4px 8px rgba(24,39,60,.04),0 12px 32px rgba(24,39,60,.08);transform-origin:top left;font-family:"Inter Variable",Inter,system-ui,sans-serif;font-size:15px;color:#1d1d1f}
+.t-lacipop.enter{animation:posPop var(--t-panel,200ms) cubic-bezier(.23,1,.32,1)}
+.t-lacipop .menu-row{display:flex;align-items:center;gap:10px;width:100%;height:44px;padding:0 10px;border-radius:8px;text-align:left;background:none;border:0;font:inherit;color:inherit;cursor:pointer}
+.t-lacipop .menu-row.on{background:#f2f2f5}
+.t-lacipop .menu-row svg{color:#8e8e93;flex:none}
+.t-lacipop .menu-row .kbd{margin-left:auto;display:inline-grid;place-items:center;min-width:26px;height:22px;padding:0 5px;border-radius:5px;background:#f5f5f7;box-shadow:inset 0 0 0 1px #dcdce1;font-size:15px;line-height:1;font-weight:500;color:#6e6e73}
+@media (prefers-reduced-motion:reduce){.t-lacipop.enter{animation:none}}
+
+/* ── Transaksi selesai with the struk (prototype `.chg.with-struk`): the paper
+   as the printer prints it on the left, the change and the next customer on
+   the right. The change dialog itself is pay-d.css's; this is only what the
+   struk adds. ── */
+.payd .chg.with-struk{width:820px;max-height:calc(100% - 48px);padding:0;flex-direction:row;align-items:stretch;overflow:hidden}
+.payd .chg-main{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:30px 28px 24px}
+.payd .chg-sub.ok{margin-top:4px;color:var(--ok-fg)}
+.payd .sk-well{flex:none;width:360px;overflow:auto;background:var(--segment-track);padding:20px;overscroll-behavior:contain}
+.payd .sk-paper{background:#fff;box-shadow:0 1px 2px rgb(0 0 0/8%),0 6px 18px rgb(0 0 0/6%);padding:18px 16px 20px;font:15px/1.45 ui-monospace,"SF Mono",Menlo,Consolas,monospace;color:#111;text-align:left;font-variant-numeric:tabular-nums}
+.payd .sk-paper hr{border:0;border-top:1px dashed #bbb;margin:8px 0}
+.payd .sk-c{text-align:center}
+.payd .sk-b{font-weight:700}
+.payd .sk-row{display:flex;justify-content:space-between;gap:12px}
+.payd .sk-row span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.payd .sk-row span:last-child{flex:none}
+.payd .sk-item+.sk-item{margin-top:4px}
+.payd .sk-name{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Printed top-down from the slot, once per sale: the paper mounts once, when
+   the node's receipt has been read, and member added later does not replay it. */
+.payd .sk-paper{animation:sk-print 450ms var(--ease-out) both}
+@keyframes sk-print{from{clip-path:inset(0 0 100% 0);transform:translateY(-12px)}}
+@media (prefers-reduced-motion:reduce){.payd .sk-paper{animation:none}}

@@ -291,7 +291,7 @@ export function LockScreen({
   async function unlockWithPin() {
     if (onUnlockPin === undefined) return
     if (username.trim() === "" || pin === "") {
-      setPinNote("Enter your username and PIN.")
+      setPinNote("Isi username dan PIN.")
       return
     }
     setPinBusy(true)
@@ -315,7 +315,7 @@ export function LockScreen({
           <span className="seal brand">
             <Icon name="lock" />
           </span>
-          <h3>Counter locked</h3>
+          <h3>Kasir terkunci</h3>
           <p className="muted">
             <strong>{name}</strong>
           </p>
@@ -335,7 +335,7 @@ export function LockScreen({
             }}
           >
             <Icon name="finger" />
-            {busy ? "Reading…" : "Touch to unlock"}
+            {busy ? "Membaca…" : "Tempelkan jari"}
           </button>
           {tried && problem !== null && (
             <p className="error" style={{ width: "100%", textAlign: "left" }}>
@@ -357,7 +357,7 @@ export function LockScreen({
         <span className="seal brand">
           <Icon name="lock" />
         </span>
-        <h3>Counter locked</h3>
+        <h3>Kasir terkunci</h3>
         <p className="muted">
           <strong>{name}</strong>
         </p>
@@ -439,7 +439,7 @@ export function LockScreen({
               : busy || username === "" || password === ""
           }
         >
-          {busy || pinBusy ? "Checking…" : "Unlock counter"}
+          {busy || pinBusy ? "Memeriksa…" : "Buka kunci"}
         </button>
       </form>
     </div>

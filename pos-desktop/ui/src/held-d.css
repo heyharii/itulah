@@ -1,0 +1,21 @@
+/* Transaksi tunda — the prototype's `heldView` (.held-row, .dlg.wide), under .xchd. */
+.xchd .dlg.held-dlg{width:min(720px,calc(100% - 48px));min-height:0}
+/* One fixed grid per row: the number key, total over pieces, cashier over time
+   (right), Hapus and Lanjutkan at 104 px each. */
+.xchd .held-row{display:grid;grid-template-columns:28px minmax(0,1fr) 140px auto auto;align-items:center;column-gap:14px;padding:10px 12px;border-radius:10px;cursor:pointer;transition:background-color 150ms ease}
+.xchd .held-row.on{background:var(--accent-bg)}
+.xchd .held-row b{font-variant-numeric:tabular-nums;font-weight:600}
+.xchd .held-row .mute{color:var(--body)}
+.xchd .held-k{min-width:24px;text-align:center}
+.xchd .held-two{display:flex;flex-direction:column;min-width:0;line-height:20px}
+.xchd .held-two>*{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.xchd .held-two>b{overflow:visible}
+.xchd .held-two.r{text-align:right;margin-right:6px}
+.xchd .held-row .ds-btn{min-width:104px;justify-content:center}
+.xchd .held-row .ds-btn--sm{height:28px;padding:0 8px}
+.xchd .held-dlg .dlg-body{gap:4px}
+.xchd .ds-btn--sm{height:32px;padding:0 12px}
+.xchd .ds-btn--tint{padding:0 14px;background:var(--accent-bg);color:var(--accent);font-weight:600}
+.xchd .ds-btn--tint-bad{padding:0 14px;background:var(--bad-bg);color:var(--bad-fg);font-weight:600}
+@media (hover:hover) and (pointer:fine){.xchd .ds-btn--tint-bad:hover{background:color-mix(in srgb,var(--bad-fg) 15%,transparent)}}
+.xchd .ds-btn--takes-away{color:var(--bad-fg)}

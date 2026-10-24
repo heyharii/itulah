@@ -1,0 +1,32 @@
+/* Member dialog (pos-classic-prototype.html: memberView). The overlay, .dlg,
+   .dlg-head/.dlg-body/.dlg-foot, .mem rows and buttons are .xchd's
+   (exchange-d.css); this file carries what only the member dialog adds. */
+.xchd .dlg.mem-dlg{width:480px;max-width:calc(100% - 48px);min-height:0}
+.xchd .dlg.mem-dlg.wide{width:560px}
+.xchd .dlg.mem-dlg .dlg-body{flex:none}
+.xchd .dlg.mem-dlg .mem-list{max-height:300px;overflow:auto}
+.xchd .mute{color:var(--body)}
+.xchd .field{width:100%;height:var(--field,40px);padding:0 14px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:#fff;font-size:15px;color:var(--ink);transition:border-color 120ms ease,box-shadow 120ms ease}
+.xchd .field:focus{border-color:var(--accent);box-shadow:var(--shadow-focus)}
+.xchd .field::placeholder{color:var(--line-ico,#aeaeb2)}
+.xchd .ds-btn--takes-away{color:var(--bad-fg)}
+.xchd .av{display:inline-grid;place-items:center;flex:none;width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,var(--avatar-from,#e8def4),var(--avatar-to,#f8dde8));color:var(--ink);font-size:15px;font-weight:600;letter-spacing:-.01em}
+.xchd .av svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
+.xchd .mem-new .av{color:var(--accent);background:var(--accent-bg)}
+.xchd .mem-new b{color:var(--accent)!important}
+.xchd .mem-new .kbd{color:var(--accent);background:var(--accent-bg);box-shadow:inset 0 0 0 1px rgb(40 98 220/30%)}
+.xchd .mem .bad{color:var(--bad-fg)}
+.xchd .mem-err{color:var(--bad-fg)}
+
+.xchd .d-pw{display:flex;flex-direction:column;gap:14px}
+.xchd .d-pw label{display:flex;flex-direction:column;gap:8px;color:var(--body)}
+.xchd .d-pw input{height:var(--field,40px);padding:0 14px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:#fff;font-size:16px;color:var(--ink);transition:border-color 120ms ease,box-shadow 120ms ease}
+.xchd .d-pw input:focus{border-color:var(--accent);box-shadow:var(--shadow-focus)}
+.xchd .d-pw .seg2{display:flex;gap:8px}
+.xchd .d-pw .seg2 button{flex:1;height:44px;border-radius:var(--r-inner);box-shadow:inset 0 0 0 1px var(--hairline-2);font-weight:500}
+.xchd .d-pw .seg2 button.on{background:var(--accent-bg);color:var(--accent);box-shadow:inset 0 0 0 1.5px var(--accent)}
+.xchd .d-pw .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.xchd .d-pw .req::after{content:" *";color:var(--bad-fg)}
+
+/* F5: the struk the typed "No. transaksi" is (prototype `.mem-rc`). */
+.xchd .mem-rc{margin-top:6px;color:var(--body);font-variant-numeric:tabular-nums}

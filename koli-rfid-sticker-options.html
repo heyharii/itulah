@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Koli RFID Sticker</title>
+<style>
+@font-face{font-family:Inter;src:url('/frontend-hub/node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2') format('woff2');font-weight:100 900;font-display:swap}
+:root{--ink:#1d1d1f;--body:#3a3a3c;--mute:#6e6e73;--line:#ececf0;--soft:#f5f5f7;--blue:#2563eb;--blue-bg:#eaf1ff;--green:#137a37;--green-bg:#d9f4d2;--red:#d70015;--red-bg:#fdecee;--amber:#b25e00;--amber-bg:#fff4e0;--ease:cubic-bezier(.23,1,.32,1)}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.45 Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:var(--ink);background:#e9e9ed;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
+.num{font-variant-numeric:tabular-nums}
+.page{max-width:1120px;margin:16px auto 40px;background:#fff;border-radius:16px;box-shadow:0 0 0 1px rgb(0 0 0 / 5%),0 24px 72px rgb(0 0 0 / 8%);padding:26px 32px 36px}
+h1{margin:0;font-size:17px;font-weight:650}
+.opts{display:flex;flex-wrap:wrap;gap:6px;margin:16px 0 22px}
+.opts button{height:36px;padding:0 14px;border-radius:9px;background:var(--soft);color:var(--body);font-weight:500}
+.opts button[aria-pressed=true]{background:var(--ink);color:#fff}
+.say{margin:0 0 18px;color:var(--body);max-width:760px}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:24px;align-items:start}
+@media (max-width:860px){.page{margin:0;border-radius:0;padding:20px 16px}.grid{grid-template-columns:1fr}}
+.panel{border:1px solid var(--line);border-radius:14px;padding:18px}
+.panel h2{margin:0 0 12px;font-size:15px;font-weight:600}
+.stickers{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start}
+.sticker{display:block;filter:drop-shadow(0 1px 1px rgb(0 0 0 / 12%)) drop-shadow(0 6px 14px rgb(0 0 0 / 8%))}
+.cap{color:var(--mute);margin-top:6px}
+.flow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:4px}
+.step{display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 12px;border-radius:9px;background:var(--soft);color:var(--body);font-weight:500}
+.step.print{background:var(--blue-bg);color:var(--blue)}
+.step.ok{background:var(--green-bg);color:var(--green)}
+.arrow{color:var(--mute)}
+svg.i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.facts{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin-top:14px}
+.facts span{color:var(--mute)}
+.mock{border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-top:14px}
+.mock .row{display:flex;align-items:center;gap:12px;padding:10px 14px;border-top:1px solid var(--line)}
+.mock .row:first-child{border-top:0}
+.mock .head{background:var(--soft);color:var(--mute);font-weight:500}
+.stamp{display:inline-block;padding:2px 8px;border:2px solid currentColor;border-radius:6px;color:var(--green);font-weight:800;letter-spacing:.04em;text-transform:uppercase;rotate:-4deg;font-size:14px;line-height:18px;text-align:center}
+.stamp small{display:block;font-weight:600;letter-spacing:0;text-transform:none;font-size:13px}
+.pill{padding:2px 9px;border-radius:999px;font-weight:600;white-space:nowrap}
+.pill.amber{background:var(--amber-bg);color:var(--amber)}
+.phone{width:280px;border-radius:26px;box-shadow:0 0 0 8px #1d1d1f;padding:16px;margin:8px 8px 4px}
+.phone .t{font-weight:650}
+.good{color:var(--green);font-weight:600}
+.btn{height:36px;padding:0 14px;border-radius:9px;font-weight:600;display:inline-flex;align-items:center;gap:7px}
+.btn.primary{background:var(--blue);color:#fff}
+.btn.ok{background:var(--green-bg);color:var(--green)}
+.btn.ghost{background:#fff;box-shadow:inset 0 0 0 1px #dcdce1}
+.sheetfoot{display:flex;justify-content:flex-end;gap:10px;padding:12px 14px;border-top:1px solid var(--line);background:#fff}
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Koli sticker · RFID verified</h1>
+  <div class="opts" role="group" aria-label="Option">
+    <button data-o="now">Now</button>
+    <button data-o="a">A · No new sticker</button>
+    <button data-o="b">B · Print after verify ★</button>
+    <button data-o="c">C · Seal across the tape</button>
+    <button data-o="d">D · Sticker with an RFID chip</button>
+  </div>
+  <p class="say" id="say"></p>
+  <div class="grid">
+    <div class="panel"><h2 id="leftTitle">Sticker</h2><div class="stickers" id="stickers"></div><div id="leftMore"></div></div>
+    <div class="panel"><h2>On the box</h2><div id="box"></div><div id="rightMore"></div></div>
+  </div>
+  <div class="panel" style="margin-top:24px"><h2>When it prints</h2><div class="flow" id="flow"></div></div>
+</div>
+
+<script>
+// ── A koli as the demo has it ──
+const K = { no: "A00013", store: "C001", storeName: "Cikupa", pcs: 20, read: 20, at: "21 Okt 13:05", by: "Rina" }
+const ICON = {
+  printer: '<svg class="i" viewBox="0 0 24 24"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8" rx="1"/></svg>',
+  radio: '<svg class="i" viewBox="0 0 24 24"><path d="M4.9 19.1a10 10 0 0 1 0-14.2M7.8 16.2a6 6 0 0 1 0-8.4M16.2 7.8a6 6 0 0 1 0 8.4M19.1 4.9a10 10 0 0 1 0 14.2"/><circle cx="12" cy="12" r="2"/></svg>',
+  box: '<svg class="i" viewBox="0 0 24 24"><path d="m21 8-9-5-9 5 9 5 9-5zM3 8v8l9 5 9-5V8M12 13v8"/></svg>',
+  truck: '<svg class="i" viewBox="0 0 24 24"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2M15 18H9M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.62l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/></svg>',
+  check: '<svg class="i" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></svg>',
+  store: '<svg class="i" viewBox="0 0 24 24"><path d="M3 9l1.5-5h15L21 9M4 9v11h16V9M9 20v-6h6v6"/></svg>',
+}
+
+// ── A Code 128-looking barcode (bars from the text; enough for a picture) ──
+function bars(text, x, y, w, h) {
+  let seed = 0
+  for (const c of text) seed = (seed * 31 + c.charCodeAt(0)) >>> 0
+  const rnd = () => ((seed = (seed * 1103515245 + 12345) >>> 0) >>> 16) / 65536
+  const widths = [2, 1, 1, 2, 3, 2] // start
+  for (let i = 0; i < text.length + 1; i++) for (let j = 0; j < 6; j++) widths.push(1 + Math.floor(rnd() * 3.2))
+  widths.push(2, 3, 3, 1, 1, 1, 2) // stop
+  const total = widths.reduce((a, b) => a + b, 0)
+  const m = w / total
+  let out = "", cx = x
+  widths.forEach((wd, i) => { if (i % 2 === 0) out += `<rect x="${cx.toFixed(2)}" y="${y}" width="${(wd * m).toFixed(2)}" height="${h}" fill="#111"/>`; cx += wd * m })
+  return out
+}
+const F = 'font-family="Arial Narrow, Roboto Condensed, Helvetica Neue, Arial, sans-serif" font-weight="700"'
+
+// ── The stickers, drawn on the printer's own grid: 58 × 40 mm = 464 × 320 dots ──
+function stickerNow({ chip = false } = {}) {
+  return `<svg class="sticker" width="348" height="240" viewBox="0 0 464 320">
+    <rect width="464" height="320" rx="14" fill="#fff"/>
+    ${chip ? `<rect x="60" y="150" width="344" height="150" rx="8" fill="none" stroke="#c9c9cf" stroke-width="2" stroke-dasharray="6 6"/>
+      <g transform="translate(396 18)"><rect width="52" height="30" rx="6" fill="#111"/><text x="26" y="21" text-anchor="middle" ${F} fill="#fff" font-size="17">RFID</text></g>` : ""}
+    <text x="20" y="40" ${F} fill="#111" font-size="24">CENTRAL</text>
+    <text x="20" y="98" ${F} fill="#111" font-size="56">${K.no}</text>
+    <text x="20" y="140" ${F} fill="#111" font-size="30" font-weight="600">${K.store} · ${K.storeName} · ${K.pcs} pcs</text>
+    ${bars(K.no, 40, 162, 384, 100)}
+    <text x="232" y="296" text-anchor="middle" ${F} fill="#111" font-size="26" font-weight="600">${K.no}</text>
+  </svg>`
+}
+function stickerB() {
+  return `<svg class="sticker" width="348" height="240" viewBox="0 0 464 320">
+    <rect width="464" height="320" rx="14" fill="#fff"/>
+    <text x="20" y="38" ${F} fill="#111" font-size="24">CENTRAL</text>
+    <text x="20" y="92" ${F} fill="#111" font-size="54">${K.no}</text>
+    <text x="20" y="130" ${F} fill="#111" font-size="28" font-weight="600">${K.store} · ${K.storeName} · ${K.pcs} pcs</text>
+    ${bars(K.no, 40, 146, 384, 70)}
+    <text x="232" y="240" text-anchor="middle" ${F} fill="#111" font-size="22" font-weight="600">${K.no}</text>
+    <rect x="0" y="252" width="464" height="68" fill="#111"/>
+    <rect x="0" y="252" width="464" height="68" rx="0" fill="#111"/>
+    <text x="20" y="298" ${F} fill="#fff" font-size="34">RFID ✓ ${K.read}/${K.pcs}</text>
+    <text x="444" y="283" text-anchor="end" ${F} fill="#fff" font-size="20" font-weight="600">${K.at}</text>
+    <text x="444" y="307" text-anchor="end" ${F} fill="#fff" font-size="20" font-weight="600">${K.by}</text>
+  </svg>`
+}
+function stickerSeal(w = 460, h = 150) {
+  // A long, thin tamper-evident strip: 70 × 22 mm. The hatch is the VOID
+  // pattern of the label stock (pre-printed); the thermal printer adds black.
+  return `<svg class="sticker" width="${w}" height="${h}" viewBox="0 0 560 176">
+    <defs><pattern id="hatch" width="14" height="14" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="7" height="14" fill="#ececec"/></pattern></defs>
+    <rect width="560" height="176" rx="12" fill="#fff"/>
+    <rect width="560" height="176" rx="12" fill="url(#hatch)"/>
+    <rect x="10" y="10" width="540" height="156" rx="8" fill="none" stroke="#111" stroke-width="5"/>
+    <text x="34" y="66" ${F} fill="#111" font-size="44">SEGEL · RFID ✓ ${K.read}/${K.pcs}</text>
+    <text x="34" y="110" ${F} fill="#111" font-size="30" font-weight="600">${K.no} · ${K.store} · ${K.at}</text>
+    <text x="34" y="148" ${F} font-size="24" font-weight="600" fill="#111">Robek = jangan diterima</text>
+  </svg>`
+}
+
+// ── The box ──
+function box({ sticker = "now", seal = false } = {}) {
+  const front = { x: 40, y: 120, w: 300, h: 200 }
+  const lbl = sticker === "none" ? "" : `<g transform="translate(150 175) scale(.36)">${(sticker === "b" ? stickerB() : stickerNow({ chip: sticker === "d" })).replace('class="sticker" width="348" height="240"', 'width="464" height="320"')}</g>`
+  const sealG = seal ? `<g transform="translate(118 72) rotate(-8) scale(.42)">${stickerSeal(560, 176).replace('class="sticker" width="560" height="176"', 'width="560" height="176"')}</g>` : ""
+  return `<svg viewBox="0 0 440 350" width="100%" style="max-width:460px;display:block;margin:auto">
+    <!-- top -->
+    <path d="M40 120 L120 60 L420 60 L340 120 Z" fill="#d8ad6f"/>
+    <path d="M230 60 L150 120" stroke="#b98a4c" stroke-width="2"/>
+    <path d="M182 60 L102 120 L198 120 L278 60 Z" fill="#e9d3a6" opacity=".9"/>
+    <!-- side -->
+    <path d="M340 120 L420 60 L420 260 L340 320 Z" fill="#b98a4c"/>
+    <!-- front -->
+    <rect x="${front.x}" y="${front.y}" width="${front.w}" height="${front.h}" fill="#c99a5b"/>
+    <path d="M102 120 L198 120 L198 160 L102 160 Z" fill="#e9d3a6" opacity=".9"/>
+    <text x="60" y="300" font-size="13" fill="#7a5a2c" font-weight="600" font-family="Inter, sans-serif">THIS SIDE UP ↑</text>
+    ${lbl}${sealG}
+  </svg>`
+}
+
+const OPTS = {
+  now: {
+    say: "Today: the sticker prints at Create pack. It names the koli, the store and the pieces, with the koli number as a barcode. It says nothing about RFID; Verified lives only in the hub.",
+    stickers: () => stickerNow() + `<div class="cap" style="width:100%">58 × 40 mm · printed at Create pack</div>`,
+    box: () => box({ sticker: "now" }),
+    flow: [["box", "Create pack", "print"], ["radio", "Verify RFID"], ["truck", "Dispatch"]],
+  },
+  a: {
+    say: "No new paper. The sticker stays as it is; Verified is the hub's cap. Whoever needs to know — the driver, the store — scans the koli barcode and reads it on the screen.",
+    stickers: () => stickerNow() + `<div class="cap" style="width:100%">Unchanged</div>`,
+    box: () => box({ sticker: "now" }),
+    more: () => `<div class="phone"><div class="t">Scan koli</div><div class="cap">${K.no}</div>
+      <div style="margin-top:14px;display:flex;align-items:center;gap:10px"><span class="stamp">RFID verified<small>${K.at}</small></span></div>
+      <div class="facts"><span>Store</span><b>${K.store} · ${K.storeName}</b><span>Pieces</span><b class="num">${K.pcs}</b><span>Read</span><b class="num good">${K.read}/${K.pcs}</b><span>By</span><b>${K.by}</b></div></div>`,
+    flow: [["box", "Create pack", "print"], ["radio", "Verify RFID", "ok"], ["truck", "Dispatch"]],
+  },
+  b: {
+    say: "The sticker waits for the verify: Create pack prints nothing, Save on Verify RFID prints it with a black RFID band. A box with a sticker is a verified box; one without is seen from across the bay. A koli with tags not read gets no sticker until it is read whole.",
+    stickers: () => stickerB() + `<div class="cap" style="width:100%">58 × 40 mm · printed by Save on Verify RFID</div>`,
+    box: () => box({ sticker: "b" }),
+    more: () => `<div class="mock"><div class="row head"><span style="flex:1">Verify RFID · 1 koli</span><span class="num">20 of 20 read</span></div>
+      <div class="sheetfoot"><span class="btn ghost">Clear</span><span class="btn primary">${ICON.printer} Save & print sticker</span></div></div>`,
+    flow: [["box", "Create pack"], ["radio", "Verify RFID", "ok"], ["printer", "Sticker prints", "print"], ["truck", "Dispatch"]],
+  },
+  c: {
+    say: "The koli sticker stays as it is. After the verify a second, thin seal is stuck across the tape: open the box on the road and the seal tears (a VOID label leaves the hatch behind). The store refuses a koli whose seal is torn.",
+    stickers: () => stickerNow() + stickerSeal(348, 109) + `<div class="cap" style="width:100%">Koli sticker at Create pack · seal 70 × 22 mm after Verify RFID</div>`,
+    box: () => box({ sticker: "now", seal: true }),
+    more: () => `<div class="mock"><div class="row head"><span style="flex:1">Store · Receive · ${K.no}</span></div>
+      <div class="row"><span style="flex:1">Seal</span><span class="good">✓ Intact</span></div>
+      <div class="row"><span style="flex:1">Seal torn?</span><span class="pill amber">Refuse koli</span></div></div>`,
+    flow: [["box", "Create pack", "print"], ["radio", "Verify RFID", "ok"], ["printer", "Seal prints", "print"], ["truck", "Dispatch"], ["store", "Store checks seal"]],
+  },
+  d: {
+    say: "The koli sticker carries its own RFID chip (an RFID label roll in the same printer), written with the koli number. A handheld at the store reads the box and everything in it in one sweep, without opening it. One RFID label per koli is the cost.",
+    stickers: () => stickerNow({ chip: true }) + `<div class="cap" style="width:100%">Same sticker on RFID stock · the chip holds ${K.no}</div>`,
+    box: () => box({ sticker: "d" }),
+    more: () => `<div class="facts"><span>Chip</span><b>${K.no}</b><span>Store reads</span><b>Koli + 20 tags in one sweep</b><span>Cost</span><b>1 RFID label per koli</b></div>`,
+    flow: [["box", "Create pack", "print"], ["radio", "Verify RFID", "ok"], ["truck", "Dispatch"], ["store", "Store reads the box"]],
+  },
+}
+
+function set(o) {
+  const one = OPTS[o]
+  document.querySelectorAll(".opts button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.o === o))
+  document.getElementById("say").textContent = one.say
+  document.getElementById("stickers").innerHTML = one.stickers()
+  document.getElementById("box").innerHTML = one.box()
+  document.getElementById("leftMore").innerHTML = o === "b" || o === "c" ? one.more() : ""
+  document.getElementById("rightMore").innerHTML = o === "a" || o === "d" ? one.more() : ""
+  document.getElementById("flow").innerHTML = one.flow
+    .map(([icon, label, tone]) => `<span class="step ${tone ?? ""}">${ICON[icon]}${label}</span>`)
+    .join('<span class="arrow">→</span>')
+  try { localStorage.setItem("koli-sticker", o) } catch {}
+}
+document.querySelectorAll(".opts button").forEach((b) => b.addEventListener("click", () => set(b.dataset.o)))
+let first = "b"
+try { first = new URLSearchParams(location.search).get("o") || localStorage.getItem("koli-sticker") || "b" } catch {}
+set(OPTS[first] ? first : "b")
+</script>
+</body>
+</html>

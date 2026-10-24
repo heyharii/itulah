@@ -1,13 +1,8 @@
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-  useSuspenseQuery,
-} from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import type { ColumnDef } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { Plus } from "lucide-react"
-import { Suspense, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
@@ -20,29 +15,26 @@ import { SearchSuggest } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { KeyValue } from "@/components/ui/rows"
 import { Sheet } from "@/components/ui/sheet"
-import { Banner, LoadingState } from "@/components/ui/states"
+import { Banner } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { node } from "@/lib/api"
 import { useLayout } from "@/lib/layout"
-import { edcTerminalsQuery, financeKeys } from "@/lib/queries/finance"
 import { tableSetup, type TableSetup } from "@/lib/table"
-import { SiteName, SiteSelect } from "@/screens/finance/parts"
 import { SheetFooter } from "@/screens/people/settings-kit"
 import { useOpener } from "@/screens/people/settings-lib"
 import type {
   AcquirerFeeRate,
   AddBankOutcome,
   AddBankRequest,
-  EdcTerminal,
   FinanceSetting,
 } from "@itulah/contract"
 
 /// Finance setup for the sales day (Finance Connect, 25 Sep).
 ///
-/// Four things Finance owns and the POS relies on: which bank each shop EDC
-/// terminal belongs to (a QRIS without one waits in the sale-day exception
-/// queue), the MDR rates a settlement is checked against, the tolerances and
-/// windows, and "Tambah bank" — the one act that makes a new bank postable.
+/// What Finance owns and the POS relies on: the MDR rates a settlement is
+/// checked against, the tolerances and windows, and "Tambah bank" — the one
+/// act that makes a new bank postable. A shop's EDC machines are set on Shop
+/// Payment Methods (0989), where the terminals tab that stood here went.
 const keys = {
   rates: ["finance", "acquirer-fee-rates"] as const,
   settings: ["finance", "settings"] as const,
@@ -50,31 +42,6 @@ const keys = {
 
 const problemText = (error: unknown) =>
   error instanceof Error ? error.message : String(error)
-
-/// The terminals tab: read inside its own boundary, so the head and the tabs
-/// stand while the list arrives.
-function Terminals({ needle }: { needle: string }) {
-  const terminals = useSuspenseQuery(edcTerminalsQuery())
-  const shown = useMemo(
-    () =>
-      terminals.data.filter(
-        (row) =>
-          needle === "" ||
-          `${row.site_id} ${row.terminal_id} ${row.bank_code}`
-            .toLowerCase()
-            .includes(needle)
-      ),
-    [terminals.data, needle]
-  )
-  return (
-    <ListTable
-      rows={shown}
-      columns={terminalColumns}
-      getRowId={terminalId}
-      empty="No EDC terminal yet."
-    />
-  )
-}
 
 /// A list as its tab's one body: the page scrolls, phones get cards.
 function ListTable<TRow>({
@@ -101,31 +68,6 @@ function ListTable<TRow>({
   )
   return <DataTable<TRow> table={table} empty={empty} cardSort={false} />
 }
-
-const terminalColumns: ColumnDef<TableSetup, EdcTerminal>[] = [
-  {
-    id: "site",
-    accessorFn: (row) => row.site_id,
-    header: "Site",
-    size: 220,
-    meta: { card: "title" },
-    cell: ({ row }) => <SiteName id={row.original.site_id} />,
-  },
-  {
-    accessorKey: "terminal_id",
-    header: "Terminal",
-    size: 160,
-    meta: { card: "meta" },
-    cell: ({ row }) => row.original.terminal_id,
-  },
-  {
-    accessorKey: "bank_code",
-    header: "Bank",
-    size: 120,
-    meta: { card: "meta" },
-    cell: ({ row }) => row.original.bank_code,
-  },
-]
 
 const rateColumns: ColumnDef<TableSetup, AcquirerFeeRate>[] = [
   {
@@ -158,24 +100,21 @@ const rateColumns: ColumnDef<TableSetup, AcquirerFeeRate>[] = [
   },
 ]
 
-const terminalId = (row: EdcTerminal) => `${row.site_id}/${row.terminal_id}`
 const rateId = (row: AcquirerFeeRate) =>
   `${row.bank_code}/${row.fee_kind}/${row.effective_from}`
 const settingId = (row: FinanceSetting) => row.setting_key
 
-type SetupTab = "terminals" | "rates" | "settings"
+type SetupTab = "rates" | "settings"
 const TABS: { value: SetupTab; label: string }[] = [
-  { value: "terminals", label: "EDC terminals" },
   { value: "rates", label: "MDR rates" },
   { value: "settings", label: "Settings" },
 ]
 
 export function SalesSetup() {
   const phone = useLayout() === "phone"
-  const [tab, setTab] = useState<SetupTab>("terminals")
+  const [tab, setTab] = useState<SetupTab>("rates")
   const [search, setSearch] = useState("")
   const bankSheet = useOpener()
-  const terminalSheet = useOpener()
   const rateSheet = useOpener()
 
   const rates = useQuery({
@@ -206,10 +145,9 @@ export function SalesSetup() {
     setTab(next)
     setSearch("")
   }
-  const addLabel = tab === "terminals" ? "Add terminal" : "Add rate"
-  const addHere = () =>
-    tab === "terminals" ? terminalSheet.show() : rateSheet.show()
-  const searchLabel = tab === "terminals" ? "Search terminals" : "Search rates"
+  const addLabel = "Add rate"
+  const addHere = () => rateSheet.show()
+  const searchLabel = "Search rates"
 
   return (
     <PageContent>
@@ -251,13 +189,6 @@ export function SalesSetup() {
         </div>
       )}
 
-      {tab === "terminals" && (
-        <Suspense
-          fallback={<LoadingState>Reading the EDC terminals…</LoadingState>}
-        >
-          <Terminals needle={needle} />
-        </Suspense>
-      )}
       {tab === "rates" && (
         <>
           <ListTable
@@ -303,11 +234,6 @@ export function SalesSetup() {
         key={`bank${bankSheet.n}`}
         open={bankSheet.isOpen}
         onClose={bankSheet.hide}
-      />
-      <TerminalSheet
-        key={`terminal${terminalSheet.n}`}
-        open={terminalSheet.isOpen}
-        onClose={terminalSheet.hide}
       />
       <RateSheet
         key={`rate${rateSheet.n}`}
@@ -420,81 +346,6 @@ function BankSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
         </div>
         {addBank.isError && (
           <Banner tone="bad">{problemText(addBank.error)}</Banner>
-        )}
-      </div>
-    </Sheet>
-  )
-}
-
-// ── Add terminal ──────────────────────────────────────────────────────────
-function TerminalSheet({
-  open,
-  onClose,
-}: {
-  open: boolean
-  onClose: () => void
-}) {
-  const client = useQueryClient()
-  const [terminal, setTerminal] = useState({
-    site_id: "",
-    terminal_id: "",
-    bank_code: "",
-  })
-  const saveTerminal = useMutation({
-    mutationFn: () =>
-      node.post<EdcTerminal>("/api/v1/finance/edc-terminals", {
-        ...terminal,
-        label: null,
-        active: true,
-      }),
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: financeKeys.edcTerminals() })
-      onClose()
-    },
-  })
-  return (
-    <Sheet
-      open={open}
-      onOpenChange={(next) => !next && onClose()}
-      title="Add terminal"
-      footer={
-        <SheetFooter
-          onCancel={onClose}
-          saveLabel="Save terminal"
-          pending={saveTerminal.isPending}
-          onSave={() => saveTerminal.mutate()}
-        />
-      }
-    >
-      <div className="flex flex-col gap-3">
-        <Field label="Shop">
-          <SiteSelect
-            value={terminal.site_id}
-            onChange={(site_id) => setTerminal({ ...terminal, site_id })}
-            emptyLabel="Shop"
-          />
-        </Field>
-        <Field label="Terminal">
-          <Input
-            value={terminal.terminal_id}
-            onChange={(e) =>
-              setTerminal({ ...terminal, terminal_id: e.target.value })
-            }
-          />
-        </Field>
-        <Field label="Bank">
-          <Input
-            value={terminal.bank_code}
-            onChange={(e) =>
-              setTerminal({
-                ...terminal,
-                bank_code: e.target.value.toUpperCase(),
-              })
-            }
-          />
-        </Field>
-        {saveTerminal.isError && (
-          <Banner tone="bad">{problemText(saveTerminal.error)}</Banner>
         )}
       </div>
     </Sheet>

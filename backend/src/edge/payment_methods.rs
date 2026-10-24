@@ -70,14 +70,23 @@ pub(crate) fn apply_schema(connection: &Connection) -> Result<(), EdgeError> {
         "'EWALLET','BENEFIT')",
         "BENEFIT",
     )?;
+    // An exchange (owner, 23 Oct 2026): pieces come back and pay for the
+    // replacement, so nothing is refunded in money. The return says so.
+    widen_check(
+        connection,
+        "sale_return",
+        "'BENEFIT')",
+        "'BENEFIT','EXCHANGE')",
+        "EXCHANGE",
+    )?;
     Ok(())
 }
 
 /// Rebuild `table` with `from` replaced by `to` in its definition, once. The
 /// same shape as the subject rebuild in `sqlite.rs`: foreign keys off around
 /// the swap, because `sale_return` has children and the drop would otherwise
-/// refuse.
-fn widen_check(
+/// refuse. Also widens the till's cash kinds (`till::apply_float_return_schema`).
+pub(crate) fn widen_check(
     connection: &Connection,
     table: &str,
     from: &str,

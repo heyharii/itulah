@@ -4,13 +4,21 @@ import { node } from "@/lib/api"
 import type {
   OpenedStore,
   OpenStoreRequest,
+  PosStopNote,
+  PosStopRequest,
+  RemoveStoreRequest,
   StoreCheck,
   StoreDetail,
   StoreList,
   StorePic,
+  StorePos,
+  StorePosCashier,
+  StorePosShift,
+  StorePosTill,
   StoreReadiness,
   StoreServer,
   StoreServerInstall,
+  StoreStop,
   StoreSummary,
   StoreTills,
   TestPrintRequested,
@@ -19,13 +27,21 @@ import type {
 export type {
   OpenedStore,
   OpenStoreRequest,
+  PosStopNote,
+  PosStopRequest,
+  RemoveStoreRequest,
   StoreCheck,
   StoreDetail,
   StoreList,
   StorePic,
+  StorePos,
+  StorePosCashier,
+  StorePosShift,
+  StorePosTill,
   StoreReadiness,
   StoreServer,
   StoreServerInstall,
+  StoreStop,
   StoreSummary,
   StoreTills,
   TestPrintRequested,
@@ -55,7 +71,11 @@ export type {
 /// closed set each is drawn from lives here by hand, purely as the keys the
 /// label and tone maps below are indexed by. A value is cast into one of
 /// these only once it has actually been read off the field it names.
-export type StoreStatus = "GETTING_READY" | "OPEN" | "CLOSED"
+///
+/// `STOPPED` is head office's stop (0990): the tills do not sell until it
+/// resumes the store. `CLOSED` is a store head office removed for good; the
+/// hub says "Removed".
+export type StoreStatus = "GETTING_READY" | "OPEN" | "STOPPED" | "CLOSED"
 
 /// What each word is called on screen lives in `screens/stores/shared.tsx`:
 /// `SYNCING` is "Getting data" and `ONLINE` is "Ready". `WAITING_FOR_APPROVAL`
@@ -127,6 +147,7 @@ export const storesKeys = {
   all: ["stores"] as const,
   list: () => ["stores", "list"] as const,
   detail: (unit: string) => ["stores", "detail", unit] as const,
+  pos: (unit: string) => ["stores", "pos", unit] as const,
   flowNotices: (open: boolean) => ["stores", "flow-notices", open] as const,
 }
 
@@ -156,6 +177,76 @@ export function storeDetail(
   return node.get<StoreDetail>(`/api/v1/stores/${encodeURIComponent(unit)}`, {
     signal,
   })
+}
+
+/// The store's Tills tab: each till with its machine, shift and stop, and each
+/// person who signs in at its tills with head office's stop on them
+/// (`can_manage`: an Admin at head office may stop, resume and remove).
+export function storePos(
+  unit: string,
+  signal?: AbortSignal
+): Promise<StorePos> {
+  return node.get<StorePos>(`/api/v1/stores/${encodeURIComponent(unit)}/pos`, {
+    signal,
+  })
+}
+
+/// Stop the whole store: its tills stop selling, and an open drawer can only
+/// be closed. The server, the store app and the sync go on. `reason` is
+/// required — the till shows it. Answers the store, now `STOPPED`.
+export function stopStore(
+  unit: string,
+  body: PosStopRequest
+): Promise<StoreDetail> {
+  return node.post<StoreDetail>(
+    `/api/v1/stores/${encodeURIComponent(unit)}/stop`,
+    body
+  )
+}
+
+/// Let a stopped store sell again. Answers the store, `OPEN` once more.
+export function resumeStore(unit: string): Promise<StoreDetail> {
+  return node.post<StoreDetail>(
+    `/api/v1/stores/${encodeURIComponent(unit)}/resume`,
+    {}
+  )
+}
+
+/// Remove a store that has closed for good — a stopped store, with no drawer
+/// open, whose code is typed back. Its sales, stock and journals stay; its
+/// server stays connected and keeps sending what it holds, so a sale not yet
+/// sent still arrives. Answers the store, now `CLOSED`.
+export function removeStore(
+  unit: string,
+  body: RemoveStoreRequest
+): Promise<StoreDetail> {
+  return node.post<StoreDetail>(
+    `/api/v1/stores/${encodeURIComponent(unit)}/remove`,
+    body
+  )
+}
+
+/// Stop one person on the POS, at every store. Answers the Tills tab.
+export function stopCashier(
+  unit: string,
+  userId: string,
+  body: PosStopRequest
+): Promise<StorePos> {
+  return node.post<StorePos>(
+    `/api/v1/stores/${encodeURIComponent(unit)}/cashiers/${encodeURIComponent(userId)}/stop`,
+    body
+  )
+}
+
+/// Let a stopped person sign in at the tills again. Answers the Tills tab.
+export function resumeCashier(
+  unit: string,
+  userId: string
+): Promise<StorePos> {
+  return node.post<StorePos>(
+    `/api/v1/stores/${encodeURIComponent(unit)}/cashiers/${encodeURIComponent(userId)}/resume`,
+    {}
+  )
 }
 
 /// Open the store for trading. `note` is kept beside the decision, not asked
@@ -205,11 +296,12 @@ export function installStoreServer(unit: string): Promise<StoreServerInstall> {
 
 /// Disconnect the machine that is serving this store: the server stops
 /// receiving the store's data and a fresh install code is issued for the right
-/// machine. Admin only; answers like `installStoreServer`.
+/// machine. Admin only; answers like `installStoreServer`. A removed store's
+/// server is let go for good: no code comes back (`204`, `undefined`).
 export function disconnectStoreServer(
   unit: string
-): Promise<StoreServerInstall> {
-  return node.post<StoreServerInstall>(
+): Promise<StoreServerInstall | undefined> {
+  return node.post<StoreServerInstall | undefined>(
     `/api/v1/stores/${encodeURIComponent(unit)}/server/disconnect`,
     {}
   )

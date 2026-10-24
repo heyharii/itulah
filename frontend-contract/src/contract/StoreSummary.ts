@@ -2,6 +2,7 @@
 import type { StorePic } from "./StorePic";
 import type { StoreReadiness } from "./StoreReadiness";
 import type { StoreServer } from "./StoreServer";
+import type { StoreStop } from "./StoreStop";
 import type { StoreTills } from "./StoreTills";
 
 /**
@@ -13,9 +14,19 @@ export type StoreSummary = {
  */
 unit_id: string, code: string, name: string, 
 /**
- * `GETTING_READY`, `OPEN` or `CLOSED`, derived (0630).
+ * `GETTING_READY`, `OPEN`, `STOPPED` or `CLOSED`, derived (0630, 0990).
+ * The hub says "Removed" for `CLOSED`.
  */
 status: string, opened_at: string | null, 
+/**
+ * Head office's stop (0990): while the store is stopped, and kept once it
+ * is removed, so its page still says why.
+ */
+stop: StoreStop | null, 
+/**
+ * When head office removed the store for good, and who (0990).
+ */
+removed_at: string | null, removed_by: string | null, 
 /**
  * The store's shop. Absent only for a store unit with no premises yet.
  */

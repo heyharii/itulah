@@ -2,8 +2,8 @@
 import type { StoreInboundResult } from "./StoreInboundResult";
 
 /**
- * One delivery as a list shows it. Blind while IN_TRANSIT: `result` is null
- * and nothing about the manifest's contents is exposed — only `koli_count`.
+ * One delivery as a list shows it. `result` is null while IN_TRANSIT; what
+ * was packed is in the detail (`StoreInboundDetail::lines`).
  */
 export type StoreInboundDelivery = { delivery_id: string, shipment_reference: string | null, source_site_id: string, 
 /**

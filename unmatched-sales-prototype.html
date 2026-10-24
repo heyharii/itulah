@@ -1,0 +1,566 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Unmatched sales</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* Tokens and shell from missing-prototype.html (frontend-hub white.css), so
+   Unmatched sales reads as one more row of the Inventory menu. */
+:root{
+  --ink:#1d1d1f;--mute:#6e6e73;--body:#6e6e73;--faint:#c7c7cc;--ico:#8e8e93;
+  --soft:#fafafb;--soft-2:#f2f2f5;
+  --hair:#e8e8ec;--hair-2:#dcdce1;--hair-3:#c7c7cc;
+  --accent:#2862dc;--accent-bg:#eef3fc;
+  --ok:#248a3d;--bad:#d70015;--bad-bg:#fdeeee;--warn:#a66c1f;
+  --ring:0 0 0 1px rgb(0 0 0 / 5%),0 2px 8px rgb(0 0 0 / 5%),0 24px 64px rgb(0 0 0 / 12%);
+  --scrim:rgb(40 30 20 / 10%);
+  --drawer:cubic-bezier(.32,.72,0,1);--out:cubic-bezier(.23,1,.32,1);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font:15px/1.45 Inter,system-ui,sans-serif;color:var(--ink);background:#fff;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
+button,input{font:inherit;color:inherit}button{background:none;border:0;cursor:pointer;text-align:left}
+.n{font-variant-numeric:tabular-nums}.m{color:var(--mute)}.b{color:var(--bad)}
+
+.side{position:fixed;top:0;left:0;bottom:0;width:240px;border-right:1px solid var(--hair);padding:18px 12px}
+.side h4{font-size:17px;font-weight:600;padding:0 10px 12px}
+.side a{display:flex;align-items:center;padding:7px 10px;border-radius:8px;color:var(--mute);text-decoration:none}
+.side a[href]:hover{color:var(--ink)}
+.side a.on{background:var(--soft-2);color:var(--ink);font-weight:500}
+.side .badge{margin-left:auto;color:var(--mute);font-weight:500}
+.side .badge.b{color:var(--bad)}
+.page{padding:22px 32px 96px 272px;max-width:1240px}
+.page.wide{max-width:none}
+@media (max-width:1100px){.side{display:none}.page{padding-left:32px}}
+.head{display:flex;align-items:center;gap:14px;min-height:36px;margin-bottom:18px}
+.head h1{font-size:17px;font-weight:600;flex:1}
+
+.kpi{display:flex;flex-wrap:wrap;margin-bottom:20px}
+.kpi>div{padding:0 22px;border-left:1px solid var(--hair);display:flex;flex-direction:column}
+.kpi>div:first-child{padding-left:0;border-left:0}
+.kpi label{color:var(--mute)}.kpi strong{font-size:16px;font-weight:600}
+
+.tabs{display:flex;gap:26px;border-bottom:1px solid var(--hair);margin-bottom:18px}
+.tab{padding:0 0 11px;color:var(--mute);position:relative;transition:color 150ms ease}
+.tab span{margin-left:6px;color:var(--faint)}
+.tab[aria-selected=true]{color:var(--ink);font-weight:500}
+.tab[aria-selected=true] span{color:var(--mute)}
+.tab[aria-selected=true]::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--ink);border-radius:2px}
+
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.chip{display:inline-flex;align-items:center;gap:8px;height:38px;padding:0 14px 0 11px;border:1px solid var(--hair);border-radius:999px;color:var(--body);transition:transform 160ms var(--out),border-color 150ms ease,background-color 150ms ease,color 150ms ease}
+.chip:active{transform:scale(.97)}
+@media (hover:hover){.chip:hover{border-color:var(--hair-3);color:var(--ink)}}
+.chip svg{width:18px;height:18px;stroke-width:1.7;flex-shrink:0}
+.chip .c{color:var(--faint)}
+.chip[aria-checked=true]{border-color:var(--accent);background:var(--accent-bg);color:var(--accent);font-weight:500}
+.chip[aria-checked=true] .c{color:var(--accent);opacity:.7}
+
+.bar{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.search{height:36px;width:340px;max-width:100%;border:1px solid var(--hair-2);border-radius:10px;padding:0 12px 0 34px;outline:none;background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' fill='none' stroke='%238e8e93' stroke-width='2' viewBox='0 0 24 24'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E") no-repeat 12px center}
+.search:focus{border-color:var(--accent)}
+
+.box{border:1px solid var(--hair);border-radius:8px;overflow:hidden}
+table{width:100%;border-collapse:collapse;table-layout:fixed}
+th{background:var(--soft);font-weight:500;color:var(--body);text-align:left;padding:10px 16px;white-space:nowrap}
+td{padding:14px 16px;border-top:1px solid var(--hair);vertical-align:middle;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+tbody tr:first-child td{border-top:0}
+.r{text-align:right}
+tr.go{cursor:pointer}
+@media (hover:hover){tr.go:hover td{background:var(--soft)}}
+td.chev{color:var(--ico);text-align:right;padding-left:0}
+.id{display:flex;flex-direction:column;min-width:0}.id>span{overflow:hidden;text-overflow:ellipsis}.id small{font-size:15px;color:var(--mute);overflow:hidden;text-overflow:ellipsis}
+.thumb{display:inline-grid;place-items:center;width:40px;height:40px;border-radius:7px;background:var(--soft-2);margin-right:12px;flex-shrink:0;font-size:20px}
+.withthumb{display:flex;align-items:center;min-width:0}
+.empty{padding:36px;text-align:center;color:var(--mute)}
+h3{font-size:15px;font-weight:600;margin:0 0 10px}
+.sg{color:var(--accent);font-weight:500}
+
+/* record sheet: one layer, slides in from the right */
+.scrim{position:fixed;inset:0;background:var(--scrim);opacity:0;pointer-events:none;transition:opacity 200ms var(--out);z-index:40}
+.scrim.on{opacity:1;pointer-events:auto;transition-duration:340ms}
+.sheet{position:fixed;top:12px;right:12px;bottom:12px;width:min(928px,calc(100vw - 24px));background:#fff;border-radius:14px;box-shadow:var(--ring);display:flex;flex-direction:column;z-index:50;transform:translateX(calc(100% + 24px));transition:transform 200ms var(--out)}
+.sheet.on{transform:none;transition:transform 340ms var(--drawer)}
+.sh{padding:28px 36px 20px;display:flex;align-items:flex-start;gap:12px;border-bottom:1px solid var(--hair)}
+.sh .t{flex:1;min-width:0}.sh h2{font-size:17px;font-weight:600}
+.x{width:32px;height:32px;border-radius:8px;display:grid;place-items:center;color:var(--ico);font-size:20px;flex-shrink:0}
+@media (hover:hover){.x:hover{background:var(--soft-2);color:var(--ink)}}
+.sb{flex:1;overflow:auto;padding:28px 36px}
+.sb>.in{transition:opacity 160ms ease,transform 160ms var(--out)}
+.sb>.in.out{opacity:0;transform:translateY(4px);transition-duration:100ms}
+.sf{display:flex;align-items:center;justify-content:flex-end;gap:10px;padding:14px 36px calc(14px + env(safe-area-inset-bottom));min-height:68px;border-top:1px solid var(--hair)}
+.sf:empty{display:none}
+.sec{margin-top:32px}
+.kpi+.sec{margin-top:8px}
+.facts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:18px 24px}
+.facts label{display:block;color:var(--mute)}
+.facts span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hist td{white-space:normal}
+.info{display:flex;flex-direction:column;border-top:1px solid var(--hair)}
+.info>div{display:flex;gap:16px;padding:10px 0;border-bottom:1px solid var(--hair)}
+.info label{width:120px;flex-shrink:0;color:var(--mute)}
+.info span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.step{margin-top:28px}
+.step h3{display:flex;align-items:center;gap:10px}
+.step h3 .no{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--soft-2);font-size:15px;font-weight:600}
+.sheet.layer2{top:24px;right:24px;bottom:24px;width:min(880px,calc(100vw - 48px));z-index:55}
+.btn.tint{background:var(--accent-bg);color:var(--accent)}
+.chosen{display:flex;align-items:center;gap:14px;padding:12px 16px}
+.chosen .grow{flex:1;min-width:0}
+.btn.mini{height:36px;padding:0 14px}
+tr.pickrow{cursor:pointer}
+.cveil{position:fixed;inset:0;z-index:70;display:grid;place-items:center;padding:16px;background:rgb(40 30 20/18%);opacity:0;pointer-events:none;transition:opacity 150ms ease}
+.cveil.on{opacity:1;pointer-events:auto}
+.confirm{width:min(440px,100%);background:#fff;border-radius:14px;box-shadow:var(--ring);padding:24px;transform:scale(.97);transition:transform 200ms var(--out)}
+.cveil.on .confirm{transform:none}
+.confirm h2{font-size:17px;font-weight:600;margin-bottom:8px}
+.confirm p{color:var(--body)}
+.confirm .acts{display:flex;justify-content:flex-end;gap:10px;margin-top:22px}
+.pick .qty{font-weight:600;font-variant-numeric:tabular-nums}
+tr.now td{background:var(--accent-bg)}
+
+.btn{height:40px;padding:0 18px;text-align:center;border-radius:10px;font-weight:500;transition:transform 160ms var(--out),background-color 150ms ease}
+.btn:active{transform:scale(.97)}
+.btn.primary{background:var(--accent);color:#fff}
+.btn:disabled{opacity:.4;pointer-events:none}
+.back{display:inline-flex;align-items:center;height:32px;padding:0 12px;margin-bottom:18px;border-radius:8px;background:var(--accent-bg);color:var(--accent);font-weight:500;transition:transform 160ms var(--out)}
+.back:active{transform:scale(.97)}
+
+/* picking one: radio rows */
+.pick{display:flex;align-items:center;gap:14px;width:100%;padding:12px 16px;border-top:1px solid var(--hair);transition:background-color 150ms ease}
+.pick:first-child{border-top:0}
+@media (hover:hover){.pick:hover{background:var(--soft)}}
+.pick .dot,.pickrow .dot{width:20px;height:20px;border-radius:50%;border:1.5px solid var(--hair-3);flex-shrink:0;display:grid;place-items:center;transition:border-color 150ms ease}
+.pick .dot::after,.pickrow .dot::after{content:"";width:10px;height:10px;border-radius:50%;background:var(--accent);transform:scale(0);transition:transform 160ms var(--out)}
+.pick[aria-checked=true]{background:var(--accent-bg)}
+.pick[aria-checked=true] .dot,.pickrow[aria-checked=true] .dot{border-color:var(--accent)}
+.pickrow[aria-checked=true] td{background:var(--accent-bg)}
+.pick[aria-checked=true] .dot::after,.pickrow[aria-checked=true] .dot::after{transform:scale(1)}
+.pick .grow{flex:1;min-width:0}
+.pick .thumb{margin-right:0}
+.pick.ro{cursor:default}
+
+/* toast */
+.toast{position:fixed;left:50%;bottom:28px;z-index:60;background:var(--ink);color:#fff;padding:12px 18px;border-radius:12px;box-shadow:var(--ring);transform:translate(-50%,calc(100% + 40px));opacity:0;transition:transform 400ms var(--out),opacity 400ms ease;white-space:nowrap}
+.toast.on{transform:translate(-50%,0);opacity:1}
+
+/* phone: the dock holds status, search and kind */
+.dock{display:none}
+.cards{display:flex;flex-direction:column;gap:10px}
+.rcard{display:flex;align-items:center;gap:12px;width:100%;padding:14px;border:1px solid var(--hair);border-radius:12px;transition:transform 160ms var(--out),border-color 150ms ease}
+.rcard:active{transform:scale(.98)}
+.rcard .thumb{margin-right:0}
+.rcard .rc{flex:1;min-width:0;display:flex;flex-direction:column}
+.rcard .rc>*{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rcard b{font-weight:600}
+.rcard .chev{color:var(--ico)}
+
+/* prototype switch, not part of the design */
+.proto{position:fixed;left:50%;transform:translateX(-50%);bottom:16px;z-index:30;display:flex;align-items:center;gap:10px;background:#fff;border-radius:999px;box-shadow:var(--ring);padding:6px 6px 6px 16px;color:var(--mute)}
+.seg{display:flex;background:var(--soft-2);border-radius:999px;padding:3px}
+.seg button{height:32px;padding:0 14px;white-space:nowrap;border-radius:999px;color:var(--mute)}
+.seg button[aria-pressed=true]{background:#fff;color:var(--ink);font-weight:500;box-shadow:0 1px 3px rgb(0 0 0/10%)}
+
+@media (max-width:760px){
+  .page{padding:68px 16px 132px}
+  .kpi{display:grid;grid-template-columns:1fr 1fr;gap:12px 0}.kpi>div:nth-child(odd){padding-left:0;border-left:0}
+  #tabs,#chips,.bar{display:none}
+  .dock{display:flex;align-items:center;gap:8px;position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));z-index:30;padding:8px;background:#fff;border-radius:16px;box-shadow:var(--ring)}
+  .dock .stat{height:44px;padding:0 14px;border-radius:12px;background:var(--soft-2);font-weight:500;white-space:nowrap;transition:transform 160ms var(--out)}
+  .dock .stat:active,.dock .flt:active{transform:scale(.97)}
+  .dock input{flex:1;min-width:0;height:44px;border:1px solid var(--hair-2);border-radius:12px;padding:0 12px;outline:none;font-size:16px}
+  .dock input:focus{border-color:var(--accent)}
+  .dock .flt{position:relative;width:44px;height:44px;border-radius:12px;background:var(--soft-2);display:grid;place-items:center;flex-shrink:0;transition:transform 160ms var(--out)}
+  .dock .flt svg{width:20px;height:20px;stroke-width:1.8}
+  .dock .flt i{position:absolute;top:-4px;right:-4px;min-width:20px;height:20px;padding:0 5px;border-radius:999px;background:var(--accent);color:#fff;font-style:normal;font-size:15px;line-height:20px;text-align:center}
+  .sheet{top:auto;right:0;bottom:0;left:0;width:100%;height:calc(100dvh - 24px);border-radius:14px 14px 0 0;transform:translateY(calc(100% + 24px))}
+  .sheet.short{height:auto;max-height:80dvh}
+  .sheet.layer2{left:0;right:0;width:100%;height:calc(100dvh - 48px)}
+  .sh,.sb,.sf{padding-left:16px;padding-right:16px}
+  .sf .btn{flex:1;white-space:nowrap}
+  .facts{grid-template-columns:1fr 1fr}
+  .proto{top:10px;bottom:auto}
+  .ph{display:none}
+  td,th{padding-left:12px;padding-right:12px}
+  .toast{bottom:96px}
+}
+@media (prefers-reduced-motion:reduce){.sheet,.sheet.on,.toast{transition:opacity 200ms ease}.sb>.in.out{transform:none}.pick .dot::after{transition:none}}
+</style>
+</head>
+<body>
+<aside class="side" id="side"></aside>
+<main class="page wide">
+  <div class="head"><h1>Unmatched sales</h1></div>
+  <div class="tabs" role="tablist" id="tabs"></div>
+  <div class="chips" role="radiogroup" aria-label="Kind" id="chips"></div>
+  <div class="bar"><input class="search" id="q" placeholder="Search article, SKU, receipt or store" autocomplete="off"></div>
+  <div id="list"></div>
+</main>
+<div class="dock" id="dock">
+  <button class="stat" id="dstat"></button>
+  <input id="dq" placeholder="Search" autocomplete="off" aria-label="Search">
+  <button class="flt" id="dflt" aria-label="Kind"></button>
+</div>
+<div class="scrim" id="scrim"></div>
+<section class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle"></section>
+<div class="scrim" id="scrim2" style="z-index:52"></div>
+<section class="sheet layer2" id="sheet2" role="dialog" aria-modal="true" aria-labelledby="sheet2Title"></section>
+<div class="cveil" id="cveil"><div class="confirm" id="confirm" role="alertdialog" aria-modal="true" aria-labelledby="cTitle" aria-describedby="cBody"></div></div>
+<div class="toast" id="toast" role="status"></div>
+<div class="proto"><span class="ph">Prototype</span><div class="seg" id="seg"><button data-app="hub">Hub</button><button data-app="store">Store app · Sipin</button></div></div>
+
+<script>
+const fmt=n=>n.toLocaleString("id-ID");
+const rp=n=>"Rp "+fmt(n);
+const MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const TODAY=new Date(2026,9,23),TODAY_ISO="2026-10-23";
+const D=s=>{const [y,m,d]=s.split("-").map(Number);return new Date(y,m-1,d)};
+const day=s=>{const d=D(s);return `${d.getDate()} ${MON[d.getMonth()]} ${d.getFullYear()}`};
+const age=s=>Math.round((TODAY-D(s))/86400000);
+const skuText=s=>s?s.slice(0,8)+"·"+s.slice(8):"No SKU";
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const cap=s=>s.charAt(0).toUpperCase()+s.slice(1);
+const ME="Sinta Maharani";
+const STORE="Sipin";
+const OVERDUE=30;
+
+const I=p=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
+const ICON={
+  all:I('<path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/>'),
+  notag:I('<path d="M12.59 2.59A2 2 0 0 0 11.17 2H4a2 2 0 0 0-2 2v7.17a2 2 0 0 0 .59 1.42l8.7 8.7a2.43 2.43 0 0 0 3.42 0l6.58-6.58a2.43 2.43 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/><path d="m2 2 20 20"/>'),
+  other:I('<path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/>'),
+  unid:I('<path d="M21 10V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l2-1.14"/><path d="m7.5 4.27 9 5.15"/><path d="M3.29 7 12 12l8.71-5"/><path d="M12 22V12"/><circle cx="18.5" cy="15.5" r="2.5"/><path d="M20.27 17.27 22 19"/>'),
+  unknown:I('<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>'),
+  filter:I('<path d="M3 6h18"/><path d="M7 12h10"/><path d="M10 18h4"/>')
+};
+/* The till's four kinds of line it could not take from the store's own stock
+   (POS labels: Tanpa tag · Dari <tempat> · Luar toko · Tak dikenal). */
+const KIND={notag:"No tag",other:"Other place",unid:"Not in stock",unknown:"Unknown item"};
+const KINDS=["notag","other","unid","unknown"];
+
+/* Articles as the hub names them (same SKUs as missing-prototype.html). */
+const CAT={
+  "00011040132":{a:"Celana Chino Slim Fit",v:"Khaki · 32",e:"👖",cost:82000},
+  "00011040130":{a:"Celana Chino Slim Fit",v:"Hitam · 30",e:"👖",cost:82000},
+  "00011090317":{a:"Kemeja Oxford Lengan Panjang",v:"Biru muda · L",e:"👔",cost:76000},
+  "00011090316":{a:"Kemeja Oxford Lengan Panjang",v:"Biru muda · M",e:"👔",cost:76000},
+  "00011150317":{a:"Kemeja Batik Lengan Panjang",v:"Biru · L",e:"👔",cost:64000},
+  "00011150316":{a:"Kemeja Batik Lengan Panjang",v:"Biru · M",e:"👔",cost:64000},
+  "00011150417":{a:"Kemeja Batik Lengan Panjang",v:"Cokelat · L",e:"👔",cost:64000},
+  "00011020453":{a:"Kaos Basic Katun Combed",v:"Hitam · M",e:"👕",cost:28000},
+  "00011020455":{a:"Kaos Basic Katun Combed",v:"Putih · L",e:"👕",cost:28000},
+  "00011120914":{a:"Hoodie Fleece Oversize",v:"Abu · XL",e:"🧥",cost:98000},
+  "00011030918":{a:"Kaos Anak Karakter",v:"Kuning · 6",e:"👕",cost:24000},
+  "00011010714":{a:"Blus Rayon Motif Bunga",v:"Hijau · L",e:"👚",cost:58000},
+  "00011050212":{a:"Jaket Denim Washed",v:"Biru · L",e:"🧥",cost:131000},
+  "00011100212":{a:"Dress Midi Plisket",v:"Hitam · M",e:"👗",cost:104000},
+  "00011060442":{a:"Loafers Kulit Sintetis",v:"Cokelat · 42",e:"👞",cost:112000},
+  "00011110614":{a:"Rok Lipit Midi",v:"Hitam · L",e:"👗",cost:66000},
+  "00011140208":{a:"Tas Selempang Kanvas",v:"Hitam · All size",e:"👜",cost:34000}
+};
+/* Where each SKU is held, place → [on hand, missing] (Inventory › Stock). */
+const WHERE={
+  "00011040132":{"Head Office":[12,0],"Jambi":[3,4],"Cikupa":[2,0],"Wiramode":[1,0]},
+  "00011090317":{"Head Office":[8,0],"Purbalingga":[2,3],"Wiramode":[0,1],"Brebes":[1,0]},
+  "00011090316":{"Head Office":[6,0],"Jambi":[1,0]},
+  "00011120914":{"Head Office":[20,2],"Sipin":[1,0]},
+  "00011030918":{"Pasuruan":[4,2],"Head Office":[6,0]},
+  "00011010714":{"Head Office":[5,0],"Sipin":[2,0],"Muaro Bungo":[1,0]},
+  "00011020453":{"Sipin":[7,0],"Head Office":[40,0],"Cikupa":[5,0]},
+  "00011020455":{"Sipin":[12,0],"Head Office":[36,0]},
+  "00011150317":{"Banjaran":[2,1],"Head Office":[6,0]},
+  "00011150316":{"Head Office":[4,0],"Banjaran":[1,0]},
+  "00011150417":{"Head Office":[3,0]},
+  "00011140208":{"Muaro Bungo":[3,0],"Head Office":[10,0]},
+  "00011050212":{"Head Office":[9,0],"Wiramode":[2,0]},
+  "00011100212":{"Head Office":[7,0],"Sipin":[1,0]},
+  "00011040130":{"Head Office":[10,0],"Bumiayu":[2,0]},
+  "00011060442":{"Head Office":[4,0],"Wiramode":[1,0]},
+  "00011110614":{"Head Office":[8,0]}
+};
+/* Each row = one line a till sold that it could not take from its own stock. */
+let SALES=[
+  {id:"s1",store:"Sipin",d:"2026-10-22",t:"14:12",rc:"C11-SPN-26-10-02766",till:"Till 1",by:"Andi Saputra",sku:"00011040132",k:"unid",price:189000,st:"open"},
+  {id:"s2",store:"Cikupa",d:"2026-10-21",t:"16:40",rc:"C04-CKP-26-10-01981",till:"Till 2",by:"Putri Ayu Lestari",sku:"00011090317",k:"unid",price:179000,st:"open"},
+  {id:"s3",store:"Brebes",d:"2026-10-19",t:"11:05",rc:"C08-BRB-26-10-01544",till:"Till 1",by:"Dimas Saputra",sku:"00011120914",k:"unid",price:229000,st:"open"},
+  {id:"s4",store:"Pasuruan",d:"2026-10-12",t:"19:22",rc:"C09-PSR-26-10-02210",till:"Till 1",by:"Eko Wahyudi",sku:"00011030918",k:"unid",price:59000,st:"open"},
+  {id:"s5",store:"Sipin",d:"2026-10-23",t:"10:41",rc:"C11-SPN-26-10-02771",till:"Till 2",by:"Rizky Pratama",sku:"00011020453",k:"notag",price:69000,st:"open"},
+  {id:"s6",store:"Jambi",d:"2026-09-15",t:"13:30",rc:"C07-JMB-26-09-01720",till:"Till 1",by:"Yudi Hartono",sku:"00011010714",k:"unid",price:139000,st:"open"},
+  {id:"s7",store:"Sipin",d:"2026-10-22",t:"17:55",rc:"C11-SPN-26-10-02769",till:"Till 1",by:"Andi Saputra",name:"Kemeja batik biru",k:"unknown",price:150000,st:"open",pricedBy:"Bima Prasetyo"},
+  {id:"s8",store:"Muaro Bungo",d:"2026-10-20",t:"15:18",rc:"C02-MBG-26-10-01133",till:"Till 1",by:"Ahmad Fauzi",name:"Tas selempang kanvas",k:"unknown",price:85000,st:"open",pricedBy:"Fajar Pratama"},
+  {id:"s9",store:"Sipin",d:"2026-10-20",t:"12:02",rc:"C11-SPN-26-10-02741",till:"Till 1",by:"Andi Saputra",sku:"00011020455",k:"notag",price:69000,st:"matched",m:{how:"Sweep",d:"2026-10-21",by:"Bima Prasetyo",epc:"…0417"}},
+  {id:"s10",store:"Cikupa",d:"2026-10-19",t:"18:44",rc:"C04-CKP-26-10-01962",till:"Till 1",by:"Putri Ayu Lestari",sku:"00011050212",k:"other",from:"Wiramode",epc:"…2291",price:299000,st:"matched",m:{how:"Transfer",from:"Wiramode",d:"2026-10-19",by:"Automatic",doc:"TRF-0055"}},
+  {id:"s11",store:"Sipin",d:"2026-10-16",t:"15:31",rc:"C11-SPN-26-10-02688",till:"Till 2",by:"Rizky Pratama",sku:"00011100212",k:"other",from:"In transit",epc:"…0861",price:249000,st:"matched",m:{how:"Transfer",from:"In transit",d:"2026-10-16",by:"Automatic",doc:"SJ-0313"}},
+  {id:"s12",store:"Bumiayu",d:"2026-10-14",t:"10:12",rc:"C03-BMY-26-10-01407",till:"Till 1",by:"Sari Wulandari",sku:"00011040130",k:"unid",price:189000,st:"matched",m:{how:"Transfer",from:"Head Office",d:"2026-10-17",by:ME,doc:"TRF-0054"}},
+  {id:"s13",store:"Wiramode",d:"2026-10-09",t:"16:20",rc:"C06-WRM-26-10-01288",till:"Till 1",by:"Hana Pertiwi",name:"Sepatu kulit cokelat",k0:"unknown",sku:"00011060442",k:"unid",price:250000,pricedBy:"Rizky Ramadhan",ident:{d:"2026-10-13",by:ME},st:"matched",m:{how:"Own",from:"Wiramode",d:"2026-10-13",by:ME}},
+  {id:"s14",store:"Jambi",d:"2026-10-02",t:"14:45",rc:"C07-JMB-26-10-01801",till:"Till 2",by:"Yudi Hartono",sku:"00011090316",k:"unid",price:179000,st:"found",m:{how:"Count",d:"2026-10-16",by:"Intan Permata",doc:"CC-0093"}},
+  {id:"s15",store:"Sipin",d:"2026-09-25",t:"11:50",rc:"C11-SPN-26-09-02512",till:"Till 1",by:"Andi Saputra",sku:"00011110614",k:"unid",price:159000,st:"found",m:{how:"Count",d:"2026-10-16",by:"Bima Prasetyo",doc:"CC-0094"}}
+].map(s=>({...s,k0:s.k0||s.k}));
+let trf=57;
+
+/* ---------- state ---------- */
+const qs=new URLSearchParams(location.search);
+let app=qs.get("app")==="store"?"store":"hub";
+let tab=qs.get("tab")||"open",kind="all",needle="",openId=null,place=null,idq="",idPick=null;
+const TABS=[["open","To match"],["matched","Matched"],["found","Found"]];
+const hub=()=>app==="hub";
+const phone=()=>matchMedia("(max-width:760px)").matches;
+const byId=id=>SALES.find(s=>s.id===id);
+const scope=()=>SALES.filter(s=>hub()||s.store===STORE);
+const art=s=>s.sku?CAT[s.sku]:{a:cap(s.name),v:"",e:"❔",cost:null};
+const varSku=s=>s.sku?`${esc(art(s).v)} · ${skuText(s.sku)}`:"No SKU";
+/* The places holding that SKU, the ones with a piece missing first. */
+const placesOf=sku=>Object.entries(WHERE[sku]||{}).filter(([,[on,miss]])=>on>0||miss>0).sort((a,b)=>b[1][1]-a[1][1]||b[1][0]-a[1][0]);
+function matchedWith(s){
+  const m=s.m;if(!m)return "—";
+  if(m.how==="Sweep")return "Sweep";
+  if(m.how==="Own")return "Own stock";
+  if(m.how==="Transfer")return `Transfer from ${m.from}${m.by==="Automatic"?" · automatic":""}`;
+  return `Count · ${m.doc}`;
+}
+function rows(){
+  const q=needle.trim().toLowerCase();
+  return scope().filter(s=>s.st===tab&&(kind==="all"||s.k===kind)&&(!q||[art(s).a,art(s).v,s.sku||"",skuText(s.sku||""),s.store,s.rc,s.by].join(" ").toLowerCase().includes(q)))
+    .sort((x,y)=>tab==="open"?D(x.d)-D(y.d):D((y.m||y).d)-D((x.m||x).d));
+}
+
+/* ---------- page ---------- */
+function side(){
+  const open=scope().filter(s=>s.st==="open").length;
+  document.getElementById("side").innerHTML=hub()
+    ?`<h4>Sales</h4><a>By place</a><a>By product</a><a>By source</a><a class="on" aria-current="page">Unmatched sales<span class="badge n">${open||""}</span></a>`
+    :`<h4>Money</h4><a>Sales</a><a class="on" aria-current="page">Unmatched sales<span class="badge n">${open||""}</span></a><a>Reconciliation</a><a>Petty cash</a><a>Cash count</a>`;
+}
+function kpi(){
+  const all=scope(),open=all.filter(s=>s.st==="open"),old=open.filter(s=>age(s.d)>OVERDUE).length;
+  const inOct=s=>s.m&&s.m.d.startsWith("2026-10");
+  const F=hub()?[
+    ["Open",fmt(open.length)+" pcs",""],
+    ["Value",rp(open.reduce((t,s)=>t+s.price,0)),""],
+    ["Stores",fmt(new Set(open.map(s=>s.store)).size),""],
+    ["Over 30 days",fmt(old),old?"b":""]
+  ]:[
+    ["Open",fmt(open.length)+" pcs",""],
+    ["Matched · Oct",fmt(all.filter(s=>s.st==="matched"&&inOct(s)).length),""],
+    ["Found · Oct",fmt(all.filter(s=>s.st==="found"&&inOct(s)).length),""],
+    ["Over 30 days",fmt(old),old?"b":""]
+  ];
+  document.getElementById("kpi").innerHTML=F.map(([l,v,c])=>`<div><label>${l}</label><strong class="n ${c}">${v}</strong></div>`).join("");
+}
+function tabsAndChips(){
+  const inTab=scope().filter(s=>s.st===tab);
+  document.getElementById("tabs").innerHTML=TABS.map(([k,l])=>`<button class="tab" role="tab" aria-selected="${k===tab}" data-tab="${k}">${l}<span class="n">${scope().filter(s=>s.st===k).length}</span></button>`).join("");
+  document.getElementById("chips").innerHTML=[["all","All"],...KINDS.map(k=>[k,KIND[k]])].map(([k,l])=>`<button class="chip" role="radio" aria-checked="${kind===k}" data-kind="${k}">${ICON[k]}${l}<span class="c n">${k==="all"?inTab.length:inTab.filter(s=>s.k===k).length}</span></button>`).join("");
+  const T=TABS.find(([k])=>k===tab);
+  document.getElementById("dstat").innerHTML=`${T[1]} · ${inTab.length} ▾`;
+  document.getElementById("dflt").innerHTML=ICON.filter+(kind==="all"?"":"<i>1</i>");
+}
+function list(){
+  const R=rows(),L=document.getElementById("list");
+  if(!R.length){L.innerHTML=`<div class="box"><p class="empty">${tab==="open"&&!needle&&kind==="all"?"Everything is matched":"Nothing here"}</p></div>`;return}
+  if(phone()){L.innerHTML=`<div class="cards">${R.map(card).join("")}</div>`;return}
+  const H=hub();
+  const article=s=>{const A=art(s);return `<div class="withthumb"><span class="thumb">${A.e}</span><span class="id"><span>${esc(A.a)}</span><small>${varSku(s)}</small></span></div>`};
+  const sold=s=>`<span class="n ${tab==="open"&&age(s.d)>OVERDUE?"b":""}">${day(s.d)}</span>`;
+  let head,cells,cols,right=[];
+  if(tab==="open"){
+    head=H?["Sold","Store","Article","Kind","Price"]:["Sold","Article","Kind","Receipt","Cashier"];
+    cols=H?["130px","140px","","150px","140px"]:["130px","","150px","230px","200px"];
+    if(H)right=[4];
+    cells=s=>H?[sold(s),esc(s.store),article(s),KIND[s.k],`<span class="n">${rp(s.price)}</span>`]
+      :[sold(s),article(s),KIND[s.k],`<span class="n">${s.rc}</span>`,esc(s.by)];
+  }else if(tab==="matched"){
+    head=H?["Sold","Store","Article","Kind","Matched with","Matched on"]:["Sold","Article","Kind","Matched with","Matched on"];
+    cols=H?["130px","130px","","140px","230px","130px"]:["130px","","140px","240px","130px"];
+    cells=s=>(H?[sold(s),esc(s.store)]:[sold(s)]).concat([article(s),KIND[s.k],matchedWith(s),day(s.m.d)]);
+  }else{
+    head=H?["Sold","Store","Article","Count","Found on","Cost"]:["Sold","Article","Count","Found on","Cost"];
+    cols=H?["130px","130px","","120px","130px","120px"]:["130px","","120px","130px","120px"];
+    right=[head.length-1];
+    cells=s=>(H?[sold(s),esc(s.store)]:[sold(s)]).concat([article(s),s.m.doc,day(s.m.d),`<span class="n">${rp(art(s).cost)}</span>`]);
+  }
+  const r=i=>right.includes(i)?' class="r"':"";
+  L.innerHTML=`<div class="box"><table><colgroup>${cols.map(w=>`<col${w?` style="width:${w}"`:""}>`).join("")}<col style="width:40px"></colgroup>
+    <thead><tr>${head.map((h,i)=>`<th${r(i)}>${h}</th>`).join("")}<th></th></tr></thead>
+    <tbody>${R.map(s=>`<tr class="go" data-open="${s.id}" tabindex="0">${cells(s).map((c,i)=>`<td${r(i)}>${c}</td>`).join("")}<td class="chev" aria-hidden="true">›</td></tr>`).join("")}</tbody></table></div>`;
+}
+function card(s){
+  const A=art(s),line=[hub()?s.store:"",day(s.d),KIND[s.k]].filter(Boolean).join(" · ");
+  const extra=tab==="open"?(hub()?`<span class="m n">${rp(s.price)}</span>`:""):tab==="matched"?`<span class="m">${matchedWith(s)} · ${day(s.m.d)}</span>`:`<span class="m">${s.m.doc} · ${day(s.m.d)}</span>`;
+  return `<button class="rcard" data-open="${s.id}"><span class="thumb">${A.e}</span><span class="rc"><b>${esc(A.a)}</b><span class="m">${varSku(s)}</span><span class="m">${esc(line)}</span>${extra}</span><span class="chev">›</span></button>`;
+}
+function renderPage(){side();tabsAndChips();list();seg()}
+function renderAll(){renderPage();if(openId)sheetBody(false)}
+
+/* ---------- record sheet ---------- */
+function story(s){
+  const H=[],sold={d:s.d,t:s.t,doc:s.rc,by:s.by};
+  if(s.k0==="unknown")H.push({...sold,w:`Sold · no SKU · priced by ${s.pricedBy}`});
+  else if(s.k0==="notag")H.push({...sold,w:"Sold · SKU typed · tag did not read"});
+  else if(s.k0==="other")H.push({...sold,w:`Sold · tag ${s.epc} recorded at ${s.from}`});
+  else H.push({...sold,w:`Sold · SKU typed · none in ${s.store} stock`});
+  if(s.ident){const A=CAT[s.sku];H.push({d:s.ident.d,w:`Article · ${A.a} · ${A.v}`,doc:"",by:s.ident.by})}
+  if(s.m){
+    const m=s.m,miss=m.miss?" · from Missing":"";
+    const w=m.how==="Sweep"?`Matched · tag ${m.epc} not seen at the sweep`
+      :m.how==="Own"?`Matched · ${s.store} stock${miss}`
+      :m.how==="Transfer"?`Transfer ${m.from} → ${s.store}${miss}${m.by==="Automatic"?" · automatic":""}`
+      :"Found at count · +1 at cost";
+    H.push({d:m.d,w,doc:m.doc||"",by:m.by==="Automatic"?"—":m.by,now:m.d===TODAY_ISO&&m.by===ME});
+  }
+  return H;
+}
+/* Every place and what it holds: place → [[sku, on hand]] */
+const PLACES=(()=>{const o={};Object.entries(WHERE).forEach(([k,P])=>Object.entries(P).forEach(([p,[on]])=>{if(on>0)(o[p]=o[p]||[]).push([k,on])}));return o})();
+const PLACE_ORDER=()=>["Head Office",...Object.keys(PLACES).filter(p=>p!=="Head Office").sort()];
+function matchHTML(s){
+  let out=`<div class="step"><h3><span class="no">1</span>Store or HO</h3><div class="chips" role="radiogroup" aria-label="Place">${PLACE_ORDER().map(p=>`<button class="chip" role="radio" aria-checked="${place===p}" data-place="${esc(p)}">${esc(p)}</button>`).join("")}</div></div>`;
+  if(place){
+    const on=idPick?(PLACES[place]||[]).find(([k])=>k===idPick):null;
+    out+=`<div class="step"><h3><span class="no">2</span>Article at ${esc(place)}</h3><div class="box">${on?`<div class="chosen"><span class="thumb">${CAT[idPick].e}</span><span class="grow id"><span>${esc(CAT[idPick].a)}</span><small>${esc(CAT[idPick].v)} · ${skuText(idPick)} · Stock ${fmt(on[1])}</small></span><button class="btn tint mini" data-browse>Change</button></div>`
+      :`<div class="chosen"><span class="grow m">${fmt((PLACES[place]||[]).length)} articles</span><button class="btn tint mini" data-browse>Browse articles</button></div>`}</div></div>`;
+  }
+  return out;
+}
+function viewHTML(s){
+  const H=hub();
+  const rows=[["Sold",`${day(s.d)} · ${s.t} · ${s.store}`],["Receipt",s.rc],["Cashier",s.by],["Price",rp(s.price)],["Kind",KIND[s.k]]]
+    .concat(s.k0==="unknown"?[["Typed as",`${cap(s.name)} · priced by ${s.pricedBy}`]]:[])
+    .concat(s.m?[["Matched",`${matchedWith(s)} · ${day(s.m.d)}`]]:[]);
+  return `<div class="info">${rows.map(([l,v])=>`<div><label>${l}</label><span class="${/Receipt/.test(l)?"n":""}">${esc(v)}</span></div>`).join("")}</div>
+    ${H&&s.st==="open"?matchHTML(s):""}`;
+}
+/* Browse: every article at the picked place, as a table, over the sheet. */
+function browseHTML(){
+  const s=byId(openId),q=idq.trim().toLowerCase();
+  const L=(PLACES[place]||[]).filter(([k])=>!q||`${CAT[k].a} ${CAT[k].v} ${k} ${skuText(k)}`.toLowerCase().includes(q))
+    .sort((x,y)=>(y[0]===s.sku)-(x[0]===s.sku)||CAT[x[0]].a.localeCompare(CAT[y[0]].a)||x[0].localeCompare(y[0]));
+  return `<header class="sh"><div class="t"><h2 id="sheet2Title">Articles at ${esc(place)}</h2><p class="m">${fmt((PLACES[place]||[]).length)} articles</p></div><button class="x" data-close2 aria-label="Close">×</button></header>
+    <div class="sb"><div class="bar"><input class="search" id="bq" value="${esc(idq)}" placeholder="Search article or SKU" autocomplete="off" aria-label="Search article or SKU"></div>
+    <div class="box"><table><colgroup><col style="width:56px"><col><col class="ph" style="width:130px"><col class="ph" style="width:110px"><col style="width:150px"><col style="width:90px"></colgroup>
+      <thead><tr><th></th><th>Article</th><th class="ph">Colour</th><th class="ph">Size</th><th>SKU</th><th class="r">Stock</th></tr></thead>
+      <tbody role="radiogroup" aria-label="Article">${L.length?L.map(([k,on])=>{const [c,z]=CAT[k].v.split(" · ");return `<tr class="pickrow" role="radio" aria-checked="${idPick===k}" data-ident="${k}" tabindex="0"><td><span class="dot"></span></td><td><div class="withthumb"><span class="thumb">${CAT[k].e}</span><span>${esc(CAT[k].a)}</span></div></td><td class="ph">${esc(c)}</td><td class="ph">${esc(z)}</td><td class="n">${skuText(k)}</td><td class="r n">${fmt(on)}</td></tr>`}).join(""):`<tr><td colspan="6" class="empty">Nothing here</td></tr>`}</tbody></table></div></div>`;
+}
+function openBrowse(){
+  idq="";const el=document.getElementById("sheet2");el.innerHTML=browseHTML();
+  document.getElementById("scrim2").classList.add("on");void el.offsetWidth;el.classList.add("on");
+  const i=document.getElementById("bq");if(i&&!phone())i.focus();
+}
+function closeBrowse(){document.getElementById("sheet2").classList.remove("on");document.getElementById("scrim2").classList.remove("on")}
+const browseOpen=()=>document.getElementById("sheet2").classList.contains("on");
+function foot(s){
+  if(!hub()||s.st!=="open")return "";
+  return `<button class="btn primary" data-match ${place&&idPick?"":"disabled"}>Match</button>`;
+}
+function sheetBody(swap){
+  const s=byId(openId),A=art(s),el=document.getElementById("sheet");
+  const draw=()=>{
+    const sb=el.querySelector(".sb"),top=sb?sb.scrollTop:0;
+    el.innerHTML=`<header class="sh"><div class="t"><h2 id="sheetTitle">${esc(A.a)}</h2><p class="m">${varSku(s)}</p></div><button class="x" data-close aria-label="Close">×</button></header>
+      <div class="sb"><div class="in">${viewHTML(s)}</div></div>
+      <footer class="sf">${foot(s)}</footer>`;
+    el.classList.remove("short");
+    if(!swap)el.querySelector(".sb").scrollTop=top;
+  };
+  if(!swap){draw();return}
+  const inner=el.querySelector(".sb>.in");
+  if(!inner){draw();return}
+  inner.classList.add("out");
+  setTimeout(()=>{draw();const n=el.querySelector(".sb>.in");n.classList.add("out");void n.offsetWidth;n.classList.remove("out")},100);
+}
+function openSheet(id){
+  openId=id;place=null;idPick=null;
+  idq="";
+  const el=document.getElementById("sheet");el.innerHTML="";
+  sheetBody(false);
+  document.getElementById("scrim").classList.add("on");
+  void el.offsetWidth;el.classList.add("on");
+}
+function closeSheet(){
+  openId=null;
+  document.getElementById("sheet").classList.remove("on");
+  document.getElementById("scrim").classList.remove("on");
+}
+/* phone: the dock's status chip and kind button open a short sheet */
+function pickSheet(what){
+  openId=null;
+  const el=document.getElementById("sheet");
+  const inTab=scope().filter(s=>s.st===tab);
+  const opts=what==="tab"?TABS.map(([k,l])=>[k,l,scope().filter(s=>s.st===k).length,k===tab]):[["all","All"],...KINDS.map(k=>[k,KIND[k]])].map(([k,l])=>[k,l,k==="all"?inTab.length:inTab.filter(s=>s.k===k).length,k===kind]);
+  el.innerHTML=`<header class="sh"><div class="t"><h2 id="sheetTitle">${what==="tab"?"Status":"Kind"}</h2></div><button class="x" data-close aria-label="Close">×</button></header>
+    <div class="sb"><div class="in"><div class="box" role="radiogroup">${opts.map(([k,l,c,on])=>`<button class="pick" role="radio" aria-checked="${on}" data-${what==="tab"?"settab":"setkind"}="${k}"><span class="dot"></span>${what==="kind"&&ICON[k]?`<span style="width:20px;height:20px;display:grid;place-items:center;color:var(--ico)">${ICON[k]}</span>`:""}<span class="grow">${l}</span><span class="m n">${c}</span></button>`).join("")}</div></div></div>`;
+  el.classList.add("short");
+  document.getElementById("scrim").classList.add("on");
+  void el.offsetWidth;el.classList.add("on");
+}
+
+let tt;
+function toast(t){const el=document.getElementById("toast");el.textContent=t;el.classList.add("on");clearTimeout(tt);tt=setTimeout(()=>el.classList.remove("on"),2600)}
+function seg(){document.querySelectorAll("#seg button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.app===app))}
+
+/* Are you sure: says what Match does to the stock before it is done. */
+function askMatch(){
+  const s=byId(openId);if(!s||!place||!idPick)return;
+  const A=CAT[idPick],on=((PLACES[place]||[]).find(([k])=>k===idPick)||[,0])[1],same=place===s.store;
+  document.getElementById("confirm").innerHTML=`<h2 id="cTitle">Match this sale?</h2>
+    <p id="cBody">1 pcs of ${esc(A.a)} · ${esc(A.v)} leaves ${esc(place)}'s stock (${fmt(on)} → ${fmt(Math.max(0,on-1))}) and counts as sold at ${esc(s.store)} on receipt ${s.rc}.${same?"":` A transfer from ${esc(place)} to ${esc(s.store)} is made at cost.`}</p>
+    <div class="acts"><button class="btn tint" data-cno>Cancel</button><button class="btn primary" data-cyes>Match</button></div>`;
+  document.getElementById("cveil").classList.add("on");
+  document.querySelector("[data-cyes]").focus();
+}
+function closeAsk(){document.getElementById("cveil").classList.remove("on")}
+function match(){
+  const s=byId(openId);if(!s||!place||!idPick)return;
+  const w=WHERE[idPick][place],same=place===s.store;
+  w[0]=Math.max(0,w[0]-1);
+  const row=(PLACES[place]||[]).find(([k])=>k===idPick);if(row)row[1]=Math.max(0,row[1]-1);
+  if(s.sku!==idPick){s.sku=idPick;s.ident={d:TODAY_ISO,by:ME}}
+  s.st="matched";s.m={how:same?"Own":"Transfer",from:place,doc:same?"":`TRF-${String(++trf).padStart(4,"0")}`,d:TODAY_ISO,by:ME};
+  renderPage();sheetBody(true);
+  toast(same?`Matched · ${s.store} stock`:`Matched · transfer ${place} → ${s.store}`);
+}
+
+document.addEventListener("click",e=>{
+  const t=e.target.closest("button,tr,a");if(!t)return;
+  if(t.dataset.app){app=t.dataset.app;kind="all";closeSheet();const u=new URL(location);u.searchParams.set("app",app);history.replaceState(null,"",u);renderAll();return}
+  if(t.dataset.tab){tab=t.dataset.tab;kind="all";renderAll();return}
+  if(t.dataset.kind){kind=t.dataset.kind;renderAll();return}
+  if(t.dataset.open){openSheet(t.dataset.open);return}
+  if(t.dataset.close!==undefined){closeSheet();return}
+  if(t.id==="dstat"){pickSheet("tab");return}
+  if(t.id==="dflt"){pickSheet("kind");return}
+  if(t.dataset.settab){tab=t.dataset.settab;kind="all";closeSheet();renderAll();return}
+  if(t.dataset.setkind){kind=t.dataset.setkind;closeSheet();renderAll();return}
+  if(t.dataset.ident){idPick=t.dataset.ident;closeBrowse();sheetBody(false);return}
+  if(t.dataset.browse!==undefined){openBrowse();return}
+  if(t.dataset.close2!==undefined){closeBrowse();return}
+  if(t.dataset.place){place=t.dataset.place;idPick=null;idq="";sheetBody(false);return}
+  if(t.dataset.match!==undefined){askMatch();return}
+  if(t.dataset.cno!==undefined){closeAsk();return}
+  if(t.dataset.cyes!==undefined){closeAsk();match();return}
+});
+document.getElementById("scrim").addEventListener("click",closeSheet);
+document.getElementById("scrim2").addEventListener("click",closeBrowse);
+document.getElementById("cveil").addEventListener("click",e=>{if(e.target.id==="cveil")closeAsk()});
+document.addEventListener("keydown",e=>{
+  if(e.key==="Escape"&&document.getElementById("cveil").classList.contains("on")){closeAsk();return}
+  if(e.key==="Escape"&&browseOpen()){closeBrowse();return}
+  if(e.key==="Escape"&&document.getElementById("sheet").classList.contains("on")){closeSheet();return}
+  if((e.key==="Enter"||e.key===" ")&&e.target.matches("tr.go")){
+    e.preventDefault();
+    if(e.target.dataset.open)openSheet(e.target.dataset.open);
+    else if(e.target.dataset.ident){idPick=e.target.dataset.ident;closeBrowse();sheetBody(false)}
+  }
+});
+document.addEventListener("input",e=>{
+  if(e.target.id==="q"||e.target.id==="dq"){needle=e.target.value;const o=document.getElementById(e.target.id==="q"?"dq":"q");o.value=needle;list();return}
+  if(e.target.id==="bq"){idq=e.target.value;const pos=e.target.selectionStart;document.getElementById("sheet2").innerHTML=browseHTML();const i=document.getElementById("bq");if(i){i.focus();i.setSelectionRange(pos,pos)}return}
+  if(e.target.id==="idq"){idq=e.target.value;const pos=e.target.selectionStart;sheetBody(false);const i=document.getElementById("idq");if(i){i.focus();i.setSelectionRange(pos,pos)}}
+});
+let wasPhone=phone();
+addEventListener("resize",()=>{if(phone()!==wasPhone){wasPhone=phone();list()}});
+renderAll();
+</script>
+</body>
+</html>

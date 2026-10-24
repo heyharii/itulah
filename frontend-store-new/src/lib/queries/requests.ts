@@ -184,7 +184,10 @@ export function useDoneLeave(people: readonly EmployeeSummary[]) {
 /// shared mutation only remembers the last.
 export function useRequestDecision(item: RequestItem) {
   return useMutation({
-    mutationFn: (input: { approve: boolean; reason: string }) =>
+    mutationFn: (input: {
+      approve: boolean
+      reason: string
+    }): Promise<LeaveRequestView | RosterSwapView> =>
       item.kind === "leave"
         ? decideLeave({
             employeeId: item.request.employee_id,

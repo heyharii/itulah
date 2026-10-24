@@ -2479,6 +2479,20 @@ async fn apply_one(
                     });
                 }
                 false
+            } else if event_type == crate::cloud::domain::FACT_SALES_MEMBER_ATTACHED {
+                // F5 "Daftar member" with a struk number (client, 24 Oct
+                // 2026): the sale before it on this stream takes its member.
+                let attached = match crate::cloud::domain::parse_sales_member_attached(&payload) {
+                    Ok(attached) => attached,
+                    Err(reason) => return Ok(ApplyStep::Blocked { seq: next, reason }),
+                };
+                if let Err(error) = apply_sale_member_attached(&mut tx, origin_id, &attached).await {
+                    return Ok(ApplyStep::Blocked {
+                        seq: next,
+                        reason: block_diagnostic(&error),
+                    });
+                }
+                false
             } else if event_type == crate::edge::till::FACT_SHIFT_RECORDED {
                 // The drawer, on the same path the tenders take. Nothing here
                 // touches the watermark or the generation: the coordinate is
@@ -5841,6 +5855,11 @@ fn validate_issued_command(command_type: &str, payload: &Value) -> Result<(), Ap
             crate::sync::workflow::parse_store_inbound_on_hold(payload)
                 .map_err(AppError::Validation)?;
         }
+        crate::sync::workflow::INVENTORY_STORE_RETURN_MARK_V1 => {
+            // HO moving a shop's goods to its To be returned: same reason.
+            crate::sync::workflow::parse_store_return_mark(payload)
+                .map_err(AppError::Validation)?;
+        }
         crate::cloud::domain::COMMAND_PAYMENT_METHODS_REPLACE => {
             crate::cloud::domain::parse_payment_method_book(payload)
                 .map_err(AppError::Validation)?;
@@ -5870,6 +5889,12 @@ fn validate_issued_command(command_type: &str, payload: &Value) -> Result<(), Ap
             // switched at its node, so a decision about anything else is
             // refused here rather than parked in a shop's command stream.
             crate::sync::device::parse_device_status_command(payload)
+                .map_err(AppError::Validation)?;
+        }
+        crate::sync::unmatched::INVENTORY_UNMATCHED_SALE_TAKE_V1 => {
+            // Head office matched a sale to a piece a shop's node holds: a
+            // node that cannot read it blocks its stream.
+            crate::sync::unmatched::parse_unmatched_sale_take(payload)
                 .map_err(AppError::Validation)?;
         }
         crate::sync::device::COMMAND_DEVICE_TEST_PRINT => {
@@ -7290,9 +7315,9 @@ async fn apply_sale(
              (sale_id, origin_id, generation, seq, movement_group_id, site_id, actor_id,
               occurred_at, currency, total_minor, paid_minor, change_minor,
               discount_total_minor, points_earned, pricing_trace_id, customer_id,
-              net_ex_tax_minor, tax_total_minor, shift_id, business_date)
+              net_ex_tax_minor, tax_total_minor, shift_id, business_date, receipt_no)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,
-                 COALESCE($20, site_local_date($8, $6)))
+                 COALESCE($20, site_local_date($8, $6)), $21)
          ON CONFLICT (sale_id) DO NOTHING",
     )
     .bind(sale.sale_id)
@@ -7327,6 +7352,13 @@ async fn apply_sale(
     // build sends neither, and the day is then the store's date of the sale.
     .bind(sale.shift_id)
     .bind(sale.business_date)
+    // The 7-letter number (postgres 0988); null from an older build.
+    .bind(
+        sale.receipt_no
+            .as_deref()
+            .map(str::trim)
+            .filter(|number| !number.is_empty()),
+    )
     .execute(&mut **tx)
     .await?
     .rows_affected()
@@ -7590,6 +7622,48 @@ async fn apply_sale(
         .execute(&mut **tx)
         .await?;
     }
+    // What the till sold that its own stock could not give it (owner, 23 Oct
+    // 2026): kept OPEN for head office to match to a piece. Keyed by the
+    // shop's own id and position, so a resend lands on the same row.
+    for line in &sale.unmatched {
+        let trimmed = |value: Option<&str>| {
+            value
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned)
+        };
+        sqlx::query(
+            "INSERT INTO unmatched_sale_line
+                 (id, sale_id, line_no, site_id, kind, sku_code, epc, name, from_place,
+                  unit_price_minor, line_total_minor, net_ex_tax_minor, tax_minor,
+                  points_earned, price_source, sold_at, actor_id, priced_by,
+                  receipt_no, till)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+             ON CONFLICT DO NOTHING",
+        )
+        .bind(line.id)
+        .bind(sale.sale_id)
+        .bind(line.line_no)
+        .bind(sale.site_id.trim())
+        .bind(line.kind.trim())
+        .bind(trimmed(line.sku_code.as_deref()))
+        .bind(trimmed(line.epc.as_deref()).map(|epc| epc.to_ascii_uppercase()))
+        .bind(trimmed(line.name.as_deref()))
+        .bind(trimmed(line.from_place.as_deref()))
+        .bind(line.unit_price_minor)
+        .bind(line.line_total_minor)
+        .bind(line.net_ex_tax_minor)
+        .bind(line.tax_minor)
+        .bind(line.points_earned)
+        .bind(trimmed(line.price_source.as_deref()))
+        .bind(sale.occurred_at)
+        .bind(sale.actor_id.trim())
+        .bind(trimmed(line.priced_by.as_deref()))
+        .bind(trimmed(line.receipt_no.as_deref()))
+        .bind(trimmed(line.till.as_deref()))
+        .execute(&mut **tx)
+        .await?;
+    }
 
     // ── the points the sale earned, awarded HERE and not at the till ────────
     //
@@ -7684,6 +7758,94 @@ async fn apply_sale_voided(
         .unwrap_or("sync");
     super::loyalty::reverse_for_void(tx, customer_id, voided.sale_id, points.unwrap_or(0), actor)
         .await?;
+    Ok(())
+}
+
+/// Give a sale the member the shop tied to it after the till, and award its
+/// points (`sales.member_attached`, client 24 Oct 2026).
+///
+/// The site is the origin's, not the payload's: a shop names only its own
+/// sales. The `edge_sale` row takes the member only while it names nobody and
+/// is still COMPLETED, and only a row that took it goes on to the award — so
+/// a resend, or a sale already somebody's, does nothing, and the ledger's
+/// one-EARN-per-sale index stands behind that as it does for a sale fact. A
+/// sale voided first stays anonymous and earns nothing; one voided after takes
+/// this award back, because `apply_sale_voided` reads the member and the award
+/// off the row written here.
+///
+/// A sale this centre never took — set aside, or from before a restore — has
+/// no row to take the member, and the fact does nothing rather than stop the
+/// stream over a loyalty detail.
+async fn apply_sale_member_attached(
+    tx: &mut Transaction<'_, Postgres>,
+    origin_id: &str,
+    attached: &crate::cloud::domain::SalesMemberAttachedPayload,
+) -> Result<(), AppError> {
+    let site_id: Option<String> =
+        sqlx::query_scalar("SELECT site_id FROM sync_origin_credential WHERE origin_id = $1")
+            .bind(origin_id)
+            .fetch_optional(&mut **tx)
+            .await?
+            .flatten();
+    let Some(site_id) = site_id else {
+        return Err(AppError::Forbidden(
+            "a member tied to a sale came from an origin with no site".into(),
+        ));
+    };
+    let customer_id = attached.customer_id.trim();
+    let taken = sqlx::query(
+        "UPDATE edge_sale
+            SET customer_id = $3, points_earned = $4
+          WHERE sale_id = $1 AND site_id = $2 AND status = 'COMPLETED'
+            AND (customer_id IS NULL OR btrim(customer_id) = '')",
+    )
+    .bind(attached.sale_id)
+    .bind(&site_id)
+    .bind(customer_id)
+    .bind(attached.points_earned)
+    .execute(&mut **tx)
+    .await?
+    .rows_affected();
+    if taken == 0 {
+        return Ok(());
+    }
+    // Each piece's share, where a return reads what it takes back.
+    for line in &attached.lines {
+        sqlx::query(
+            "UPDATE edge_sale_line SET points_earned = $3
+              WHERE sale_id = $1 AND subject_id = $2",
+        )
+        .bind(attached.sale_id)
+        .bind(line.subject_id)
+        .bind(line.points_earned)
+        .execute(&mut **tx)
+        .await?;
+    }
+    for line in &attached.unmatched {
+        sqlx::query(
+            "UPDATE unmatched_sale_line SET points_earned = $3
+              WHERE sale_id = $1 AND id = $2",
+        )
+        .bind(attached.sale_id)
+        .bind(line.id)
+        .bind(line.points_earned)
+        .execute(&mut **tx)
+        .await?;
+    }
+    let actor = attached
+        .actor_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .unwrap_or("sync");
+    super::loyalty::earn_from_sale(
+        tx,
+        customer_id,
+        attached.sale_id,
+        attached.points_earned,
+        actor,
+    )
+    .await?;
     Ok(())
 }
 

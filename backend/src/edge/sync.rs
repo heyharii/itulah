@@ -2278,6 +2278,12 @@ fn apply_auth_policy(tx: &Transaction<'_>, snapshot: &AuthPolicySnapshot) -> Res
         )
         .map_err(err)?;
     }
+    // What head office stopped on the POS here (`0087`, postgres 0990). Only
+    // when it said: an older centre's policy carries none, and must not undo
+    // a stop a newer one sent.
+    if let Some(stops) = snapshot.pos_stops.as_ref() {
+        crate::edge::pos_stop::replace(tx, stops, snapshot.version).map_err(err)?;
+    }
     tx.prepare_cached(
         "INSERT INTO edge_auth_policy_state
              (singleton,snapshot_id,version,origin_id,site_id,node_role,issued_at,
@@ -3435,6 +3441,20 @@ fn apply_command_effect(tx: &Transaction<'_>, command: &PushedCommand) -> Result
             crate::edge::SqliteEdge::apply_store_on_hold(tx, &node, command.command_id, &payload)
                 .map_err(|error| err(error.to_string()))
         }
+        // HO moved goods to this shop's To be returned · Return HO (owner,
+        // 23 Oct 2026). Only sent to a node advertising the capability.
+        crate::sync::workflow::INVENTORY_STORE_RETURN_MARK_V1 => {
+            let payload =
+                crate::sync::workflow::parse_store_return_mark(&command.payload).map_err(err)?;
+            let node = resident_node(tx)?;
+            crate::edge::SqliteEdge::apply_store_return_mark(
+                tx,
+                &node,
+                command.command_id,
+                &payload,
+            )
+            .map_err(|error| err(error.to_string()))
+        }
         // A site of ours counted in what this one sent: let go of it here.
         // Only ever sent to a node whose heartbeat carries the goods-route
         // capability, so an older build never receives it.
@@ -3450,6 +3470,15 @@ fn apply_command_effect(tx: &Transaction<'_>, command: &PushedCommand) -> Result
             let payload =
                 crate::sync::transfer::parse_in_transit_short(&command.payload).map_err(err)?;
             apply_in_transit_short(tx, &payload)
+        }
+        // Head office matched a sale to a piece this shop holds: let it go.
+        // Only ever sent to a node whose heartbeat carries the take capability.
+        crate::sync::unmatched::INVENTORY_UNMATCHED_SALE_TAKE_V1 => {
+            let payload = crate::sync::unmatched::parse_unmatched_sale_take(&command.payload)
+                .map_err(err)?;
+            let node = resident_node(tx)?;
+            crate::edge::unmatched::apply_take(tx, &node, command.command_id, &payload)
+                .map_err(|error| err(error.to_string()))
         }
         // What a goods flow touching this site did — kept for this node's
         // screens, never acted on (`edge::flows`). Only ever sent to a node
@@ -4717,6 +4746,7 @@ mod tests {
             site: None,
             sites: Vec::new(),
             device_kinds: Default::default(),
+            pos_stops: None,
         };
         snapshot.content_hash = auth_policy_content_hash(&snapshot);
         let version_one = snapshot.clone();
@@ -4735,7 +4765,7 @@ mod tests {
         }
         let role: String = connection
             .prepare_cached("SELECT role FROM edge_user WHERE id=?1")
-            .map_err(err)?
+            .unwrap_or_else(|error| panic!("prepare: {error}"))
             .query_row(params![user_id.to_string()], |row| row.get(0))
             .unwrap_or_else(|error| panic!("user: {error}"));
         assert_eq!(role, "CASHIER");
@@ -4743,14 +4773,14 @@ mod tests {
             .prepare_cached(
                 "SELECT public_key_hex,policy_version FROM edge_sso_trust WHERE singleton=1",
             )
-            .map_err(err)?
+            .unwrap_or_else(|error| panic!("prepare: {error}"))
             .query_row([], |row| Ok((row.get(0)?, row.get(1)?)))
             .unwrap_or_else(|error| panic!("SSO trust: {error}"));
         assert_eq!(trusted_key, snapshot.sso_public_key);
         assert_eq!(trusted_version, 1);
         connection
             .prepare_cached("UPDATE edge_rfid_device SET last_sequence=7 WHERE device_id='RFID-07'")
-            .map_err(err)?
+            .unwrap_or_else(|error| panic!("prepare: {error}"))
             .execute([])
             .unwrap_or_else(|error| panic!("sequence: {error}"));
         connection
@@ -4759,7 +4789,7 @@ mod tests {
                      (idempotency_key,device_id,sequence,request_digest,response_json,created_at)
                  VALUES('old-key-receipt','RFID-07',7,?1,'{}',?2)",
             )
-            .map_err(err)?
+            .unwrap_or_else(|error| panic!("prepare: {error}"))
             .execute(params!["d".repeat(64), now_text()])
             .unwrap_or_else(|error| panic!("receipt: {error}"));
 
@@ -4781,7 +4811,7 @@ mod tests {
         }
         let sequence: i64 = connection
             .prepare_cached("SELECT last_sequence FROM edge_rfid_device WHERE device_id='RFID-07'")
-            .map_err(err)?
+            .unwrap_or_else(|error| panic!("prepare: {error}"))
             .query_row([], |row| row.get(0))
             .unwrap_or_else(|error| panic!("reader sequence: {error}"));
         assert_eq!(
@@ -4790,7 +4820,7 @@ mod tests {
         );
         let version: i64 = connection
             .prepare_cached("SELECT version FROM edge_auth_policy_state WHERE singleton=1")
-            .map_err(err)?
+            .unwrap_or_else(|error| panic!("prepare: {error}"))
             .query_row([], |row| row.get(0))
             .unwrap_or_else(|error| panic!("policy version: {error}"));
         assert_eq!(version, 2);
@@ -4806,7 +4836,7 @@ mod tests {
         }
         let version: i64 = connection
             .prepare_cached("SELECT version FROM edge_auth_policy_state WHERE singleton=1")
-            .map_err(err)?
+            .unwrap_or_else(|error| panic!("prepare: {error}"))
             .query_row([], |row| row.get(0))
             .unwrap_or_else(|error| panic!("policy after rollback: {error}"));
         assert_eq!(version, 2, "older auth snapshots must not roll policy back");
@@ -4831,7 +4861,7 @@ mod tests {
                          WHERE r.device_id=d.device_id)
                  FROM edge_rfid_device d WHERE d.device_id='RFID-07'",
             )
-            .map_err(err)?
+            .unwrap_or_else(|error| panic!("prepare: {error}"))
             .query_row([], |row| Ok((row.get(0)?, row.get(1)?)))
             .unwrap_or_else(|error| panic!("rotated device state: {error}"));
         // A new key, a new sequence epoch — and the old receipt still there,

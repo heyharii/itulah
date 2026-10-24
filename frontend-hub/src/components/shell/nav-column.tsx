@@ -982,7 +982,8 @@ function Count({
   tone = "rail",
 }: {
   value: number | null | undefined
-  tint?: "bad" | "warn"
+  /// `quiet`: a grey number with no pill (`NavItem.badge`).
+  tint?: "bad" | "warn" | "quiet"
   /// The rail's shape of a count: no number at 44px wide, just the dot at the
   /// icon's corner — amber for a warning, red for a problem, blue otherwise.
   dot?: boolean
@@ -1002,6 +1003,7 @@ function Count({
   const t = TONE[tone]
   return (
     <span
+      data-quiet={tint === "quiet" ? "" : undefined}
       className={cn(
         "nav-count shrink-0 rounded-full px-1.5 text-[0.9375rem] leading-5 font-medium tabular-nums",
         tint === "bad" ? t.countBad : tint === "warn" ? t.countWarn : t.count

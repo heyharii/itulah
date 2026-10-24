@@ -1,0 +1,823 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sign-in options · Central</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&display=swap" rel="stylesheet">
+<style>
+/* frontend-hub tokens, All white look (styles/white.css) */
+:root {
+  --ink: #1d1d1f;
+  --body: #6e6e73;
+  --faint: #c7c7cc;
+  --line-ico: #8e8e93;
+  --canvas: #ffffff;
+  --soft: #fafafb;
+  --soft-2: #f2f2f5;
+  --soft-3: #f5f5f7;
+  --hairline: #e8e8ec;
+  --hairline-2: #dcdce1;
+  --hairline-strong: #c7c7cc;
+  --accent: #2862dc;
+  --accent-bg: #eef3fc;
+  --accent-bg-2: #e2eafa;
+  --cta-hover: #2055c7;
+  --ok: #36b827;
+  --bad: #d70015;
+  --r-inner: 8px;
+  --r-card: 10px;
+  --r-sheet: 16px;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --font: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+}
+
+* { box-sizing: border-box; margin: 0; }
+html, body { height: 100%; }
+body {
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 20px;
+  color: var(--ink);
+  background: var(--canvas);
+  -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
+}
+button { font: inherit; color: inherit; border: 0; background: none; padding: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+h1, p { font: inherit; }
+
+#stage { height: 100dvh; overflow-y: auto; overscroll-behavior: none; }
+#stage > * { min-height: 100%; }
+body[data-chrome="off"] .proto-picker { display: none; }
+
+/* ── arrival: each block rises 8px as it fades in, 55ms apart ── */
+.rise { animation: rise 440ms var(--ease-out) both; animation-delay: calc(var(--i, 0) * 55ms + 60ms); }
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+@keyframes fade { from { opacity: 0; } }
+
+/* ── the fields (shared by every option) ── */
+.stack { display: flex; flex-direction: column; gap: 18px; }
+.field label { display: block; margin-bottom: 8px; font-size: 15px; line-height: 20px; font-weight: 500; color: var(--ink); }
+.label-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.label-row label { margin: 0; }
+
+.box {
+  display: block;
+  width: 100%;
+  height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-inner);
+  background: var(--canvas);
+  font: inherit;
+  font-size: 16px; /* 16, not 15: iOS zooms the page into any smaller field */
+  color: var(--ink);
+  outline: none;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+@media (hover: hover) and (pointer: fine) { .box:hover:not(:focus) { border-color: var(--hairline-strong); } }
+.box:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgb(40 98 220 / 16%); }
+.is-wrong .box[name="password"] { border-color: var(--bad); }
+.is-wrong .box[name="password"]:focus { box-shadow: 0 0 0 3px rgb(215 0 21 / 12%); }
+
+.pw { position: relative; }
+.pw .box { padding-right: 48px; }
+.eye {
+  position: absolute; top: 50%; right: 4px;
+  display: grid; place-items: center;
+  width: 36px; height: 36px; margin-top: -18px;
+  border-radius: 6px;
+  color: var(--line-ico);
+  transition: color 150ms ease, background-color 150ms ease;
+}
+@media (hover: hover) and (pointer: fine) { .eye:hover { background: var(--soft-2); color: var(--ink); } }
+.eye svg { grid-area: 1 / 1; width: 18px; height: 18px; transition: opacity 150ms ease, transform 150ms var(--ease-out), filter 150ms ease; }
+.eye .off, .eye[aria-pressed="true"] .on { opacity: 0; transform: scale(0.8); filter: blur(2px); }
+.eye[aria-pressed="true"] .off { opacity: 1; transform: none; filter: none; }
+
+/* the one secondary action on the page: tinted, so it reads as a button */
+.chip {
+  display: inline-flex; align-items: center;
+  height: 28px; margin: -4px 0; padding: 0 10px;
+  border-radius: 999px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-size: 15px; font-weight: 500; white-space: nowrap;
+  transition: background-color 150ms ease, transform 160ms var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) { .chip:hover { background: var(--accent-bg-2); } }
+.chip:active { transform: scale(0.97); }
+.chip:focus-visible, .eye:focus-visible, .primary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.note { margin-top: 8px; color: var(--body); }
+.note[hidden], .error[hidden] { display: none; }
+.note.show, .error.show { animation: drop 200ms var(--ease-out); }
+@keyframes drop { from { opacity: 0; transform: translateY(-4px); } }
+
+.error { display: flex; align-items: flex-start; gap: 8px; margin-top: 16px; color: var(--bad); }
+.error svg { flex: none; width: 16px; height: 16px; margin-top: 2px; }
+
+.submit-wrap { margin-top: 24px; }
+.error:not([hidden]) + .submit-wrap { margin-top: 16px; }
+.primary {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  width: 100%; height: 44px;
+  border-radius: var(--r-inner);
+  background: var(--accent);
+  color: #fff;
+  font-size: 15px; font-weight: 600;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 16%), 0 1px 2px rgb(24 39 60 / 14%);
+  transition: background-color 150ms ease, transform 160ms var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) { .primary:hover { background: var(--cta-hover); } }
+.primary:active { transform: scale(0.98); }
+.primary[data-busy] { cursor: progress; }
+.primary svg { width: 18px; height: 18px; flex: none; }
+.primary > * { animation: fade 150ms ease; }
+.spin { animation: spin 700ms linear infinite !important; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── is the server answering ── */
+.status { display: flex; align-items: center; gap: 10px; color: var(--body); }
+.sdot { position: relative; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+.is-on .sdot::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: var(--ok); animation: ping 2.4s var(--ease-out) infinite; }
+@keyframes ping { from { transform: scale(1); opacity: 0.5; } to { transform: scale(2.6); opacity: 0; } }
+.is-off .sdot { background: var(--bad); }
+
+.wordmark { font-weight: 700; letter-spacing: -0.045em; line-height: 1; }
+.wordmark .dot { color: var(--accent); }
+.mark { display: block; flex: none; }
+.grain { position: absolute; inset: 0; z-index: -1; background-image: var(--grain); mix-blend-mode: soft-light; pointer-events: none; }
+
+/* ════ NOW — today's door, as the white look left it ════ */
+.v-now { display: flex; }
+.now-aside { position: relative; isolation: isolate; overflow: hidden; flex: none; width: clamp(352px, 38vw, 544px); display: flex; flex-direction: column; padding: 48px; background: #f6f6f7; }
+.now-glow { position: absolute; z-index: -1; right: -160px; bottom: -192px; width: 480px; height: 480px; border-radius: 50%; background: rgb(40 98 220 / 25%); filter: blur(112px); }
+.now-aside .grain { opacity: 0.14; }
+.now-word { margin-top: auto; font-size: 48px; }
+.now-tag { margin-top: 12px; max-width: 320px; color: var(--body); line-height: 24px; }
+.now-aside .status { margin-top: 48px; }
+.now-main { flex: 1; display: grid; place-items: center; padding: 40px 24px; }
+.now-form { width: 100%; max-width: 360px; }
+.now-h1 { font-size: 28px; line-height: 36px; font-weight: 600; letter-spacing: -0.025em; }
+.now-cap { margin-top: 8px; color: var(--body); line-height: 24px; }
+.now-form .stack { margin-top: 32px; gap: 20px; }
+.now-form .box { height: 40px; font-size: 15px; }
+.now-form .field label { font-weight: 400; }
+.now-form .submit-wrap { margin-top: 28px; }
+.now-foot { margin-top: 24px; color: var(--body); }
+.now-phone-status { display: none; }
+@media (max-width: 767px) {
+  .v-now { flex-direction: column; }
+  .now-aside { width: auto; align-items: center; padding: 56px 24px 8px; background: var(--canvas); }
+  .now-glow, .now-aside .grain, .now-tag, .now-aside .status { display: none; }
+  .now-aside .mark { width: 64px; height: 64px; }
+  .now-word { margin-top: 20px; font-size: 36px; }
+  .now-main { display: flex; flex-direction: column; padding: 16px 24px 0; }
+  .now-form { flex: 1; display: flex; flex-direction: column; max-width: none; }
+  .now-form > .rise:first-child { display: none; }
+  .now-form .stack { margin-top: 24px; }
+  .now-form .box { height: 44px; }
+  .now-form .submit-wrap { position: sticky; bottom: 0; margin-top: auto; padding-top: 16px; background: var(--canvas); }
+  .now-phone-status { display: flex; justify-content: center; padding: 20px 0 24px; }
+}
+
+/* ════ PLAIN — one column on white, nothing beside it ════ */
+.v-plain { display: flex; flex-direction: column; align-items: center; padding: 0 20px; }
+.plain-form { width: 100%; max-width: 360px; flex: 1; padding: clamp(56px, 20vh, 220px) 0 24px; }
+.plain-head { display: flex; flex-direction: column; align-items: center; text-align: center; margin-bottom: 36px; }
+.plain-head h1 { margin-top: 20px; font-size: 28px; line-height: 34px; font-weight: 600; letter-spacing: -0.022em; }
+.plain-status { padding: 24px 0 32px; }
+
+/* ════ CARD — the form is an object lying on grey ════ */
+.v-card { display: flex; flex-direction: column; padding: 0 16px; background: var(--soft-3); }
+.card-top { display: flex; align-items: center; gap: 10px; height: 72px; padding: 0 16px; }
+.card-name { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+.card-mid { flex: 1; display: flex; justify-content: center; align-items: flex-start; padding: clamp(24px, 14vh, 160px) 0 16px; }
+.card-box {
+  width: 100%; max-width: 400px; padding: 32px;
+  border-radius: var(--r-sheet);
+  background: var(--canvas);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 6%), 0 1px 2px rgb(0 0 0 / 4%), 0 12px 32px -8px rgb(0 0 0 / 8%);
+  animation: lift 480ms var(--ease-out) both;
+}
+@keyframes lift { from { opacity: 0; transform: translateY(8px) scale(0.985); } }
+.card-box h1 { margin-bottom: 24px; font-size: 22px; line-height: 28px; font-weight: 600; letter-spacing: -0.015em; }
+.card-foot { display: flex; justify-content: center; padding: 20px 0 28px; }
+@media (max-width: 767px) {
+  .card-top { padding: 0 4px; }
+  .card-box { padding: 24px 20px; }
+}
+
+/* ════ STEPS — one question at a time, the person remembered ════ */
+.v-steps { display: flex; flex-direction: column; align-items: center; padding: 0 20px; }
+.steps-col { width: 100%; max-width: 360px; flex: 1; padding: clamp(56px, 20vh, 220px) 0 24px; }
+.steps-head { display: flex; align-items: center; gap: 12px; margin-bottom: 40px; }
+.steps-head .wordmark { font-size: 24px; }
+.step-h { margin-bottom: 24px; font-size: 28px; line-height: 34px; font-weight: 600; letter-spacing: -0.022em; }
+.step[data-dir] .rise { animation: none; }
+.step[data-dir="fwd"] { animation: step-fwd 260ms var(--ease-out) both; }
+.step[data-dir="back"] { animation: step-back 260ms var(--ease-out) both; }
+@keyframes step-fwd { from { opacity: 0; transform: translateX(16px); } }
+@keyframes step-back { from { opacity: 0; transform: translateX(-16px); } }
+.who { display: flex; align-items: center; gap: 14px; margin-bottom: 28px; }
+.avatar { display: grid; place-items: center; flex: none; width: 48px; height: 48px; border-radius: 50%; background: var(--accent-bg); color: var(--accent); font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+.who-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.who-name { overflow: hidden; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.015em; text-overflow: ellipsis; white-space: nowrap; }
+.who-user { color: var(--body); }
+.who .chip { margin: 0; }
+.steps-status { padding: 24px 0 32px; }
+
+/* ════ INK — a solid ink half, the dot the only colour ════ */
+.v-ink { display: flex; }
+.ink-side { position: relative; isolation: isolate; overflow: hidden; flex: none; width: clamp(360px, 42vw, 600px); display: flex; flex-direction: column; padding: 48px; background: var(--ink); color: #fff; }
+.ink-side .grain { opacity: 0.2; }
+.ink-word { margin-top: auto; font-size: 64px; letter-spacing: -0.05em; }
+.ink-side .status { margin-top: 24px; color: rgb(255 255 255 / 64%); }
+.ink-main { flex: 1; display: flex; justify-content: center; align-items: flex-start; padding: clamp(48px, 28vh, 300px) 24px 40px; background: var(--canvas); }
+.ink-form { width: 100%; max-width: 360px; }
+.ink-form h1 { margin-bottom: 28px; font-size: 28px; line-height: 34px; font-weight: 600; letter-spacing: -0.022em; }
+@keyframes sheet-up { from { opacity: 0; transform: translateY(40px); } }
+@media (max-width: 767px) {
+  .v-ink { flex-direction: column; background: var(--ink); }
+  .ink-side { width: auto; min-height: 36vh; align-items: center; justify-content: center; text-align: center; padding: 56px 24px 52px; }
+  .ink-side .mark { width: 56px; height: 56px; }
+  .ink-word { margin-top: 18px; font-size: 40px; }
+  .ink-side .status { margin-top: 14px; }
+  .ink-main { display: block; flex: 1; margin-top: -24px; padding: 28px 20px 32px; border-radius: 24px 24px 0 0; animation: sheet-up 560ms var(--ease-drawer) both; }
+  .ink-form { max-width: none; }
+}
+
+/* ════ GLASS — frosted card over a slow field of Central blue ════ */
+.v-glass { position: relative; isolation: isolate; overflow: hidden; display: flex; flex-direction: column; align-items: center; padding: 0 16px; background: linear-gradient(160deg, #c7d7fa 0%, #e9effc 52%, #cfdcfb 100%); }
+.glass-bg { position: absolute; inset: 0; z-index: -1; overflow: hidden; }
+.glass-bg i { position: absolute; border-radius: 50%; will-change: transform; }
+.glass-bg .b1 { top: -32vmax; right: -22vmax; width: 72vmax; height: 72vmax; background: radial-gradient(closest-side, rgb(40 98 220 / 85%), rgb(40 98 220 / 0)); animation: drift-1 18s var(--ease-in-out) infinite alternate; }
+.glass-bg .b2 { bottom: -30vmax; left: -20vmax; width: 64vmax; height: 64vmax; background: radial-gradient(closest-side, rgb(84 140 255 / 80%), rgb(84 140 255 / 0)); animation: drift-2 22s var(--ease-in-out) infinite alternate; }
+.glass-bg .b3 { top: 22%; left: 30%; width: 44vmax; height: 44vmax; background: radial-gradient(closest-side, rgb(255 255 255 / 80%), rgb(255 255 255 / 0)); animation: drift-3 26s var(--ease-in-out) infinite alternate; }
+.glass-bg .b4 { top: 46%; right: 8%; width: 36vmax; height: 36vmax; background: radial-gradient(closest-side, rgb(90 200 250 / 45%), rgb(90 200 250 / 0)); animation: drift-4 20s var(--ease-in-out) infinite alternate; }
+@keyframes drift-4 { to { transform: translate3d(-12vmax, 8vmax, 0) scale(1.15); } }
+@keyframes drift-1 { to { transform: translate3d(-9vmax, 7vmax, 0) scale(1.1); } }
+@keyframes drift-2 { to { transform: translate3d(10vmax, -6vmax, 0) scale(1.12); } }
+@keyframes drift-3 { to { transform: translate3d(-8vmax, -5vmax, 0) scale(0.92); } }
+.glass-card {
+  width: 100%; max-width: 400px; margin-top: clamp(56px, 20vh, 220px); padding: 36px 32px 32px;
+  border-radius: 20px;
+  background: rgb(255 255 255 / 78%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  backdrop-filter: blur(24px) saturate(160%);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 70%), 0 1px 2px rgb(16 24 40 / 6%), 0 24px 48px -16px rgb(16 40 100 / 22%);
+  animation: lift 520ms var(--ease-out) both;
+}
+.glass-head { display: flex; flex-direction: column; align-items: center; margin-bottom: 28px; }
+.glass-head .wordmark { margin-top: 14px; font-size: 28px; letter-spacing: -0.04em; }
+.glass-status { margin-top: auto; padding: 20px 0 28px; color: #1d1d1f; }
+@media (max-width: 767px) { .glass-card { padding: 28px 20px 24px; } }
+
+
+/* ════ MATTE family (20 Oct) — the Deep icon's language: tones run top → foot, no shine,
+   soft contact shadows, pastel grounds, one yellow accent. Shared field + button look. ════ */
+.mt .field label { color: #3a3a3c; }
+.mt .box { height: 48px; border: 0; border-radius: 12px; background: #f1f4fa; transition: background-color 150ms ease, box-shadow 150ms ease; }
+@media (hover: hover) and (pointer: fine) { .mt .box:hover:not(:focus) { background: #eaeef7; } }
+.mt .box:focus { background: #fff; box-shadow: 0 0 0 2px var(--accent), 0 0 0 6px rgb(40 98 220 / 12%); }
+.mt .is-wrong .box[name="password"] { background: #fff6f6; box-shadow: 0 0 0 2px var(--bad); }
+.mt .eye { right: 6px; }
+.mt .primary { height: 48px; border-radius: 12px; background: linear-gradient(180deg, #4a80ea, #2155c8); box-shadow: 0 1px 1px rgb(16 40 110 / 10%), 0 10px 18px -10px rgb(33 85 200 / 70%); }
+@media (hover: hover) and (pointer: fine) { .mt .primary:hover { background: linear-gradient(180deg, #4277e6, #1d4bb6); } }
+.mt .chip { background: #e8effc; }
+.ydot { color: #efa614; }
+.deep-mark { filter: drop-shadow(0 10px 14px rgb(31 79 192 / 22%)) drop-shadow(0 2px 3px rgb(31 79 192 / 12%)); }
+
+/* the grid's matte pictures: a pastel square at the top-left, the picture stepping out of it */
+.mpic { position: relative; display: block; width: var(--s); height: var(--s); flex: none; }
+.mpic-bg { position: absolute; left: 0; top: 0; width: 78%; height: 78%; border-radius: 30%; background: var(--cb); }
+.mpic svg { position: absolute; left: 23%; top: 19%; width: 77%; height: 77%; overflow: visible; }
+.mpic .b { fill: var(--gb); } .mpic .d { fill: var(--gd); } .mpic .l { fill: var(--gl); }
+.mpic .b[stroke] { stroke: var(--gb); } .mpic .d[stroke] { stroke: var(--gd); }
+.mpic .w { fill: #f4f2ee; } .mpic .a { fill: #f7b928; } .mpic .hl { display: none; }
+.mpic .sa { fill: none; stroke: #f7b928; stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; }
+.mpic .sd { fill: none; stroke: var(--cd); stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
+.mpic .sw { fill: none; stroke: #fff; stroke-opacity: .55; stroke-width: 2.4; stroke-linecap: round; }
+
+/* ════ MATTE — a white card on the icon's pastel ════ */
+.v-mpastel { display: flex; flex-direction: column; align-items: center; padding: 0 16px; background: linear-gradient(180deg, #eef3fd 0%, #dfe8fa 100%); }
+.mp-card { width: 100%; max-width: 400px; margin-top: clamp(48px, 16vh, 180px); padding: 36px 32px 32px; border-radius: 24px; background: #fff; box-shadow: 0 1px 2px rgb(24 50 120 / 6%), 0 22px 44px -22px rgb(24 60 150 / 30%); animation: lift 480ms var(--ease-out) both; }
+.mp-head { display: flex; flex-direction: column; align-items: center; margin-bottom: 28px; }
+.mp-head .wordmark { margin-top: 16px; font-size: 28px; letter-spacing: -0.04em; }
+.mp-status { margin-top: auto; padding: 24px 0 28px; }
+@media (max-width: 767px) { .mp-card { padding: 28px 20px 24px; margin-top: 40px; } }
+
+/* ════ DEEP — the icon's blue as a whole half, its C as the picture ════ */
+.v-mdeep { display: flex; }
+.md-side { position: relative; flex: none; width: clamp(360px, 44vw, 620px); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 48px; background: linear-gradient(180deg, #4277e6 0%, #1f4fc0 100%); color: #fff; text-align: center; }
+.md-obj svg { display: block; }
+.md-word { margin-top: 8px; font-size: 56px; letter-spacing: -0.05em; }
+.md-word .ydot { color: #ffc94a; }
+.md-side .status { position: absolute; left: 48px; bottom: 40px; color: rgb(255 255 255 / 78%); }
+.md-main { flex: 1; display: flex; justify-content: center; align-items: flex-start; padding: clamp(48px, 28vh, 300px) 24px 40px; background: var(--canvas); }
+.md-form { width: 100%; max-width: 360px; }
+.md-form h1 { margin-bottom: 28px; font-size: 28px; line-height: 34px; font-weight: 600; letter-spacing: -0.022em; }
+@media (max-width: 767px) {
+  .v-mdeep { flex-direction: column; background: #1f4fc0; }
+  .md-side { width: auto; min-height: 40vh; padding: 92px 24px 56px; }
+  .md-obj svg { width: 132px; height: 132px; }
+  .md-word { margin-top: 2px; font-size: 40px; }
+  .md-side .status { position: static; margin-top: 14px; }
+  .md-main { display: block; flex: 1; margin-top: -24px; padding: 28px 20px 32px; border-radius: 24px 24px 0 0; animation: sheet-up 560ms var(--ease-drawer) both; }
+  .md-form { max-width: none; }
+}
+
+/* ════ OBJECTS — the departments' matte pictures gathered round the icon ════ */
+.v-mobj { display: flex; flex-direction: column; align-items: center; padding: 0 20px; background: var(--canvas); }
+.mo-col { width: 100%; max-width: 380px; flex: 1; padding: clamp(112px, 18vh, 200px) 0 24px; }
+.mo-cluster { position: relative; height: 176px; margin: 0 auto 28px; }
+.mo-cluster > * { position: absolute; transform: translate(-50%, -50%); }
+.mo-cluster .pop { animation: pop 420ms var(--ease-out) both; animation-delay: calc(var(--i, 0) * 45ms + 120ms); }
+@keyframes pop { from { opacity: 0; transform: translate(-50%, -50%) scale(0.9) translateY(6px); } }
+.mo-h { text-align: center; margin-bottom: 28px; font-size: 28px; line-height: 34px; font-weight: 600; letter-spacing: -0.022em; }
+.mo-status { padding: 24px 0 32px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .rise, .card-box, .glass-card, .step[data-dir], .ink-main, .mp-card, .md-main, .mo-cluster .pop { animation-name: fade !important; }
+  .glass-bg i, .is-on .sdot::after { animation: none; }
+}
+
+/* ── picker chrome (prototype skill, verbatim) ── */
+.proto-picker { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 2147483647; display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: 999px; background: rgba(10, 10, 10, 0.82); -webkit-backdrop-filter: blur(12px) saturate(1.4); backdrop-filter: blur(12px) saturate(1.4); box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset, 0 8px 24px rgba(0, 0, 0, 0.24), 0 2px 6px rgba(0, 0, 0, 0.12); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 13px; line-height: 1; -webkit-font-smoothing: antialiased; user-select: none; -webkit-user-select: none; }
+.proto-picker-highlight { position: absolute; top: 4px; left: 0; height: 28px; border-radius: 999px; background: rgba(255, 255, 255, 0.12); will-change: transform; }
+.proto-picker[data-ready] .proto-picker-highlight { transition: transform 250ms cubic-bezier(0.23, 1, 0.32, 1), width 250ms cubic-bezier(0.23, 1, 0.32, 1); }
+@media (prefers-reduced-motion: reduce) { .proto-picker[data-ready] .proto-picker-highlight { transition: none; } }
+.proto-picker-item { position: relative; display: flex; align-items: center; height: 28px; padding: 0 12px; border: 0; border-radius: 999px; background: transparent; color: rgba(255, 255, 255, 0.55); font: inherit; cursor: pointer; transition: color 150ms ease-out; }
+.proto-picker-item:hover { color: rgba(255, 255, 255, 0.85); }
+.proto-picker-item:active { transform: scale(0.97); }
+.proto-picker-item:focus-visible { outline: 2px solid rgba(255, 255, 255, 0.4); outline-offset: 2px; }
+.proto-picker-item[data-active] { color: #fff; }
+.proto-picker-divider { width: 1px; height: 16px; margin: 0 4px; background: rgba(255, 255, 255, 0.12); }
+.proto-picker-replay { padding: 0 10px; font-size: 14px; }
+.proto-picker[data-position="top"] { bottom: auto; top: 24px; }
+.proto-picker.proto-states { top: 64px; white-space: nowrap; }
+@media (max-width: 767px) { #variants { max-width: calc(100vw - 16px); overflow-x: auto; scrollbar-width: none; } .proto-picker[data-position="top"] { top: 8px; } .proto-picker.proto-states { top: 44px; } .proto-picker-item { padding: 0 9px; } }
+</style>
+</head>
+<body>
+<main id="stage"></main>
+
+<nav class="proto-picker" id="variants" data-position="top" aria-label="Prototype variants">
+  <span class="proto-picker-highlight" aria-hidden="true"></span>
+  <button class="proto-picker-item">Now</button>
+  <button class="proto-picker-item">Plain</button>
+  <button class="proto-picker-item">Card</button>
+  <button class="proto-picker-item">Steps</button>
+  <button class="proto-picker-item">Ink</button>
+  <button class="proto-picker-item">Glass</button>
+  <button class="proto-picker-item">Matte</button>
+  <button class="proto-picker-item">Deep</button>
+  <button class="proto-picker-item">Objects</button>
+  <span class="proto-picker-divider" aria-hidden="true"></span>
+  <button class="proto-picker-item proto-picker-replay" aria-label="Replay animation (R)">↻</button>
+</nav>
+
+<nav class="proto-picker proto-states" id="states" data-position="top" aria-label="States">
+  <span class="proto-picker-highlight" aria-hidden="true"></span>
+  <button class="proto-picker-item">First time</button>
+  <button class="proto-picker-item">Remembered</button>
+  <button class="proto-picker-item">Wrong</button>
+  <button class="proto-picker-item">Offline</button>
+</nav>
+
+<script>
+const STATES = ["first", "remembered", "wrong", "offline"];
+let state = "first";
+let saved = { username: "rina", name: "Rina Wijaya" };
+
+const reduced = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+const finePointer = () => matchMedia("(pointer: fine)").matches;
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const knowsUser = () => state === "remembered" || state === "wrong";
+
+/* ── pictures ── */
+const mark = (size) => `<svg class="mark" viewBox="0 0 32 32" width="${size}" height="${size}" aria-hidden="true"><rect width="32" height="32" rx="7.5" fill="#111214"/><rect x=".5" y=".5" width="31" height="31" rx="7" fill="none" stroke="rgb(255 255 255 / 10%)"/><path d="M18.2 11.6A6.5 6.5 0 1 0 18.2 20.4" fill="none" stroke="#fff" stroke-width="3.6" stroke-linecap="round"/><circle cx="23.4" cy="16" r="2.2" fill="#2862dc"/></svg>`;
+const ico = (paths) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
+const EYE = ico('<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>').replace("<svg", '<svg class="on"');
+const EYE_OFF = ico('<path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/>').replace("<svg", '<svg class="off"');
+const ALERT = ico('<circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/>');
+const CHECK = ico('<path d="M20 6 9 17l-5-5"/>');
+const SPIN = `<svg class="spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-opacity=".3" stroke-width="2.5"/><path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>`;
+
+/* ── shared pieces ── */
+const wordmark = () => `<span class="wordmark">Central<span class="dot">.</span></span>`;
+const status = (cls = "") => {
+  const off = state === "offline";
+  return `<p class="status ${off ? "is-off" : "is-on"} ${cls}" aria-live="polite"><span class="sdot"></span><span>${off ? "Central can’t be reached" : "Central is online"}</span></p>`;
+};
+const userField = (i) => `
+  <div class="field rise" style="--i:${i}">
+    <label for="u">Username</label>
+    <input id="u" name="username" class="box" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" value="${knowsUser() ? esc(saved.username) : ""}">
+  </div>`;
+const passField = (i, { forgot = true } = {}) => `
+  <div class="field rise" style="--i:${i}">
+    <div class="label-row"><label for="p">Password</label>${forgot ? `<button type="button" class="chip" data-forgot aria-expanded="false">Forgot password?</button>` : ""}</div>
+    <div class="pw">
+      <input id="p" name="password" type="password" class="box" autocomplete="current-password" value="${state === "wrong" ? "rina2025" : ""}">
+      <button type="button" class="eye" data-eye aria-label="Show password" aria-pressed="false">${EYE}${EYE_OFF}</button>
+    </div>
+    <p class="note" data-caps hidden>Caps Lock is on.</p>
+    ${forgot ? `<p class="note" data-forgot-line hidden>Ask your admin for a temporary password.</p>` : ""}
+  </div>`;
+const errorLine = () => `<p class="error" role="alert" data-error ${state === "wrong" ? "" : "hidden"}>${ALERT}<span>${state === "wrong" ? "Wrong username or password." : ""}</span></p>`;
+const submit = (i, label = "Sign in", cls = "") => `<div class="submit-wrap rise ${cls}" style="--i:${i}"><button type="submit" class="primary" data-submit><span>${label}</span></button></div>`;
+const fields = (i, opts) => `<div class="stack">${userField(i)}${passField(i + 1, opts)}</div>${errorLine()}${submit(i + 2)}`;
+
+
+/* ── Matte (added 20 Oct): the Deep icon, and pictures drawn like the phone grid's ── */
+const f2 = (n) => +n.toFixed(2);
+const SQ = (() => {
+  const n = 5, pts = [];
+  for (let i = 0; i < 180; i++) {
+    const t = (i / 180) * Math.PI * 2, c = Math.cos(t), s = Math.sin(t);
+    pts.push(`${f2(50 + 50 * Math.sign(c) * Math.abs(c) ** (2 / n))} ${f2(50 + 50 * Math.sign(s) * Math.abs(s) ** (2 / n))}`);
+  }
+  return "M" + pts.join("L") + "Z";
+})();
+function cShape(cx, cy, r, w, a) {
+  const R = r + w / 2, ri = r - w / 2, h = w / 2, t = (a * Math.PI) / 180, c = Math.cos(t), s = Math.sin(t);
+  const p = (x, y) => `${f2(x)} ${f2(y)}`;
+  const P1 = p(cx + R * c, cy - R * s), P2 = p(cx + R * c, cy + R * s), P3 = p(cx + ri * c, cy + ri * s), P4 = p(cx + ri * c, cy - ri * s);
+  return `M${P1}A${R} ${R} 0 1 0 ${P2}A${h} ${h} 0 0 0 ${P3}A${ri} ${ri} 0 1 1 ${P4}A${h} ${h} 0 0 0 ${P1}Z`;
+}
+const MATTE_C = cShape(44, 48.5, 21, 14.5, 44);
+let mu = 0;
+const lg = (id, a, b) => `<linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${a}"/><stop offset="1" stop-color="${b}"/></linearGradient>`;
+const soft = (id, sd) => `<filter id="${id}" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="${sd}"/></filter>`;
+/* The app icon: Matte · Deep. */
+function deepMark(size) {
+  const id = "dm" + ++mu;
+  return `<svg class="mark deep-mark" viewBox="0 0 100 100" width="${size}" height="${size}" aria-hidden="true"><defs><clipPath id="${id}k"><path d="${SQ}"/></clipPath>${lg(id + "bg", "#4277e6", "#1f4fc0")}${lg(id + "c", "#ffffff", "#d3e0fa")}${lg(id + "d", "#ffd766", "#eaa20f")}${soft(id + "s", 1.8)}</defs><g clip-path="url(#${id}k)"><rect width="100" height="100" fill="url(#${id}bg)"/><ellipse cx="48" cy="84" rx="25" ry="3.4" fill="#0b2466" opacity=".4" filter="url(#${id}s)"/><path d="${MATTE_C}" fill="url(#${id}c)"/><circle cx="75.5" cy="48.5" r="8" fill="url(#${id}d)"/></g></svg>`;
+}
+/* The icon's C and dot with no tile, standing on the blue as an object. */
+function deepObject(size) {
+  const id = "do" + ++mu;
+  return `<svg viewBox="8 14 84 84" width="${size}" height="${size}" aria-hidden="true"><defs>${lg(id + "c", "#ffffff", "#d3e0fa")}${lg(id + "d", "#ffd766", "#eaa20f")}${soft(id + "s", 2.2)}</defs><ellipse cx="48" cy="85" rx="27" ry="3.6" fill="#0b2466" opacity=".5" filter="url(#${id}s)"/><path d="${MATTE_C}" fill="url(#${id}c)"/><circle cx="75.5" cy="48.5" r="8" fill="url(#${id}d)"/></svg>`;
+}
+/* Gojek's few colours (the grid's Family palette): base, shade, light, ground. */
+const FAM = { G: ["#30a830", "#1e7a22", "#4cc03c", "#def6cc"], R: ["#ec2d3a", "#9c2a30", "#f2525c", "#fcdede"], B: ["#00a8cc", "#00799a", "#22bfe0", "#d2f0f6"], O: ["#f08c1a", "#b5620c", "#f6a640", "#fdead2"] };
+const mixHex = (a, b, t) => {
+  const p = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const A = p(a), B = p(b);
+  return "#" + A.map((v, i) => Math.round(v * t + B[i] * (1 - t)).toString(16).padStart(2, "0")).join("");
+};
+const ART = {
+  buying: `<rect class="a" x="20" y="4" width="14" height="12" rx="2.5" transform="rotate(-10 27 10)"/><path class="sd" d="M3 9 H9 L11 14"/><path class="b" d="M11 14 H43 L38.5 31 H15.5 Z" stroke="#000" stroke-width="3" stroke-linejoin="round"/><path class="sw" d="M21 18 V27 M28 18 V27 M35 18 V27"/><path class="sd" d="M15.5 31 L17 36 H38"/><circle class="d" cx="19" cy="40" r="4"/><circle class="d" cx="36" cy="40" r="4"/><circle class="w" cx="19" cy="40" r="1.5"/><circle class="w" cx="36" cy="40" r="1.5"/>`,
+  merchandise: `<path class="b" d="M17 6 L9 9.5 L2.5 18 L9 23.5 L12 21 V41 A2.5 2.5 0 0 0 14.5 43.5 H33.5 A2.5 2.5 0 0 0 36 41 V21 L39 23.5 L45.5 18 L39 9.5 L31 6 C30 9.5 27.5 11.5 24 11.5 C20.5 11.5 18 9.5 17 6 Z" stroke="#000" stroke-width="1.5" stroke-linejoin="round"/><path class="d" d="M17 6 C18 9.5 20.5 11.5 24 11.5 C27.5 11.5 30 9.5 31 6 C29 7.6 26.8 8.4 24 8.4 C21.2 8.4 19 7.6 17 6 Z"/><rect class="a" x="12" y="25" width="24" height="5"/>`,
+  ops: `<rect class="b" x="2" y="10" width="27" height="23" rx="3"/><rect class="l" x="2" y="15" width="27" height="3"/><path class="d" d="M29 17 H37.5 A3 3 0 0 1 40 18.4 L45 26 V33 H29 Z"/><path class="w" d="M31.5 20 H37 L40.5 25.5 H31.5 Z" fill-opacity=".9"/><rect class="d" x="2" y="31" width="43" height="4.5" rx="2"/><circle cx="13" cy="37" r="5.2" fill="#1d1d1f"/><circle cx="36" cy="37" r="5.2" fill="#1d1d1f"/><circle class="w" cx="13" cy="37" r="2"/><circle class="w" cx="36" cy="37" r="2"/><rect class="a" x="42.5" y="27.5" width="2.5" height="3.5" rx="1"/>`,
+  inventory: `<rect class="b" x="3" y="23" width="21" height="20" rx="2.5"/><rect class="d" x="24" y="23" width="21" height="20" rx="2.5"/><rect class="l" x="13" y="5" width="22" height="18" rx="2.5"/><rect class="a" x="11.5" y="23" width="4" height="8"/><rect class="a" x="32.5" y="23" width="4" height="8"/><rect class="b" x="22" y="5" width="4" height="8"/>`,
+  selling: `<rect class="l" x="6" y="19" width="36" height="24" rx="2.5"/><rect class="b" x="3" y="8" width="42" height="12" rx="3"/><rect class="w" x="11.4" y="8" width="8.4" height="12" fill-opacity=".9"/><rect class="w" x="28.2" y="8" width="8.4" height="12" fill-opacity=".9"/><circle class="b" cx="7.2" cy="20" r="4.2"/><circle class="w" cx="15.6" cy="20" r="4.2"/><circle class="b" cx="24" cy="20" r="4.2"/><circle class="w" cx="32.4" cy="20" r="4.2"/><circle class="b" cx="40.8" cy="20" r="4.2"/><rect class="d" x="19.5" y="29" width="9" height="14" rx="1.5"/><rect class="w" x="10" y="29" width="7" height="7" rx="1.5"/><rect class="w" x="31" y="29" width="7" height="7" rx="1.5"/>`,
+  finance: `<path class="d" d="M24 3 L44 13.5 V17 H4 V13.5 Z" stroke="#000" stroke-width="2" stroke-linejoin="round"/><circle class="a" cx="24" cy="11" r="2.8"/><rect class="l" x="5" y="17" width="38" height="3" rx="1"/><rect class="b" x="8" y="21" width="5.5" height="15" rx="1.5"/><rect class="b" x="17" y="21" width="5.5" height="15" rx="1.5"/><rect class="b" x="25.5" y="21" width="5.5" height="15" rx="1.5"/><rect class="b" x="34.5" y="21" width="5.5" height="15" rx="1.5"/><rect class="d" x="5" y="36" width="38" height="4" rx="1.5"/><rect class="b" x="2.5" y="40" width="43" height="4" rx="1.5"/>`,
+  hr: `<circle class="l" cx="32.5" cy="13.5" r="6.5"/><path class="l" d="M21 38 C21 29.5 26 24.5 32.5 24.5 C39 24.5 44 29.5 44 38 V39 A2 2 0 0 1 42 41 H23 A2 2 0 0 1 21 39 Z"/><circle class="b" cx="18.5" cy="16.5" r="7.5"/><path class="b" d="M5 41 C5 32 11 26.5 18.5 26.5 C26 26.5 32 32 32 41 V42 A2 2 0 0 1 30 44 H7 A2 2 0 0 1 5 42 Z"/><path class="a" d="M16 26.8 L18.5 33 L21 26.8 Z"/>`,
+};
+function pic(art, [c, cd, cl, cb], size) {
+  const u = "mp" + ++mu;
+  const g = (k, stops) => `<linearGradient id="${u}${k}" x1="0" y1="0" x2=".25" y2="1">${stops.map(([o, col]) => `<stop offset="${o}" stop-color="${col}"/>`).join("")}</linearGradient>`;
+  const defs = g("b", [[0, mixHex(c, cl, 0.78)], [0.45, c], [1, mixHex(c, cd, 0.45)]]) + g("d", [[0, mixHex(cd, c, 0.8)], [1, mixHex(cd, "#000000", 0.72)]]) + g("l", [[0, cl], [1, mixHex(cl, c, 0.5)]]);
+  return `<span class="mpic" style="--cd:${cd};--cb:${cb};--gb:url(#${u}b);--gd:url(#${u}d);--gl:url(#${u}l);--s:${size}px"><span class="mpic-bg"></span><svg viewBox="0 0 48 48" aria-hidden="true"><defs>${defs}</defs><ellipse cx="26" cy="46" rx="16" ry="2.4" fill="${cd}" opacity=".3"/>${ART[art]}</svg></span>`;
+}
+const mWordmark = () => `<span class="wordmark">Central<span class="ydot">.</span></span>`;
+/* Six departments round the icon, three a side on a shallow arc (x, y in % of the cluster). */
+const CLUSTER = [["merchandise", "R", 10, 42], ["buying", "G", 27, 14], ["finance", "B", 28, 80], ["selling", "R", 90, 42], ["inventory", "G", 73, 14], ["hr", "B", 72, 80]];
+
+/* ── the options ── */
+const variants = [
+  // Now
+  () => `
+  <div class="v-now">
+    <aside class="now-aside">
+      <div class="now-glow" aria-hidden="true"></div><div class="grain" aria-hidden="true"></div>
+      ${mark(40)}
+      <p class="now-word wordmark rise" style="--i:0">Central<span class="dot">.</span></p>
+      <p class="now-tag rise" style="--i:1">The stores, the stock, the buying and the money, in one place.</p>
+      ${status()}
+    </aside>
+    <div class="now-main">
+      <form class="now-form" data-form novalidate>
+        <div class="rise" style="--i:0"><h1 class="now-h1">Sign in</h1><p class="now-cap">Use the account your administrator set up for you.</p></div>
+        <div class="stack">${userField(1)}${passField(2, { forgot: false })}</div>
+        ${errorLine()}
+        ${submit(3)}
+        <p class="now-foot">Forgot your password? Ask your admin for a temporary password.</p>
+      </form>
+      ${status("now-phone-status")}
+    </div>
+  </div>`,
+
+  // Plain
+  () => `
+  <div class="v-plain">
+    <form class="plain-form" data-form novalidate>
+      <div class="plain-head rise" style="--i:0">${mark(56)}<h1>Sign in to Central</h1></div>
+      ${fields(1)}
+    </form>
+    ${status("plain-status rise")}
+  </div>`,
+
+  // Card
+  () => `
+  <div class="v-card">
+    <header class="card-top">${mark(28)}<span class="card-name">Central</span></header>
+    <div class="card-mid">
+      <form class="card-box" data-form novalidate>
+        <h1 class="rise" style="--i:0">Sign in</h1>
+        ${fields(1)}
+      </form>
+    </div>
+    <footer class="card-foot">${status()}</footer>
+  </div>`,
+
+  // Steps
+  () => `
+  <div class="v-steps">
+    <div class="steps-col">
+      <div class="steps-head rise" style="--i:0">${mark(40)}${wordmark()}</div>
+      <form data-form data-steps novalidate><div data-slot></div></form>
+    </div>
+    ${status("steps-status")}
+  </div>`,
+
+  // Ink
+  () => `
+  <div class="v-ink">
+    <aside class="ink-side">
+      <div class="grain" aria-hidden="true"></div>
+      ${mark(48)}
+      <p class="ink-word wordmark rise" style="--i:0">Central<span class="dot">.</span></p>
+      ${status("rise")}
+    </aside>
+    <div class="ink-main">
+      <form class="ink-form" data-form novalidate>
+        <h1 class="rise" style="--i:0">Sign in</h1>
+        ${fields(1)}
+      </form>
+    </div>
+  </div>`,
+
+  // Glass
+  () => `
+  <div class="v-glass">
+    <div class="glass-bg" aria-hidden="true"><i class="b1"></i><i class="b2"></i><i class="b3"></i><i class="b4"></i></div>
+    <form class="glass-card" data-form novalidate>
+      <div class="glass-head rise" style="--i:0">${mark(44)}${wordmark()}</div>
+      ${fields(1)}
+    </form>
+    ${status("glass-status")}
+  </div>`,
+
+  // Matte — a white card on the icon's pastel
+  () => `
+  <div class="v-mpastel mt">
+    <form class="mp-card" data-form novalidate>
+      <div class="mp-head rise" style="--i:0">${deepMark(68)}${mWordmark()}</div>
+      ${fields(1)}
+    </form>
+    ${status("mp-status")}
+  </div>`,
+
+  // Deep — the icon's blue as a half, its C as the picture
+  () => `
+  <div class="v-mdeep mt">
+    <aside class="md-side">
+      <div class="md-obj rise" style="--i:0">${deepObject(208)}</div>
+      <p class="md-word wordmark rise" style="--i:1">Central<span class="ydot">.</span></p>
+      ${status()}
+    </aside>
+    <div class="md-main">
+      <form class="md-form" data-form novalidate>
+        <h1 class="rise" style="--i:0">Sign in</h1>
+        ${fields(1)}
+      </form>
+    </div>
+  </div>`,
+
+  // Objects — the departments' matte pictures round the icon
+  () => `
+  <div class="v-mobj mt">
+    <div class="mo-col">
+      <div class="mo-cluster" aria-hidden="true">
+        <span class="pop" style="left:50%;top:48%;--i:0">${deepMark(84)}</span>
+        ${CLUSTER.map(([a, k, x, y], i) => `<span class="pop" style="left:${x}%;top:${y}%;--i:${i + 1}">${pic(a, FAM[k], 58)}</span>`).join("")}
+      </div>
+      <h1 class="mo-h rise" style="--i:1">Sign in to Central</h1>
+      <form data-form novalidate>${fields(2)}</form>
+    </div>
+    ${status("mo-status")}
+  </div>`,
+];
+
+
+/* ── Steps: username, then the person and their password ── */
+const initials = (name) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
+const step1 = () => `
+  <div class="step">
+    <h1 class="step-h rise" style="--i:1">Sign in</h1>
+    ${userField(2)}
+    ${submit(3, "Continue")}
+  </div>`;
+const step2 = (who) => `
+  <div class="step">
+    <div class="who rise" style="--i:1">
+      <span class="avatar" aria-hidden="true">${esc(initials(who.name || who.username))}</span>
+      <span class="who-text"><span class="who-name">${esc(who.name || who.username)}</span>${who.name ? `<span class="who-user">${esc(who.username)}</span>` : ""}</span>
+      <button type="button" class="chip" data-back>Not you?</button>
+    </div>
+    <input type="hidden" name="username" value="${esc(who.username)}">
+    ${passField(2)}
+    ${errorLine()}
+    ${submit(3)}
+  </div>`;
+
+function wireSteps(form) {
+  const slot = form.querySelector("[data-slot]");
+  let step = knowsUser() ? 2 : 1;
+  let who = knowsUser() ? { ...saved } : { username: "", name: "" };
+
+  function render(dir) {
+    slot.innerHTML = step === 1 ? step1() : step2(who);
+    const el = slot.firstElementChild;
+    if (dir) el.dataset.dir = dir;
+    if (step === 1 && who.username) form.querySelector("[name=username]").value = who.username;
+    wireFields(form);
+    form.querySelector("[data-back]")?.addEventListener("click", () => { step = 1; who = { username: "", name: "" }; go("back"); });
+    const target = form.querySelector(step === 1 ? "[name=username]" : "[name=password]");
+    if (dir || finePointer()) target.focus({ preventScroll: true });
+  }
+  function go(dir) {
+    const old = slot.firstElementChild;
+    if (!old || reduced()) return render(dir);
+    old.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: `translateX(${dir === "back" ? 12 : -12}px)` }], { duration: 120, easing: "cubic-bezier(0.23, 1, 0.32, 1)", fill: "forwards" }).onfinish = () => render(dir);
+  }
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    if (step === 1) {
+      const u = form.querySelector("[name=username]");
+      const name = u.value.trim();
+      if (!name) return u.focus();
+      who = { username: name, name: name.toLowerCase() === saved.username ? saved.name : "" };
+      step = 2;
+      return go("fwd");
+    }
+    const p = form.querySelector("[name=password]");
+    if (!p.value) return p.focus();
+    signIn(form, who.username, p.value);
+  });
+  render();
+}
+
+/* ── the behaviour every option shares ── */
+function wireFields(form) {
+  if (state === "wrong") { form.classList.add("is-wrong"); form.dataset.stillWrong = "1"; }
+  form.querySelectorAll("[data-eye]").forEach((b) => b.addEventListener("click", () => {
+    const input = b.parentElement.querySelector("input");
+    const on = b.getAttribute("aria-pressed") !== "true";
+    b.setAttribute("aria-pressed", on);
+    b.setAttribute("aria-label", on ? "Hide password" : "Show password");
+    input.type = on ? "text" : "password";
+    input.focus({ preventScroll: true });
+    const end = input.value.length; input.setSelectionRange(end, end);
+  }));
+  const p = form.querySelector("[name=password]");
+  const caps = form.querySelector("[data-caps]");
+  if (p && caps) {
+    const read = (e) => e.getModifierState && note(caps, e.getModifierState("CapsLock"));
+    p.addEventListener("keydown", read);
+    p.addEventListener("keyup", read);
+    p.addEventListener("blur", () => note(caps, false));
+  }
+  form.querySelectorAll("[data-forgot]").forEach((b) => b.addEventListener("click", () => {
+    const line = form.querySelector("[data-forgot-line]");
+    note(line, line.hidden);
+    b.setAttribute("aria-expanded", !line.hidden);
+  }));
+  form.querySelectorAll("input").forEach((i) => i.addEventListener("input", () => {
+    if (i.name === "password") form.dataset.stillWrong = "";
+    clearError(form);
+  }));
+}
+
+function note(el, show) {
+  if (!el) return;
+  if (show && el.hidden) { el.hidden = false; el.classList.remove("show"); void el.offsetWidth; el.classList.add("show"); }
+  else if (!show) el.hidden = true;
+}
+function shake(el) {
+  if (reduced()) return;
+  el.animate([{ transform: "none" }, { transform: "translateX(-6px)" }, { transform: "translateX(5px)" }, { transform: "translateX(-3px)" }, { transform: "translateX(2px)" }, { transform: "none" }], { duration: 360, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
+}
+function showError(form, message) {
+  const e = form.querySelector("[data-error]");
+  e.querySelector("span").textContent = message;
+  note(e, true);
+  form.classList.add("is-wrong");
+  shake(form);
+}
+function clearError(form) {
+  const e = form.querySelector("[data-error]");
+  if (e && !e.hidden) { e.hidden = true; form.classList.remove("is-wrong"); }
+}
+
+/* Any password signs in, except "wrong"/"salah" — or the one already refused. */
+function signIn(form, username, password) {
+  const btn = form.querySelector("[data-submit]");
+  if (btn.dataset.busy || btn.dataset.done) return;
+  const label = btn.innerHTML;
+  btn.dataset.busy = "1";
+  btn.innerHTML = `${SPIN}<span>Signing in…</span>`;
+  setTimeout(() => {
+    delete btn.dataset.busy;
+    const p = form.querySelector("[name=password]");
+    if (state === "offline") { btn.innerHTML = label; return showError(form, "Can’t reach Central. Try again in a moment."); }
+    if (form.dataset.stillWrong === "1" || /^(wrong|salah)$/i.test(password)) {
+      btn.innerHTML = label;
+      form.dataset.stillWrong = "1";
+      showError(form, "Wrong username or password.");
+      p.focus(); p.select();
+      return;
+    }
+    btn.dataset.done = "1";
+    btn.innerHTML = `${CHECK}<span>Signed in</span>`;
+    // Next visit: the name is remembered, only the password is asked.
+    setTimeout(() => {
+      const u = username.toLowerCase();
+      saved = { username: u, name: u === "rina" ? "Rina Wijaya" : u.charAt(0).toUpperCase() + u.slice(1) };
+      states.set(1);
+    }, 1100);
+  }, 800);
+}
+
+function wire(root) {
+  const form = root.querySelector("[data-form]");
+  if (!form) return;
+  if (form.hasAttribute("data-steps")) return wireSteps(form);
+  wireFields(form);
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const u = form.querySelector("[name=username]");
+    const p = form.querySelector("[name=password]");
+    if (!u.value.trim()) return u.focus();
+    if (!p.value) return p.focus();
+    signIn(form, u.value.trim(), p.value);
+  });
+  if (finePointer()) (knowsUser() ? form.querySelector("[name=password]") : form.querySelector("[name=username]"))?.focus({ preventScroll: true });
+}
+
+/* ── picker harness (prototype skill wiring, two pills) ── */
+const stage = document.getElementById("stage");
+let current = 0;
+function mount(i) {
+  stage.innerHTML = "";
+  requestAnimationFrame(() => { stage.innerHTML = variants[i](); wire(stage); });
+}
+function makePicker(nav, param, count, onChange) {
+  const highlight = nav.querySelector(".proto-picker-highlight");
+  const items = [...nav.querySelectorAll(".proto-picker-item:not(.proto-picker-replay)")];
+  let at = 0;
+  const move = () => { const el = items[at]; highlight.style.width = el.offsetWidth + "px"; highlight.style.transform = `translateX(${el.offsetLeft}px)`; };
+  function set(i) {
+    if (i < 0 || i >= count) return;
+    at = i;
+    items.forEach((el, j) => { el.toggleAttribute("data-active", j === i); if (j === i) el.setAttribute("aria-current", "true"); else el.removeAttribute("aria-current"); });
+    move();
+    const url = new URL(location); url.searchParams.set(param, i + 1); history.replaceState(null, "", url);
+    onChange(i);
+  }
+  items.forEach((el, i) => el.addEventListener("click", () => set(i)));
+  window.addEventListener("resize", move);
+  const start = (parseInt(new URLSearchParams(location.search).get(param), 10) || 1) - 1;
+  return { set, start: () => set(start), get at() { return at; }, ready: () => nav.setAttribute("data-ready", "") };
+}
+const picker = makePicker(document.getElementById("variants"), "v", variants.length, (i) => { current = i; mount(i); });
+let booted = false;
+const states = makePicker(document.getElementById("states"), "s", STATES.length, (i) => { state = STATES[i]; if (booted) mount(current); });
+document.querySelector(".proto-picker-replay").addEventListener("click", () => mount(current));
+
+document.addEventListener("keydown", (e) => {
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const n = parseInt(e.key, 10);
+  if (n >= 1 && n <= variants.length) picker.set(n - 1);
+  else if (e.key === "ArrowRight") picker.set((current + 1) % variants.length);
+  else if (e.key === "ArrowLeft") picker.set((current - 1 + variants.length) % variants.length);
+  else if (e.key === "r" || e.key === "R") mount(current);
+  else if (e.key === "s" || e.key === "S") states.set((states.at + 1) % STATES.length);
+  else if (e.key === "h" || e.key === "H") document.body.dataset.chrome = document.body.dataset.chrome === "off" ? "" : "off";
+});
+
+states.start();
+booted = true;
+picker.start();
+requestAnimationFrame(() => requestAnimationFrame(() => { picker.ready(); states.ready(); }));
+</script>
+</body>
+</html>

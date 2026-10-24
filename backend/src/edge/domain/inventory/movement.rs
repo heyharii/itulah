@@ -250,8 +250,10 @@ pub fn validate_transition(cause: MovementCause, line: &MovementLine) -> Result<
                     }
                 )
         }
+        // The floor, or the stockroom of the same site (owner, 23 Oct 2026):
+        // a tag the till reads sells from wherever this shop holds it.
         MovementCause::Sale => {
-            line.from.is_saleable()
+            line.from.is_sale_source()
                 && matches!(
                     line.to,
                     Place::External {
