@@ -109,6 +109,15 @@ pub struct StoreServer {
     pub app_address: Option<String>,
     /// An inline `<svg>` of a QR code that encodes `app_address`.
     pub app_qr_svg: Option<String>,
+    /// Records the server still had to send head office, as of its last
+    /// heartbeat (`last_seen_at`). What a Disconnect would strand.
+    pub waiting_records: Option<i32>,
+    /// Cash drawers open at its tills, as of its last heartbeat.
+    pub open_drawers: Option<i32>,
+    /// Until when head office's Prepare for removal lets the machine serving
+    /// the store now be uninstalled (`edge/removal.rs`); none when it was
+    /// never released, or the day is over.
+    pub released_until: Option<DateTime<Utc>>,
 }
 
 /// The computer that serves a store.
@@ -352,6 +361,11 @@ struct StoreFacts {
     hb_hostname: Option<String>,
     hb_os: Option<String>,
     hb_app_address: Option<String>,
+    /// From the last heartbeat: records still to send, drawers open.
+    hb_waiting: Option<i64>,
+    hb_open_drawers: Option<i64>,
+    /// The machine serving now was released for removal until then.
+    released_until: Option<DateTime<Utc>>,
     tills_active: i64,
     tills_online: i64,
     till_seats: i32,
@@ -400,6 +414,11 @@ const STORE_FACTS: &str = "
            hb.status ->> 'hostname' AS hb_hostname,
            hb.status ->> 'os' AS hb_os,
            hb.status ->> 'app_address' AS hb_app_address,
+           CASE WHEN jsonb_typeof(hb.status -> 'sync' -> 'pending_facts') = 'number'
+                THEN (hb.status -> 'sync' ->> 'pending_facts')::bigint END AS hb_waiting,
+           CASE WHEN jsonb_typeof(hb.status -> 'till' -> 'open_shifts') = 'number'
+                THEN (hb.status -> 'till' ->> 'open_shifts')::bigint END AS hb_open_drawers,
+           released.until AS released_until,
            COALESCE(cur.acked_seq, 0) AS acked_seq,
            COALESCE(CASE WHEN jsonb_typeof(hb.status -> 'devices' -> 'terminals_waiting') = 'number'
                          THEN (hb.status -> 'devices' ->> 'terminals_waiting')::bigint END, 0)
@@ -476,6 +495,16 @@ const STORE_FACTS: &str = "
            ORDER BY e.decided_at DESC
            LIMIT 1
       ) approved ON true
+      LEFT JOIN LATERAL (
+          SELECT CASE WHEN jsonb_typeof(a.detail -> 'released_until') = 'string'
+                      THEN (a.detail ->> 'released_until')::timestamptz END AS until
+            FROM store_action a
+           WHERE a.origin_id = node.origin_id AND cred.revoked_at IS NULL
+             AND a.action_key = 'prepare_removal' AND a.state = 'DONE'
+             AND a.requested_at >= COALESCE(approved.decided_at, cred.created_at)
+           ORDER BY a.finished_at DESC NULLS LAST
+           LIMIT 1
+      ) released ON true
       LEFT JOIN LATERAL (
           SELECT count(*) FILTER (WHERE d.status = 'ACTIVE') AS active,
                  count(*) FILTER (WHERE d.status = 'ACTIVE'
@@ -602,6 +631,9 @@ async fn store_facts(
                 hb_hostname: row.try_get("hb_hostname")?,
                 hb_os: row.try_get("hb_os")?,
                 hb_app_address: row.try_get("hb_app_address")?,
+                hb_waiting: row.try_get("hb_waiting")?,
+                hb_open_drawers: row.try_get("hb_open_drawers")?,
+                released_until: row.try_get("released_until")?,
                 tills_active: row.try_get("tills_active")?,
                 tills_online: row.try_get("tills_online")?,
                 till_seats: row.try_get("till_seats")?,
@@ -1121,6 +1153,19 @@ fn server_of(facts: &StoreFacts, now: DateTime<Utc>) -> StoreServer {
             .as_deref()
             .and_then(|address| qr_svg(address).ok()),
         app_address,
+        // Only about a machine that is there: a heartbeat of one let go says
+        // nothing about the store now.
+        waiting_records: facts
+            .has_node
+            .then_some(facts.hb_waiting)
+            .flatten()
+            .map(|n| i32::try_from(n).unwrap_or(i32::MAX)),
+        open_drawers: facts
+            .has_node
+            .then_some(facts.hb_open_drawers)
+            .flatten()
+            .map(|n| i32::try_from(n).unwrap_or(i32::MAX)),
+        released_until: facts.released_until.filter(|until| *until > now),
     }
 }
 
@@ -1680,6 +1725,9 @@ mod tests {
             hb_hostname: None,
             hb_os: None,
             hb_app_address: None,
+            hb_waiting: None,
+            hb_open_drawers: None,
+            released_until: None,
             tills_active: 0,
             tills_online: 0,
             till_seats: 0,

@@ -1189,6 +1189,47 @@ pub(super) async fn settle_origin(
     Ok(())
 }
 
+/// The store's server was replaced (`sync::hand_over_to_replacement`): what
+/// was asked of the machine that left and not finished never will be. A
+/// till's Stop, Resume or Remove is state the new machine applies in its turn,
+/// so those stay open and settle as usual.
+pub(super) async fn close_for_replacement(
+    connection: &mut PgConnection,
+    origin_id: &str,
+) -> Result<(), AppError> {
+    sqlx::query(
+        "WITH closed AS (
+             UPDATE store_action
+                SET state = 'FAILED', finished_at = now(),
+                    result_sentence = 'The server was replaced before it did this.'
+              WHERE origin_id = $1 AND state IN ('QUEUED', 'SENT', 'RUNNING')
+                AND action_key = ANY($2)
+              RETURNING request_id
+         )
+         UPDATE device d
+            SET test_print_requested_at = NULL, test_print_requested_by = NULL,
+                test_print_request_id = NULL, updated_at = now()
+           FROM closed c
+          WHERE c.request_id IS NOT NULL AND d.test_print_request_id = c.request_id",
+    )
+    .bind(origin_id)
+    .bind(&ASKED_OF_A_MACHINE[..])
+    .execute(&mut *connection)
+    .await?;
+    Ok(())
+}
+
+/// The actions a machine carries out once (`close_for_replacement`).
+const ASKED_OF_A_MACHINE: [&str; 7] = [
+    ACTION_RESTART_SERVER,
+    ACTION_RESEND_INITIAL_DATA,
+    ACTION_BACK_UP_NOW,
+    ACTION_DIAGNOSE,
+    ACTION_SYNC_NOW,
+    ACTION_PREPARE_REMOVAL,
+    ACTION_TEST_PRINT,
+];
+
 /// Settle one node after its acknowledgement. Called from
 /// `record_command_ack`; a failure is logged there, never fatal to a sync.
 pub(super) async fn settle_after_ack(pool: &PgPool, origin_id: &str) -> Result<(), AppError> {

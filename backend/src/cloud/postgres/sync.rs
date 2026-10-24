@@ -6371,6 +6371,53 @@ pub async fn issue_command(
     Ok((command_id, resolved))
 }
 
+/// What a machine is asked to do once — restart, back up, diagnose, sync,
+/// install a build, print a test page, get ready to leave — as against what
+/// it holds (prices, the catalogue, who may sell, deliveries on the way).
+const ONE_SHOT_COMMANDS: [&str; 8] = [
+    crate::sync::node_ops::NODE_RESTART,
+    crate::sync::node_ops::NODE_BACKUP,
+    crate::sync::node_ops::NODE_DIAGNOSE,
+    crate::sync::node_ops::NODE_UPDATE,
+    crate::sync::node_ops::NODE_SYNC_NOW,
+    crate::sync::node_ops::NODE_RESNAPSHOT,
+    crate::sync::node_ops::NODE_PREPARE_REMOVAL,
+    crate::sync::device::COMMAND_DEVICE_TEST_PRINT,
+];
+
+/// A replacement machine takes over a store's server (24 Oct 2026): its
+/// database is new, so it reads the store's command stream from the start —
+/// which is how it gets what the store holds, and how it used to carry out
+/// what head office had asked of the machine it replaces (a restart, a
+/// backup, that machine's release for removal). Every one-shot command meant
+/// for this server alone is recalled, so the new machine passes them by; and
+/// the store actions they carried, which that machine will never finish now,
+/// are closed and say why. Commands sent to other servers too are left
+/// alone: recalling one recalls it everywhere. Returns how many were recalled.
+pub(super) async fn hand_over_to_replacement(
+    connection: &mut sqlx::PgConnection,
+    origin_id: &str,
+) -> Result<u64, AppError> {
+    let recalled = sqlx::query(
+        "UPDATE sync_command c
+            SET revoked_at = now(),
+                revoked_reason = 'meant for the machine a replacement took over from'
+          WHERE c.revoked_at IS NULL
+            AND c.command_type = ANY($2)
+            AND EXISTS (SELECT 1 FROM sync_command_delivery d
+                         WHERE d.command_id = c.command_id AND d.origin_id = $1)
+            AND NOT EXISTS (SELECT 1 FROM sync_command_delivery o
+                             WHERE o.command_id = c.command_id AND o.origin_id <> $1)",
+    )
+    .bind(origin_id)
+    .bind(&ONE_SHOT_COMMANDS[..])
+    .execute(&mut *connection)
+    .await?
+    .rows_affected();
+    super::store_actions::close_for_replacement(connection, origin_id).await?;
+    Ok(recalled)
+}
+
 /// Recall a command. Stores that have not yet applied it will skip it and
 /// record why; stores that already applied it are unaffected — revocation is
 /// not an undo, and pretending otherwise would be worse than saying so.

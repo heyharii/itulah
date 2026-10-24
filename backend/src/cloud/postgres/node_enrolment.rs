@@ -583,6 +583,12 @@ async fn decide_approval(
         .bind(&origin_id)
         .execute(&mut *tx)
         .await?;
+    // A replacement reads the stream from its start: what was asked of the
+    // machine it replaces, once, is not asked of it.
+    if existing.is_some() {
+        let recalled = super::sync::hand_over_to_replacement(&mut tx, &origin_id).await?;
+        tracing::info!(%origin_id, generation, recalled, "a replacement took over a server");
+    }
     sqlx::query(
         "UPDATE node_enrolment
             SET outcome = 'APPROVED', decided_by = $2, decided_at = now(),

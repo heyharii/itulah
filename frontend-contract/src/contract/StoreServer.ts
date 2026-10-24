@@ -49,4 +49,19 @@ app_address: string | null,
 /**
  * An inline `<svg>` of a QR code that encodes `app_address`.
  */
-app_qr_svg: string | null, };
+app_qr_svg: string | null, 
+/**
+ * Records the server still had to send head office, as of its last
+ * heartbeat (`last_seen_at`). What a Disconnect would strand.
+ */
+waiting_records: number | null, 
+/**
+ * Cash drawers open at its tills, as of its last heartbeat.
+ */
+open_drawers: number | null, 
+/**
+ * Until when head office's Prepare for removal lets the machine serving
+ * the store now be uninstalled (`edge/removal.rs`); none when it was
+ * never released, or the day is over.
+ */
+released_until: string | null, };
