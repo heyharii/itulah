@@ -187,25 +187,38 @@ jobs:
           $page = Invoke-WebRequest http://127.0.0.1:8082/setup -UseBasicParsing
           if ($page.StatusCode -ne 200) { throw "setup page answered $($page.StatusCode)" }
           & "C:\Program Files\itulah Store\store.exe" diagnose
-          # A connected server goes only with head office's release
-          # (edge/removal.rs): the uninstall stops, nothing changed.
+          $store = "C:\Program Files\itulah Store\store.exe"
           $data = "$env:ProgramData\itulah\store"
+          # Never enrolled: nothing of head office's here, it may go.
+          & $store can-uninstall
+          if ($LASTEXITCODE -ne 0) { throw "can-uninstall refused a machine that never enrolled: $LASTEXITCODE" }
+          # Connected and not released by head office (edge/removal.rs): the
+          # uninstall stops, nothing changed. The release path itself is
+          # tested against a real Central (windows-removal-test.yml).
           Set-Content -Encoding ascii -Path "$data\node.env" -Value "INVENTORY_SITE_ID=smoke"
+          & $store can-uninstall
+          if ($LASTEXITCODE -ne 3) { throw "can-uninstall answered $LASTEXITCODE for a connected server with no release, not 3" }
+          $global:LASTEXITCODE = 0
           $p = Start-Process msiexec -ArgumentList "/x `"$($msi.FullName)`" /qn /l*v refused.log" -Wait -PassThru
           if ($p.ExitCode -eq 0) { throw "a connected server was uninstalled without head office's release" }
           if ((Get-Service ItulahStore).Status -ne 'Running') { Get-Content refused.log -Tail 60; throw "the refused uninstall left the service $((Get-Service ItulahStore).Status)" }
           if (-not (Test-Path "$data\node.env")) { throw "the refused uninstall touched the data" }
-          # Released (what Prepare for removal writes on the node): it goes.
-          $now = (Get-Date).ToUniversalTime()
-          @{ action_id = $null; reason = "smoke test"; released_at = $now.ToString("o"); until = $now.AddHours(1).ToString("o") } |
-            ConvertTo-Json | Set-Content -Encoding ascii "$data\removal-release.json"
-          & "C:\Program Files\itulah Store\store.exe" can-uninstall
-          if ($LASTEXITCODE -ne 0) { throw "can-uninstall refused a released server: $LASTEXITCODE" }
-          $p = Start-Process msiexec -ArgumentList "/x `"$($msi.FullName)`" /qn /l*v uninstall.log" -Wait -PassThru
-          if ($p.ExitCode -ne 0) { Get-Content uninstall.log -Tail 80; throw "uninstall failed: $($p.ExitCode)" }
-          # Nothing was unsent, so no copy is kept, and the data went with the program.
+          # Forced, for a PC that can no longer reach Central: it goes with its
+          # data, and whatever is unsent is copied where only administrators
+          # read it.
+          $p = Start-Process msiexec -ArgumentList "/x `"$($msi.FullName)`" /qn /l*v forced.log FORCE_UNINSTALL=1" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content forced.log -Tail 80; throw "forced uninstall failed: $($p.ExitCode)" }
+          if (Get-Service ItulahStore -ErrorAction SilentlyContinue) { throw "the service is still there" }
           if (Test-Path $data) { throw "uninstall left the shop's data on the PC" }
-          if (Test-Path "$env:ProgramData\itulah\backups") { throw "a copy was kept although nothing was unsent" }
+          $backups = "$env:ProgramData\itulah\backups"
+          if (Test-Path $backups) {
+            Get-ChildItem $backups | Format-Table Name, Length
+            $acl = (icacls $backups) -join "`n"
+            Write-Host $acl
+            if ($acl -match 'BUILTIN\\Users|Everyone') { throw "the copy of unsent records is readable by every user" }
+          } else {
+            Write-Host "nothing was unsent: no copy kept"
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: windows

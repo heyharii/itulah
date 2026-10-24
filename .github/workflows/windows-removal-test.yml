@@ -1,0 +1,116 @@
+name: Windows removal test
+
+# Head office's release, end to end on a real Windows machine
+# (`backend/src/edge/removal.rs`): the store server MSI installs with an
+# install code and enrols with a Central; uninstalling it is then refused,
+# nothing changed; the job waits while head office chooses Prepare for
+# removal on the store's page; once the node has written the release, the
+# uninstall goes through and takes the shop's data with it. Run by pushing
+# `.github/windows-removal-test.json` with the run that built the MSI and a
+# fresh install code.
+
+on:
+  push:
+    paths: [".github/windows-removal-test.json"]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  removal:
+    name: Install, refuse, release, remove
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read the inputs
+        id: in
+        shell: pwsh
+        run: |
+          $j = Get-Content -Raw .github/windows-removal-test.json | ConvertFrom-Json
+          "store_run_id=$($j.store_run_id)" >> $env:GITHUB_OUTPUT
+          "cloud_url=$($j.cloud_url)" >> $env:GITHUB_OUTPUT
+          "enroll_code=$($j.enroll_code)" >> $env:GITHUB_OUTPUT
+          "wait_minutes=$($j.wait_minutes)" >> $env:GITHUB_OUTPUT
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows
+          path: msi/store
+          run-id: ${{ steps.in.outputs.store_run_id }}
+          github-token: ${{ github.token }}
+      - name: Install and enrol
+        shell: pwsh
+        env:
+          CLOUD_URL: ${{ steps.in.outputs.cloud_url }}
+          ENROLL_CODE: ${{ steps.in.outputs.enroll_code }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msi = Get-ChildItem msi/store/*.msi | Select-Object -First 1
+          Write-Host "store server: $($msi.Name)"
+          $p = Start-Process msiexec -ArgumentList "/i `"$($msi.FullName)`" /qn /l*v install.log ENROLL_CODE=$env:ENROLL_CODE CLOUD_URL=$env:CLOUD_URL" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content install.log -Tail 60; throw "install: $($p.ExitCode)" }
+          $ready = $false
+          foreach ($i in 1..60) {
+            try { if ((Invoke-WebRequest http://127.0.0.1:8082/api/v1/health -UseBasicParsing -TimeoutSec 5).StatusCode -eq 200) { $ready = $true; break } } catch {}
+            Start-Sleep -Seconds 5
+          }
+          if (-not $ready) { throw "the server did not enrol" }
+          Write-Host "enrolled and serving"
+      - name: Uninstalling without head office's release is refused
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $data = "$env:ProgramData\itulah\store"
+          & "C:\Program Files\itulah Store\store.exe" can-uninstall
+          if ($LASTEXITCODE -ne 3) { throw "can-uninstall answered $LASTEXITCODE, not 3" }
+          $global:LASTEXITCODE = 0
+          $msi = Get-ChildItem msi/store/*.msi | Select-Object -First 1
+          $p = Start-Process msiexec -ArgumentList "/x `"$($msi.FullName)`" /qn /l*v refused.log" -Wait -PassThru
+          Write-Host "uninstall answered $($p.ExitCode)"
+          if ($p.ExitCode -eq 0) { throw "uninstalled without head office's release" }
+          if ((Get-Service ItulahStore).Status -ne 'Running') { throw "the refused uninstall left the service $((Get-Service ItulahStore).Status)" }
+          if (-not (Test-Path "$data\node.env")) { throw "the refused uninstall touched the data" }
+          try { $code = (Invoke-WebRequest http://127.0.0.1:8082/api/v1/health -UseBasicParsing -TimeoutSec 5).StatusCode } catch { $code = 0 }
+          if ($code -ne 200) { throw "the server stopped answering after the refused uninstall" }
+          Write-Host "refused, nothing changed, still serving"
+      - name: Wait for Prepare for removal
+        shell: pwsh
+        env:
+          WAIT_MINUTES: ${{ steps.in.outputs.wait_minutes }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $release = "$env:ProgramData\itulah\store\removal-release.json"
+          $until = (Get-Date).AddMinutes([int]$env:WAIT_MINUTES)
+          while (-not (Test-Path $release)) {
+            if ((Get-Date) -gt $until) { throw "no release from head office in $env:WAIT_MINUTES minutes" }
+            Write-Host "$(Get-Date -Format HH:mm:ss) waiting for head office's Prepare for removal"
+            Start-Sleep -Seconds 20
+          }
+          Get-Content $release
+      - name: Released, the uninstall goes and takes the data
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $data = "$env:ProgramData\itulah\store"
+          & "C:\Program Files\itulah Store\store.exe" can-uninstall
+          if ($LASTEXITCODE -ne 0) { throw "can-uninstall refused a released server: $LASTEXITCODE" }
+          Copy-Item "$data\logs\*" . -ErrorAction SilentlyContinue
+          $msi = Get-ChildItem msi/store/*.msi | Select-Object -First 1
+          $p = Start-Process msiexec -ArgumentList "/x `"$($msi.FullName)`" /qn /l*v uninstall.log" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content uninstall.log -Tail 80; throw "uninstall: $($p.ExitCode)" }
+          if (Get-Service ItulahStore -ErrorAction SilentlyContinue) { throw "the service is still there" }
+          if (Test-Path $data) { throw "the shop's data is still on the PC" }
+          if (Test-Path "$env:ProgramData\itulah\backups") {
+            Get-ChildItem "$env:ProgramData\itulah\backups"
+            Write-Host "a copy was kept: something was still unsent at the stop"
+          } else {
+            Write-Host "removed with its data; nothing unsent, no copy kept"
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-removal-logs
+          path: |
+            *.log
+            *.ndjson
