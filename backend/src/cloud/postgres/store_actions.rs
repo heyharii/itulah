@@ -45,9 +45,9 @@ use super::{begin_idempotent, complete_idempotent, payload_digest};
 use crate::cloud::application::AppError;
 use crate::sync::device::{self as wire, TEST_PRINT_CAPABILITY};
 use crate::sync::node_ops::{
-    ActionPayload, ActionReport, NodeOpPayload, NODE_ACTIONS_CAPABILITY, NODE_BACKUP,
-    NODE_DIAGNOSE, NODE_PREPARE_REMOVAL, NODE_REMOVAL_CAPABILITY, NODE_RESNAPSHOT, NODE_RESTART,
-    NODE_SYNC_NOW,
+    ActionPayload, ActionReport, NodeOpPayload, RemovalPayload, NODE_ACTIONS_CAPABILITY,
+    NODE_BACKUP, NODE_DIAGNOSE, NODE_PREPARE_REMOVAL, NODE_REMOVAL_CAPABILITY, NODE_RESNAPSHOT,
+    NODE_RESTART, NODE_SYNC_NOW,
 };
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
@@ -832,15 +832,46 @@ pub async fn request_store_action(
             .await?;
             (Some(command), None, true)
         }
-        ACTION_SYNC_NOW | ACTION_PREPARE_REMOVAL => {
-            let kind = node_command(key).unwrap_or(NODE_SYNC_NOW);
+        ACTION_PREPARE_REMOVAL => {
+            // For the machine serving the store now: the PC that replaces it
+            // replays the stream from its start, and must not be released by
+            // what was meant for this one.
+            let generation: Option<Option<i64>> = sqlx::query_scalar(
+                "SELECT active_generation FROM sync_origin_credential WHERE origin_id = $1",
+            )
+            .bind(&origin_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+            let generation = generation.flatten().ok_or_else(|| {
+                AppError::Conflict(format!(
+                    "{}'s server has not connected yet",
+                    store_name(&facts)
+                ))
+            })?;
+            let payload = serde_json::to_value(RemovalPayload {
+                action_id,
+                reason: reason.clone(),
+                generation,
+            })?;
+            let command = super::sync::issue_command_tx(
+                &mut tx,
+                NODE_PREPARE_REMOVAL,
+                &payload,
+                actor,
+                Some(expires_at),
+                &[origin_id.clone()],
+            )
+            .await?;
+            (Some(command), None, true)
+        }
+        ACTION_SYNC_NOW => {
             let payload = serde_json::to_value(ActionPayload {
                 action_id,
                 reason: reason.clone(),
             })?;
             let command = super::sync::issue_command_tx(
                 &mut tx,
-                kind,
+                NODE_SYNC_NOW,
                 &payload,
                 actor,
                 Some(expires_at),

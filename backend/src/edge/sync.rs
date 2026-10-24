@@ -3531,18 +3531,35 @@ fn apply_command_effect(tx: &Transaction<'_>, command: &PushedCommand) -> Result
         }
         // Head office getting this server ready to leave its PC
         // (`edge/removal.rs`). Only ever sent to a node advertising
-        // `node.removal.v1`.
+        // `node.removal.v1`, and only for the generation it names: the PC
+        // that replaces this one replays the stream and passes it by.
         crate::sync::node_ops::NODE_PREPARE_REMOVAL => {
-            let action = crate::sync::node_ops::parse_action(&command.payload).map_err(err)?;
-            crate::edge::ops::record_received(
-                tx,
-                action.action_id,
-                crate::sync::node_ops::NODE_PREPARE_REMOVAL,
-                &action.reason,
-                false,
-            )
-            .map_err(err)?;
-            crate::edge::ops::enqueue_prepare_removal(action);
+            let ask = crate::sync::node_ops::parse_removal(&command.payload).map_err(err)?;
+            let mine: Option<i64> = tx
+                .query_row("SELECT max(generation) FROM sync_origin", [], |row| {
+                    row.get(0)
+                })
+                .map_err(err)?;
+            if mine == Some(ask.generation) {
+                crate::edge::ops::record_received(
+                    tx,
+                    ask.action_id,
+                    crate::sync::node_ops::NODE_PREPARE_REMOVAL,
+                    &ask.reason,
+                    false,
+                )
+                .map_err(err)?;
+                crate::edge::ops::enqueue_prepare_removal(crate::sync::node_ops::ActionPayload {
+                    action_id: ask.action_id,
+                    reason: ask.reason,
+                });
+            } else {
+                tracing::info!(
+                    meant_for = ask.generation,
+                    this = ?mine,
+                    "a release for the machine this one replaced; passed by"
+                );
+            }
             Ok(())
         }
         // The marker behind re-sent initial data. Everything ahead of it in

@@ -35,9 +35,10 @@
 //! # Letting a server go (24 Oct 2026)
 //!
 //! - `node.prepare_removal` — send what is waiting, then check nothing is
-//!   unsent, refused or in an open drawer; if so, release the server to be
-//!   uninstalled for a day (`edge/removal.rs`). Sent only to a node
-//!   advertising [`NODE_REMOVAL_CAPABILITY`].
+//!   unsent, no drawer open and no basket held; if so, release the server to
+//!   be uninstalled for a day (`edge/removal.rs`). Sent only to a node
+//!   advertising [`NODE_REMOVAL_CAPABILITY`], and meant for one machine: the
+//!   [`RemovalPayload`] names its generation.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -193,6 +194,8 @@ pub fn in_window((from, to): (u32, u32), minute: u32) -> bool {
 pub fn validate(command_type: &str, payload: &serde_json::Value) -> Result<(), String> {
     if command_type == NODE_UPDATE {
         parse_update(payload).map(|_| ())
+    } else if command_type == NODE_PREPARE_REMOVAL {
+        parse_removal(payload).map(|_| ())
     } else if is_action_op(command_type) {
         parse_action(payload).map(|_| ())
     } else {
@@ -215,8 +218,7 @@ pub struct NodeOpPayload {
     pub action_id: Option<Uuid>,
 }
 
-/// `node.sync_now`, `node.resnapshot` and `node.prepare_removal`: always
-/// followed.
+/// `node.sync_now` and `node.resnapshot`: always followed.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ActionPayload {
@@ -232,6 +234,32 @@ pub fn parse_action(payload: &serde_json::Value) -> Result<ActionPayload, String
     }
     if parsed.reason.chars().count() > 300 {
         return Err("a node operation's reason is at most 300 characters".into());
+    }
+    Ok(parsed)
+}
+
+/// `node.prepare_removal`: followed, and meant for the machine serving the
+/// store when head office asked — its generation. A replacement is the next
+/// generation and replays the stream from its start (24 Oct 2026: a new PC
+/// took the release its predecessor was given, minutes before), so a node
+/// of another generation passes it by.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RemovalPayload {
+    pub action_id: Uuid,
+    pub reason: String,
+    pub generation: i64,
+}
+
+pub fn parse_removal(payload: &serde_json::Value) -> Result<RemovalPayload, String> {
+    let parsed: RemovalPayload = serde_json::from_value(payload.clone())
+        .map_err(|error| format!("node.prepare_removal payload: {error}"))?;
+    parse_action(&serde_json::json!({
+        "action_id": parsed.action_id,
+        "reason": parsed.reason,
+    }))?;
+    if parsed.generation < 1 {
+        return Err("a release names the generation it is for".into());
     }
     Ok(parsed)
 }
@@ -299,9 +327,14 @@ mod tests {
         assert!(!is_node_op(NODE_PREPARE_REMOVAL));
         assert!(validate(
             NODE_PREPARE_REMOVAL,
-            &json!({ "reason": "ganti PC", "action_id": id })
+            &json!({ "reason": "ganti PC", "action_id": id, "generation": 6 })
         )
         .is_ok());
-        assert!(validate(NODE_PREPARE_REMOVAL, &json!({ "reason": "ganti PC" })).is_err());
+        // For one machine only: without its generation it is refused.
+        assert!(validate(
+            NODE_PREPARE_REMOVAL,
+            &json!({ "reason": "ganti PC", "action_id": id })
+        )
+        .is_err());
     }
 }
