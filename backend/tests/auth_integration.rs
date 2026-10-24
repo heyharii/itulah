@@ -1671,3 +1671,90 @@ async fn a_dc_grant_needs_no_password_and_a_role_change_keeps_the_one_it_has(poo
         .unwrap_or_else(|error| panic!("role change: {error}"));
     assert_eq!(verifier().await, (with_password, "SUPERVISOR".to_owned()));
 }
+
+/// Only an Owner acts on an Owner (24 Oct 2026): an Admin may not set the
+/// Owner's password, suspend them, move them to another role, or make
+/// somebody an Owner. The Owner may.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn only_an_owner_acts_on_an_owner(pool: PgPool) {
+    use inventory_backend::contract::{ResetPasswordRequest, SetUserRoleRequest};
+    cloud::bootstrap_admin(&pool, Some("admin-password-1"), true)
+        .await
+        .unwrap_or_else(|error| panic!("bootstrap: {error}"));
+    for (username, role) in [("plain.admin", Role::Admin), ("new.cashier", Role::Cashier)] {
+        cloud::create_user(
+            &pool,
+            CreateUserRequest {
+                username: username.into(),
+                display_name: username.into(),
+                password: "a-long-enough-password".into(),
+                role: role.into(),
+            },
+            "admin",
+        )
+        .await
+        .unwrap_or_else(|error| panic!("create {username}: {error}"));
+    }
+    let id = |username: &'static str| {
+        let pool = pool.clone();
+        async move {
+            sqlx::query_scalar::<_, Uuid>("SELECT id FROM app_user WHERE username = $1")
+                .bind(username)
+                .fetch_one(&pool)
+                .await
+                .unwrap_or_else(|error| panic!("{username}: {error}"))
+        }
+    };
+    let (owner, admin, cashier) = (
+        id("admin").await,
+        id("plain.admin").await,
+        id("new.cashier").await,
+    );
+    let to = |code: &str| SetUserRoleRequest {
+        role_code: Some(code.into()),
+        role: None,
+    };
+    let forbidden =
+        |result: &Result<Value, AppError>| matches!(result, Err(AppError::Forbidden(_)));
+
+    let reset = cloud::admin_reset_password(
+        &pool,
+        owner,
+        ResetPasswordRequest {
+            new_password: "taken-over-password".into(),
+        },
+        "plain.admin",
+    )
+    .await;
+    assert!(forbidden(&reset), "{reset:?}");
+    let suspend = cloud::set_user_active(&pool, owner, false, "plain.admin").await;
+    assert!(forbidden(&suspend), "{suspend:?}");
+    let demote = cloud::set_user_role(&pool, owner, to("ADMIN"), "plain.admin").await;
+    assert!(forbidden(&demote), "{demote:?}");
+    let crown = cloud::set_user_role(&pool, cashier, to("OWNER"), "plain.admin").await;
+    assert!(forbidden(&crown), "{crown:?}");
+
+    // What an Admin does to anybody else is unchanged; the Owner does all of it.
+    let theirs = cloud::admin_reset_password(
+        &pool,
+        cashier,
+        ResetPasswordRequest {
+            new_password: "a-fresh-password-1".into(),
+        },
+        "plain.admin",
+    )
+    .await;
+    assert!(theirs.is_ok(), "{theirs:?}");
+    let crowned = cloud::set_user_role(&pool, cashier, to("OWNER"), "admin").await;
+    assert!(crowned.is_ok(), "{crowned:?}");
+    let by_owner = cloud::admin_reset_password(
+        &pool,
+        admin,
+        ResetPasswordRequest {
+            new_password: "a-fresh-password-2".into(),
+        },
+        "admin",
+    )
+    .await;
+    assert!(by_owner.is_ok(), "{by_owner:?}");
+}

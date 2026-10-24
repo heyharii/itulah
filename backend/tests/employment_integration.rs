@@ -1502,3 +1502,84 @@ async fn a_login_is_not_bound_to_somebody_who_has_left(pool: PgPool) {
         refused.body
     );
 }
+
+/// A leaving is handled once (24 Oct 2026, `close_login_on_leaving`). The HR
+/// scheduler closes the login of somebody whose leaving has taken effect and
+/// was not handled yet — on its day, not before — and leaves alone a login an
+/// Admin opened again after it was closed.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn the_scheduler_closes_a_leavers_login_on_its_day_and_only_once(pool: PgPool) {
+    cloud::bootstrap_admin(&pool, Some(ADMIN_PASSWORD), true)
+        .await
+        .unwrap_or_else(|error| panic!("bootstrap: {error}"));
+    let app = cloud_http::router(AppState::new(pool.clone(), config()));
+    let (cookies, csrf) = sign_in(&app, "admin", ADMIN_PASSWORD).await;
+    let employee_id = hire(&app, &cookies, &csrf, "K0002").await;
+    login_for(
+        &app,
+        &cookies,
+        &csrf,
+        &employee_id,
+        "rudi",
+        CASHIER_PASSWORD,
+    )
+    .await;
+    let left = send(
+        app.clone(),
+        "POST",
+        &format!("/api/v1/employees/{employee_id}/employment"),
+        write_headers(&cookies, &csrf),
+        Some(json!({
+            "transition": "TERMINATE",
+            "effective_on": "2026-03-31",
+            "reason": "kontrak selesai",
+        })),
+    )
+    .await;
+    assert_eq!(left.status, StatusCode::OK, "terminate: {:?}", left.body);
+    assert_eq!(left.body["account"]["active"], false);
+
+    let active = || {
+        let pool = pool.clone();
+        async move {
+            sqlx::query_scalar::<_, bool>("SELECT active FROM app_user WHERE username = 'rudi'")
+                .fetch_one(&pool)
+                .await
+                .unwrap_or_else(|error| panic!("rudi: {error}"))
+        }
+    };
+    let day = |d: u32| {
+        chrono::NaiveDate::from_ymd_opt(2026, 3, d).unwrap_or_else(|| panic!("a day in March"))
+    };
+    let reopen = || {
+        let pool = pool.clone();
+        async move {
+            sqlx::query("UPDATE app_user SET active = true WHERE username = 'rudi'")
+                .execute(&pool)
+                .await
+                .unwrap_or_else(|error| panic!("reopen: {error}"));
+        }
+    };
+
+    // An Admin lets them back in on purpose: the scheduler leaves that alone.
+    reopen().await;
+    cloud::run_all(&pool, day(31)).await;
+    assert!(
+        active().await,
+        "a login opened again after its leaving was handled"
+    );
+
+    // A leaving nobody has handled yet (its record forgotten here) closes on
+    // its day, and not the day before.
+    sqlx::query("DELETE FROM scheduled_job_run WHERE job = 'people.login.close_on_leaving'")
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("forget: {error}"));
+    cloud::run_all(&pool, day(30)).await;
+    assert!(active().await, "closed before the leaving took effect");
+    cloud::run_all(&pool, day(31)).await;
+    assert!(
+        !active().await,
+        "still open on the day the leaving took effect"
+    );
+}
