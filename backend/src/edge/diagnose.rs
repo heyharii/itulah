@@ -343,6 +343,19 @@ async fn cloud_checks(checks: &mut Vec<Check>, detail: &mut Value) {
     }
 }
 
+/// Whether this machine's node answers `path` with a success.
+async fn answers(client: Option<&reqwest::Client>, port: &str, path: &str) -> bool {
+    match client {
+        Some(client) => client
+            .get(format!("http://127.0.0.1:{port}{path}"))
+            .send()
+            .await
+            .map(|response| response.status().is_success())
+            .unwrap_or(false),
+        None => false,
+    }
+}
+
 /// Is the node itself answering on this machine?
 async fn local_checks(role: EdgeRole, checks: &mut Vec<Check>) {
     let port = std::env::var("BIND_ADDR")
@@ -353,17 +366,18 @@ async fn local_checks(role: EdgeRole, checks: &mut Vec<Check>) {
         .timeout(Duration::from_secs(5))
         .build()
         .ok();
-    let answered = match client {
-        Some(client) => client
-            .get(format!("http://127.0.0.1:{port}/api/v1/health"))
-            .send()
-            .await
-            .map(|response| response.status().is_success())
-            .unwrap_or(false),
-        None => false,
-    };
+    let answered = answers(client.as_ref(), &port, "/api/v1/health").await;
+    // Not enrolled yet, a node serves only its setup page: it is running and
+    // waiting for its code, which is no fault of the machine.
+    let in_setup = !answered && answers(client.as_ref(), &port, "/setup/state").await;
     checks.push(if answered {
         check("service", Verdict::Ok, format!("{role} node running on port {port}."))
+    } else if in_setup {
+        check(
+            "service",
+            Verdict::Warn,
+            format!("{role} node running on port {port}, waiting to be enrolled — open http://localhost:{port}/setup on this machine."),
+        )
     } else {
         check(
             "service",
