@@ -10,5 +10,6 @@ pub mod postgres;
 pub mod push;
 pub mod reports;
 pub mod tenancy;
+pub mod whatsapp;
 
 pub use application::{AppConfig, AppError, AppState};

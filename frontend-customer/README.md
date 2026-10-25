@@ -1,8 +1,8 @@
 # frontend-customer — the member's surface
 
 What a shopper sees of their own custom: points earned, purchases, one receipt.
-Read-only. There is no write path in this app and adding one would need an
-answer to "should a phone be able to change a shop's takings".
+Almost read-only. The only writes are signing in and answering a cashier's ask
+to spend points; nothing here can change a shop's takings.
 
 It talks to the **Cloud** node, because a member's points are not a property of
 one shop — they buy in Bekasi and in Depok, and only the centre holds both.
@@ -27,7 +27,8 @@ All scoped by the member session rather than by anything in the URL
 | `GET /api/v1/member/points` | the spendable balance and the ledger behind it |
 | `GET /api/v1/member/transactions` | their purchases, newest first, cursor-paged; a voided one is listed as `VOIDED` |
 | `GET /api/v1/member/transactions/{sale_id}` | one receipt with its lines |
-| `GET/POST /api/v1/member/points/redeem-requests` | ask to turn points into a voucher, and what became of each ask |
+| `GET /api/v1/member/points/redeem-requests` | the cashier's asks to spend points, and what became of each |
+| `POST …/redeem-requests/{id}/approve` · `…/decline` | the shopper's answer to one ask |
 
 Purchases come from `edge_sale` — the sales the shops reported and the centre
 accepted — so a member's screen and the centre's revenue cannot disagree.
@@ -35,10 +36,20 @@ Points are earned into `points_ledger` when the centre accepts a sale (not at
 the till), debited when a cashier confirms a redemption, and taken back when a
 sale is voided.
 
-## How a phone becomes paired
+## How a phone signs in
 
-The shopper types **their member number and six digits the cashier reads out**.
-That is the whole sign-in.
+Two doors (owner, 25 Oct 2026). Nobody signs up in the app — members are
+registered at a till ("register member hanya bisa via kasir") — so a number
+that is no member is told so and sent nothing.
+
+**WhatsApp, the main one.** The shopper types the phone number they registered
+at a till (`POST /api/v1/member/otp`), head office's WhatsApp sends six digits
+to it, and they type them (`POST /api/v1/member/session/otp`): five minutes,
+five guesses, a resend after thirty seconds. `components/whatsapp-sign-in.tsx`.
+
+**The cashier's code, the quiet one** ("Punya kode dari kasir?"). It is how a
+card with no phone behind it gets in. The shopper types **their member number
+and six digits the cashier reads out**.
 
 It is deliberately **not** a one-time code sent to a phone number, which is what
 all three reference implementations do (`retail/internal/cloud/customer` in Go,
@@ -75,16 +86,24 @@ history.
 
 ## Redeeming points
 
-The shopper asks for a number of points on **Tukar Poin** and is shown a
-six-digit code for ten minutes. The cashier types the member number and that
-code into the till's *Tukar poin* screen (`pos-desktop/ui/src/screens/redeem.tsx`),
-which the shop node relays to the centre; confirming debits the ledger and
-issues a voucher the till then takes as a *Voucher* tender. While a code is on
-screen this app polls, so the phone turns to "Berhasil ditukar" the moment the
-cashier confirms.
+The shopper does not start a redemption and does not choose how many points.
+The **cashier** asks at the till, and the number is the cashier's. The ask
+reaches the shopper two ways, and either one spends the points:
 
-The rate is decided at the centre, in one place
-(`backend/src/cloud/postgres/loyalty.rs::confirm_redeem_request`).
+- **In the app.** The ask appears as one card — the shop, the points, what they
+  are worth, a countdown — with **Setujui** and **Tolak** (`components/redeem-ask.tsx`).
+  It is on Beranda and on Tukar; on any other screen a toast that stays until
+  the ask is answered opens Tukar, and the Tukar tab carries a dot
+  (`components/ask-notifier.tsx`). The redeem screen asks the server every 3 s
+  while it is open, the rest of the app every 6 s while it is visible, and one
+  place at a time (`lib/redeem-asks.ts`).
+- **By WhatsApp code.** The code goes to the shopper's WhatsApp, and they read
+  it back to the cashier. This path never touches the app; the history just
+  shows "Kode WhatsApp" instead of "Disetujui di app".
+
+Either way the centre does the spending
+(`backend/src/cloud/postgres/loyalty.rs::confirm_redeem_request`) and the till
+finds the voucher; the rate is decided there, in one place.
 
 The balance may go below nought: points already turned into a voucher are not
 clawed back when the sale that earned them is voided. Home says so in words.
@@ -144,10 +163,10 @@ and the `--ease-*` / `--t-*` tokens:
 | first paint | 50ms stagger, 8px rise | once per screen, never blocks a tap |
 | member card | springs toward the pointer/finger; drag turns it 1:1, release projects momentum (Apple's projection) and hands the finger's velocity to the flip spring | a physical object |
 | balance | digit reel (`number-ticker.tsx`); KPIs count up | the one number people check |
-| redeem code | digits arrive 40ms apart out of a 6px blur; countdown drains linearly via `scaleX` | a freshly minted code; a clock does not ease |
+| cashier's ask | the card rises 8px and fades in (260ms), leaves faster (150ms); its countdown drains linearly via `scaleX` | a question that interrupts; a clock does not ease |
 | success | disc springs in with bounce 0.3, tick draws after | rare — the delight budget lives here |
 
-Only `transform`, `opacity` and (for the code) `filter` move. Reduced motion
+Only `transform` and `opacity` move. Reduced motion
 keeps the fades and drops every travel, tilt and flip; hidden tabs take numbers
 whole instead of freezing a reel mid-roll.
 

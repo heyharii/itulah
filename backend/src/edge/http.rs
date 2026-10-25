@@ -550,6 +550,7 @@ pub fn store_router_with_sync(
         )
         .route("/api/v1/store/members/lookup", post(relay_member_lookup))
         .route("/api/v1/store/members", post(relay_member_enrol))
+        .route("/api/v1/store/members/otp", post(relay_member_otp))
         // F5 "Daftar member" with a struk number (client, 24 Oct 2026): the
         // sale on it becomes the member's, with its points.
         .route("/api/v1/store/sales/member", post(store_attach_member))
@@ -592,6 +593,20 @@ pub fn store_router_with_sync(
         .route(
             "/api/v1/store/points/redeem-requests/{request_id}/confirm",
             post(relay_redeem_request_confirm),
+        )
+        // The cashier's ask (owner, 25 Oct 2026): how many points, then the
+        // wait for the shopper's yes in the app or the code from WhatsApp.
+        .route(
+            "/api/v1/store/points/redeem-requests",
+            post(relay_redeem_ask),
+        )
+        .route(
+            "/api/v1/store/points/redeem-requests/{request_id}/progress",
+            post(relay_redeem_ask_progress),
+        )
+        .route(
+            "/api/v1/store/points/redeem-requests/{request_id}/cancel",
+            post(relay_redeem_ask_cancel),
         )
         // The manager's HR — and the shop's own General Affairs — which live at
         // head office and nowhere else. One route rather than one per screen:
@@ -3181,6 +3196,12 @@ struct RelayMemberCall {
     address: Option<String>,
     #[serde(default)]
     email: Option<String>,
+    /// Registration: the code head office sent the new member's WhatsApp
+    /// (`/api/v1/store/members/otp`) and what they read back.
+    #[serde(default)]
+    otp_challenge_id: Option<String>,
+    #[serde(default)]
+    otp_code: Option<String>,
 }
 
 /// Relay one member call to head office, signed with this node's machine
@@ -3215,6 +3236,8 @@ async fn relay_member(
         "birth_date": call.birth_date,
         "address": call.address,
         "email": call.email,
+        "otp_challenge_id": call.otp_challenge_id,
+        "otp_code": call.otp_code,
     });
     let (status, parsed) = relay_exchange(
         relay_client()?
@@ -3260,6 +3283,21 @@ async fn relay_member_enrol(
     ))
 }
 
+/// Daftar member: send the new member's number a code on WhatsApp (owner,
+/// 25 Oct 2026). `required: false` when head office has no WhatsApp.
+async fn relay_member_otp(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(call): Json<RelayMemberCall>,
+) -> Result<Json<Value>, ApiError> {
+    let actor = relay_actor(&state, principal, "sending a member's code")?;
+    Ok(Json(
+        relay_member(&state, "otp", &actor, call)
+            .await
+            .map_err(ApiError)?,
+    ))
+}
+
 /// A lookup of one member by number, and nothing else.
 fn member_number(member_id: &str) -> RelayMemberCall {
     RelayMemberCall {
@@ -3270,6 +3308,8 @@ fn member_number(member_id: &str) -> RelayMemberCall {
         birth_date: None,
         address: None,
         email: None,
+        otp_challenge_id: None,
+        otp_code: None,
     }
 }
 
@@ -3489,6 +3529,98 @@ async fn relay_redeem_request_confirm(
         .await
         .map_err(ApiError)?;
     Ok(Json(confirmed))
+}
+
+/// Head office's base and this node's key, for a points call.
+fn points_relay(state: &EdgeState) -> Result<(String, String), EdgeError> {
+    let Some(sync) = state.sync.as_ref() else {
+        return Err(EdgeError::Upstream(
+            "this node has no upload URL configured, so it cannot reach head office".into(),
+        ));
+    };
+    let Some((base, key)) = sync.cloud() else {
+        return Err(EdgeError::Configuration(
+            "SYNC_UPLOAD_URL is empty, so the relay cannot work out where head office is".into(),
+        ));
+    };
+    Ok((base.to_string(), key.to_string()))
+}
+
+#[derive(Debug, Deserialize)]
+struct RelayRedeemAskCall {
+    member_id: String,
+    points: i64,
+}
+
+/// The cashier says how many points; head office sends the shopper the code
+/// and shows the ask in their app. The code never comes back here.
+async fn relay_redeem_ask(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(call): Json<RelayRedeemAskCall>,
+) -> Result<Json<Value>, ApiError> {
+    let actor = relay_actor(&state, principal, "asking to spend a member's points")?;
+    let (base, key) = points_relay(&state).map_err(ApiError)?;
+    let node = state.inventory.node();
+    let body = json!({
+        "origin_id": &node.node_id,
+        "site_id": node.site_id.as_str(),
+        "actor_id": actor,
+        "member_id": call.member_id,
+        "points": call.points,
+    });
+    let asked = relay_points_call(
+        &format!("{base}/api/v1/sync/points/redeem-requests"),
+        &key,
+        &body,
+    )
+    .await
+    .map_err(ApiError)?;
+    Ok(Json(asked))
+}
+
+/// Where the ask stands: still waiting, or approved and a voucher now.
+async fn relay_redeem_ask_progress(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Path(request_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    relay_redeem_ask_step(state, principal, request_id, "progress").await
+}
+
+/// The cashier takes the ask back.
+async fn relay_redeem_ask_cancel(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Path(request_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    relay_redeem_ask_step(state, principal, request_id, "cancel").await
+}
+
+async fn relay_redeem_ask_step(
+    state: EdgeState,
+    principal: Option<Extension<EdgePrincipal>>,
+    request_id: String,
+    step: &str,
+) -> Result<Json<Value>, ApiError> {
+    let actor = relay_actor(&state, principal, "following a points redemption")?;
+    let (base, key) = points_relay(&state).map_err(ApiError)?;
+    let node = state.inventory.node();
+    let body = json!({
+        "origin_id": &node.node_id,
+        "actor_id": actor,
+    });
+    let answered = relay_points_call(
+        &format!(
+            "{base}/api/v1/sync/points/redeem-requests/{}/{step}",
+            request_id.trim()
+        ),
+        &key,
+        &body,
+    )
+    .await
+    .map_err(ApiError)?;
+    Ok(Json(answered))
 }
 
 /// How long a manager's HR call may take to come back. Longer than a counter's

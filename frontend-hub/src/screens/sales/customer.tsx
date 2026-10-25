@@ -540,7 +540,7 @@ export function Member() {
 /// Scoped by member as well as by sale, exactly as the server is: a sale id is
 /// a uuid somebody could hold from a previous receipt, and a lookup by id alone
 /// would hand out another shopper's basket to anyone who kept one.
-function MemberReceiptSheet({
+export function MemberReceiptSheet({
   customerId,
   saleId,
   onClose,
@@ -570,7 +570,12 @@ function MemberReceiptSheet({
         render: (record) => (
           <div className="flex flex-col gap-5">
             <Facts>
-              <Fact term="Store">{record.sale.site_id}</Fact>
+              <Fact term="Store">
+                {record.sale.site_name ?? record.sale.site_id}
+              </Fact>
+              {record.sale.receipt_no !== null && (
+                <Fact term="Receipt number">{record.sale.receipt_no}</Fact>
+              )}
               <Fact term="When">{moment(record.sale.occurred_at)}</Fact>
               <Fact term="Items">{count(record.sale.item_count)}</Fact>
               <Fact term="Points">{count(record.sale.points_earned)}</Fact>

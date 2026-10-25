@@ -316,6 +316,8 @@ export type CatalogRow = {
   /// Which part of the range it is filed under — the grid's Divisi.
   readonly division_code?: string | null
   readonly barcode: string | null
+  /// The node holds a photograph for it (`/api/v1/catalog/image?sku=`).
+  readonly has_image?: boolean
   readonly name: string
   readonly unit_price_minor: number
   readonly base_unit_price_minor: number
@@ -706,6 +708,29 @@ export type Member = {
 export const lookupMember = (memberId: string) =>
   edge<Member>("POST", "/api/v1/store/members/lookup", { member_id: memberId })
 
+/// Head office's answer to "send this number a code" (owner, 25 Oct 2026: a new
+/// member is registered by a code read back from their WhatsApp). With no
+/// WhatsApp at head office nothing is sent and `required` is false: the
+/// registration goes as it always did. Otherwise `member_id` is the number as
+/// head office keys it (`08…`) and `sent_to` is masked (`0812****7890`).
+export type MemberCode =
+  | { readonly required: false }
+  | {
+      readonly required: true
+      readonly member_id: string
+      readonly challenge_id: string
+      readonly expires_at: string
+      readonly sent_to: string
+    }
+
+/// `POST /api/v1/store/members/otp` — `{ member_id }`: send a new member's
+/// phone a six-digit code on WhatsApp. 409 "… already has the number 08…",
+/// 422 "… is not on WhatsApp", 409 "head office's WhatsApp is not connected…",
+/// 409 "… has been sent 5 codes this hour…", 400 "a new member is registered by
+/// a mobile number, 08…".
+export const sendMemberCode = (memberId: string) =>
+  edge<MemberCode>("POST", "/api/v1/store/members/otp", { member_id: memberId })
+
 /// `POST /api/v1/store/members` — `{ member_id, display_name }`, 201 with the
 /// member. The id is the phone's digits (10–13); 400 `{error}` for a phone or
 /// name the node will not take, 409 `{error}` naming who already has the number.
@@ -723,11 +748,17 @@ export const registerMember = (
     readonly address?: string | null
     readonly email?: string | null
   },
+  /// The code the new member read back from their WhatsApp (`sendMemberCode`);
+  /// required while head office has WhatsApp, and the member id must then be
+  /// the number the code was sent to. 400 when missing, 401 "that code does not
+  /// match, or it has expired" (five guesses, five minutes).
+  otp?: { readonly challenge_id: string; readonly code: string },
 ) =>
   edge<Member>("POST", "/api/v1/store/members", {
     member_id: memberId,
     display_name: displayName,
     ...(more ?? {}),
+    ...(otp === undefined ? {} : { otp_challenge_id: otp.challenge_id, otp_code: otp.code }),
   })
 
 /// `POST /api/v1/store/sales/{id}/member` — `{ member_id }`: a member added to
@@ -908,7 +939,9 @@ export const voidSale = (
 /// the reject pool (`return_sale` refuses anything else by name). It is never
 /// defaulted on screen, because a returned item that silently re-entered floor
 /// stock is a shop selling a damaged garment twice.
-export type ReturnLine = { readonly epc: string; readonly disposition: string }
+/// A piece sold without a tag comes back by its SKU: `epc` empty and
+/// `sku_code` set (owner, 25 Oct 2026).
+export type ReturnLine = { readonly epc: string; readonly sku_code?: string; readonly disposition: string }
 
 export const returnSale = (body: {
   sale_id: string

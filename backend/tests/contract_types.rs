@@ -545,15 +545,18 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("IssuedPairingCode: {e}"));
     inventory_backend::cloud::http::member::MemberSessionResponse::export_all(&config)
         .unwrap_or_else(|e| panic!("MemberSessionResponse: {e}"));
-    // The other half of the pairing code's conversation: a shopper asks to
-    // turn points into a voucher, and a cashier's confirm is what a request
-    // becomes. See migration 0349.
+    // A cashier asks to spend a member's points and the shopper says yes, by
+    // the code WhatsApp brought or in the app. See migrations 0349 and 0998.
     inventory_backend::cloud::postgres::RedeemRequestStatus::export_all(&config)
         .unwrap_or_else(|e| panic!("RedeemRequestStatus: {e}"));
     inventory_backend::cloud::postgres::RedeemRequest::export_all(&config)
         .unwrap_or_else(|e| panic!("RedeemRequest: {e}"));
-    inventory_backend::cloud::postgres::IssuedRedeemRequest::export_all(&config)
-        .unwrap_or_else(|e| panic!("IssuedRedeemRequest: {e}"));
+    inventory_backend::cloud::postgres::RedeemAsk::export_all(&config)
+        .unwrap_or_else(|e| panic!("RedeemAsk: {e}"));
+    inventory_backend::cloud::postgres::SentOtp::export_all(&config)
+        .unwrap_or_else(|e| panic!("SentOtp: {e}"));
+    inventory_backend::cloud::whatsapp::WhatsAppStatus::export_all(&config)
+        .unwrap_or_else(|e| panic!("WhatsAppStatus: {e}"));
 
     // Where an order can be delivered — the purchasing question, asked without
     // the administration privilege the sync origin register requires.

@@ -72,7 +72,7 @@ const transactionRoute = createRoute({
   component: TransactionView,
 })
 
-/// Points redemption: the shopper asks here, a cashier confirms at the till
+/// Points redemption: a cashier asks at the till, the shopper answers here
 /// — see `redeem-view.tsx`.
 const redeemRoute = createRoute({
   getParentRoute: () => rootRoute,

@@ -40,4 +40,9 @@ export const screens: ScreenMap = {
     () => import("@/screens/system/activity"),
     (m) => m.ActivityLog
   ),
+  "/system/whatsapp": lazyScreen(
+    "system/whatsapp",
+    () => import("@/screens/system/whatsapp"),
+    (m) => m.WhatsApp
+  ),
 }

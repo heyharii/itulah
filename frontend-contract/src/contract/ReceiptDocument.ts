@@ -26,4 +26,10 @@ footer: string | null,
  * A void or a return reprints the original with this stamped across it,
  * so the two copies cannot be confused at the end of the day.
  */
-stamp: string | null, };
+stamp: string | null, 
+/**
+ * The SKU of each piece on this receipt sold without a tag and not yet
+ * returned, one entry per piece: what a return may take back by its SKU
+ * (owner, 25 Oct 2026). Not printed.
+ */
+untagged_open: Array<string>, };

@@ -858,3 +858,152 @@ fn wrong_code(good: &str) -> String {
     };
     String::from_utf8(digits).unwrap_or_else(|e| panic!("wrong code: {e}"))
 }
+
+// ── signing in by a WhatsApp code (owner, 25 Oct 2026) ──────────────────────
+
+/// A member registered at a till signs in to the app with the code their
+/// WhatsApp received. The test plays WhatsApp: the code's row is written with
+/// a hash it knows, as `send_member_otp` would after the message went.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_member_signs_in_with_the_code_their_whatsapp_received(pool: PgPool) {
+    const PHONE: &str = "081234567890";
+    let (app, _counter) = shop(&pool).await;
+    cloud::enrol_member(&pool, PHONE, Some("Rina"))
+        .await
+        .unwrap_or_else(|e| panic!("enrol: {e}"));
+    let challenge: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO member_otp (purpose, phone, code_sha256, expires_at)
+         VALUES ('SIGN_IN', $1, $2, now() + interval '5 minutes')
+         RETURNING challenge_id",
+    )
+    .bind(PHONE)
+    .bind(security::sha256_hex("135790"))
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|e| panic!("code row: {e}"));
+
+    let wrong = send(
+        app.clone(),
+        "POST",
+        "/api/v1/member/session/otp",
+        vec![],
+        Some(json!({ "challenge_id": challenge, "phone": "+62 812-3456-7890", "code": "000000" })),
+    )
+    .await;
+    assert_eq!(wrong.status, StatusCode::UNAUTHORIZED, "{:?}", wrong.body);
+
+    let signed_in = send(
+        app.clone(),
+        "POST",
+        "/api/v1/member/session/otp",
+        vec![],
+        Some(json!({ "challenge_id": challenge, "phone": "+62 812-3456-7890", "code": "135790" })),
+    )
+    .await;
+    assert_eq!(signed_in.status, StatusCode::OK, "{:?}", signed_in.body);
+    assert_eq!(signed_in.body["member"]["member_id"], json!(PHONE));
+    let phone = phone_from(&signed_in.set_cookies);
+    let me = send(app.clone(), "GET", "/api/v1/member/me", phone.read(), None).await;
+    assert_eq!(me.status, StatusCode::OK, "{:?}", me.body);
+    assert_eq!(me.body["display_name"], json!("Rina"));
+
+    // A code is worth one sign-in.
+    let again = send(
+        app.clone(),
+        "POST",
+        "/api/v1/member/session/otp",
+        vec![],
+        Some(json!({ "challenge_id": challenge, "phone": PHONE, "code": "135790" })),
+    )
+    .await;
+    assert_eq!(again.status, StatusCode::UNAUTHORIZED, "{:?}", again.body);
+}
+
+/// Members are registered at a till and only there: the app sends no code to
+/// a number that is no member, and none at all while head office has no
+/// WhatsApp.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn the_app_sends_a_code_only_to_a_member(pool: PgPool) {
+    let (app, _counter) = shop(&pool).await;
+    let stranger = send(
+        app.clone(),
+        "POST",
+        "/api/v1/member/otp",
+        vec![],
+        Some(json!({ "phone": "081299990000" })),
+    )
+    .await;
+    assert_eq!(stranger.status, StatusCode::NOT_FOUND, "{:?}", stranger.body);
+
+    cloud::enrol_member(&pool, "081299990000", Some("Budi"))
+        .await
+        .unwrap_or_else(|e| panic!("enrol: {e}"));
+    let no_whatsapp = send(
+        app.clone(),
+        "POST",
+        "/api/v1/member/otp",
+        vec![],
+        Some(json!({ "phone": "081299990000" })),
+    )
+    .await;
+    assert_eq!(no_whatsapp.status, StatusCode::CONFLICT, "{:?}", no_whatsapp.body);
+    let sent: i64 = sqlx::query_scalar("SELECT count(*) FROM member_otp")
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|e| panic!("count: {e}"));
+    assert_eq!(sent, 0, "a code that never went still counts against the hour");
+}
+
+/// Head office reads one member with what the till registered, and their
+/// redemptions.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn head_office_reads_a_member_with_what_the_till_registered(pool: PgPool) {
+    const PHONE: &str = "081377776666";
+    let (app, counter) = shop(&pool).await;
+    cloud::enrol_member(&pool, PHONE, Some("Sari"))
+        .await
+        .unwrap_or_else(|e| panic!("enrol: {e}"));
+    cloud::record_member_profile(
+        &pool,
+        PHONE,
+        &cloud::MemberProfile {
+            gender: Some("P".into()),
+            birth_place: Some("Bandung".into()),
+            birth_date: chrono::NaiveDate::from_ymd_opt(1995, 4, 2),
+            address: None,
+            email: Some("sari@example.com".into()),
+        },
+    )
+    .await
+    .unwrap_or_else(|e| panic!("profile: {e}"));
+
+    let one = send(app.clone(), "GET", &format!("/api/v1/members/{PHONE}"), counter.read(), None).await;
+    assert_eq!(one.status, StatusCode::OK, "{:?}", one.body);
+    assert_eq!(one.body["gender"], json!("P"));
+    assert_eq!(one.body["birth_place"], json!("Bandung"));
+    assert_eq!(one.body["birth_date"], json!("1995-04-02"));
+    assert_eq!(one.body["email"], json!("sari@example.com"));
+
+    let listed = send(app.clone(), "GET", "/api/v1/members?q=Sari", counter.read(), None).await;
+    assert_eq!(listed.status, StatusCode::OK, "{:?}", listed.body);
+    let row = listed.body["members"]
+        .as_array()
+        .and_then(|items| items.iter().find(|item| item["member_id"] == json!(PHONE)))
+        .cloned()
+        .unwrap_or_else(|| panic!("Sari is not in {:?}", listed.body));
+    assert_eq!(row["birth_place"], json!("Bandung"));
+
+    let redemptions = send(
+        app.clone(),
+        "GET",
+        &format!("/api/v1/members/{PHONE}/redeem-requests"),
+        counter.read(),
+        None,
+    )
+    .await;
+    assert_eq!(redemptions.status, StatusCode::OK, "{:?}", redemptions.body);
+    assert_eq!(redemptions.body, json!([]));
+
+    let nobody = send(app.clone(), "GET", "/api/v1/members/089900001111", counter.read(), None).await;
+    assert_eq!(nobody.status, StatusCode::NOT_FOUND, "{:?}", nobody.body);
+}

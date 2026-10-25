@@ -61,6 +61,9 @@ export type Receipt = {
   readonly totalMinor: number
   readonly stamp: string | null
   readonly lines: readonly SoldLine[]
+  /// SKU -> pieces of it this receipt sold without a tag and not yet taken
+  /// back (`untagged_open`): those come back by a typed SKU, not a tag.
+  readonly untagged: ReadonlyMap<string, number>
 }
 
 export const asMap = (value: unknown): Record<string, unknown> | null =>
@@ -92,9 +95,15 @@ export function readReceipt(body: unknown, fallbackNo: string): Receipt | null {
       lines.push({ name: asText(line.name) ?? skuCode, skuCode, quantity, unitMinor: Math.round(total / quantity) })
     }
   }
+  const untagged = new Map<string, number>()
+  for (const sku of Array.isArray(doc.untagged_open) ? doc.untagged_open : []) {
+    const code = asText(sku)
+    if (code !== null) untagged.set(code, (untagged.get(code) ?? 0) + 1)
+  }
   return {
     saleId,
     receiptNo: asText(doc.receipt_no) ?? fallbackNo,
+    untagged,
     when: asText(doc.completed_at),
     totalMinor: asCount(doc.total_minor) ?? 0,
     stamp: asText(doc.stamp),

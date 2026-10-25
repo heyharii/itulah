@@ -26,8 +26,9 @@ use crate::cloud::{
     http::audit::DeclaredSubject,
     postgres::{
         self as infrastructure, CustomerSummary, CustomerTransactionDetail,
-        CustomerTransactionPage, CustomerTransactionsQuery, IssuedPairingCode, IssuedRedeemRequest,
-        MemberIdentity, MemberPrincipal, RedeemRequest, MEMBER_SESSION_TTL_DAYS,
+        CustomerTransactionPage, CustomerTransactionsQuery, IssuedMemberSession, IssuedPairingCode,
+        MemberIdentity, MemberPrincipal, OtpPurpose, RedeemRequest, SentOtp,
+        MEMBER_SESSION_TTL_DAYS,
     },
 };
 use crate::security;
@@ -59,10 +60,13 @@ pub fn is_member_path(path: &str) -> bool {
     path.starts_with(MEMBER_PREFIX)
 }
 
-/// The only member route reachable without a member session: the one that
-/// creates it.
+/// The member routes reachable without a member session: the ones that
+/// create it — by a cashier's pairing code, or by a WhatsApp code.
 fn is_pairing(path: &str) -> bool {
-    path == "/api/v1/member/session"
+    matches!(
+        path,
+        "/api/v1/member/session" | "/api/v1/member/otp" | "/api/v1/member/session/otp"
+    )
 }
 
 /// Resolve the member session, or refuse.
@@ -334,6 +338,37 @@ pub async fn issue_code(
     ))
 }
 
+/// One member, as the directory lists them: the card, what the till
+/// registered, what they hold and what they have done.
+///
+/// Its own read for a page opened from a link — `?member=` in the address bar —
+/// where the directory it came from is not loaded to be found in. Operator
+/// session like the list, and for the same reason: it answers about a card the
+/// caller is already looking at.
+pub async fn read(
+    State(state): State<AppState>,
+    Path(member_id): Path<String>,
+) -> Result<Json<infrastructure::MemberRow>, AppError> {
+    Ok(Json(
+        infrastructure::read_member(&state.db, &member_id, state.clock.now()).await?,
+    ))
+}
+
+/// What a member has asked to turn into vouchers, newest first, and what became
+/// of each.
+///
+/// The shopper's own copy of this is `/member/redeem-requests`; this is the
+/// counter's, for somebody phoning up about points that went. Never carries the
+/// code — see [`RedeemRequest`].
+pub async fn redemptions(
+    State(state): State<AppState>,
+    Path(member_id): Path<String>,
+) -> Result<Json<Vec<RedeemRequest>>, AppError> {
+    Ok(Json(
+        infrastructure::list_redeem_requests(&state.db, &member_id).await?,
+    ))
+}
+
 // ── the shopper ─────────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
@@ -365,7 +400,18 @@ pub async fn pair(
         Some(state.config.node_id.as_str()),
     )
     .await?;
+    session_response(&state, issued, |member, expires_at_epoch| MemberSessionResponse {
+        member,
+        expires_at_epoch,
+    })
+}
 
+/// The session's two cookies on an answer that names the member.
+fn session_response<B: Serialize>(
+    state: &AppState,
+    issued: IssuedMemberSession,
+    body: impl FnOnce(MemberIdentity, i64) -> B,
+) -> Result<Response, AppError> {
     let max_age = MEMBER_SESSION_TTL_DAYS * 24 * 60 * 60;
     let session_cookie = security::set_cookie(
         MEMBER_SESSION_COOKIE,
@@ -387,15 +433,69 @@ pub async fn pair(
     // No token in the body. The operator login returns one for CLI and native
     // callers; this surface has none of those, and a token in a JSON response
     // is a token something will decide to keep.
-    let mut response = Json(MemberSessionResponse {
-        member: issued.member,
-        expires_at_epoch: issued.expires_at.timestamp(),
-    })
-    .into_response();
+    let mut response = Json(body(issued.member, issued.expires_at.timestamp())).into_response();
     no_store(&mut response);
     append_cookie(&mut response, session_cookie)?;
     append_cookie(&mut response, csrf_cookie)?;
     Ok(response)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SendCodeRequest {
+    pub phone: String,
+}
+
+/// Send a sign-in code to a member's WhatsApp — the app's way in (owner, 25
+/// Oct 2026). Members are registered at a till and only there ("register
+/// member hanya bisa via kasir"), so a number that is no member is told so
+/// rather than sent a code: head office's WhatsApp writes to members, not to
+/// whatever number somebody types.
+pub async fn send_code(
+    State(state): State<AppState>,
+    Json(request): Json<SendCodeRequest>,
+) -> Result<Json<SentOtp>, AppError> {
+    let phone = infrastructure::member_phone(&request.phone)
+        .ok_or_else(|| AppError::Validation("a code is sent to a mobile number, 08…".into()))?;
+    if !infrastructure::member_exists(&state.db, &phone).await? {
+        return Err(AppError::NotFound(
+            "that number is not a member: members are registered at a till".into(),
+        ));
+    }
+    Ok(Json(
+        infrastructure::send_member_otp(&state.db, OtpPurpose::SignIn, &phone, None, None).await?,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CodeSignInRequest {
+    pub challenge_id: Uuid,
+    pub phone: String,
+    pub code: String,
+}
+
+/// Trade a member's number and the code its WhatsApp received for a session.
+pub async fn sign_in_by_code(
+    State(state): State<AppState>,
+    Json(request): Json<CodeSignInRequest>,
+) -> Result<Response, AppError> {
+    infrastructure::verify_member_otp(
+        &state.db,
+        request.challenge_id,
+        OtpPurpose::SignIn,
+        &request.phone,
+        &request.code,
+    )
+    .await?;
+    let phone = infrastructure::member_phone(&request.phone)
+        .ok_or_else(|| AppError::Validation("a code is sent to a mobile number, 08…".into()))?;
+    let issued =
+        infrastructure::open_member_session(&state.db, &phone, Some(state.config.node_id.as_str()))
+            .await?;
+    infrastructure::use_member_otp(&state.db, request.challenge_id).await?;
+    session_response(&state, issued, |member, expires_at_epoch| MemberSessionResponse {
+        member,
+        expires_at_epoch,
+    })
 }
 
 pub async fn me(
@@ -478,21 +578,29 @@ pub async fn points(
     ))
 }
 
-#[derive(Debug, Deserialize)]
-pub struct CreateRedeemRequest {
-    pub points: i64,
-}
-
-/// Ask to turn points into a voucher. The code in the response is shown once,
-/// large, with a countdown — a shopper reads it to a cashier the same way a
-/// cashier reads a pairing code to them, just the two roles swapped.
-pub async fn create_redeem_request(
+/// The shopper approves a cashier's ask (owner, 25 Oct 2026): the cashier
+/// said how many points, and the app is one of the two ways to say yes — the
+/// other is reading back the code WhatsApp brought. The points are spent at
+/// once; the till waiting on it finds the voucher.
+pub async fn approve_redeem_request(
     State(state): State<AppState>,
     Extension(principal): Extension<MemberPrincipal>,
-    Json(request): Json<CreateRedeemRequest>,
-) -> Result<Json<IssuedRedeemRequest>, AppError> {
+    Path(request_id): Path<Uuid>,
+) -> Result<Json<RedeemRequest>, AppError> {
     Ok(Json(
-        infrastructure::create_redeem_request(&state.db, &principal.member_id, request.points)
+        infrastructure::approve_redeem_request(&state.db, &principal.member_id, request_id)
+            .await?,
+    ))
+}
+
+/// The shopper turns a cashier's ask down.
+pub async fn decline_redeem_request(
+    State(state): State<AppState>,
+    Extension(principal): Extension<MemberPrincipal>,
+    Path(request_id): Path<Uuid>,
+) -> Result<Json<RedeemRequest>, AppError> {
+    Ok(Json(
+        infrastructure::decline_redeem_request(&state.db, &principal.member_id, request_id)
             .await?,
     ))
 }

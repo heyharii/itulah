@@ -10,6 +10,12 @@ export type CustomerTransaction = { sale_id: string, occurred_at: string, site_i
  */
 site_name: string | null, 
 /**
+ * The number printed on the till's receipt (`edge_sale.receipt_no`, 0988)
+ * — what a shopper reads off the struk. `None` for a sale made before
+ * tills numbered them.
+ */
+receipt_no: string | null, 
+/**
  * `COMPLETED`, or `VOIDED` once the shop cancelled it. A voided sale stays
  * in the history — the shopper was there and may ask about it — but it
  * earned nothing and counts toward no total.

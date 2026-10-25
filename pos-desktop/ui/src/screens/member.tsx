@@ -48,6 +48,41 @@ function tieRefusal(reply: api.EdgeReply<unknown>, receiptNo: string): string {
   return /^[\x00-\x7F]*$/.test(said) && /\b(the|not|is|no|a)\b/i.test(said) ? "Struk belum bisa dikaitkan ke member." : said || "Struk belum bisa dikaitkan ke member."
 }
 
+/// What the node says when it will not send a new member's number its code
+/// (owner, 25 Oct 2026). Head office's sentences are read before the status:
+/// WhatsApp's refusals come back through the node as a 503 with the sentence
+/// inside.
+function codeRefusal(reply: api.EdgeReply<unknown>, phone: string): string {
+  // The node prefixes the kind of refusal ("conflict: …").
+  const said = (reply.problem ?? "").replace(/^(?:[a-z ]+:\s*)+/i, "")
+  const taken = /^(.+?) already has the number (\d+)/i.exec(said)
+  if (taken !== null) return `${taken[1]} sudah memakai nomor ${taken[2]}.`
+  if (/not on whatsapp/i.test(said)) return `Nomor ${phone} tidak terdaftar di WhatsApp.`
+  if (/not connected/i.test(said)) {
+    return "WhatsApp kantor pusat belum tersambung — member baru belum bisa didaftarkan."
+  }
+  const codes = /sent (\d+) codes/i.exec(said)
+  if (codes !== null) return `Nomor itu sudah dikirimi ${codes[1]} kode dalam sejam — coba lagi nanti.`
+  if (/mobile number/i.test(said)) return "Member baru didaftarkan dengan nomor HP, 08…"
+  return memberRefusal(reply, "Kode belum bisa dikirim ke nomor itu.")
+}
+
+/// How long before a new code may be asked for the same number.
+const RESEND_AFTER = 30_000
+
+/// The answer to "send this number a code" the form keeps: nothing asked yet
+/// (`null`), head office wants no code (`required: false` — the form goes as it
+/// always did), or the code is on its way to the number as head office keys it.
+type Sent =
+  | { readonly required: false }
+  | {
+      readonly required: true
+      readonly memberId: string
+      readonly challengeId: string
+      readonly sentTo: string
+      readonly sentAt: number
+    }
+
 /// "10:52", the way the struk's time is read at a counter.
 const clock = (iso: string) => {
   const at = new Date(iso)
@@ -142,6 +177,13 @@ export function MemberSheet({
   const [address, setAddress] = useState("")
   const [email, setEmail] = useState("")
   const [receiptNo, setReceiptNo] = useState("")
+  // The WhatsApp code that proves the shopper holds the number (owner, 25 Oct
+  // 2026): asked for with Enter on the phone or "Kirim kode", typed back in
+  // `code`. A different number is a different code.
+  const [sent, setSent] = useState<Sent | null>(null)
+  const [code, setCode] = useState("")
+  const [sending, setSending] = useState(false)
+  const [now, setNow] = useState(() => Date.now())
   // The member this form has already enrolled: a struk the node then refuses is
   // fixed and tried again without registering the same phone twice.
   const [enrolled, setEnrolled] = useState<api.Member | null>(null)
@@ -159,6 +201,7 @@ export function MemberSheet({
   const addressBox = useRef<HTMLInputElement>(null)
   const emailBox = useRef<HTMLInputElement>(null)
   const receiptBox = useRef<HTMLInputElement>(null)
+  const codeBox = useRef<HTMLInputElement>(null)
 
   const number = typed.trim()
   const unchanged = asked !== null && number === asked
@@ -190,6 +233,20 @@ export function MemberSheet({
     // Only on switching: typing must not steal the caret.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode])
+
+  // A code on its way: the caret goes to where it is typed, and "Kirim ulang"
+  // counts down the seconds until it may be pressed.
+  useEffect(() => {
+    if (sent === null || !sent.required) return
+    codeBox.current?.focus()
+    setNow(Date.now())
+    const timer = window.setInterval(() => {
+      const at = Date.now()
+      setNow(at)
+      if (at - sent.sentAt >= RESEND_AFTER) window.clearInterval(timer)
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [sent])
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -249,8 +306,54 @@ export function MemberSheet({
     else openForm()
   }
 
+  /// Ask head office to send the phone its code. What it answered, or null when
+  /// it refused — the sentence is then on the form. The number is written back
+  /// the way head office keys it, because that is what the code is for.
+  async function sendCode(): Promise<Sent | null> {
+    const digits = phone.replace(/\D/g, "")
+    if (digits.length < 10 || digits.length > 13) {
+      setProblem("Nomor HP harus 10–13 angka")
+      phoneBox.current?.focus()
+      return null
+    }
+    setSending(true)
+    setProblem(null)
+    const reply = await api.sendMemberCode(digits)
+    setSending(false)
+    if (!reply.ok || !reply.body) {
+      setProblem(codeRefusal(reply, digits))
+      return null
+    }
+    const answer = reply.body
+    const asked: Sent = answer.required
+      ? {
+          required: true,
+          memberId: answer.member_id,
+          challengeId: answer.challenge_id,
+          sentTo: answer.sent_to,
+          sentAt: Date.now(),
+        }
+      : { required: false }
+    setSent(asked)
+    setCode("")
+    if (answer.required) setPhone(answer.member_id)
+    return asked
+  }
+
+  /// Enter on the phone, or "Kirim kode": the code is sent, then the caret goes
+  /// where the form goes next — the code, or the name when head office wants none.
+  async function phoneEnter() {
+    if (busy || sending) return
+    if (sent !== null || enrolled !== null) {
+      ;(sent?.required ? codeBox : nameBox).current?.focus()
+      return
+    }
+    const asked = await sendCode()
+    if (asked !== null && !asked.required) nameBox.current?.focus()
+  }
+
   async function enrol() {
-    if (busy) return
+    if (busy || sending) return
     const fail = (message: string, box?: React.RefObject<HTMLElement | null>) => {
       setProblem(message)
       box?.current?.focus()
@@ -264,18 +367,43 @@ export function MemberSheet({
       if (place.trim() === "") return fail("Tempat lahir wajib diisi", placeBox)
       const iso = isoDate(birth)
       if (iso === null) return fail("Tanggal lahir dd/mm/yyyy", birthBox)
+      // The form is whole: if no code has been asked for yet, this is the
+      // moment — and the shopper reads it back before anything is saved.
+      let asked = sent
+      if (asked === null) {
+        asked = await sendCode()
+        if (asked === null) return
+        if (asked.required) return
+      }
+      if (asked.required && code.length !== 6) return fail("Kode 6 angka dari pelanggan", codeBox)
       setBusy(true)
       setProblem(null)
-      const reply = await api.registerMember(digits, name.trim(), {
-        gender,
-        birth_place: place.trim(),
-        birth_date: iso,
-        address: address.trim() === "" ? null : address.trim(),
-        email: email.trim() === "" ? null : email.trim(),
-      })
+      const reply = await api.registerMember(
+        asked.required ? asked.memberId : digits,
+        name.trim(),
+        {
+          gender,
+          birth_place: place.trim(),
+          birth_date: iso,
+          address: address.trim() === "" ? null : address.trim(),
+          email: email.trim() === "" ? null : email.trim(),
+        },
+        asked.required ? { challenge_id: asked.challengeId, code } : undefined,
+      )
       if (!reply.ok || !reply.body) {
         setBusy(false)
-        setProblem(memberRefusal(reply, "Kantor pusat tidak bisa mendaftarkan member itu."))
+        const said = reply.problem ?? ""
+        if (/does not match|has expired/i.test(said)) {
+          setCode("")
+          setProblem("Kode salah atau sudah kedaluwarsa — minta pelanggan baca ulang, atau kirim ulang.")
+          codeBox.current?.focus()
+        } else if (/reads back the code/i.test(said)) {
+          setSent(null)
+          setCode("")
+          setProblem("Kirim kode ke WhatsApp pelanggan dulu.")
+        } else {
+          setProblem(memberRefusal(reply, "Kantor pusat tidak bisa mendaftarkan member itu."))
+        }
         return
       }
       member = reply.body
@@ -355,16 +483,41 @@ export function MemberSheet({
           <div className="row2">
             <label>
               <span className="req">Nomor HP</span>
-              <input
-                ref={phoneBox}
-                value={phone}
-                onChange={(event) => setPhone(event.target.value)}
-                onKeyDown={next(nameBox)}
-                inputMode="numeric"
-                autoComplete="off"
-                placeholder="0812 3456 7788"
-                maxLength={20}
-              />
+              <span className="inl">
+                <input
+                  ref={phoneBox}
+                  value={phone}
+                  onChange={(event) => {
+                    setPhone(event.target.value)
+                    // Another number needs its own code; "no code needed" is head
+                    // office's and stays.
+                    if (sent?.required) {
+                      setSent(null)
+                      setCode("")
+                    }
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter") return
+                    event.preventDefault()
+                    void phoneEnter()
+                  }}
+                  inputMode="numeric"
+                  autoComplete="off"
+                  placeholder="0812 3456 7788"
+                  maxLength={20}
+                />
+                {sent === null && enrolled === null && (
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    className="ds-btn ds-btn--primary"
+                    disabled={busy || sending}
+                    onClick={() => void phoneEnter()}
+                  >
+                    {sending ? "Mengirim…" : "Kirim kode"}
+                  </button>
+                )}
+              </span>
             </label>
             <label>
               <span className="req">Nama</span>
@@ -384,6 +537,41 @@ export function MemberSheet({
               />
             </label>
           </div>
+          {sent?.required === true && enrolled === null && (
+            <label>
+              <span className="req">Kode dari pelanggan</span>
+              <span className="inl">
+                <input
+                  ref={codeBox}
+                  value={code}
+                  onChange={(event) => {
+                    setCode(event.target.value.replace(/\D/g, "").slice(0, 6))
+                    setProblem(null)
+                  }}
+                  onKeyDown={next(nameBox)}
+                  inputMode="numeric"
+                  autoComplete="off"
+                  placeholder="6 angka"
+                  maxLength={6}
+                  aria-label="Kode dari pelanggan"
+                />
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  className="ds-btn ds-btn--primary"
+                  disabled={busy || sending || now - sent.sentAt < RESEND_AFTER}
+                  onClick={() => void sendCode()}
+                >
+                  {sending
+                    ? "Mengirim…"
+                    : now - sent.sentAt < RESEND_AFTER
+                      ? `Kirim ulang · ${Math.ceil((RESEND_AFTER - (now - sent.sentAt)) / 1000)}`
+                      : "Kirim ulang"}
+                </button>
+              </span>
+              <span className="mem-rc">Kode dikirim ke WhatsApp {sent.sentTo}</span>
+            </label>
+          )}
           <label>
             <span className="req">Jenis kelamin</span>
             <span className="seg2" ref={genderBox}>
@@ -498,14 +686,14 @@ export function MemberSheet({
           <button type="button" className="ds-btn ds-btn--ghost" onClick={leave}>
             Batal
           </button>
-          <button type="button" className="ds-btn ds-btn--primary" disabled={busy} onClick={() => void enrol()}>
+          <button type="button" className="ds-btn ds-btn--primary" disabled={busy || sending} onClick={() => void enrol()}>
             <span>Daftar</span>
             <span className="kbd">Enter</span>
           </button>
         </div>
       </>,
       "Daftar member",
-      false,
+      true,
     )
   }
 

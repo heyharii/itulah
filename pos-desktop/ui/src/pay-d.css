@@ -341,4 +341,29 @@
 .payd .amt-vcode::placeholder{text-transform:none}
 .payd .amt.fixed{background:var(--segment-track);border-color:transparent;color:var(--ink)}
 .payd .mmid .vinfo{flex:0 1 auto;max-width:none;min-width:0}
+/* Poin (owner, 25 Oct 2026): the cashier types the points where the money
+   goes, the box is the amount's with "Poin" where "Rp" is; once asked, the
+   shopper's six digits take its place and the one waiting line sits under the
+   row, with the time left. */
+.payd .amt-pts{cursor:text}
+.payd .amt-pts:focus-within{border-color:var(--accent);box-shadow:var(--shadow-focus)}
+.payd .amt-pts.bad{border-color:var(--bad);box-shadow:0 0 0 2px rgb(215 0 21/10%)}
+.payd .amt-pts input{flex:1;min-width:0;height:100%;padding:0 0 0 8px;border:0;background:none;text-align:right;font-variant-numeric:tabular-nums}
+.payd .amt-pts input::placeholder{color:var(--faint);font-weight:500}
+.payd .pwait{grid-column:2/-1;display:flex;align-items:baseline;justify-content:space-between;gap:12px;color:var(--body)}
+.payd .pwait span{min-width:0}
+.payd .pwait .num{flex:none;color:var(--ink);font-weight:600}
 .payd .pad-tog{align-self:stretch;justify-content:space-between;height:40px}
+
+/* Diskon karyawan: Verifikasi fills the column the voucher code field fills. */
+.payd .mverify{flex:1 1 140px;display:inline-flex;align-items:center;justify-content:center;gap:8px;height:40px;padding:0 14px;border:0;border-radius:8px;background:var(--accent);color:#fff;font-weight:600;transition:scale 120ms cubic-bezier(.23,1,.32,1),opacity 150ms ease}
+.payd .mverify:active{scale:.98}
+.payd .mverify:disabled{opacity:.5}
+.payd .mverify .kbd{background:rgb(255 255 255/18%);color:#fff}
+.payd .mverify{flex:0 1 200px;height:36px;margin-left:auto;font-weight:500}
+.payd .minput.mverify{flex:none;margin-left:0;height:40px;border:0;background:var(--accent);color:#fff;font-weight:600;text-align:center;justify-content:center}
+/* Mesin, Debit/Kredit/QRIS and whose card: one row, side by side (owner, 25 Oct 2026). */
+.payd .stp-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px}
+.payd .vcancel{height:32px;padding:0 12px;border-radius:8px;background:var(--bad,#d70015);color:#fff;font-weight:600;white-space:nowrap;transition:scale 120ms cubic-bezier(.23,1,.32,1)}
+.payd .vcancel:active{scale:.97}
+.payd .vcancel:disabled{opacity:.5}

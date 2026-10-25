@@ -22,6 +22,11 @@ export const COUPON = 'HEMAT50';
 
 /** "Rp 159.000" as the apps print it (Intl id-ID puts a no-break space after Rp). */
 export const rp = (minor: number) => `Rp ${minor.toLocaleString('id-ID')}`;
+/** A text matcher for a line that ends in a rupiah figure, whatever space the app puts after "Rp": `rpRe(10, '10 poin = ')`. */
+export const rpRe = (minor: number, before = '') => {
+  const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`^${escape(before)}Rp\\s${escape(minor.toLocaleString('id-ID'))}$`);
+};
 /** 159000 from "Rp 159.000" / "−Rp 15.900" / "Bayar Rp 159.000"; NaN when there is no figure. */
 export function moneyIn(text: string): number {
   const m = text.replace(/ | /g, ' ').match(/Rp\s*([\d.]+)/);
@@ -304,21 +309,63 @@ export async function approve(t: Till, who = 'maya', password = PASSWORD) {
   await sheet.getByRole('button', 'Setujui').tap();
 }
 
-/** The shopper side of "Tukar poin": pair the member app with a staff code and ask for `points` as a voucher. */
-export async function requestRedeem(memberId: string, points: number): Promise<{ request_id: string; code: string }> {
+/**
+ * The shopper's side of a points ask (owner, 25 Oct 2026): the member app, signed in with a staff-issued pairing code.
+ * The cashier says how many points at the till; the shopper only approves or declines here. The other way to say yes,
+ * the six digits head office sends to the shopper's WhatsApp, cannot be read by a test.
+ */
+export async function memberApp(memberId: string) {
   const base = (await import('./base.ts')).RIG.cloud;
   const pairing = await as('cloud', 'dian').post(`/api/v1/members/${memberId}/pairing-code`, {});
   const session = await fetch(`${base}/api/v1/member/session`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ member_id: memberId, code: pairing.code }) });
   if (!session.ok) throw new Error(`member pairing answered ${session.status}`);
   const cookies = session.headers.getSetCookie().map((c) => c.split(';')[0]);
   const csrf = cookies.find((c) => c.startsWith('member_csrf='))?.split('=')[1] ?? '';
-  const res = await fetch(`${base}/api/v1/member/points/redeem-requests`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', cookie: cookies.join('; '), 'x-csrf-token': csrf, 'idempotency-key': uid() },
-    body: JSON.stringify({ points }),
-  });
-  if (!res.ok) throw new Error(`redeem request answered ${res.status}: ${await res.text()}`);
-  return res.json();
+  const call = async (method: 'GET' | 'POST', path: string) => {
+    const res = await fetch(`${base}${path}`, { method, headers: { 'content-type': 'application/json', cookie: cookies.join('; '), 'x-csrf-token': csrf, 'idempotency-key': uid() } });
+    if (!res.ok) throw new Error(`${method} ${path} answered ${res.status}: ${await res.text()}`);
+    return res.json();
+  };
+  const requests = (): Promise<Json[]> => call('GET', '/api/v1/member/points/redeem-requests');
+  return {
+    requests,
+    /** The ask the cashier just made: the member's newest request still waiting. */
+    waiting: async (): Promise<Json | undefined> => (await requests()).find((r) => r.status === 'PENDING'),
+    approve: (requestId: string): Promise<Json> => call('POST', `/api/v1/member/points/redeem-requests/${requestId}/approve`),
+    decline: (requestId: string): Promise<Json> => call('POST', `/api/v1/member/points/redeem-requests/${requestId}/decline`),
+  };
+}
+
+/** A member's points as head office reads them. */
+export async function pointsOf(memberId: string): Promise<number> {
+  return (await as('cloud', 'dian').get(`/api/v1/members/${memberId}`)).points_balance as number;
+}
+
+/**
+ * A unit in the basket, the member on the sale (Member → find → Enter), Bayar open with the Poin row in view.
+ * `open` is how the counter is reached: `openCounter`, or a journey's own (`journeys.openCounter`).
+ */
+export async function openBayarForMember(t: Till, epc: string, memberId: string, open: (t: Till) => Promise<void> = openCounter) {
+  const { screen } = t;
+  await open(t);
+  await scanUnits(t, epc);
+  await screen.getByRole('button', 'Member').tap();
+  const find = screen.getByLabel('Cari member');
+  await find.fill(memberId);
+  await find.press('Enter'); // look it up
+  await expect(screen.getByText(/poin$/)).toBeVisible({ timeout: 20_000 });
+  await find.press('Enter'); // add it to the sale
+  await screen.getByRole('button', /^Bayar/).tap();
+  await expect(screen.getByRole('dialog', 'Bayar')).toBeVisible();
+}
+
+/** Types the points into the Poin row and asks. The row's field takes the caret when the row is in focus. */
+export async function askPoints(t: Till, points: number) {
+  const field = t.screen.getByLabel('Jumlah poin');
+  await field.fill(String(points));
+  await t.screen.getByRole('button', /^Minta persetujuan/).tap();
+  // The one waiting line: the code went to WhatsApp, or only the app can approve.
+  await expect(t.screen.getByText(/^(Menunggu pelanggan — kode dikirim ke WhatsApp|Minta pelanggan menyetujui di app member)/)).toBeVisible({ timeout: 20_000 });
 }
 
 /** The newest receipt of today's window with this total, after `sinceMs`. */

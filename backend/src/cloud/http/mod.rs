@@ -140,6 +140,7 @@ pub mod unmatched_sales;
 /// store's server, and a device's test page. See `postgres/stores.rs`.
 pub mod stores;
 pub mod supplier_banks;
+pub mod whatsapp;
 pub mod supplier_contacts;
 pub mod suppliers;
 pub mod sync_generation;
@@ -809,6 +810,11 @@ pub fn router(state: AppState) -> Router {
         "/api/v1/members/{member_id}/pairing-code",
         post(member::issue_code),
     )
+    .route("/api/v1/members/{member_id}", get(member::read))
+    .route(
+        "/api/v1/members/{member_id}/redeem-requests",
+        get(member::redemptions),
+    )
     .route("/api/v1/member/session", post(member::pair))
     .route("/api/v1/member/logout", post(member::sign_out))
     .route("/api/v1/member/me", get(member::me))
@@ -821,8 +827,26 @@ pub fn router(state: AppState) -> Router {
     .route("/api/v1/member/points", get(member::points))
     .route(
         "/api/v1/member/points/redeem-requests",
-        get(member::redeem_requests).post(member::create_redeem_request),
+        get(member::redeem_requests),
     )
+    // A cashier's ask, approved or turned down in the app (owner, 25 Oct
+    // 2026): the cashier says how many points, the shopper says yes.
+    .route(
+        "/api/v1/member/points/redeem-requests/{request_id}/approve",
+        post(member::approve_redeem_request),
+    )
+    .route(
+        "/api/v1/member/points/redeem-requests/{request_id}/decline",
+        post(member::decline_redeem_request),
+    )
+    // Signing in by a WhatsApp code, for a member registered at a till.
+    .route("/api/v1/member/otp", post(member::send_code))
+    .route("/api/v1/member/session/otp", post(member::sign_in_by_code))
+    // Head office's WhatsApp, which sends those codes: Central › System ›
+    // WhatsApp.
+    .route("/api/v1/system/whatsapp", get(whatsapp::status))
+    .route("/api/v1/system/whatsapp/test", post(whatsapp::test))
+    .route("/api/v1/system/whatsapp/logout", post(whatsapp::logout))
     .route("/api/v1/auth/login", post(auth::login))
     .route("/api/v1/auth/me", get(auth::me))
     .route("/api/v1/auth/edge-sso-ticket", post(auth::edge_sso_ticket))
@@ -939,6 +963,20 @@ pub fn router(state: AppState) -> Router {
         "/api/v1/sync/points/redeem-requests/{request_id}/confirm",
         post(sync_redeem_request_confirm),
     )
+    // The cashier's ask (owner, 25 Oct 2026): how many points, a code to the
+    // shopper's WhatsApp, and the till's wait for the shopper's yes.
+    .route(
+        "/api/v1/sync/points/redeem-requests",
+        post(sync_redeem_ask),
+    )
+    .route(
+        "/api/v1/sync/points/redeem-requests/{request_id}/progress",
+        post(sync_redeem_ask_progress),
+    )
+    .route(
+        "/api/v1/sync/points/redeem-requests/{request_id}/cancel",
+        post(sync_redeem_ask_cancel),
+    )
     // What the till's keys ask head office without touching any money: F2 on a
     // voucher (its balance, read-only), F5 on a member (who, and their points)
     // and Shift+F5 (enrol a new one, keyed by the phone they read out).
@@ -948,6 +986,8 @@ pub fn router(state: AppState) -> Router {
     )
     .route("/api/v1/sync/members/lookup", post(sync_member_lookup))
     .route("/api/v1/sync/members/enrol", post(sync_member_enrol))
+    // The code a new member reads back at the till (owner, 25 Oct 2026).
+    .route("/api/v1/sync/members/otp", post(sync_member_otp))
     .route("/api/v1/sync/dead-letters", get(sync_dead_letters))
     .route("/api/v1/sync/trigger", post(sync_trigger))
     .route("/api/v1/sync/breaker/reset", post(sync_breaker_reset))
@@ -4533,6 +4573,12 @@ struct RelayMemberRequest {
     address: Option<String>,
     #[serde(default)]
     email: Option<String>,
+    /// The code sent to the new member's WhatsApp (`/sync/members/otp`) and
+    /// what they read back. Required while head office has WhatsApp.
+    #[serde(default)]
+    otp_challenge_id: Option<Uuid>,
+    #[serde(default)]
+    otp_code: Option<String>,
 }
 
 /// Prove the caller and the shop it speaks for — `relay_site`'s rule, for a
@@ -4628,48 +4674,22 @@ async fn sync_member_lookup(
         .ok_or_else(|| AppError::NotFound(format!("no member {member_id}")))
 }
 
-/// Shift+F5 at the till: enrol a new member, keyed by the phone they read out.
-/// A number that is already a member is refused by name rather than renamed —
-/// the cashier is told who already holds it.
-async fn sync_member_enrol(
+/// Daftar member at the till: send the new member's number a code on
+/// WhatsApp (owner, 25 Oct 2026). With no WhatsApp at head office nothing is
+/// sent and `required` is false: the till registers as it did before.
+async fn sync_member_otp(
     State(s): State<AppState>,
     headers: HeaderMap,
     Json(request): Json<RelayMemberRequest>,
 ) -> Result<Json<Value>, AppError> {
     relay_member_site(&s, &headers, &request).await?;
-    let member_id = relay_member_id(&request.member_id)?;
-    if !member_id.chars().all(|c| c.is_ascii_digit()) || !(10..=13).contains(&member_id.len()) {
-        return Err(AppError::Validation(
-            "a new member is registered by a phone number of 10 to 13 digits".into(),
-        ));
+    if crate::cloud::whatsapp::gateway().is_none() {
+        return Ok(Json(json!({ "required": false })));
     }
-    let name = request
-        .display_name
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| AppError::Validation("a new member needs a name".into()))?;
-    // Required by the client (23 Oct 2026): gender, birth place, birth date.
-    let filled = |value: &Option<String>| {
-        value
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string)
-    };
-    let gender = filled(&request.gender)
-        .map(|gender| gender.to_ascii_uppercase())
-        .filter(|gender| gender == "L" || gender == "P")
-        .ok_or_else(|| AppError::Validation("a new member needs a gender, L or P".into()))?;
-    let birth_place = filled(&request.birth_place)
-        .ok_or_else(|| AppError::Validation("a new member needs a birth place".into()))?;
-    let birth_date = request
-        .birth_date
-        .ok_or_else(|| AppError::Validation("a new member needs a birth date".into()))?;
-    let email = filled(&request.email);
-    if email.as_deref().is_some_and(|email| !email.contains('@')) {
-        return Err(AppError::Validation("that email has no @".into()));
-    }
+    let typed = relay_member_id(&request.member_id)?;
+    let member_id = infrastructure::member_phone(&typed).ok_or_else(|| {
+        AppError::Validation("a new member is registered by a mobile number, 08…".into())
+    })?;
     if let Some(existing) = member_with_points(&s, &member_id).await? {
         let who = existing
             .get("display_name")
@@ -4679,23 +4699,71 @@ async fn sync_member_enrol(
             "{who} already has the number {member_id}"
         )));
     }
-    infrastructure::enrol_member(&s.db, &member_id, Some(name)).await?;
-    infrastructure::record_member_profile(
+    let sent = infrastructure::send_member_otp(
         &s.db,
+        infrastructure::OtpPurpose::Register,
         &member_id,
-        &infrastructure::MemberProfile {
-            gender: Some(gender),
-            birth_place: Some(birth_place),
-            birth_date: Some(birth_date),
-            address: filled(&request.address),
-            email,
-        },
+        Some(request.origin_id.as_str()),
+        Some(request.actor_id.trim()),
     )
     .await?;
-    member_with_points(&s, &member_id)
+    Ok(Json(json!({
+        "required": true,
+        "member_id": member_id,
+        "challenge_id": sent.challenge_id,
+        "expires_at": sent.expires_at,
+        "sent_to": sent.sent_to,
+    })))
+}
+
+/// Shift+F5 at the till: enrol a new member, keyed by the phone they read out.
+/// A number that is already a member is refused by name rather than renamed —
+/// the cashier is told who already holds it. While head office has WhatsApp,
+/// the code sent to that number has to come back with it.
+async fn sync_member_enrol(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<RelayMemberRequest>,
+) -> Result<Json<Value>, AppError> {
+    relay_member_site(&s, &headers, &request).await?;
+    let typed = relay_member_id(&request.member_id)?;
+    // `62812…` and `0812…` are one number, written as the till keys it.
+    let member_id = infrastructure::member_phone(&typed).unwrap_or(typed);
+    let new = infrastructure::NewMember::checked(
+        &member_id,
+        request.display_name.as_deref(),
+        request.gender.as_deref(),
+        request.birth_place.as_deref(),
+        request.birth_date,
+        request.address.as_deref(),
+        request.email.as_deref(),
+    )?;
+    let challenge = if crate::cloud::whatsapp::gateway().is_some() {
+        let challenge = request.otp_challenge_id.ok_or_else(|| {
+            AppError::Validation(
+                "a new member reads back the code sent to their WhatsApp first".into(),
+            )
+        })?;
+        infrastructure::verify_member_otp(
+            &s.db,
+            challenge,
+            infrastructure::OtpPurpose::Register,
+            &new.member_id,
+            request.otp_code.as_deref().unwrap_or_default(),
+        )
+        .await?;
+        Some(challenge)
+    } else {
+        None
+    };
+    infrastructure::register_member(&s.db, &new).await?;
+    if let Some(challenge) = challenge {
+        infrastructure::use_member_otp(&s.db, challenge).await?;
+    }
+    member_with_points(&s, &new.member_id)
         .await?
         .map(Json)
-        .ok_or_else(|| AppError::NotFound(format!("no member {member_id}")))
+        .ok_or_else(|| AppError::NotFound(format!("no member {}", new.member_id)))
 }
 
 async fn sync_voucher_commit(
@@ -4847,6 +4915,88 @@ async fn sync_redeem_request_confirm(
     }
     let outcome = infrastructure::confirm_redeem_request(&s.db, request_id, actor).await?;
     Ok(Json(outcome))
+}
+
+/// What a relaying till sends to ask for a member's points.
+#[derive(Debug, serde::Deserialize)]
+struct RelayRedeemAsk {
+    origin_id: String,
+    #[serde(default)]
+    site_id: Option<String>,
+    actor_id: String,
+    member_id: String,
+    points: i64,
+}
+
+/// The cashier says how many points (owner, 25 Oct 2026); the shopper's
+/// WhatsApp gets the code, the shopper's app gets the ask.
+async fn sync_redeem_ask(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<RelayRedeemAsk>,
+) -> Result<Json<infrastructure::RedeemAsk>, AppError> {
+    let origin = authenticate_origin(&s, &headers, &request.origin_id).await?;
+    let actor = request.actor_id.trim();
+    if actor.is_empty() {
+        return Err(AppError::Validation(
+            "a redemption has to be attributable to somebody".into(),
+        ));
+    }
+    let stamped = request
+        .site_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if let (Some(registered), Some(claimed)) = (origin.site_id.as_deref(), stamped) {
+        if registered != claimed {
+            return Err(AppError::Forbidden(format!(
+                "origin {} speaks for {registered}, not {claimed}",
+                origin.origin_id
+            )));
+        }
+    }
+    let site = origin.site_id.as_deref().or(stamped);
+    let member_id = relay_member_id(&request.member_id)?;
+    Ok(Json(
+        infrastructure::ask_redeem_request(
+            &s.db,
+            &member_id,
+            request.points,
+            infrastructure::RedeemAsker {
+                actor,
+                origin_id: &origin.origin_id,
+                site_id: site,
+            },
+        )
+        .await?,
+    ))
+}
+
+/// The till waiting on its ask: still waiting, or approved in the app and a
+/// voucher now, or turned down.
+async fn sync_redeem_ask_progress(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Path(request_id): Path<Uuid>,
+    Json(request): Json<RelayRedeemConfirm>,
+) -> Result<Json<Value>, AppError> {
+    let origin = authenticate_origin(&s, &headers, &request.origin_id).await?;
+    Ok(Json(
+        infrastructure::redeem_ask_progress(&s.db, request_id, &origin.origin_id).await?,
+    ))
+}
+
+/// The cashier takes the ask back: the shopper paid another way.
+async fn sync_redeem_ask_cancel(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Path(request_id): Path<Uuid>,
+    Json(request): Json<RelayRedeemConfirm>,
+) -> Result<Json<infrastructure::RedeemRequest>, AppError> {
+    let origin = authenticate_origin(&s, &headers, &request.origin_id).await?;
+    Ok(Json(
+        infrastructure::cancel_redeem_ask(&s.db, request_id, &origin.origin_id).await?,
+    ))
 }
 
 /// What the fleet sent that this server would not take — an envelope rather

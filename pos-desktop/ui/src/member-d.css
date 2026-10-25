@@ -27,6 +27,15 @@
 .xchd .d-pw .seg2 button.on{background:var(--accent-bg);color:var(--accent);box-shadow:inset 0 0 0 1.5px var(--accent)}
 .xchd .d-pw .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .xchd .d-pw .req::after{content:" *";color:var(--bad-fg)}
+/* Daftar member: the phone's "Kirim kode" and the code's "Kirim ulang" sit
+   inside their field, at its right edge (owner, 25 Oct 2026). */
+.xchd .d-pw .inl{position:relative;display:block}
+.xchd .d-pw .inl input{width:100%;padding-right:106px}
+.xchd .d-pw .inl .ds-btn{position:absolute;top:5px;right:5px;height:30px;padding:0 10px}
 
 /* F5: the struk the typed "No. transaksi" is (prototype `.mem-rc`). */
 .xchd .mem-rc{margin-top:6px;color:var(--body);font-variant-numeric:tabular-nums}
+.xchd .dlg.mem-dlg.wide{width:860px}
+.xchd .dlg.mem-dlg.wide .d-pw{display:grid;grid-template-columns:1fr 1fr;gap:14px 20px;align-items:start}
+.xchd .dlg.mem-dlg.wide .d-pw .row2{display:contents}
+.xchd .dlg.mem-dlg.wide .d-pw>:not(label):not(.row2){grid-column:1/-1}

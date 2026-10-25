@@ -3,7 +3,24 @@ import type { RedeemRequestStatus } from "./RedeemRequestStatus";
 
 /**
  * A request to turn points into a voucher — reused for a shopper's own
- * history and for what a cashier's lookup answers with. Never carries the
- * code: see [`IssuedRedeemRequest`] for the one response that does.
+ * history, head office's, and what a cashier's lookup answers with. Never
+ * carries the code: that went to the shopper's WhatsApp and nowhere else.
  */
-export type RedeemRequest = { request_id: string, points: number, status: RedeemRequestStatus, requested_at: string, expires_at: string, redemption_id: string | null, };
+export type RedeemRequest = { request_id: string, points: number, 
+/**
+ * What the points buy, at the scheme's own rate.
+ */
+value_minor: number, status: RedeemRequestStatus, requested_at: string, expires_at: string, redemption_id: string | null, 
+/**
+ * The shop whose cashier asked.
+ */
+store_name: string | null, 
+/**
+ * The cashier's username.
+ */
+asked_by: string | null, 
+/**
+ * Approved by the shopper in the member app, rather than by the code
+ * they read back.
+ */
+approved_in_app: boolean, };

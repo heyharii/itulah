@@ -3,10 +3,10 @@ import type {
   CustomerTransactionDetail,
   CustomerTransactionPage,
   IssuedPairingCode,
-  IssuedRedeemRequest,
   MemberIdentity,
   MemberSessionResponse,
   RedeemRequest,
+  SentOtp,
 } from "../index";
 import { Node } from "./node";
 
@@ -33,6 +33,12 @@ import { Node } from "./node";
 ///      of them, and reads the six digits off their screen;
 ///   2. the shopper types their member number and those digits into
 ///      [`Member.pair`], which sets the session cookies.
+///
+/// Or, since 25 Oct 2026 (the owner's call), by a code on WhatsApp: the
+/// shopper types the number they registered at a till, [`Member.sendCode`]
+/// sends six digits to its WhatsApp, and [`Member.signInByCode`] trades them
+/// for the same session. Nobody signs up in the app: members are registered
+/// at a till.
 export class Member {
   private readonly node: Node;
 
@@ -96,6 +102,30 @@ export class Member {
     );
   }
 
+  /// Send a sign-in code to a member's WhatsApp. A number that is no member
+  /// is refused (404): members are registered at a till.
+  sendCode(phone: string, signal?: AbortSignal): Promise<SentOtp> {
+    return this.node.post<SentOtp>(
+      "/api/v1/member/otp",
+      { phone },
+      { signal },
+    );
+  }
+
+  /// Trade the number and the code its WhatsApp received for a session.
+  signInByCode(
+    challengeId: string,
+    phone: string,
+    code: string,
+    signal?: AbortSignal,
+  ): Promise<MemberSessionResponse> {
+    return this.node.post<MemberSessionResponse>(
+      "/api/v1/member/session/otp",
+      { challenge_id: challengeId, phone, code },
+      { signal },
+    );
+  }
+
   me(signal?: AbortSignal): Promise<MemberIdentity> {
     return this.node.get<MemberIdentity>("/api/v1/member/me", { signal });
   }
@@ -148,23 +178,33 @@ export class Member {
 
   // ── the shopper's points ──────────────────────────────────────────────
 
-  /// Ask to turn points into a voucher. The code in the response is the
-  /// shopper's own version of what [`Member.issuePairingCode`] hands a
-  /// cashier: shown once, large, meant to be read out — the same
-  /// conversation as pairing, with the two roles swapped.
-  createRedeemRequest(
-    points: number,
+  /// Approve a cashier's ask to spend points: they are spent at once, and the
+  /// till waiting on it finds the voucher.
+  approveRedeemRequest(
+    requestId: string,
     signal?: AbortSignal,
-  ): Promise<IssuedRedeemRequest> {
-    return this.node.post<IssuedRedeemRequest>(
-      "/api/v1/member/points/redeem-requests",
-      { points },
+  ): Promise<RedeemRequest> {
+    return this.node.post<RedeemRequest>(
+      `/api/v1/member/points/redeem-requests/${encodeURIComponent(requestId)}/approve`,
+      {},
       { signal },
     );
   }
 
-  /// What a shopper has asked to redeem, newest first, and what became of
-  /// each ask.
+  /// Turn a cashier's ask down.
+  declineRedeemRequest(
+    requestId: string,
+    signal?: AbortSignal,
+  ): Promise<RedeemRequest> {
+    return this.node.post<RedeemRequest>(
+      `/api/v1/member/points/redeem-requests/${encodeURIComponent(requestId)}/decline`,
+      {},
+      { signal },
+    );
+  }
+
+  /// The asks to spend this member's points, newest first, and what became
+  /// of each.
   redeemRequests(signal?: AbortSignal): Promise<RedeemRequest[]> {
     return this.node.get<RedeemRequest[]>(
       "/api/v1/member/points/redeem-requests",

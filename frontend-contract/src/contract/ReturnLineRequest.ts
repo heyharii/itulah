@@ -5,8 +5,16 @@ export type ReturnLineRequest = {
  * The tag on the garment being handed back. A return is scanned like a
  * sale — the shop has to know WHICH shirt came home, not merely that one
  * did, or the unit stays sold forever and a different one goes missing.
+ *
+ * Empty for a piece sold without a tag: that one names `sku_code`.
  */
 epc: string, 
+/**
+ * A piece sold without a tag (typed SKU, `unmatched_sale_line`) comes
+ * back by its SKU (owner, 25 Oct 2026): the first line of that SKU on the
+ * receipt not yet returned. Read only when `epc` is empty.
+ */
+sku_code: string | null, 
 /**
  * `RESALEABLE` back to the floor, `DAMAGED` to the reject pool. Anything
  * not fit to sell must not reach the rail by default.

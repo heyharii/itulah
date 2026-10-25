@@ -108,6 +108,7 @@ mod manual_journal;
 /// starts and ends. Every notice claimed once through the run ledger.
 mod marketing_watch;
 mod member;
+mod member_otp;
 mod membership;
 mod movements;
 mod node_enrolment;
@@ -366,6 +367,7 @@ pub use management_fee::*;
 pub use manual_journal::*;
 pub use marketing_watch::*;
 pub use member::*;
+pub use member_otp::*;
 pub use membership::*;
 pub use movements::*;
 pub use node_enrolment::*;

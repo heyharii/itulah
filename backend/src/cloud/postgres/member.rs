@@ -21,6 +21,13 @@
 //! this scheme has, a dishonest cashier pairing their own phone to somebody
 //! else's card. A phone OTP can name nobody.
 //!
+//! # And now a WhatsApp code as well
+//!
+//! The owner chose the code anyway (25 Oct 2026): a till registers a new
+//! member, and the app signs a shopper in or up, once the shopper reads back
+//! six digits sent to that number's WhatsApp — see `member_otp.rs`. The
+//! pairing code stays for a card with no phone behind it.
+//!
 //! # Nothing here is a shortcut into the operator session
 //!
 //! A member session lives in its own table with its own cookie and carries no
@@ -165,6 +172,134 @@ pub async fn record_member_profile(
     .execute(pool)
     .await?;
     Ok(())
+}
+
+/// A new member as a till or the member app registers one (client, 23 Oct
+/// 2026): the phone is the member id, and a name, gender, birth place and
+/// birth date are required.
+#[derive(Clone, Debug)]
+pub struct NewMember {
+    pub member_id: String,
+    pub display_name: String,
+    pub profile: MemberProfile,
+}
+
+impl NewMember {
+    /// The registration rules, said once for the till and the app.
+    pub fn checked(
+        member_id: &str,
+        display_name: Option<&str>,
+        gender: Option<&str>,
+        birth_place: Option<&str>,
+        birth_date: Option<NaiveDate>,
+        address: Option<&str>,
+        email: Option<&str>,
+    ) -> Result<Self, AppError> {
+        let member_id = member_id.trim().to_string();
+        if !member_id.chars().all(|c| c.is_ascii_digit()) || !(10..=13).contains(&member_id.len()) {
+            return Err(AppError::Validation(
+                "a new member is registered by a phone number of 10 to 13 digits".into(),
+            ));
+        }
+        let filled = |value: Option<&str>| {
+            value
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        };
+        let display_name = filled(display_name)
+            .ok_or_else(|| AppError::Validation("a new member needs a name".into()))?;
+        let gender = filled(gender)
+            .map(|gender| gender.to_ascii_uppercase())
+            .filter(|gender| gender == "L" || gender == "P")
+            .ok_or_else(|| AppError::Validation("a new member needs a gender, L or P".into()))?;
+        let birth_place = filled(birth_place)
+            .ok_or_else(|| AppError::Validation("a new member needs a birth place".into()))?;
+        let birth_date = birth_date
+            .ok_or_else(|| AppError::Validation("a new member needs a birth date".into()))?;
+        let email = filled(email);
+        if email.as_deref().is_some_and(|email| !email.contains('@')) {
+            return Err(AppError::Validation("that email has no @".into()));
+        }
+        Ok(Self {
+            member_id,
+            display_name,
+            profile: MemberProfile {
+                gender: Some(gender),
+                birth_place: Some(birth_place),
+                birth_date: Some(birth_date),
+                address: filled(address),
+                email,
+            },
+        })
+    }
+}
+
+/// Register a new member. A number that is already a member is refused by
+/// name rather than renamed — whoever is registering is told who holds it.
+pub async fn register_member(pool: &PgPool, new: &NewMember) -> Result<MemberIdentity, AppError> {
+    let existing: Option<Option<String>> =
+        sqlx::query_scalar("SELECT display_name FROM member WHERE member_id = $1")
+            .bind(&new.member_id)
+            .fetch_optional(pool)
+            .await?;
+    if let Some(name) = existing {
+        return Err(AppError::Conflict(format!(
+            "{} already has the number {}",
+            name.as_deref().unwrap_or("someone"),
+            new.member_id
+        )));
+    }
+    let member = enrol_member(pool, &new.member_id, Some(&new.display_name)).await?;
+    record_member_profile(pool, &new.member_id, &new.profile).await?;
+    Ok(member)
+}
+
+/// A session for a shopper who has just read back a WhatsApp code
+/// (`member_otp.rs`): the pairing code's session, opened by the phone rather
+/// than by a cashier. `paired_by` says `WHATSAPP` for the same reason it names
+/// a cashier there — "who let this phone in" has an answer.
+pub async fn open_member_session(
+    pool: &PgPool,
+    member_id: &str,
+    site_id: Option<&str>,
+) -> Result<IssuedMemberSession, AppError> {
+    let member_id = normalise_member_id(member_id)?;
+    ensure_member_is_live(pool, &member_id).await?;
+    let token = security::random_token();
+    let csrf_token = security::random_token();
+    let expires_at = Utc::now() + Duration::days(MEMBER_SESSION_TTL_DAYS);
+    sqlx::query(
+        "INSERT INTO member_session
+             (session_id, token_sha256, csrf_token_sha256, member_id,
+              paired_at_site, paired_by, expires_at)
+         VALUES ($1,$2,$3,$4,$5,'WHATSAPP',$6)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(security::sha256_hex(&token))
+    .bind(security::sha256_hex(&csrf_token))
+    .bind(&member_id)
+    .bind(site_id)
+    .bind(expires_at)
+    .execute(pool)
+    .await?;
+    Ok(IssuedMemberSession {
+        token,
+        csrf_token,
+        expires_at,
+        member: member_identity(pool, &member_id).await?,
+    })
+}
+
+/// Whether `member_id` is a member at all.
+pub async fn member_exists(pool: &PgPool, member_id: &str) -> Result<bool, AppError> {
+    Ok(
+        sqlx::query_scalar::<_, i32>("SELECT 1 FROM member WHERE member_id = $1")
+            .bind(member_id.trim())
+            .fetch_optional(pool)
+            .await?
+            .is_some(),
+    )
 }
 
 /// Issue the code a cashier reads out.

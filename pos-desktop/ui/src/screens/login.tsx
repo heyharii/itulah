@@ -449,7 +449,8 @@ export function LoginScreen({
         <div className="f-who">
           <span className="av md">{initials(head ?? "")}</span>
           <div className="f-who-t"><b>{head}</b><span>{site !== null ? `Kepala toko · ${site}` : "Kepala toko"}</span></div>
-          <button className="d-chip" type="button" onClick={() => void back()} disabled={busy}>Batal<span className="kbd">Esc</span></button>
+          {/* Keluar, not Batal: it signs her out (owner, 25 Oct 2026). */}
+          <button className="d-chip" type="button" onClick={() => void back()} disabled={busy}>Keluar<span className="kbd">Esc</span></button>
         </div>
         <p className="f-title">Buka kasir atas nama</p>
         <div className="bh-list" role="listbox" aria-label="Buka kasir atas nama">

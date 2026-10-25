@@ -1,7 +1,7 @@
 // J5 — Member points round trip. A shopper is enrolled → dian rings up a sale for her card at the web
 // till (the till shows the points it will earn) → head office credits the points and Marketing › Members
-// shows them → the shopper asks to swap 10 points for a voucher in the member app, dian confirms it in
-// the till's "Tukar poin" → the balance drops in the hub, the points ledger and the voucher book agree.
+// shows them → dian types 10 points in the till's Bayar (Poin row) and asks, the shopper taps Approve in
+// the member app → the balance drops in the hub, the points ledger and the voucher book agree.
 //
 // The garment is one of our own on store-01's floor (ownFloorUnits), priced Rp 250.000 so the sale earns
 // 25 points ("1 poin per Rp 10.000", rule-poin-member). Cash only, never a bag charge.
@@ -82,23 +82,28 @@ describe('J5 Member points round trip', { serial: true, tags: ['journey', 'j5', 
     });
   });
 
-  test('J5-04 she swaps 10 points in the member app and dian confirms it in Tukar poin at the till: a voucher code comes back', { timeout: 300_000 }, async ({ app, screen, browser }) => {
-    const ask = await pos.requestRedeem(S.card, REDEEM);
+  test('J5-04 dian types 10 points in Bayar, asks, and she taps Approve in the member app: the Poin row turns into a voucher', { timeout: 300_000 }, async ({ app, screen, browser }) => {
+    // The cashier says how many points (owner, 25 Oct 2026); the shopper only approves. The other way to approve, the six digits
+    // head office sends to her WhatsApp, cannot be read by a test (see TILL-72c).
     const t = J.tillOf(app, screen, browser);
-    await J.openCounter(t);
-    await screen.getByRole('button', 'Tukar poin').tap();
-    await expect(screen.getByRole('heading', 'Tukar poin jadi voucher')).toBeVisible();
-    await screen.getByRole('textbox', 'Nomor member').fill(S.card);
-    await screen.getByLabel('Kode enam digit').fill(ask.code);
-    await screen.getByRole('button', 'Cari permintaan').tap();
-    await expect(screen.getByText('Permintaan ditemukan', { exact: true })).toBeVisible({ timeout: 20_000 });
-    await screen.getByRole('button', 'Konfirmasi penukaran').tap();
-    await expect(screen.getByText('Poin ditukar', { exact: true })).toBeVisible({ timeout: 20_000 });
-    await expect(screen.getByText('Pakai kode ini di pembayaran → Voucher.', { exact: true })).toBeVisible();
-    S.voucher = ((await screen.getByRole('heading', { level: 1 }).textContent()) ?? '').trim();
-    expect(S.voucher).toMatch(/\S{4,}/);
-    await screen.getByRole('button', 'Selesai').tap();
-    await expect(pos.scanField(screen)).toBeVisible();
+    const unit = await pos.pickUnit('plain');
+    try {
+      const shopper = await pos.memberApp(S.card);
+      await pos.openBayarForMember(t, unit.epc, S.card, J.openCounter);
+      await pos.askPoints(t, REDEEM);
+      const ask = await waitFor('her ask in the member app', () => shopper.waiting(), 20_000, 1_000);
+      expect(ask).toMatchObject({ points: REDEEM, status: 'PENDING' });
+      await shopper.approve(ask.request_id);
+      await expect(screen.getByText(pos.rpRe(ask.value_minor, `${REDEEM} poin ditukar · `))).toBeVisible({ timeout: 20_000 });
+      // The code of the voucher it became: the same answer the till got from head office.
+      const progress = await as('store', 'dian').post(`/api/v1/store/points/redeem-requests/${ask.request_id}/progress`, {});
+      S.voucher = progress.voucher.voucher_code as string;
+      expect(S.voucher).toMatch(/\S{4,}/);
+      await screen.getByRole('button', 'Kembali ke transaksi').tap();
+      await expect(pos.scanField(screen)).toBeVisible();
+    } finally {
+      pos.release(unit.epc);
+    }
   });
 
   test('J5-05 the balance drops in the hub: 25 → 15, 10 spent; the points ledger has the swap, the voucher book has the voucher; Marketing › Members agrees', { timeout: 420_000 }, async ({ app, screen, browser }) => {
@@ -113,7 +118,7 @@ describe('J5 Member points round trip', { serial: true, tags: ['journey', 'j5', 
     expect(swap[0].points).toBe(-REDEEM);
     expect(swap[0].redemption_id).toBeTruthy();
     const v = await voucher(S.voucher);
-    expect(v, 'the voucher the till printed is in the voucher book').toBeTruthy();
+    expect(v, 'the voucher the approved ask became is in the voucher book').toBeTruthy();
     expect(JSON.stringify(v)).toContain(S.voucher);
     expect(acct.voucher_balance_minor, 'her voucher balance in the directory').toBeGreaterThan(0);
     await signedIn(app, browser, 'rina');

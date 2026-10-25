@@ -10,7 +10,7 @@ Actors: dian = cashier (seat Kasir 1), maya = store manager / supervisor, rina =
 - **Stock is scarce** (store-01 floor ≈ 29 pieces, each SKU 1–3 units). Tests that sell pick units from the *end* of the EPC list and **always put them back** with a supervisor void (`pos.restoreSale`). Two exceptions burn pieces for good: TILL-63 (a DAMAGED return takes one shoe off the floor per run) and STORE-81 (one shoe goes back to the DC per run).
 - STORE-70/71 spend DC pieces (`pos.sendDelivery`: allot → pick → pack → ship → depart, ~15 s). Per run: 2 + 2 pieces from the SKUs that still hold stock on `dc.warehouse` (≈23 at provisioning). After ~5 full runs the DC racks are empty and these two fail loudly ("the DC racks hold only N SKU(s)"). This is the documented "create more stock end to end" path; a full PO → DC would be needed to refill.
 - The till keeps its token in `sessionStorage`, which e2e sessions do not carry: every till test signs in inside the test (`pos.openCounter` = counted drawers + `ensureShift` by API + the sign-in form). One seat (KASIR-1) on the rig, so the till config runs `workers: 1`.
-- Side effects on the shared rig: TILL-73 switches the employee benefit on (`POST /benefit/settings`) and fills maya's balance; TILL-72 spends 10 points of a seeded member; TILL-36 issues a voucher; STORE-91 adds a Rp 300.000 float and a Rp 45.000 expense to petty cash.
+- Side effects on the shared rig: TILL-73 switches the employee benefit on (`POST /benefit/settings`) and fills maya's balance; TILL-72 spends 10 points of a seeded member (TILL-72b only asks and declines); TILL-36 issues a voucher; STORE-91 adds a Rp 300.000 float and a Rp 45.000 expense to petty cash.
 - **Never complete a sale with a bag charge in routine runs** (see bug B1). TILL-45 therefore stops before payment; TILL-45b only runs with `RIG_POS_BAG_SALE=1` and the coordinator must be told to unblock the stream afterwards.
 
 ## Bugs found (tests stay red)
@@ -69,7 +69,9 @@ Actors: dian = cashier (seat Kasir 1), maya = store manager / supervisor, rina =
 | TILL-64 | dian, maya | a sale | Retur guards: duplicate, product code, garbage, tag not on receipt, over-scan, card-like reference, wrong password | void-return::TILL-64 | pass |
 | TILL-70 | dian | – | node unreachable (route abort) → "Tersimpan di terminal", badge "1 belum terkirim", shift cannot close; line back → "Semua penjualan terkirim", sale at node | outbox-redeem::TILL-70 | pass |
 | TILL-71 | dian | – | unit sold elsewhere → refused: banner "1 penjualan ditolak node…", "Buang" (confirm) clears | outbox-redeem::TILL-71 | pass |
-| TILL-72 | dian | member app request | Tukar poin: validation, wrong code, real 6-digit code → "Poin ditukar" | outbox-redeem::TILL-72 | pass (skips when both seeded members still have a waiting request, ≤ 10 min) |
+| TILL-72 | dian | seeded member with ≥ 10 points | Poin: member on the sale, Bayar, cashier types 10 in "Jumlah poin" → "Minta persetujuan" → waiting line; shopper taps Approve (member-app REST) → "10 poin ditukar · Rp 10", balance −10 | outbox-redeem::TILL-72 | not run (written 25 Oct against the new Bayar; helpers `goToPayment`/`payTotal` still target the old screen) |
+| TILL-72b | dian | same | shopper declines → "Pelanggan menolak penukaran poin.", points unchanged; ask again; closing Bayar takes the waiting ask back | outbox-redeem::TILL-72b | not run |
+| TILL-72c | dian | WhatsApp stub | shopper reads the 6-digit WhatsApp code back, cashier types it in "Kode dari pelanggan" | outbox-redeem::TILL-72c | skip (the code goes to WhatsApp only; needs a gateway stub that records messages) |
 | TILL-73 | dian, maya, rina | benefit on, maya funded | Saldo karyawan spend of 30.000 + cash rest | outbox-redeem::TILL-73 | pass (B4 fixed) |
 | TILL-90 | dian | agent (Haiku) | agent opens payment, pays cash, finishes; exact checks after | agent::TILL-90 | pass (Haiku sufficient, ~50k tokens) |
 

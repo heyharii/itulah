@@ -205,6 +205,8 @@
 .tilld .t-card-b>.t-pad{padding:12px 16px}
 .tilld .t-chk{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:0 16px;min-height:48px;padding:6px 16px;border-bottom:1px solid var(--row-line)}
 .tilld .t-chk:last-child{border-bottom-color:transparent}
+.tilld .t-chk:has(>.ph){grid-template-columns:40px minmax(0,1fr) auto;gap:0 12px}
+.tilld .t-chk>.ph{grid-row:span 2;width:40px;height:40px}
 .tilld .t-chk .nm{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tilld .t-chk .mt{color:var(--body);font-variant-numeric:tabular-nums}
 .tilld .t-chk .pr{grid-row:span 2;font-weight:600;font-variant-numeric:tabular-nums}
@@ -343,6 +345,35 @@
 .tilld .t-coupons .warn{color:var(--warn-fg)}
 /* The name over its division and tags (prototype `.nm-2`, `.nm-sub`). */
 .tilld .nm-2{display:flex;flex-direction:column;min-width:0;line-height:20px}
+.tilld .nm-r{display:flex;align-items:center;gap:12px;min-width:0}
+.tilld .nm-r>.nm-2{flex:1}
+
+/* Product photographs (owner, 25 Oct 2026): a square thumbnail at the start of
+   each article line and in the check results; the plain square is the same
+   box without a picture, so nothing shifts when it arrives. */
+.ph{display:block;flex:none;width:36px;height:36px;border-radius:6px;object-fit:cover;background:var(--soft-2);box-shadow:inset 0 0 0 1px var(--hairline)}
+img.ph{animation:posFade 150ms var(--ease-out)}
+.tilld .ph-b{flex:none;display:block;width:36px;height:36px;padding:0;border:0;border-radius:6px;background:none;cursor:pointer;transition:scale var(--t-press) var(--ease-out)}
+.tilld .ph-b:active{scale:.94}
+.tilld .ph-b:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.tilld .nm-t.link{cursor:pointer}
+@media (hover:hover) and (pointer:fine){.tilld .nm-t.link:hover{text-decoration:underline;text-underline-offset:3px}}
+
+/* The item card: Enter on a picked line. .xchd supplies the overlay, head,
+   foot and buttons; the photograph is the card's largest thing. */
+.xchd .dlg.item{width:480px;max-width:calc(100% - 48px);min-height:0;max-height:calc(100% - 48px)}
+.xchd .dlg.item .dlg-body{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain}
+.xchd .item-ph{display:grid;place-items:center;width:100%;max-width:360px;aspect-ratio:1;margin:0 auto;border-radius:12px;background:var(--soft-2);box-shadow:inset 0 0 0 1px var(--hairline);overflow:hidden;flex:none}
+.xchd .item-ph img{width:100%;height:100%;object-fit:cover;animation:posFade 150ms var(--ease-out)}
+.xchd .item-none{color:var(--body)}
+.xchd .item-f{display:flex;flex-direction:column;margin:0}
+.xchd .item-f>div{display:flex;justify-content:space-between;gap:16px;padding:9px 0;border-bottom:1px solid var(--row-line)}
+.xchd .item-f>div:last-child{border-bottom:0}
+.xchd .item-f dt{color:var(--body);flex:none}
+.xchd .item-f dd{margin:0;text-align:right;font-weight:500;min-width:0;overflow-wrap:anywhere}
+.xchd .item-was{margin-left:10px;color:var(--body);font-weight:400}
+@media (prefers-reduced-motion:reduce){img.ph,.xchd .item-ph img{animation:none}.tilld .ph-b:active{scale:none}}
+
 .tilld .nm-sub{color:var(--body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* Return, look D "Tenang": a returned piece is grey with its price struck
    through; a replacement sits under it with ↳; ▾ moves it. */
@@ -388,3 +419,10 @@
 .payd .sk-paper{animation:sk-print 450ms var(--ease-out) both}
 @keyframes sk-print{from{clip-path:inset(0 0 100% 0);transform:translateY(-12px)}}
 @media (prefers-reduced-motion:reduce){.payd .sk-paper{animation:none}}
+
+/* The foot sits on the bottom edge of the page (owner, 25 Oct 2026: "card
+   footer nempel ke bawah"), not floating above it. */
+.tilld .t-float{bottom:0;margin:auto 0 0;border-radius:0 0 16px 16px;box-shadow:0 -1px 0 var(--hairline)}
+.tilld .tf-cancel{display:inline-flex;align-items:center;gap:8px;height:48px;padding:0 14px;border-radius:var(--r-inner);background:var(--bad,#d70015);color:#fff;font-weight:600;white-space:nowrap;transition:scale 120ms cubic-bezier(.23,1,.32,1)}
+.tilld .tf-cancel:active{scale:.98}
+.tilld .tf-cancel .kbd{background:rgb(255 255 255/18%);color:#fff}

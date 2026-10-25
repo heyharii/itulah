@@ -8,7 +8,6 @@ import { CustomerScreen } from "@/screens/customer"
 import { JoinScreen } from "@/screens/join"
 import { LoginScreen, SetupScreen } from "@/screens/login"
 import { PeripheralsScreen } from "@/screens/peripherals"
-import { RedeemScreen } from "@/screens/redeem"
 import { ReturnScreen, VoidScreen } from "@/screens/returns"
 import { ShiftGate, ShiftScreen } from "@/screens/shift"
 import { isStopped, StoppedScreen, useStanding } from "@/screens/stopped"
@@ -289,8 +288,6 @@ function Counter() {
       <ReturnScreen actorId={actorId} onBack={() => setWhere("sale")} />
     ) : where === "void" ? (
       <VoidScreen actorId={actorId} onBack={() => setWhere("sale")} />
-    ) : where === "redeem" ? (
-      <RedeemScreen actorId={actorId} onBack={() => setWhere("sale")} />
     ) : null
 
   return (
@@ -333,6 +330,16 @@ function Counter() {
       {idle.locked && (
         <LockScreen
           actorId={actorId}
+          onFingerUnlocked={idle.stayAwake}
+          // Keluar: back to the door. The shift stays open; its owner comes
+          // back in by finger, or the Kepala toko closes it.
+          onSignOut={() => {
+            void session.signOut().then(() => {
+              idle.stayAwake()
+              setShiftChecked(false)
+              setWhere("sale")
+            })
+          }}
           onUnlock={async (username, password) => {
             // Unlocking is the node's decision, not this screen's: the same
             // sign-in the counter was opened with. Anything weaker would make

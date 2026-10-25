@@ -247,6 +247,15 @@ pub struct MemberRow {
     /// and a required name is a required lie.
     pub display_name: Option<String>,
     pub joined_on: NaiveDate,
+    /// What the till registers (client, 23 Oct 2026): `L` or `P`. `None` for a
+    /// member enrolled before the till asked, or at the hub — the five fields
+    /// from here are all nullable for that reason, and none of them is
+    /// searchable (see [`MemberQuery::q`]).
+    pub gender: Option<String>,
+    pub birth_place: Option<String>,
+    pub birth_date: Option<NaiveDate>,
+    pub address: Option<String>,
+    pub email: Option<String>,
     /// Set when a membership was stopped. Blocked rather than deleted: the
     /// sales stay, and deleting would leave them attributed to nobody.
     pub blocked_at: Option<DateTime<Utc>>,
@@ -461,14 +470,16 @@ pub struct MemberQuery {
     /// belongs to somebody who shops here", which is a different power and one
     /// nobody granted.
     ///
-    /// The `member` table happens to hold no phone, address or identity number
-    /// today, so the rule costs nothing to keep — and that is exactly why it is
-    /// written down now. The reachable personal data is one join away in
-    /// `member_session.paired_by` and `paired_at_site`, and [`MemberRow`]
-    /// deliberately reduces that whole join to a single `paired` boolean. A
-    /// search that reached into it would be reaching around a summary type that
-    /// omits the field on purpose — see `EmployeeScope::needle`, which makes
-    /// the same argument about NIK.
+    /// Since 0988 the `member` table also holds what a till registers — gender,
+    /// birth place and date, an address and an email — and [`MemberRow`]
+    /// carries them to be READ on a member's page, never searched: the card
+    /// number of a till-registered member already is their phone, and nothing
+    /// beside it is a way in. The rest of the reachable personal data is one
+    /// join away in `member_session.paired_by` and `paired_at_site`, and
+    /// [`MemberRow`] deliberately reduces that whole join to a single `paired`
+    /// boolean. A search that reached into it would be reaching around a
+    /// summary type that omits the field on purpose — see
+    /// `EmployeeScope::needle`, which makes the same argument about NIK.
     pub q: Option<String>,
     /// `spent`, `name`, `card`, `joined`, `last_purchase`, `transactions`,
     /// `atv`, `units`, `upt`, `points` or `points_spent` — the closed set this
@@ -596,6 +607,11 @@ fn member_from_row(row: &PgRow) -> Result<MemberRow, AppError> {
         member_id: row.try_get("member_id")?,
         display_name: row.try_get("display_name")?,
         joined_on: row.try_get("joined_on")?,
+        gender: row.try_get("gender")?,
+        birth_place: row.try_get("birth_place")?,
+        birth_date: row.try_get("birth_date")?,
+        address: row.try_get("address")?,
+        email: row.try_get("email")?,
         blocked_at: row.try_get("blocked_at")?,
         paired: row.try_get("paired")?,
         transaction_count: row.try_get("transaction_count")?,
@@ -884,6 +900,7 @@ pub async fn list_members(
              SELECT * FROM searched WHERE ($2::text IS NULL OR segment = $2)
          )
          SELECT m.member_id, m.display_name, m.joined_on, m.blocked_at,
+                p.gender, p.birth_place, p.birth_date, p.address, p.email,
                 {PAIRED}                                     AS paired,
                 m.transaction_count, m.spent_minor, m.saved_minor,
                 {units}                                      AS units_total,
@@ -908,7 +925,11 @@ pub async fn list_members(
                           OR ({cols}) {seek} (SELECT {cols} FROM kept
                                               WHERE member_id = ${cursor_at})
                        ORDER BY {order}
-                       LIMIT ${limit_at}) m ON true"
+                       LIMIT ${limit_at}) m ON true
+           -- What the till registered, for the kept page alone: five columns of
+           -- the card's own row, read by its primary key rather than carried
+           -- through the ranking pass.
+           LEFT JOIN member p ON p.member_id = m.member_id"
     );
     let mut statement = sqlx::query(&sql).bind(&search).bind(&segment);
     if let Some(one) = narrowing {
@@ -979,6 +1000,69 @@ pub async fn list_members(
         total,
         facets: MemberFacets { segments },
     })
+}
+
+/// One member, as the directory lists them — for the page that opens from a
+/// link, where the list it came from is not on screen to be found in.
+///
+/// The same columns as [`list_members`] prints, read for ONE card. Not by
+/// folding [`MEMBER_SOURCE`] and picking a row out: that source totals every
+/// till sale of every member to answer for one, and the page enrichment above
+/// already says how to avoid it — each figure is the subquery it is named for
+/// there, narrowed to the card. `s` is spelt as a `LATERAL` with the columns
+/// [`MEMBER_SALES`] gives it, so [`SEGMENT_CASE`] and [`DAYS_SINCE_PURCHASE`]
+/// splice unchanged and the segment cannot disagree with the list's.
+pub async fn read_member(
+    pool: &PgPool,
+    member_id: &str,
+    now: DateTime<Utc>,
+) -> Result<MemberRow, AppError> {
+    let member_id = member_id.trim();
+    let row = sqlx::query(&format!(
+        "SELECT m.member_id, m.display_name, m.joined_on, m.blocked_at,
+                m.gender, m.birth_place, m.birth_date, m.address, m.email,
+                {PAIRED}                                     AS paired,
+                s.transaction_count, s.spent_minor, s.saved_minor,
+                (SELECT COALESCE(sum(esl.quantity), 0)::bigint
+                   FROM edge_sale es
+                   JOIN edge_sale_line esl ON esl.sale_id = es.sale_id
+                  WHERE es.customer_id = m.member_id
+                    AND es.status = 'COMPLETED')             AS units_total,
+                s.points_earned_total,
+                COALESCE(pa.balance_points, 0)::bigint       AS points_balance,
+                (SELECT COALESCE(-sum(pl.points), 0)::bigint
+                   FROM points_ledger pl
+                  WHERE pl.customer_id = m.member_id
+                    AND pl.entry_type = 'REDEEM_TO_VOUCHER') AS points_spent_total,
+                s.first_purchase_at, s.last_purchase_at,
+                {days_since}                                 AS days_since_purchase,
+                (SELECT COALESCE(sum(v.balance_minor), 0)::bigint
+                   FROM voucher v
+                  WHERE v.member_id = m.member_id
+                    AND v.status = 'ACTIVE')                 AS voucher_balance_minor,
+                {segment}                                    AS segment
+           FROM member m
+          CROSS JOIN LATERAL (
+                SELECT count(*)::bigint                                AS transaction_count,
+                       COALESCE(sum(total_minor), 0)::bigint           AS spent_minor,
+                       COALESCE(sum(discount_total_minor), 0)::bigint  AS saved_minor,
+                       COALESCE(sum(points_earned), 0)::bigint         AS points_earned_total,
+                       min(occurred_at)                                AS first_purchase_at,
+                       max(occurred_at)                                AS last_purchase_at
+                  FROM edge_sale
+                 WHERE customer_id = m.member_id
+                   AND status = 'COMPLETED'
+          ) s
+           LEFT JOIN points_account pa ON pa.customer_id = m.member_id
+          WHERE m.member_id = $1",
+        days_since = days_since_purchase(now),
+        segment = segment_case(now),
+    ))
+    .bind(member_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound(format!("no member {member_id}")))?;
+    member_from_row(&row)
 }
 
 /// The six segments, counted and valued.

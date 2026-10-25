@@ -295,6 +295,13 @@ pub(crate) const UNMATCHED_SALE_SCHEMA: &str = include_str!(concat!(
     "/migrations/sqlite/0084_a_till_sells_what_its_own_stock_does_not_hold.sql"
 ));
 
+/// A piece sold without a tag comes back by its SKU (`0092`, owner 25 Oct
+/// 2026). Creates only; after `0084` and `0024`.
+pub(crate) const UNMATCHED_RETURN_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0092_an_untagged_piece_comes_back_by_its_sku.sql"
+));
+
 /// The till's 7-letter numbers, held baskets and cash slips (`0085`, client
 /// 23 Oct 2026). Creates only.
 pub(crate) const TILL_CLIENT_SCHEMA: &str = include_str!(concat!(
@@ -1619,6 +1626,9 @@ impl SqliteEdge {
         // Unmatched sale lines and head office's takes (`0084`). Creates only;
         // after `sale` (`0001`).
         connection.execute_batch(UNMATCHED_SALE_SCHEMA).map_err(db)?;
+        // Untagged pieces returned by their SKU (`0092`). Creates only; after
+        // `0084` and `sale_return` (`0024`).
+        connection.execute_batch(UNMATCHED_RETURN_SCHEMA).map_err(db)?;
         // Sale numbers, held baskets, cash slips (`0085`). Creates only; after
         // `sale` and `cash_movement`.
         connection.execute_batch(TILL_CLIENT_SCHEMA).map_err(db)?;
@@ -10027,8 +10037,10 @@ impl EdgeInventory for SqliteEdge {
         // stock. Head office reads the void and stops matching them.
         let unmatched_minor: i64 = tx
             .prepare_cached(
-                "SELECT COALESCE(SUM(line_total_minor), 0) FROM unmatched_sale_line
-                  WHERE sale_id = ?1",
+                "SELECT COALESCE(SUM(u.line_total_minor), 0) FROM unmatched_sale_line u
+                  WHERE u.sale_id = ?1
+                    AND NOT EXISTS(SELECT 1 FROM unmatched_return_line r
+                                    WHERE r.unmatched_line_id = u.id)",
             )
             .map_err(db)?
             .query_row([sale_id], |row| row.get(0))
@@ -10185,20 +10197,37 @@ impl EdgeInventory for SqliteEdge {
         }
 
         let sold = crate::edge::till::sold_lines(&tx, &request.sale_id)?;
+        let sold_untagged = crate::edge::till::untagged_sold_lines(&tx, &request.sale_id)?;
         let mut chosen: Vec<(crate::edge::till::SoldLine, String)> =
             Vec::with_capacity(request.lines.len());
+        let mut chosen_untagged: Vec<(crate::edge::till::UntaggedSoldLine, String)> =
+            Vec::new();
+        let mut untagged_taken: HashSet<String> = HashSet::new();
         let mut seen: HashSet<String> = HashSet::new();
         for line in &request.lines {
-            let epc = Self::normalized_epc(&line.epc)?;
-            if !seen.insert(epc.clone()) {
-                return Err(EdgeError::Validation(format!(
-                    "EPC {epc} was scanned twice on one return"
-                )));
-            }
             let disposition = line.disposition.trim().to_ascii_uppercase();
             if !matches!(disposition.as_str(), "RESALEABLE" | "DAMAGED") {
                 return Err(EdgeError::Validation(format!(
                     "unknown disposition {disposition}"
+                )));
+            }
+            // A piece sold without a tag names its SKU instead (owner, 25 Oct
+            // 2026): the first line of it on this receipt still out.
+            if line.epc.trim().is_empty() {
+                if let Some(sku) = line.sku_code.as_deref() {
+                    let picked = crate::edge::till::pick_untagged(
+                        &sold_untagged,
+                        &mut untagged_taken,
+                        sku,
+                    )?;
+                    chosen_untagged.push((picked, disposition));
+                    continue;
+                }
+            }
+            let epc = Self::normalized_epc(&line.epc)?;
+            if !seen.insert(epc.clone()) {
+                return Err(EdgeError::Validation(format!(
+                    "EPC {epc} was scanned twice on one return"
                 )));
             }
             // The unit has to be one this sale sold. A garment returned
@@ -10222,15 +10251,27 @@ impl EdgeInventory for SqliteEdge {
         }
 
         let occurred_at = self.clock.now();
+        // An untagged piece moved nothing at the sale (`0084`), so it moves
+        // nothing back — unless head office had matched it to a piece of this
+        // shop and the node let that piece go: that one comes home.
+        let homes: Vec<(&str, &String)> = chosen
+            .iter()
+            .map(|(line, disposition)| (line.subject_id.as_str(), disposition))
+            .chain(chosen_untagged.iter().filter_map(|(line, disposition)| {
+                line.taken_subject_id
+                    .as_deref()
+                    .map(|subject_id| (subject_id, disposition))
+            }))
+            .collect();
         let command = MovementCommand {
             movement_group_id: MovementGroupId::new(),
-            lines: chosen
+            lines: homes
                 .iter()
-                .map(|(line, disposition)| {
+                .map(|(subject_id, disposition)| {
                     // Anything not fit to sell must not reach the rail by
                     // default: the reject pool is where it waits for a
                     // decision.
-                    let pool = if disposition == "DAMAGED" {
+                    let pool = if disposition.as_str() == "DAMAGED" {
                         OperationalPool::Reject {
                             site_id: self.node.site_id.clone(),
                         }
@@ -10240,7 +10281,7 @@ impl EdgeInventory for SqliteEdge {
                         }
                     };
                     Ok(MovementLine {
-                        subject_id: SubjectId(parse_uuid(&line.subject_id)?),
+                        subject_id: SubjectId(parse_uuid(subject_id)?),
                         quantity: 1,
                         from: Place::External {
                             place: crate::edge::ExternalPlace::Customer,
@@ -10259,7 +10300,13 @@ impl EdgeInventory for SqliteEdge {
             actor_id: request.actor_id.clone(),
             occurred_at,
         };
-        let movement = self.append_command(&tx, &request.idempotency_key, &command)?;
+        let movement = if command.lines.is_empty() {
+            // Only untagged pieces came back and none had left this shop's
+            // stock: the return still names a movement group, with no lines.
+            Self::empty_sale_group(&tx, &request.idempotency_key, &command)?
+        } else {
+            self.append_command(&tx, &request.idempotency_key, &command)?
+        };
 
         // Refunded from the drawer of the person handing the money back.
         let shift_id = crate::edge::till::shift_for_sale(&tx, &request.actor_id, occurred_at)?;
@@ -10272,6 +10319,7 @@ impl EdgeInventory for SqliteEdge {
             shift_id.as_deref(),
             &movement.movement_group_id.to_string(),
             &chosen,
+            &chosen_untagged,
             occurred_at,
         )?;
         Self::save_idempotent(
@@ -10291,7 +10339,7 @@ impl EdgeInventory for SqliteEdge {
     ) -> Result<crate::edge::till::ExchangeResult, EdgeError> {
         self.require_store("an exchange")?;
         Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
-        if request.returned_epcs.is_empty() {
+        if request.returned_epcs.is_empty() && request.returned_skus.is_empty() {
             return Err(EdgeError::Validation(
                 "an exchange needs at least one returned piece".into(),
             ));
@@ -10383,9 +10431,21 @@ impl EdgeInventory for SqliteEdge {
             }
             chosen.push((sold_line.clone(), "RESALEABLE".to_string()));
         }
+        // And each sold without a tag, by its SKU (owner, 25 Oct 2026).
+        let sold_untagged = crate::edge::till::untagged_sold_lines(&tx, &original_sale_id)?;
+        let mut untagged_taken: HashSet<String> = HashSet::new();
+        let mut chosen_untagged: Vec<(crate::edge::till::UntaggedSoldLine, String)> =
+            Vec::with_capacity(request.returned_skus.len());
+        for sku in &request.returned_skus {
+            let picked =
+                crate::edge::till::pick_untagged(&sold_untagged, &mut untagged_taken, sku)?;
+            chosen_untagged.push((picked, "RESALEABLE".to_string()));
+        }
         let returned_minor: i64 = chosen
             .iter()
-            .try_fold(0_i64, |total, (line, _)| total.checked_add(line.charged_minor))
+            .map(|(line, _)| line.charged_minor)
+            .chain(chosen_untagged.iter().map(|(line, _)| line.charged_minor))
+            .try_fold(0_i64, |total, charged| total.checked_add(charged))
             .ok_or_else(|| EdgeError::Validation("exchange total overflow".into()))?;
 
         // What goes out: each on this shop's floor now. The sale's own
@@ -10411,14 +10471,24 @@ impl EdgeInventory for SqliteEdge {
         let return_id = Uuid::new_v4().to_string();
         let return_key = format!("{key}:return");
 
-        // The returned pieces home to the floor, first.
+        // The returned pieces home to the floor, first. An untagged one only
+        // when head office had taken a piece of this shop for it (`0092`).
+        let homes: Vec<&str> = chosen
+            .iter()
+            .map(|(line, _)| line.subject_id.as_str())
+            .chain(
+                chosen_untagged
+                    .iter()
+                    .filter_map(|(line, _)| line.taken_subject_id.as_deref()),
+            )
+            .collect();
         let command = MovementCommand {
             movement_group_id: MovementGroupId::new(),
-            lines: chosen
+            lines: homes
                 .iter()
-                .map(|(line, _)| {
+                .map(|subject_id| {
                     Ok(MovementLine {
-                        subject_id: SubjectId(parse_uuid(&line.subject_id)?),
+                        subject_id: SubjectId(parse_uuid(subject_id)?),
                         quantity: 1,
                         from: Place::External {
                             place: crate::edge::ExternalPlace::Customer,
@@ -10434,7 +10504,11 @@ impl EdgeInventory for SqliteEdge {
             actor_id: request.actor_id.clone(),
             occurred_at,
         };
-        let movement = self.append_command(&tx, &return_key, &command)?;
+        let movement = if command.lines.is_empty() {
+            Self::empty_sale_group(&tx, &return_key, &command)?
+        } else {
+            self.append_command(&tx, &return_key, &command)?
+        };
 
         // The replacement, through the sale path itself: priced by the book,
         // out of the floor, its own receipt and its own sale fact. Keyed by the
@@ -10476,8 +10550,16 @@ impl EdgeInventory for SqliteEdge {
                 .iter()
                 .map(|epc| crate::edge::till::ReturnLineRequest {
                     epc: epc.clone(),
+                    sku_code: None,
                     disposition: "RESALEABLE".to_string(),
                 })
+                .chain(chosen_untagged.iter().map(|(line, _)| {
+                    crate::edge::till::ReturnLineRequest {
+                        epc: String::new(),
+                        sku_code: Some(line.sku_code.clone()),
+                        disposition: "RESALEABLE".to_string(),
+                    }
+                }))
                 .collect(),
             refund_method: "EXCHANGE".to_string(),
             refund_reference: Some(sale_id.to_string()),
@@ -10495,6 +10577,7 @@ impl EdgeInventory for SqliteEdge {
             shift_id.as_deref(),
             &movement.movement_group_id.to_string(),
             &chosen,
+            &chosen_untagged,
             credit_minor,
             occurred_at,
         )?;
@@ -11001,11 +11084,6 @@ mod tests {
         assert!(store.open_shift(open("shift-2")).is_err());
     }
 
-    /// The float is a cash movement, not a second source of truth. A drawer
-    /// whose arithmetic had two inputs would have one nobody looks at.
-    #[test]
-    fn the_opening_float_is_the_first_cash_movement() {
-        let store = SqliteEdge::open_in_memory(node(EdgeRole::Store, "store-07"))
     /// Nobody opens over another person's drawer (owner, 23 Oct 2026): the
     /// second person is refused and told who holds the seat, and the first
     /// shift stays open.
@@ -11035,6 +11113,11 @@ mod tests {
         assert!(again.is_err(), "the seat is still siti's");
     }
 
+    /// The float is a cash movement, not a second source of truth. A drawer
+    /// whose arithmetic had two inputs would have one nobody looks at.
+    #[test]
+    fn the_opening_float_is_the_first_cash_movement() {
+        let store = SqliteEdge::open_in_memory(node(EdgeRole::Store, "store-07"))
             .unwrap_or_else(|error| panic!("store: {error}"));
         let report = store
             .open_shift(crate::edge::till::OpenShiftRequest {
@@ -12136,6 +12219,7 @@ mod tests {
                 sale_id: sale_id.clone(),
                 lines: vec![crate::edge::till::ReturnLineRequest {
                     epc: "EPC-TILL-001".into(),
+                    sku_code: None,
                     disposition: "RESALEABLE".into(),
                 }],
                 refund_method: "CASH".into(),
@@ -12156,6 +12240,7 @@ mod tests {
                 sale_id,
                 lines: vec![crate::edge::till::ReturnLineRequest {
                     epc: "EPC-TILL-001".into(),
+                    sku_code: None,
                     disposition: "RESALEABLE".into(),
                 }],
                 refund_method: "CASH".into(),
@@ -12178,6 +12263,7 @@ mod tests {
                 sale_id,
                 lines: vec![crate::edge::till::ReturnLineRequest {
                     epc: "EPC-TILL-001".into(),
+                    sku_code: None,
                     disposition: "DAMAGED".into(),
                 }],
                 refund_method: "CASH".into(),
@@ -12214,6 +12300,7 @@ mod tests {
                 sale_id,
                 lines: vec![crate::edge::till::ReturnLineRequest {
                     epc: "EPC-NOT-SOLD".into(),
+                    sku_code: None,
                     disposition: "RESALEABLE".into(),
                 }],
                 refund_method: "CASH".into(),
@@ -12223,6 +12310,127 @@ mod tests {
                 actor_id: "siti".into(),
                 idempotency_key: "return-stranger".into(),
             })
+            .is_err());
+    }
+
+    /// A piece sold without a tag (a typed SKU) comes back by its SKU (owner,
+    /// 25 Oct 2026): the first line of it on the receipt still out, refunded
+    /// at what that line was charged, and never twice.
+    #[test]
+    fn an_untagged_piece_comes_back_by_its_sku() {
+        let store = SqliteEdge::open_in_memory(node(EdgeRole::Store, "store-07"))
+            .unwrap_or_else(|error| panic!("store: {error}"));
+        seed_supervisor(&store, "budi", "rahasia-panjang");
+        {
+            let connection = store
+                .connection
+                .lock()
+                .unwrap_or_else(|error| panic!("connection: {error}"));
+            connection
+                .execute(
+                    "INSERT INTO catalog_item
+                         (sku_code,name,uom,barcode,tax_category,active,generation,
+                          updated_at,base_price_minor,article_code,division_code,
+                          tags_json,image_url)
+                     VALUES ('10000000123','Gamis 119 Hitam','PCS',NULL,'STANDARD',1,1,
+                             '2026-10-25T00:00:00Z',99000,'ART-0001','DIV-01','[]',NULL)",
+                    [],
+                )
+                .unwrap_or_else(|error| panic!("catalogue: {error}"));
+        }
+        let typed = || crate::edge::UntaggedLine {
+            sku_code: Some("10000000·123".into()),
+            epc: None,
+            name: None,
+            unit_price_minor: None,
+            approval_id: None,
+            supervisor: None,
+        };
+        let sale = store
+            .complete_sale(SaleRequest {
+                coupon_codes: Vec::new(),
+                customer_id: None,
+                charges: Vec::new(),
+                epcs: Vec::new(),
+                tenders: vec![crate::tender::SaleTender {
+                    method: crate::tender::PaymentMethod::Cash,
+                    amount_minor: 200_000,
+                    reference: None,
+                    voucher_authorization_id: None,
+                    acquirer: None,
+                    card_kind: None,
+                }],
+                actor_id: "siti".into(),
+                idempotency_key: "untagged-sale".into(),
+                coupon_authorizations: Vec::new(),
+                untagged: vec![typed(), typed()],
+                taken_at: None,
+            })
+            .unwrap_or_else(|error| panic!("sale: {error}"));
+        let sale_id = sale.sale_id.to_string();
+        let open = |store: &SqliteEdge| {
+            store
+                .sale_receipt(&sale_id)
+                .unwrap_or_else(|error| panic!("receipt: {error}"))
+                .untagged_open
+        };
+        assert_eq!(open(&store), vec!["10000000123".to_string(), "10000000123".to_string()]);
+
+        let by_sku = |sku: &str, key: &str| crate::edge::till::ReturnRequest {
+            sale_id: sale_id.clone(),
+            lines: vec![crate::edge::till::ReturnLineRequest {
+                epc: String::new(),
+                sku_code: Some(sku.into()),
+                disposition: "RESALEABLE".into(),
+            }],
+            refund_method: "CASH".into(),
+            refund_reference: None,
+            reason: "Ukuran tidak pas".into(),
+            supervisor: supervisor("budi", "rahasia-panjang"),
+            actor_id: "siti".into(),
+            idempotency_key: key.into(),
+        };
+
+        let first = store
+            .return_sale(by_sku("10000000123", "untagged-return-1"))
+            .unwrap_or_else(|error| panic!("return: {error}"));
+        assert_eq!(first.refund_minor, 99_000);
+        assert_eq!(first.remaining_lines, 1);
+        assert_eq!(first.lines.len(), 1);
+        assert_eq!(first.lines[0].sku_code, "10000000123");
+        assert_eq!(open(&store).len(), 1);
+
+        // A SKU this receipt did not sell without a tag is refused, in words.
+        let stranger = store
+            .return_sale(by_sku("10000000999", "untagged-return-stranger"))
+            .err()
+            .unwrap_or_else(|| panic!("a SKU not on the receipt must be refused"));
+        assert!(
+            stranger.to_string().contains("tidak dijual tanpa tag"),
+            "{stranger}"
+        );
+
+        // Two back when one is left: the whole return is refused.
+        let mut twice = by_sku("10000000123", "untagged-return-twice");
+        twice.lines.push(twice.lines[0].clone());
+        let too_many = store
+            .return_sale(twice)
+            .err()
+            .unwrap_or_else(|| panic!("more pieces than were sold must be refused"));
+        assert!(
+            too_many.to_string().contains("semua sudah dikembalikan"),
+            "{too_many}"
+        );
+        assert_eq!(open(&store).len(), 1, "a refused return takes nothing back");
+
+        let last = store
+            .return_sale(by_sku("10000000123", "untagged-return-2"))
+            .unwrap_or_else(|error| panic!("return: {error}"));
+        assert_eq!(last.refund_minor, 99_000);
+        assert_eq!(last.remaining_lines, 0);
+        assert!(open(&store).is_empty());
+        assert!(store
+            .return_sale(by_sku("10000000123", "untagged-return-3"))
             .is_err());
     }
 

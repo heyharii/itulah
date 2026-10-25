@@ -120,6 +120,32 @@ export function webSetConfig(next: NodeConfig): NodeConfig {
 /// node is reported as quickly on either road.
 const PATIENCE_MS = 10_000
 
+/// A product photograph through the node's proxy, as a `data:` URL (an `<img>`
+/// cannot carry the bearer token itself). Null for every way of not having one.
+export async function webImage(sku: string): Promise<string | null> {
+  const headers: Record<string, string> = { "X-Terminal-Id": terminalId() }
+  const token = read(session, TOKEN_KEY)
+  if (token !== null && token !== "") headers.Authorization = `Bearer ${token}`
+  try {
+    const response = await fetch(`/api/v1/catalog/image?sku=${encodeURIComponent(sku)}`, {
+      headers,
+      credentials: "omit",
+      signal: AbortSignal.timeout(PATIENCE_MS),
+    })
+    if (!response.ok) return null
+    const blob = await response.blob()
+    if (blob.size === 0 || !blob.type.startsWith("image/")) return null
+    return await new Promise<string | null>((resolve) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : null)
+      reader.onerror = () => resolve(null)
+      reader.readAsDataURL(blob)
+    })
+  } catch {
+    return null
+  }
+}
+
 /// One call to the node, shaped the way `reply_from` in `src-tauri/src/edge.rs`
 /// shapes it, so no screen can tell which road the answer came by.
 export async function webEdge<T>(

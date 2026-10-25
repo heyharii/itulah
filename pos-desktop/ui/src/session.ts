@@ -29,7 +29,7 @@
 import { useEffect, useSyncExternalStore } from "react"
 
 import { setSignInTerminal, claimFinger, claimPin, login, logout, me, openOnBehalf, roster, type Me } from "@/api"
-import { identifyFinger, NODE_MOVED, type FingerWait } from "@/edge"
+import { identifyFinger, NODE_MOVED, SIGNED_IN_ELSEWHERE, type FingerWait } from "@/edge"
 import type { Peripherals } from "@/peripherals"
 import { isWeb } from "@/edition"
 import { webConfig, webSetConfig } from "@/web"
@@ -191,6 +191,41 @@ function put(change: Partial<Held>): void {
   held = { ...held, ...change }
   if (change.config !== undefined) setSignInTerminal(held.config?.terminal_id ?? null)
   for (const watcher of watchers) watcher()
+}
+
+/// What the door says when the node ended this terminal's session because
+/// the person signed in on another device.
+const ELSEWHERE = "Akun Anda baru saja masuk di perangkat lain."
+
+/// How often a signed-in terminal asks the node whether its session still
+/// stands, while nothing else it does would find out.
+const STILL_SIGNED_IN_EVERY_MS = 15_000
+
+/// The node ended this terminal's session: forget the token here too, and go
+/// back to the door saying why.
+async function endedElsewhere(said: string): Promise<void> {
+  const config = held.config
+  if (config === null || held.me === null) return
+  const cleared: NodeConfig = { ...config, token: null }
+  await hand(cleared)
+  put({ config: cleared, me: null, problem: said })
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener(SIGNED_IN_ELSEWHERE, () => void endedElsewhere(ELSEWHERE))
+  window.setInterval(() => {
+    if (held.me === null || !held.config?.token) return
+    void me().then((who) => {
+      if (who.ok || held.me === null) return
+      if (who.status === 401) {
+        void endedElsewhere(
+          /another device/i.test(`${who.problem ?? ""} ${JSON.stringify(who.body ?? "")}`)
+            ? ELSEWHERE
+            : "Sesi Anda berakhir. Silakan masuk lagi.",
+        )
+      }
+    })
+  }, STILL_SIGNED_IN_EVERY_MS)
 }
 
 function watch(watcher: () => void): () => void {

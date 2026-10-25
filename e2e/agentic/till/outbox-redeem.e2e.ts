@@ -1,5 +1,5 @@
 // The outbox (a sale the node has not answered is kept on the till and re-sent), a sale the node refuses,
-// and Tukar poin (a member's points → a voucher, confirmed at the till).
+// and Poin (a member's points → a voucher, asked for by the cashier and approved by the shopper).
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
 import * as pos from '../support/pos.ts';
@@ -71,41 +71,67 @@ test('TILL-71 a sale the node refuses (the unit was sold elsewhere): a refused b
   }
 });
 
-test('TILL-72 Tukar poin: a member asks in the app, the cashier types the card and the 6-digit code — a voucher is issued', { tags: ['pos'] }, async (fx) => {
+// Poin (owner, 25 Oct 2026): the cashier types how many points, the shopper approves — in the member app, or by reading back
+// the six digits head office sends to their WhatsApp. A test can do the first (the shopper-app REST path, `pos.memberApp`)
+// and never the second: the code goes to WhatsApp and nowhere else. NOT RUN against the new Bayar yet: the helpers
+// `goToPayment` / `payTotal` still look for the old "Metode pembayaran" screen, so these reach Bayar by its own button
+// (`pos.openBayarForMember`).
+test('TILL-72 Poin: the cashier types the points, the shopper approves in the member app — the row turns into a voucher and the points leave the balance', { tags: ['pos'] }, async (fx) => {
   const { screen } = fx;
-  await pos.openCounter(fx);
-  // A member can have one request waiting at a time (409), and an unconfirmed one lapses after ~10 min.
-  let who = '', ask: { request_id: string; code: string } | undefined;
-  for (const member of ['081311110002', '081311110001']) {
-    try {
-      ask = await pos.requestRedeem(member, 10);
-      who = member;
-      break;
-    } catch (e) {
-      if (!/409/.test(String(e))) throw e;
-    }
+  const member = pos.MEMBER.id;
+  const POINTS = 10;
+  const unit = await pos.pickUnit('plain');
+  try {
+    const before = await pos.pointsOf(member);
+    test.skip(before < POINTS, `${member} holds ${before} points, fewer than the ${POINTS} this test spends`);
+    const app = await pos.memberApp(member);
+    await pos.openBayarForMember(fx, unit.epc, member);
+    await pos.askPoints(fx, POINTS);
+    const ask = await waitFor('the ask in the member app', () => app.waiting(), 20_000, 1_000);
+    expect(ask).toMatchObject({ points: POINTS, status: 'PENDING' });
+    await expect(screen.getByText(pos.rpRe(ask.value_minor, `${POINTS} poin = `))).toBeVisible();
+    // The shopper taps Approve; the till finds the voucher on its next look (every two seconds).
+    await app.approve(ask.request_id);
+    await expect(screen.getByText(pos.rpRe(ask.value_minor, `${POINTS} poin ditukar · `))).toBeVisible({ timeout: 20_000 });
+    expect(await pos.pointsOf(member)).toBe(before - POINTS);
+    // Esc leaves Bayar; the voucher stays on the row for this basket.
+    await screen.getByRole('button', 'Kembali ke transaksi').tap();
+    await expect(pos.scanField(screen)).toBeVisible();
+  } finally {
+    pos.release(unit.epc);
   }
-  test.skip(!ask, 'both seeded members already have a redemption waiting; it lapses in ~10 minutes');
-  if (!ask) return;
-  const budi = who;
-  await screen.getByRole('button', 'Tukar poin').tap();
-  await expect(screen.getByRole('heading', 'Tukar poin jadi voucher')).toBeVisible();
-  await screen.getByRole('button', 'Cari permintaan').tap();
-  await expect(screen.getByText(/^Nomor member dan kode enam digitnya harus diisi/)).toBeVisible();
-  await screen.getByRole('textbox', 'Nomor member').fill(budi);
-  await screen.getByLabel('Kode enam digit').fill('000000');
-  await screen.getByRole('button', 'Cari permintaan').tap();
-  await expect(screen.getByText('Permintaan ditemukan', { exact: true })).toBeHidden();
-  await screen.getByLabel('Kode enam digit').fill(ask.code);
-  await screen.getByRole('button', 'Cari permintaan').tap();
-  await expect(screen.getByText('Permintaan ditemukan', { exact: true })).toBeVisible({ timeout: 20_000 });
-  await expect(screen.getByText('Menunggu', { exact: true })).toBeVisible();
-  await screen.getByRole('button', 'Konfirmasi penukaran').tap();
-  await expect(screen.getByText('Poin ditukar', { exact: true })).toBeVisible({ timeout: 20_000 });
-  await expect(screen.getByText('Pakai kode ini di pembayaran → Voucher.', { exact: true })).toBeVisible();
-  await screen.getByRole('button', 'Selesai').tap();
-  await expect(pos.scanField(screen)).toBeVisible();
 });
+
+test('TILL-72b Poin: the shopper declines in the member app — "Pelanggan menolak penukaran poin.", the points stay, and the cashier can ask again', { tags: ['pos'] }, async (fx) => {
+  const { screen } = fx;
+  const member = pos.MEMBER.id;
+  const unit = await pos.pickUnit('plain');
+  try {
+    const before = await pos.pointsOf(member);
+    test.skip(before < 10, `${member} holds ${before} points, fewer than the 10 this test asks for`);
+    const app = await pos.memberApp(member);
+    await pos.openBayarForMember(fx, unit.epc, member);
+    await pos.askPoints(fx, 10);
+    const ask = await waitFor('the ask in the member app', () => app.waiting(), 20_000, 1_000);
+    await app.decline(ask.request_id);
+    await expect(screen.getByText('Pelanggan menolak penukaran poin.', { exact: true })).toBeVisible({ timeout: 20_000 });
+    expect(await pos.pointsOf(member)).toBe(before);
+    // A new ask goes out from the same row.
+    await screen.getByRole('button', /^Minta persetujuan/).tap();
+    const again = await waitFor('the second ask in the member app', () => app.waiting(), 20_000, 1_000);
+    expect(again.request_id).not.toBe(ask.request_id);
+    // Closing Bayar takes the waiting ask back: the shopper has nothing left to approve.
+    await screen.getByRole('button', 'Kembali ke transaksi').tap();
+    await waitFor('the ask taken back', async () => ((await app.waiting()) === undefined ? true : null), 20_000, 1_000);
+  } finally {
+    pos.release(unit.epc);
+  }
+});
+
+// Not testable from here: the six digits head office sends to the shopper's WhatsApp are never returned to the till or to
+// any API, so "the cashier types what the shopper reads back" (lookup → confirm) needs a WhatsApp stub that hands the
+// test the code (`WHATSAPP_GATEWAY` pointed at a fake that records messages).
+test.skip('TILL-72c Poin: the shopper reads the WhatsApp code back and the cashier types it into the row — needs a WhatsApp stub that records the message', { tags: ['pos'] }, async () => {});
 
 // BUG: the BENEFIT tender's reference is the spend's sale_ref, a random UUID (till.tsx saleRef = randomUUID()).
 // The node refuses any payment reference with 12 or more digits ("a payment reference must not look like a card

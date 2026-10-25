@@ -6,21 +6,31 @@
 /// answered is head office — and the hold that stops the same points being
 /// spent from two counters at once can only be granted there.
 ///
-/// `POST /api/v1/store/points/redeem-requests/lookup` and `.../confirm` are
-/// routes on the shop node that turn round and sign the call to head office
-/// with the node's own machine credential
-/// (`backend/src/edge/http.rs::relay_redeem_request_lookup` /
-/// `relay_redeem_request_confirm`). The consequence a cashier meets: **this
-/// needs the connection**, and when the line is down the node answers 503
-/// and a sentence rather than inventing an answer about points it cannot see.
+/// Every call here is a route on the shop node that turns round and signs the
+/// call to head office with the node's own machine credential
+/// (`backend/src/edge/http.rs::relay_redeem_*`). The consequence a cashier
+/// meets: **this needs the connection**, and when the line is down the node
+/// answers 503 and a sentence rather than inventing an answer about points it
+/// cannot see.
 ///
-/// Confirming does not hand this counter a rupiah figure to type anywhere —
-/// it returns a voucher, the same shape `vouchers.ts` already knows how to
-/// spend, because that is what a confirmed redemption becomes. See
-/// `screens/redeem.tsx` for where the resulting code is shown and handed to
-/// the till's own "Voucher" tender.
+/// # Who decides how many points (owner, 25 Oct 2026)
+///
+/// The cashier. "Redeem point customer ga usah masukin berapa, cukup kasir aja
+/// yg input mau berapa": the cashier types the points, `askRedeem` tells head
+/// office, and head office sends the shopper a six-digit code on WhatsApp and
+/// shows the ask in their member app. The shopper approves either by tapping
+/// Approve in the app — `redeemProgress` finds the voucher once they have — or
+/// by reading the six digits back, which the cashier types into `lookup` and
+/// `confirm`. The code never comes back to this counter: a cashier who could
+/// see it could approve their own ask.
+///
+/// What comes out is a voucher, the same shape `vouchers.ts` already knows how
+/// to spend, because that is what a confirmed redemption becomes. The rate —
+/// how many points buy how much — is head office's: `value_minor` on the ask
+/// is the truth, and this counter never sends one.
 
 import { edge, type EdgeReply } from "@/edge"
+import type { RedeemAsk, RedeemRequest } from "@itulah/contract"
 
 export type FoundRedeemRequest = {
   readonly request_id?: string
@@ -41,30 +51,50 @@ export type ConfirmedRedeemRequest = {
   readonly replayed?: boolean
 }
 
-/// Find a member's live request by the code the shopper is holding up.
+/// Where an ask stands: `voucher` is filled once the shopper has approved it
+/// in the app (the request is then `CONFIRMED`).
+export type RedeemProgress = {
+  readonly request: RedeemRequest
+  readonly voucher: ConfirmedRedeemRequest | null
+}
+
+const base = "/api/v1/store/points/redeem-requests"
+
+/// The cashier asks to spend `points` of the member's. Asking again for the
+/// same member replaces the previous live ask. 409 "that member has N points
+/// and the request asked for M", 404 no such member, 409 blocked.
+export function askRedeem(memberId: string, points: number): Promise<EdgeReply<RedeemAsk>> {
+  return edge<RedeemAsk>("POST", base, { member_id: memberId, points })
+}
+
+/// Where the ask stands, for the till that is waiting on it.
+export function redeemProgress(requestId: string): Promise<EdgeReply<RedeemProgress>> {
+  return edge<RedeemProgress>("POST", `${base}/${encodeURIComponent(requestId)}/progress`)
+}
+
+/// Take the ask back — the shopper pays another way, or the cashier changes the
+/// points. 409 when the shopper approved it first: the points are spent and the
+/// voucher pays this bill (`redeemProgress` then has it).
+export function cancelRedeem(requestId: string): Promise<EdgeReply<RedeemRequest>> {
+  return edge<RedeemRequest>("POST", `${base}/${encodeURIComponent(requestId)}/cancel`)
+}
+
+/// Find a member's live request by the code the shopper reads back.
 ///
-/// There is at most one live request per member at any time — the centre
-/// refuses a second while one is already pending — so the member number and
-/// the code together are enough to name it without an id.
+/// There is at most one live request per member at any time — asking again
+/// replaces the last — so the member number and the code together are enough
+/// to name it without an id. A wrong or expired code is a 401, counted: five
+/// wrong guesses burn the request.
 export function lookupRedeemRequest(
   memberId: string,
   code: string,
 ): Promise<EdgeReply<FoundRedeemRequest>> {
-  return edge<FoundRedeemRequest>(
-    "POST",
-    "/api/v1/store/points/redeem-requests/lookup",
-    { member_id: memberId, code },
-  )
+  return edge<FoundRedeemRequest>("POST", `${base}/lookup`, { member_id: memberId, code })
 }
 
-/// Confirm the request a lookup just found. The rate — how many points buy
-/// how much — is decided at the centre, not here: this counter never sends
-/// and never sees one.
+/// Confirm the request a lookup just found.
 export function confirmRedeemRequest(
   requestId: string,
 ): Promise<EdgeReply<ConfirmedRedeemRequest>> {
-  return edge<ConfirmedRedeemRequest>(
-    "POST",
-    `/api/v1/store/points/redeem-requests/${encodeURIComponent(requestId)}/confirm`,
-  )
+  return edge<ConfirmedRedeemRequest>("POST", `${base}/${encodeURIComponent(requestId)}/confirm`)
 }

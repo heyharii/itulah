@@ -2,6 +2,7 @@ import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query"
 
 import { node } from "@/lib/api"
 import type { SpecFilter } from "@/lib/queries/reports"
+import type { RedeemRequest } from "@itulah/contract"
 
 /// The member directory, and the segments it falls into.
 ///
@@ -86,6 +87,14 @@ export interface MemberRow {
   readonly member_id: string
   readonly display_name: string | null
   readonly joined_on: string
+  /// What a till registers (client, 23 Oct 2026). `L` or `P`; every one of the
+  /// five is `null` for a member enrolled before the till asked, or at the hub.
+  readonly gender: "L" | "P" | null
+  readonly birth_place: string | null
+  /// A calendar date, `YYYY-MM-DD`.
+  readonly birth_date: string | null
+  readonly address: string | null
+  readonly email: string | null
   readonly blocked_at: string | null
   /// Whether a phone has ever been paired to this card. The difference between
   /// a customer the shop can reach and one it can only serve.
@@ -287,6 +296,9 @@ export const memberKeys = {
       JSON.stringify(query.filters ?? []),
     ] as const,
   segments: () => ["members", "segments"] as const,
+  one: (memberId: string) => ["members", "one", memberId] as const,
+  redemptions: (memberId: string) =>
+    ["members", "one", memberId, "redemptions"] as const,
 }
 
 export function listMembers(
@@ -338,6 +350,42 @@ export const memberDirectoryQuery = (scope: MemberQuery) =>
       listMembers({ ...scope, cursor: pageParam }, signal),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.next_cursor ?? undefined,
+  })
+
+/// One member, as the directory lists them — for a sheet opened from a link,
+/// where the directory it came from is not loaded to be found in.
+export function readMember(
+  memberId: string,
+  signal?: AbortSignal
+): Promise<MemberRow> {
+  return node.get<MemberRow>(
+    `/api/v1/members/${encodeURIComponent(memberId)}`,
+    { signal }
+  )
+}
+
+export const memberQuery = (memberId: string) =>
+  queryOptions({
+    queryKey: memberKeys.one(memberId),
+    queryFn: ({ signal }) => readMember(memberId, signal),
+  })
+
+/// What a member has asked to turn into vouchers, newest first, and what became
+/// of each. Never carries the code.
+export function listMemberRedemptions(
+  memberId: string,
+  signal?: AbortSignal
+): Promise<RedeemRequest[]> {
+  return node.get<RedeemRequest[]>(
+    `/api/v1/members/${encodeURIComponent(memberId)}/redeem-requests`,
+    { signal }
+  )
+}
+
+export const memberRedemptionsQuery = (memberId: string) =>
+  queryOptions({
+    queryKey: memberKeys.redemptions(memberId),
+    queryFn: ({ signal }) => listMemberRedemptions(memberId, signal),
   })
 
 /// Enrol a card at the counter.

@@ -76,11 +76,30 @@ export function EmployeeFinger({
       sound.read()
     }
     if (explicit) begin()
-    const got = await benefitByFinger(actorId, {
+    // Never left on "Membaca…": past the wait for a finger and the node's and
+    // head office's answers, the card says so (owner, 25 Oct 2026).
+    let placed = explicit
+    const answered = benefitByFinger(actorId, {
       watch,
       waitMs: explicit ? 10_000 : 15_000,
-      onPlaced: explicit ? undefined : begin,
+      onPlaced: () => {
+        placed = true
+        if (!explicit) begin()
+      },
       person,
+    })
+    const got = await new Promise<Awaited<typeof answered>>((done) => {
+      const timer = window.setInterval(() => {
+        if (alive.current && Date.now() - startedAt > (placed ? 30_000 : 40_000)) {
+          window.clearInterval(timer)
+          done({ kind: "refused", reply: { ok: false, status: 504, problem: null, body: undefined } } as never)
+        }
+      }, 1000)
+      const startedAt = Date.now()
+      void answered.then((value) => {
+        window.clearInterval(timer)
+        done(value)
+      })
     })
     if (!alive.current) return false
     if (got.kind === "none") {
@@ -129,7 +148,10 @@ export function EmployeeFinger({
 
   async function press(person?: string) {
     if (busy || read === "reading" || read === "done") return
-    if (person === undefined && !realScanner) return
+    // With a real scanner the card is already listening (`useFingerWatch`);
+    // a second wait on the same scanner would hold both (owner, 25 Oct 2026:
+    // "membaca hang"). The finger on the glass is enough.
+    if (person === undefined) return
     await attempt(undefined, person)
   }
 

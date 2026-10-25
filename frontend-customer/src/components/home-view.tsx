@@ -11,6 +11,7 @@ import { MemberCard } from "@/components/member-card"
 import { AnimatedNumber } from "@/components/motion/animated-number"
 import { NumberTicker } from "@/components/motion/number-ticker"
 import { PullToRefresh } from "@/components/motion/pull-to-refresh"
+import { AskPanel } from "@/components/redeem-ask"
 import { EmptyState, ErrorState, LoadingRows } from "@/components/states"
 import { TransactionRow } from "@/components/transaction-row"
 import { Button } from "@/components/ui/button"
@@ -23,6 +24,7 @@ import { shortDate } from "@/lib/dates"
 import { EASE_OUT } from "@/lib/motion"
 import { money, moneyShort, units } from "@/lib/money"
 import { usePointsFeed } from "@/lib/points-feed"
+import { useLiveAsk } from "@/lib/redeem-asks"
 import { useSession } from "@/lib/session"
 
 const RECENT = 5
@@ -67,6 +69,11 @@ export function HomeView() {
   // counter watches this number go up without touching anything.
   const balance = usePointsFeed()
 
+  // A cashier's ask to spend points, if one is waiting: the first thing on the
+  // screen, because somebody is standing at a till for the answer. Only reads
+  // — `AskNotifier` is what keeps asking the server.
+  const { ask } = useLiveAsk()
+
   // All three, together. A member pulling down after a purchase wants the
   // points and the receipt that produced them, and refreshing one of them
   // would leave the screen disagreeing with itself.
@@ -99,6 +106,8 @@ export function HomeView() {
             </Chip>
           </div>
         </header>
+
+        <AskPanel ask={ask} className="mt-5" />
 
         <Link
           to="/kartu"

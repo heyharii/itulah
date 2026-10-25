@@ -9,13 +9,14 @@ import { router } from "@/router"
 ///
 /// The old shape was an operator username and password, and then a "type your
 /// member number" box. The first was a credential no shopper had; the second
-/// was not a credential at all. Both are replaced by one pairing: a card
-/// number and six digits from the cashier, after which the session cookie says
-/// who this is and nothing on the page has to assert it.
+/// was not a credential at all. Both are replaced by one sign-in: six digits
+/// WhatsApp sent to the member's number — or, for a card with no phone behind
+/// it, six digits from the cashier — after which the session cookie says who
+/// this is and nothing on the page has to assert it.
 export default function App() {
   // Three states, not two. While the query is pending nobody has been asked
-  // anything yet, and showing the pairing form during that moment would ask an
-  // already-paired phone to be paired again.
+  // anything yet, and showing the sign-in during that moment would ask an
+  // already-signed-in phone to sign in again.
   const session = useMemberSession()
   const { mutate: signOut } = useSignOut()
 
@@ -32,7 +33,7 @@ export default function App() {
   }
 
   // A refusal that is not "no session" — the node being unreachable, or
-  // refusing for some other reason. A bare pairing form here would fail again
+  // refusing for some other reason. A bare sign-in form here would fail again
   // for a cause nobody watching could see.
   if (session.isError) {
     return (

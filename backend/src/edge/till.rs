@@ -1882,7 +1882,15 @@ pub struct ReturnLineRequest {
     /// The tag on the garment being handed back. A return is scanned like a
     /// sale — the shop has to know WHICH shirt came home, not merely that one
     /// did, or the unit stays sold forever and a different one goes missing.
+    ///
+    /// Empty for a piece sold without a tag: that one names `sku_code`.
+    #[serde(default)]
     pub epc: String,
+    /// A piece sold without a tag (typed SKU, `unmatched_sale_line`) comes
+    /// back by its SKU (owner, 25 Oct 2026): the first line of that SKU on the
+    /// receipt not yet returned. Read only when `epc` is empty.
+    #[serde(default)]
+    pub sku_code: Option<String>,
     /// `RESALEABLE` back to the floor, `DAMAGED` to the reject pool. Anything
     /// not fit to sell must not reach the rail by default.
     #[serde(default = "resaleable")]
@@ -1947,6 +1955,93 @@ pub struct SoldLine {
     pub already_returned: bool,
 }
 
+/// One line of the original sale rung without a tag (`unmatched_sale_line`),
+/// with what it was charged and whether it has already come back (`0092`).
+#[derive(Clone, Debug)]
+pub struct UntaggedSoldLine {
+    /// The unmatched line's id.
+    pub line_id: String,
+    pub sku_code: String,
+    pub charged_minor: i64,
+    pub already_returned: bool,
+    /// The piece of this shop head office matched the line to and the node
+    /// let go (`unmatched_sale_take` TAKEN): it comes home with the return.
+    pub taken_subject_id: Option<String>,
+    pub taken_epc: Option<String>,
+}
+
+/// The untagged lines of a sale that can come back by their SKU, in the
+/// order they were rung. An UNKNOWN item names no SKU and is not among them.
+pub fn untagged_sold_lines(
+    connection: &Connection,
+    sale_id: &str,
+) -> Result<Vec<UntaggedSoldLine>, EdgeError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT u.id, u.sku_code, u.line_total_minor,
+                    EXISTS(SELECT 1 FROM unmatched_return_line r WHERE r.unmatched_line_id = u.id),
+                    (SELECT s.id FROM unmatched_sale_take t
+                       JOIN inventory_subject s ON s.epc = t.epc
+                      WHERE t.take_id = u.id AND t.outcome = 'TAKEN' LIMIT 1),
+                    (SELECT t.epc FROM unmatched_sale_take t
+                      WHERE t.take_id = u.id AND t.outcome = 'TAKEN' LIMIT 1)
+               FROM unmatched_sale_line u
+              WHERE u.sale_id = ?1 AND u.sku_code IS NOT NULL AND u.kind <> 'UNKNOWN'
+              ORDER BY u.line_no",
+        )
+        .map_err(db)?;
+    let rows = statement
+        .query_map([sale_id], |row| {
+            Ok(UntaggedSoldLine {
+                line_id: row.get(0)?,
+                sku_code: row.get(1)?,
+                charged_minor: row.get(2)?,
+                already_returned: row.get::<_, i64>(3)? == 1,
+                taken_subject_id: row.get(4)?,
+                taken_epc: row.get(5)?,
+            })
+        })
+        .map_err(db)?;
+    rows.map(|row| row.map_err(db)).collect()
+}
+
+/// The next untagged line of `sku` on this receipt still out with the
+/// shopper and not already chosen in this request (`taken`, line ids).
+pub fn pick_untagged(
+    sold: &[UntaggedSoldLine],
+    taken: &mut std::collections::HashSet<String>,
+    sku: &str,
+) -> Result<UntaggedSoldLine, EdgeError> {
+    let sku = crate::edge::unmatched::normalized_sku(sku);
+    if sku.is_empty() {
+        return Err(EdgeError::Validation(
+            "barang yang dikembalikan perlu tag atau SKU".into(),
+        ));
+    }
+    let label = if sku.len() == 11 && sku.bytes().all(|b| b.is_ascii_digit()) {
+        format!("{}·{}", &sku[..8], &sku[8..])
+    } else {
+        sku.clone()
+    };
+    let of_sku: Vec<&UntaggedSoldLine> =
+        sold.iter().filter(|line| line.sku_code == sku).collect();
+    if of_sku.is_empty() {
+        return Err(EdgeError::Validation(format!(
+            "SKU {label} tidak dijual tanpa tag di struk ini"
+        )));
+    }
+    let line = of_sku
+        .into_iter()
+        .find(|line| !line.already_returned && !taken.contains(&line.line_id))
+        .ok_or_else(|| {
+            EdgeError::Conflict(format!(
+                "SKU {label} di struk ini semua sudah dikembalikan"
+            ))
+        })?;
+    taken.insert(line.line_id.clone());
+    Ok(line.clone())
+}
+
 pub fn sold_lines(connection: &Connection, sale_id: &str) -> Result<Vec<SoldLine>, EdgeError> {
     let mut statement = connection
         .prepare(
@@ -1992,13 +2087,14 @@ pub fn record_return(
     shift_id: Option<&str>,
     movement_group_id: &str,
     lines: &[(SoldLine, String)],
+    untagged: &[(UntaggedSoldLine, String)],
     occurred_at: DateTime<Utc>,
 ) -> Result<ReturnResult, EdgeError> {
     let refund_minor: i64 = lines
         .iter()
-        .try_fold(0_i64, |total, (line, _)| {
-            total.checked_add(line.charged_minor)
-        })
+        .map(|(line, _)| line.charged_minor)
+        .chain(untagged.iter().map(|(line, _)| line.charged_minor))
+        .try_fold(0_i64, |total, charged| total.checked_add(charged))
         .ok_or_else(|| EdgeError::Validation("refund total overflow".into()))?;
     record_return_valued(
         tx,
@@ -2008,6 +2104,7 @@ pub fn record_return(
         shift_id,
         movement_group_id,
         lines,
+        untagged,
         refund_minor,
         occurred_at,
     )
@@ -2028,6 +2125,7 @@ pub fn record_return_valued(
     shift_id: Option<&str>,
     movement_group_id: &str,
     lines: &[(SoldLine, String)],
+    untagged: &[(UntaggedSoldLine, String)],
     refund_minor: i64,
     occurred_at: DateTime<Utc>,
 ) -> Result<ReturnResult, EdgeError> {
@@ -2077,8 +2175,31 @@ pub fn record_return_valued(
             disposition: disposition.clone(),
         });
     }
+    // Pieces sold without a tag, by their line (`0092`).
+    for (line, disposition) in untagged {
+        tx.prepare_cached(
+            "INSERT INTO unmatched_return_line(return_id,sale_id,unmatched_line_id,sku_code,refund_minor,disposition)
+             VALUES(?1,?2,?3,?4,?5,?6)",
+        )
+        .map_err(db)?
+        .execute(params![
+            return_id,
+            request.sale_id,
+            line.line_id,
+            line.sku_code,
+            line.charged_minor,
+            disposition
+        ])
+        .map_err(db)?;
+        returned.push(ReturnedLine {
+            epc: line.taken_epc.clone().unwrap_or_default(),
+            sku_code: line.sku_code.clone(),
+            refund_minor: line.charged_minor,
+            disposition: disposition.clone(),
+        });
+    }
 
-    let remaining_lines: i64 = tx
+    let remaining_tagged: i64 = tx
         .prepare_cached(
             "SELECT COUNT(*) FROM sale_line l
               WHERE l.sale_id=?1
@@ -2088,6 +2209,17 @@ pub fn record_return_valued(
         .map_err(db)?
         .query_row([&request.sale_id], |row| row.get(0))
         .map_err(db)?;
+    let remaining_untagged: i64 = tx
+        .prepare_cached(
+            "SELECT COUNT(*) FROM unmatched_sale_line u
+              WHERE u.sale_id=?1 AND u.sku_code IS NOT NULL AND u.kind <> 'UNKNOWN'
+                AND NOT EXISTS(SELECT 1 FROM unmatched_return_line r
+                                WHERE r.unmatched_line_id=u.id)",
+        )
+        .map_err(db)?
+        .query_row([&request.sale_id], |row| row.get(0))
+        .map_err(db)?;
+    let remaining_lines = remaining_tagged + remaining_untagged;
 
     Ok(ReturnResult {
         return_id: return_id.to_string(),
@@ -2116,7 +2248,13 @@ pub struct ExchangeRequest {
     /// The receipt the returned pieces were sold on.
     pub sale_id: String,
     /// Each a piece sold on `sale_id` and not yet returned. Back to the floor.
+    #[serde(default)]
     pub returned_epcs: Vec<String>,
+    /// Pieces sold on `sale_id` without a tag, each by its SKU (owner, 25 Oct
+    /// 2026): one entry per piece, the first line of that SKU not yet
+    /// returned.
+    #[serde(default)]
+    pub returned_skus: Vec<String>,
     /// Each a piece on this shop's floor.
     pub replacement_epcs: Vec<String>,
     /// The difference only, when the replacement is dearer. Empty otherwise.
@@ -2353,6 +2491,26 @@ pub fn receipt_document(
         .query_row([sale_id], |row| row.get(0))
         .map_err(db)?;
 
+    // Pieces sold without a tag still out with the shopper (`0092`).
+    let mut untagged_open = Vec::new();
+    {
+        let mut statement = connection
+            .prepare(
+                "SELECT u.sku_code FROM unmatched_sale_line u
+                  WHERE u.sale_id = ?1 AND u.sku_code IS NOT NULL AND u.kind <> 'UNKNOWN'
+                    AND NOT EXISTS(SELECT 1 FROM unmatched_return_line r
+                                    WHERE r.unmatched_line_id = u.id)
+                  ORDER BY u.line_no",
+            )
+            .map_err(db)?;
+        let rows = statement
+            .query_map([sale_id], |row| row.get::<_, String>(0))
+            .map_err(db)?;
+        for row in rows {
+            untagged_open.push(row.map_err(db)?);
+        }
+    }
+
     let stamp_text = if head.0 == "VOIDED" {
         Some("** BATAL **".to_string())
     } else if returned_minor > 0 {
@@ -2380,6 +2538,7 @@ pub fn receipt_document(
         points_earned: 0,
         footer: footer.map(str::to_string),
         stamp: stamp_text,
+        untagged_open,
     })
 }
 

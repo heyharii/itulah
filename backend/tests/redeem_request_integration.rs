@@ -1,5 +1,7 @@
-//! The other half of the pairing code's conversation: a shopper asks to turn
-//! points into a voucher, and a cashier's confirm is what a request becomes.
+//! A cashier asks to spend a member's points (owner, 25 Oct 2026: the cashier
+//! says how many), and the shopper's yes — the code WhatsApp brought them,
+//! read back at the till, or Approve in the member app — is what turns the ask
+//! into a voucher.
 //!
 //! Driven over HTTP, the same reasoning `member_identity.rs` gives for doing
 //! the same: everything this feature promises is a promise about
@@ -10,10 +12,13 @@
 //! The properties held down here, roughly in the order they would hurt if
 //! they broke:
 //!
-//! 1. **A shopper can ask, and a till can turn that into a voucher**, at the
-//!    fixed 1-point-to-Rp-1 rate — nowhere else in the request decides it.
-//! 2. **At most one live request per member.** A cashier reading a member's
-//!    current ask must never have to choose between two.
+//! 1. **A till can ask, and the shopper's code turns that into a voucher**,
+//!    at the fixed 1-point-to-Rp-1 rate — nowhere else in the request decides
+//!    it. **Or the shopper approves it in the app**, and the till waiting on
+//!    it finds the voucher.
+//! 2. **At most one live request per member.** Asking again replaces the one
+//!    before, so a cashier reading a member's current ask never chooses
+//!    between two.
 //! 3. **A request cannot be confirmed for more than the balance can pay, and
 //!    a retried confirm is answered from what was already written rather than
 //!    spending twice.**
@@ -334,13 +339,51 @@ async fn seed_balance(pool: &PgPool, member_id: &str, points: i64) {
     .unwrap_or_else(|e| panic!("seed points_ledger: {e}"));
 }
 
-async fn create_request(app: &axum::Router, phone: &Phone, points: i64) -> Answer {
+/// The six digits the shopper "reads back". The real code went to WhatsApp
+/// and is stored only as a hash, so a test sets the hash to one it knows.
+const SHOPPERS_CODE: &str = "424242";
+
+/// The till asks to spend `points` of the member's, and the test plays the
+/// shopper's WhatsApp: the answer carries the code they would read back.
+async fn create_request(app: &axum::Router, pool: &PgPool, points: i64) -> Answer {
+    let mut asked = send(
+        app.clone(),
+        "POST",
+        "/api/v1/sync/points/redeem-requests",
+        sync_headers(),
+        Some(json!({
+            "origin_id": ORIGIN_ID,
+            "actor_id": CASHIER,
+            "member_id": CARD,
+            "points": points,
+        })),
+    )
+    .await;
+    if asked.status == StatusCode::OK {
+        assert!(
+            asked.body.get("code").is_none(),
+            "the till was told the shopper's code: {:?}",
+            asked.body
+        );
+        let request_id = asked.body["request_id"].as_str().unwrap_or_default().to_owned();
+        sqlx::query("UPDATE member_redeem_request SET code_sha256 = $2 WHERE request_id::text = $1")
+            .bind(&request_id)
+            .bind(inventory_backend::security::sha256_hex(SHOPPERS_CODE))
+            .execute(pool)
+            .await
+            .unwrap_or_else(|e| panic!("set the shopper's code: {e}"));
+        asked.body["code"] = json!(SHOPPERS_CODE);
+    }
+    asked
+}
+
+async fn progress(app: &axum::Router, request_id: &str) -> Answer {
     send(
         app.clone(),
         "POST",
-        "/api/v1/member/points/redeem-requests",
-        phone.write(),
-        Some(json!({ "points": points })),
+        &format!("/api/v1/sync/points/redeem-requests/{request_id}/progress"),
+        sync_headers(),
+        Some(json!({ "origin_id": ORIGIN_ID, "actor_id": CASHIER })),
     )
     .await
 }
@@ -378,15 +421,15 @@ async fn confirm(app: &axum::Router, request_id: &str) -> Answer {
 
 // ── the flow ────────────────────────────────────────────────────────────────
 
-/// The whole feature in one test: a shopper asks, a till confirms, and the
-/// numbers land where they should on both sides.
+/// The whole feature in one test: a till asks, the shopper's code confirms
+/// it, and the numbers land where they should on both sides.
 #[sqlx::test(migrations = "./migrations/postgres")]
-async fn a_shopper_asks_and_a_till_confirms_a_redemption(pool: PgPool) {
+async fn a_till_asks_and_the_shoppers_code_confirms_a_redemption(pool: PgPool) {
     let (app, counter) = shop(&pool).await;
     let phone = paired_member(&app, &counter, CARD).await;
     seed_balance(&pool, CARD, 500).await;
 
-    let asked = create_request(&app, &phone, 300).await;
+    let asked = create_request(&app, &pool, 300).await;
     assert_eq!(
         asked.status,
         StatusCode::OK,
@@ -414,9 +457,10 @@ async fn a_shopper_asks_and_a_till_confirms_a_redemption(pool: PgPool) {
     .await;
     assert_eq!(history.status, StatusCode::OK);
     assert_eq!(history.body[0]["status"], json!("PENDING"));
-    // The code itself is never repeated back on a read — only the response
-    // that minted it carries it.
+    // The code is never on a read: it went to the shopper's WhatsApp.
     assert!(history.body[0].get("code").is_none());
+    assert_eq!(history.body[0]["asked_by"], json!(CASHIER));
+    assert_eq!(history.body[0]["value_minor"], json!(300));
 
     let found = lookup(&app, CARD, &code).await;
     assert_eq!(found.status, StatusCode::OK, "lookup: {:?}", found.body);
@@ -451,35 +495,133 @@ async fn a_shopper_asks_and_a_till_confirms_a_redemption(pool: PgPool) {
     assert!(after.body[0]["redemption_id"].is_string());
 }
 
-/// Two live requests for one member would leave a cashier reading a card
-/// choosing between them — refused before it can happen.
+/// Asking again replaces the live request — the shopper changed their mind
+/// about how much, or the message never came — so there is never a second
+/// live one for a cashier to choose between.
 #[sqlx::test(migrations = "./migrations/postgres")]
-async fn a_second_live_request_is_refused(pool: PgPool) {
+async fn asking_again_replaces_the_live_request(pool: PgPool) {
     let (app, counter) = shop(&pool).await;
     let phone = paired_member(&app, &counter, CARD).await;
     seed_balance(&pool, CARD, 1000).await;
 
-    let first = create_request(&app, &phone, 100).await;
+    let first = create_request(&app, &pool, 100).await;
     assert_eq!(first.status, StatusCode::OK, "{:?}", first.body);
+    let second = create_request(&app, &pool, 50).await;
+    assert_eq!(second.status, StatusCode::OK, "{:?}", second.body);
 
-    let second = create_request(&app, &phone, 50).await;
-    assert_eq!(
-        second.status,
-        StatusCode::CONFLICT,
-        "a member asked twice while the first request was still live: {:?}",
-        second.body
-    );
+    let history = send(
+        app.clone(),
+        "GET",
+        "/api/v1/member/points/redeem-requests",
+        phone.read(),
+        None,
+    )
+    .await;
+    assert_eq!(history.body[0]["points"], json!(50));
+    assert_eq!(history.body[0]["status"], json!("PENDING"));
+    assert_eq!(history.body[1]["status"], json!("CANCELLED"));
+}
+
+/// The shopper's other way to say yes: Approve in the member app. The points
+/// are spent at once and the till that is waiting finds the voucher.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn the_shopper_approves_in_the_app_and_the_till_finds_the_voucher(pool: PgPool) {
+    let (app, counter) = shop(&pool).await;
+    let phone = paired_member(&app, &counter, CARD).await;
+    seed_balance(&pool, CARD, 500).await;
+
+    let asked = create_request(&app, &pool, 200).await;
+    assert_eq!(asked.status, StatusCode::OK, "{:?}", asked.body);
+    let request_id = asked.body["request_id"].as_str().unwrap_or_default().to_owned();
+
+    let waiting = progress(&app, &request_id).await;
+    assert_eq!(waiting.status, StatusCode::OK, "{:?}", waiting.body);
+    assert_eq!(waiting.body["request"]["status"], json!("PENDING"));
+    assert!(waiting.body["voucher"].is_null());
+
+    let approved = send(
+        app.clone(),
+        "POST",
+        &format!("/api/v1/member/points/redeem-requests/{request_id}/approve"),
+        phone.write(),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(approved.status, StatusCode::OK, "approve: {:?}", approved.body);
+    assert_eq!(approved.body["status"], json!("CONFIRMED"));
+    assert_eq!(approved.body["approved_in_app"], json!(true));
+
+    let found = progress(&app, &request_id).await;
+    assert_eq!(found.status, StatusCode::OK, "{:?}", found.body);
+    assert_eq!(found.body["request"]["status"], json!("CONFIRMED"));
+    assert_eq!(found.body["voucher"]["points_spent"], json!(200));
+    assert!(found.body["voucher"]["voucher_code"].is_string(), "{:?}", found.body);
+    // Asked twice, still one voucher and one debit.
+    let again = progress(&app, &request_id).await;
+    assert_eq!(found.body["voucher"]["voucher_id"], again.body["voucher"]["voucher_id"]);
+    let balance: i64 =
+        sqlx::query_scalar("SELECT balance_points FROM points_account WHERE customer_id = $1")
+            .bind(CARD)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|e| panic!("balance: {e}"));
+    assert_eq!(balance, 300);
+}
+
+/// Declined in the app, the till hears so and nothing is spent; taken back
+/// at the till, the code no longer works.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_declined_or_withdrawn_ask_spends_nothing(pool: PgPool) {
+    let (app, counter) = shop(&pool).await;
+    let phone = paired_member(&app, &counter, CARD).await;
+    seed_balance(&pool, CARD, 500).await;
+
+    let asked = create_request(&app, &pool, 100).await;
+    let request_id = asked.body["request_id"].as_str().unwrap_or_default().to_owned();
+    let declined = send(
+        app.clone(),
+        "POST",
+        &format!("/api/v1/member/points/redeem-requests/{request_id}/decline"),
+        phone.write(),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(declined.status, StatusCode::OK, "{:?}", declined.body);
+    let heard = progress(&app, &request_id).await;
+    assert_eq!(heard.body["request"]["status"], json!("CANCELLED"));
+
+    let asked = create_request(&app, &pool, 100).await;
+    let request_id = asked.body["request_id"].as_str().unwrap_or_default().to_owned();
+    let withdrawn = send(
+        app.clone(),
+        "POST",
+        &format!("/api/v1/sync/points/redeem-requests/{request_id}/cancel"),
+        sync_headers(),
+        Some(json!({ "origin_id": ORIGIN_ID, "actor_id": CASHIER })),
+    )
+    .await;
+    assert_eq!(withdrawn.status, StatusCode::OK, "{:?}", withdrawn.body);
+    let too_late = lookup(&app, CARD, SHOPPERS_CODE).await;
+    assert_eq!(too_late.status, StatusCode::UNAUTHORIZED, "{:?}", too_late.body);
+
+    let balance: i64 =
+        sqlx::query_scalar("SELECT balance_points FROM points_account WHERE customer_id = $1")
+            .bind(CARD)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|e| panic!("balance: {e}"));
+    assert_eq!(balance, 500);
 }
 
 /// A request for more than the balance holds is refused at the door, before
-/// a shopper is ever shown a code to carry to a till.
+/// a shopper is ever sent a code.
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn insufficient_balance_refuses_the_request(pool: PgPool) {
     let (app, counter) = shop(&pool).await;
-    let phone = paired_member(&app, &counter, CARD).await;
+    let _phone = paired_member(&app, &counter, CARD).await;
     seed_balance(&pool, CARD, 40).await;
 
-    let asked = create_request(&app, &phone, 41).await;
+    let asked = create_request(&app, &pool, 41).await;
     assert_eq!(
         asked.status,
         StatusCode::CONFLICT,
@@ -494,10 +636,10 @@ async fn insufficient_balance_refuses_the_request(pool: PgPool) {
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn five_wrong_guesses_lock_the_request(pool: PgPool) {
     let (app, counter) = shop(&pool).await;
-    let phone = paired_member(&app, &counter, CARD).await;
+    let _phone = paired_member(&app, &counter, CARD).await;
     seed_balance(&pool, CARD, 500).await;
 
-    let asked = create_request(&app, &phone, 100).await;
+    let asked = create_request(&app, &pool, 100).await;
     let good = asked.body["code"].as_str().unwrap_or_default().to_owned();
     let bad = {
         let mut digits: Vec<u8> = good.bytes().collect();
@@ -534,10 +676,10 @@ async fn five_wrong_guesses_lock_the_request(pool: PgPool) {
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn a_retried_confirm_replays_rather_than_spending_twice(pool: PgPool) {
     let (app, counter) = shop(&pool).await;
-    let phone = paired_member(&app, &counter, CARD).await;
+    let _phone = paired_member(&app, &counter, CARD).await;
     seed_balance(&pool, CARD, 500).await;
 
-    let asked = create_request(&app, &phone, 300).await;
+    let asked = create_request(&app, &pool, 300).await;
     let request_id = asked.body["request_id"]
         .as_str()
         .unwrap_or_default()
@@ -568,9 +710,9 @@ async fn a_retried_confirm_replays_rather_than_spending_twice(pool: PgPool) {
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn only_the_registered_origins_own_key_may_relay(pool: PgPool) {
     let (app, counter) = shop(&pool).await;
-    let phone = paired_member(&app, &counter, CARD).await;
+    let _phone = paired_member(&app, &counter, CARD).await;
     seed_balance(&pool, CARD, 500).await;
-    let asked = create_request(&app, &phone, 100).await;
+    let asked = create_request(&app, &pool, 100).await;
     let code = asked.body["code"].as_str().unwrap_or_default().to_owned();
 
     let no_key = send(

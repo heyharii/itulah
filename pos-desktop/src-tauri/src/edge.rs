@@ -686,6 +686,73 @@ pub async fn edge_call(
     in_the_background(move || session_call(&app, &method, &path, body.as_ref())).await
 }
 
+/// A product photograph as a `data:` URL, for the sale grid and the item card.
+///
+/// `edge_call` answers JSON, and a picture is bytes; the page's CSP allows
+/// `img-src 'self' data:` only, so the picture comes back already wrapped.
+/// `None` is every way of not having one (no photo, node down, too large) —
+/// the grid draws a plain square and never a broken image. The node proxies
+/// and caches the picture itself (`/api/v1/catalog/image?sku=`).
+#[tauri::command]
+pub async fn edge_image(app: tauri::AppHandle, sku: String) -> Option<String> {
+    tauri::async_runtime::spawn_blocking(move || image_call(&app, &sku))
+        .await
+        .ok()
+        .flatten()
+}
+
+fn image_call(app: &tauri::AppHandle, sku: &str) -> Option<String> {
+    use std::io::Read;
+
+    if sku.is_empty() || !sku.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        return None;
+    }
+    let node = app.state::<Node>();
+    let config = lock(node.inner()).clone();
+    let url = format!(
+        "{}/api/v1/catalog/image?sku={}",
+        config.base_url.trim_end_matches('/'),
+        sku
+    );
+    let mut request = http(PATIENCE)
+        .get(&url)
+        .set("X-Terminal-Id", &config.terminal_id);
+    if let Some(token) = config.token.as_deref() {
+        request = request.set("Authorization", &format!("Bearer {token}"));
+    }
+    let response = request.call().ok()?;
+    let kind = response
+        .header("Content-Type")
+        .filter(|kind| kind.starts_with("image/"))
+        .unwrap_or("image/jpeg")
+        .to_string();
+    let mut bytes = Vec::new();
+    response
+        .into_reader()
+        .take(4 * 1024 * 1024)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    if bytes.is_empty() {
+        return None;
+    }
+    Some(format!("data:{kind};base64,{}", base64_of(&bytes)))
+}
+
+fn base64_of(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
+        out.push(ALPHABET[(n >> 18) as usize & 63] as char);
+        out.push(ALPHABET[(n >> 12) as usize & 63] as char);
+        out.push(if chunk.len() > 1 { ALPHABET[(n >> 6) as usize & 63] as char } else { '=' });
+        out.push(if chunk.len() > 2 { ALPHABET[n as usize & 63] as char } else { '=' });
+    }
+    out
+}
+
 /// The call as the person signed in here, for the shell's own callers too:
 /// `printer.rs` asks the node for a receipt's bytes this way.
 pub(crate) fn session_call(

@@ -45,6 +45,13 @@ sandbox_image="$(meta instance/attributes/itulah-sandbox-image 2>/dev/null || ec
 # pages to it. Unset, the hub is the static bundle in www/hub as before. Set with
 #   gcloud compute instances add-metadata itulah-demo --metadata itulah-hub-image=<image>
 hub_image="$(meta instance/attributes/itulah-hub-image 2>/dev/null || true)"
+# Head office's WhatsApp (25 Oct 2026): `services/wa-gateway`, WhatsApp Web in
+# a headless browser, sending shoppers their one-time codes. Its session lives
+# in $state/wa, so a restart keeps the paired number. Unset, the cloud has no
+# WhatsApp and asks nobody for a code. Set with
+#   gcloud compute instances add-metadata itulah-demo --metadata itulah-wa-image=<image>
+# and WA_GATEWAY_KEY (24+ characters) in the shared secret.
+wa_image="$(meta instance/attributes/itulah-wa-image 2>/dev/null || true)"
 # Ephemeral IP: the name follows the address at every boot.
 ip="$(meta instance/network-interfaces/0/access-configs/0/external-ip)"
 domain="${ip//./-}.sslip.io"
@@ -111,7 +118,10 @@ extra_stores="store-02 store-03 store-04 store-05"
 mkdir -p "$state"/{pg,dc,store,store-sandbox,caddy/data,caddy/config,home}
 for s in $extra_stores; do mkdir -p "$state/$s"; done
 chmod 700 "$state"
+mkdir -p "$state/wa"
 chown 10001:10001 "$state/dc" "$state/store" "$state/store-sandbox"
+# The gateway runs as node (uid 1000).
+chown 1000:1000 "$state/wa"
 for s in $extra_stores; do chown 10001:10001 "$state/$s"; done
 
 export HOME="$state/home"
@@ -159,6 +169,12 @@ JEV_MODEL=${JEV_MODEL:-jev-1.14.0}
 # recordings waiting for approval). From the shared secret; without it the
 # cloud refuses to store a finger rather than keep one in the clear.
 ATTENDANCE_TEMPLATE_KEY=${ATTENDANCE_TEMPLATE_KEY:-}
+$(if [ -n "$wa_image" ] && [ -n "${WA_GATEWAY_KEY:-}" ]; then cat <<E3
+# Head office's WhatsApp, on the docker network (see ensure_wa_gateway).
+WA_GATEWAY_URL=http://wa-gateway:3100
+WA_GATEWAY_KEY=$WA_GATEWAY_KEY
+E3
+fi)
 $(if [ -n "${GCS_HMAC_ACCESS_ID:-}" ]; then cat <<E3
 STORAGE_ENDPOINT=https://storage.googleapis.com
 R2_BUCKET=itulah-media-21f41328
@@ -599,6 +615,19 @@ ensure_hub_ssr() {
     -e ITULAH_CLOUD_URL=http://cloud:8080 "$hub_image" >/dev/null
 }
 
+# Head office's WhatsApp gateway: Chromium wants shared memory and a few
+# hundred MB; the session folder keeps the pairing across restarts.
+ensure_wa_gateway() {
+  [ -n "$wa_image" ] && [ -n "${WA_GATEWAY_KEY:-}" ] || return 0
+  if exists wa-gateway && [ "$(docker inspect wa-gateway --format '{{.Config.Image}}')" = "$wa_image" ]; then
+    docker start wa-gateway >/dev/null; return 0
+  fi
+  pull "$wa_image" || { echo "pull failed: $wa_image" >&2; return 1; }
+  docker rm -f wa-gateway >/dev/null 2>&1 || true
+  docker run -d --name wa-gateway --restart unless-stopped --network itulah --memory 700m \
+    --shm-size 256m -v "$state/wa:/data" -e WA_GATEWAY_KEY="$WA_GATEWAY_KEY" "$wa_image" >/dev/null
+}
+
 ensure_caddy() {
   if exists caddy; then
     docker start caddy >/dev/null
@@ -633,6 +662,7 @@ if [ "$mode" = boot ]; then
   for s in $extra_stores; do swap_edge "$s" "$image"; done
   ensure_sandbox "$sandbox_image"
   ensure_hub_ssr
+  ensure_wa_gateway || echo "wa-gateway not started" >&2
   ensure_caddy
   docker image prune -af --filter "until=72h" >/dev/null 2>&1 || true
   echo "itulah demo up: $domain"
@@ -641,6 +671,8 @@ fi
 
 if [ "$mode" = rollout ]; then
   pull "$image" || { echo "pull failed: $image" >&2; exit 1; }
+  # The gateway first, so the new cloud finds it when it starts.
+  ensure_wa_gateway || echo "wa-gateway not started" >&2
   docker pull -q curlimages/curl >/dev/null 2>&1 || true
   # Once, on a VM set up before the front network: Caddy joins it, the live
   # cloud joins it, and the Caddyfile that names cloud-front is loaded — the
@@ -693,6 +725,13 @@ if [ "$mode" = rollout ]; then
     docker rmi "$image_before" >/dev/null 2>&1 || true
   fi
   echo "$(date -u +%T) ROLLOUT OK: $image on $next"
+  exit 0
+fi
+
+# The WhatsApp gateway alone, made again from the metadata's image.
+if [ "$mode" = wa ]; then
+  ensure_wa_gateway || exit 1
+  echo "$(date -u +%T) WA OK: ${wa_image:-none}"
   exit 0
 fi
 

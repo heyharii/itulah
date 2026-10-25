@@ -171,6 +171,11 @@ pub struct ReceiptDocument {
     /// A void or a return reprints the original with this stamped across it,
     /// so the two copies cannot be confused at the end of the day.
     pub stamp: Option<String>,
+    /// The SKU of each piece on this receipt sold without a tag and not yet
+    /// returned, one entry per piece: what a return may take back by its SKU
+    /// (owner, 25 Oct 2026). Not printed.
+    #[serde(default)]
+    pub untagged_open: Vec<String>,
 }
 
 /// The time, as somebody at a counter reads it.
@@ -458,6 +463,7 @@ mod tests {
             points_earned: 19,
             footer: Some("Terima kasih. Penukaran maksimal 7 hari dengan struk ini.".into()),
             stamp: None,
+            untagged_open: Vec::new(),
         }
     }
 

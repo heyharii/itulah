@@ -1,5 +1,6 @@
 import {
   Activity,
+  MessageCircle,
   Printer,
   RefreshCw,
   ScrollText,
@@ -98,6 +99,10 @@ export const systemNav: AppModule = {
           icon: Activity,
         },
         { path: "/system/activity", label: "Activity", icon: ScrollText },
+        /// Head office's WhatsApp number, which sends shoppers their
+        /// one-time codes: pair it by QR, send a test, unlink it. See
+        /// `screens/system/whatsapp.tsx`.
+        { path: "/system/whatsapp", label: "WhatsApp", icon: MessageCircle },
         /// The warehouse server's own sync and sign-in. The screens live in
         /// `screens/operations/node/` and keep their old paths.
         { path: "/operations/node", label: "Sync", icon: RefreshCw },

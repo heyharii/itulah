@@ -5,36 +5,59 @@ import { ArrowLeft } from "lucide-react"
 
 import { CentralMark, MattePicture, type MatteArt } from "@/components/matte"
 import { MemberCard } from "@/components/member-card"
+import { Spinner } from "@/components/spinner"
 import { SuccessMark } from "@/components/success-mark"
 import { Button } from "@/components/ui/button"
 import { Chip } from "@/components/ui/chip"
 import { CodeInput } from "@/components/ui/code-boxes"
 import { Input } from "@/components/ui/input"
+import { CodeScene, PhoneScene } from "@/components/whatsapp-sign-in"
 import { cacheKey, member } from "@/lib/api"
 import { EASE_DRAWER, EASE_OUT } from "@/lib/motion"
 import { useNodeIdentity } from "@/lib/session"
 import { ApiError } from "@itulah/contract/client"
-import type { MemberSessionResponse } from "@itulah/contract"
+import type { MemberSessionResponse, SentOtp } from "@itulah/contract"
 
-/// Connecting a phone to a card — three short scenes.
+type Scene = "welcome" | "phone" | "code" | "cashier" | "done"
+
+/// How far in each scene is, so a step deeper pushes in from the right and a
+/// step back returns the way it came.
+const DEPTH: Record<Scene, number> = { welcome: 0, phone: 1, cashier: 1, code: 2, done: 3 }
+
+/// Getting into the app — a few short scenes, by one of two doors.
 ///
-/// 1. **Welcome**: what this is, with the card itself as the picture.
-/// 2. **Connect**: the card number and six digits the cashier reads out. That
-///    pair proves what matters — the card is in this person's hand, in the
-///    shop, in front of an employee. Deliberately not a code sent to a phone
-///    number: prepaid numbers here change hands and get recycled, and whoever
-///    inherits one would inherit the previous holder's history.
-/// 3. **You're in**: a moment to mark it, once. The session is already set;
+/// 1. **Welcome**: what this is, with the card itself as the picture, and the
+///    two ways in.
+/// 2. **WhatsApp** (the main door, owner 25 Oct 2026): the shopper types the
+///    phone number they registered at a till, head office sends six digits to
+///    its WhatsApp, they type them (`whatsapp-sign-in.tsx`). A number that is
+///    no member gets no code — nobody signs up here.
+/// 3. **Cashier's code** (the quiet door): the card number and six digits the
+///    cashier reads out. It stays because a card with no phone behind it has
+///    no other way in, and it proves what matters about a card: that it is in
+///    this person's hand, in the shop, in front of an employee.
+/// 4. **You're in**: a moment to mark it, once. The session is already set;
 ///    the app opens when they press on.
 ///
-/// Registering is done at the till, not here — the cashier enrols the card and
-/// hands over the code in the same breath, so "daftar" and "hubungkan" are one
-/// visit to a counter.
+/// Registering is done at the till, not here.
 export function PairingForm() {
   const client = useQueryClient()
   const reduce = useReducedMotion()
-  const [scene, setScene] = useState<"welcome" | "connect" | "done">("welcome")
+  const [nav, setNav] = useState<{ scene: Scene; forward: boolean }>({
+    scene: "welcome",
+    forward: true,
+  })
   const [paired, setPaired] = useState<MemberSessionResponse | null>(null)
+  // Kept here so going back from the code to change the number finds it typed.
+  const [phone, setPhone] = useState("")
+  const [sent, setSent] = useState<SentOtp | null>(null)
+
+  const go = (scene: Scene) =>
+    setNav((current) => ({ scene, forward: DEPTH[scene] > DEPTH[current.scene] }))
+  const signedIn = (session: MemberSessionResponse) => {
+    setPaired(session)
+    go("done")
+  }
 
   const enter = () => {
     if (paired !== null) client.setQueryData(cacheKey.me(), paired.member)
@@ -49,7 +72,7 @@ export function PairingForm() {
     leave: (forward: boolean) =>
       reduce ? { opacity: 0 } : { opacity: 0, x: forward ? "-6%" : "6%" },
   }
-  const forward = scene !== "welcome"
+  const { scene, forward } = nav
 
   return (
     <main className="min-h-svh overflow-hidden bg-backdrop">
@@ -64,16 +87,30 @@ export function PairingForm() {
           transition={{ duration: 0.32, ease: EASE_DRAWER }}
           className="mx-auto flex min-h-svh w-full max-w-[30rem] flex-col px-5 pt-[calc(1rem+env(safe-area-inset-top))] pb-[calc(1.25rem+env(safe-area-inset-bottom))]"
         >
-          {scene === "welcome" && <Welcome onStart={() => setScene("connect")} />}
-          {scene === "connect" && (
-            <Connect
-              onBack={() => setScene("welcome")}
-              onPaired={(session) => {
-                setPaired(session)
-                setScene("done")
+          {scene === "welcome" && (
+            <Welcome onWhatsApp={() => go("phone")} onCashier={() => go("cashier")} />
+          )}
+          {scene === "phone" && (
+            <PhoneScene
+              phone={phone}
+              onPhone={setPhone}
+              onBack={() => go("welcome")}
+              onSent={(next) => {
+                setSent(next)
+                go("code")
               }}
             />
           )}
+          {scene === "code" && sent !== null && (
+            <CodeScene
+              phone={phone}
+              sent={sent}
+              onSent={setSent}
+              onBack={() => go("phone")}
+              onSignedIn={signedIn}
+            />
+          )}
+          {scene === "cashier" && <Connect onBack={() => go("welcome")} onPaired={signedIn} />}
           {scene === "done" && <Done name={paired?.member.display_name ?? null} onEnter={enter} />}
         </motion.div>
       </AnimatePresence>
@@ -87,7 +124,7 @@ const PROMISES: ReadonlyArray<{ art: MatteArt; text: string }> = [
   { art: "store", text: "Riwayat belanja dan struk, selalu ada" },
 ]
 
-function Welcome({ onStart }: { onStart: () => void }) {
+function Welcome({ onWhatsApp, onCashier }: { onWhatsApp: () => void; onCashier: () => void }) {
   const reduce = useReducedMotion()
   return (
     <>
@@ -144,8 +181,11 @@ function Welcome({ onStart }: { onStart: () => void }) {
       </div>
 
       <div className="mt-8 flex flex-col gap-3">
-        <Button variant="primary" size="lg" block onClick={onStart}>
-          Hubungkan kartu
+        <Button variant="primary" size="lg" block onClick={onWhatsApp}>
+          Masuk dengan WhatsApp
+        </Button>
+        <Button variant="secondary" block onClick={onCashier}>
+          Punya kode dari kasir?
         </Button>
         <p className="text-center text-meta text-body">
           Belum punya kartu? Minta kasir mendaftarkan kamu saat belanja —
@@ -250,12 +290,7 @@ function Connect({
           block
           disabled={!ready || pair.isPending}
         >
-          {pair.isPending && (
-            <span
-              aria-hidden
-              className="size-4 rounded-full border-2 border-current border-r-transparent motion-safe:animate-[spin_0.7s_linear_infinite]"
-            />
-          )}
+          {pair.isPending && <Spinner />}
           {pair.isPending ? "Menghubungkan…" : "Hubungkan"}
         </Button>
         {where.data != null && (

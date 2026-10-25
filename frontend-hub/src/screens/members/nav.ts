@@ -43,10 +43,11 @@ export const membersNav: AppModule = {
   home: "/members",
   sections: [
     {
-      // Both rows `more` since the owner's menu of 2026-09-28: Sales leads
-      // the Sales domain now, and Members sits under its More fold.
+      // Segments under the More fold since the owner's menu of 2026-09-28;
+      // Members back in sight on 2026-10-25 ("tampilkan menu member"), with
+      // the details the till registers.
       items: [
-        { path: "/members", label: "Members", icon: Users, more: true },
+        { path: "/members", label: "Members", icon: Users },
         {
           path: "/members/segments",
           label: "Segments",

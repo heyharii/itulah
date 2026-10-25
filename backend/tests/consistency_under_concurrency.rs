@@ -461,27 +461,35 @@ async fn a_stop_budget_holds_against_two_postings_at_once(pool: PgPool) {
     );
 }
 
-/// A member has at most one live redeem request, however fast they tap.
+/// A member has at most one live redeem request, however fast the tills ask.
 ///
-/// `loyalty::create_redeem_request` reads the balance and the live request
-/// with plain autocommit SELECTs and then inserts; no lock, no partial unique
-/// index. Not forceable from outside, so this retries until it sees it.
+/// `loyalty::ask_redeem_request` takes the member's row lock before it
+/// replaces the live request and inserts its own, so two asks at once queue
+/// and the second replaces the first.
 #[sqlx::test(migrations = "./migrations/postgres")]
-#[ignore = "open race: create_redeem_request checks for a live request without a lock (CONSISTENCY-MATRIX R3)"]
 async fn a_member_has_one_live_redeem_request(pool: PgPool) {
     for attempt in 0..20 {
         let member = format!("M-TAP-{attempt}");
         member_with_points(&pool, &member, 500).await;
+        let asker = || cloud::RedeemAsker {
+            actor: "kasir",
+            origin_id: "store-07",
+            site_id: None,
+        };
         let (a, b) = tokio::join!(
-            cloud::create_redeem_request(&pool, &member, 300),
-            cloud::create_redeem_request(&pool, &member, 300)
+            cloud::ask_redeem_request(&pool, &member, 300, asker()),
+            cloud::ask_redeem_request(&pool, &member, 300, asker())
         );
-        assert!(
-            !(a.is_ok() && b.is_ok()),
-            "attempt {attempt}: two live requests for {member} ({:?} / {:?})",
-            a.map(|_| ()),
-            b.map(|_| ())
-        );
+        assert!(a.is_ok() && b.is_ok(), "attempt {attempt}: {:?} / {:?}", a.map(|_| ()), b.map(|_| ()));
+        let live: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM member_redeem_request
+              WHERE member_id = $1 AND confirmed_at IS NULL AND cancelled_at IS NULL",
+        )
+        .bind(&member)
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("count: {error}"));
+        assert_eq!(live, 1, "attempt {attempt}: {live} live requests for {member}");
     }
 }
 

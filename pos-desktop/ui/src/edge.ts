@@ -34,11 +34,21 @@ function heard<T>(reply: EdgeReply<T>): EdgeReply<T> {
   if (typeof reply.moved_to === "string") {
     window.dispatchEvent(new CustomEvent(NODE_MOVED, { detail: reply.moved_to }))
   }
+  // The node ended this session because the person signed in on another
+  // device (one device per person, head office's switch per store): any call
+  // that hears so takes the terminal back to its door (`session.ts`).
+  if (reply.status === 401 && /another device/i.test(`${reply.problem ?? ""} ${JSON.stringify(reply.body ?? "")}`)) {
+    window.dispatchEvent(new CustomEvent(SIGNED_IN_ELSEWHERE))
+  }
   return reply
 }
 
+/// Raised when the node says this terminal's session was ended by a sign-in
+/// on another device.
+export const SIGNED_IN_ELSEWHERE = "central-signed-in-elsewhere"
+
 import { isWeb } from "@/edition"
-import { webEdge } from "@/web"
+import { webEdge, webImage } from "@/web"
 
 type Invoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>
 
@@ -79,6 +89,20 @@ export async function edge<T>(
     return isWeb ? webEdge<T>(method, path, body) : noShell("node toko")
   }
   return heard(await invoke<EdgeReply<T>>("edge_call", { method, path, body }))
+}
+
+/// A product photograph as a `data:` URL, or null when there is none to show.
+/// Bytes cannot ride `edge()` (it answers JSON), so the shell fetches the
+/// picture from the node's proxy (`/api/v1/catalog/image?sku=`) and hands it
+/// back wrapped; the browser edition fetches it itself. Never throws.
+export async function edgeImage(sku: string): Promise<string | null> {
+  const invoke = bridge()
+  if (invoke === null) return isWeb ? webImage(sku) : null
+  try {
+    return (await invoke<string | null>("edge_image", { sku })) ?? null
+  } catch {
+    return null
+  }
 }
 
 /// Call the node **as this terminal**, not as the person signed into it.

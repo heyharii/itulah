@@ -95,7 +95,7 @@ PO → DC → article setup + tagging → New allotment UI (store-01 8 · store-
 | J5-02 | till → member | at the web till (UI) the card is typed: "+25" shown; cash; the node books the sale | `j5::J5-02 dian rings the garment up for her card…` | pass |
 | J5-02b | catalogue → till | the till names and prices the garment | collected in `J5-99` | **FAIL (bug F2)** |
 | J5-03 | sale → points | the sale reaches head office with her `customer_id`; one EARN of 25 for it in the points ledger; balance 25, earned 25, 1 transaction, spend Rp 250.000; the member sheet reads Points held 25 | `j5::J5-03 head office credits the points…` | pass |
-| J5-04 | member app → till (tukar poin) | she asks for 10 points in the member app; dian types card + 6-digit code in "Tukar poin": "Poin ditukar" and a voucher code | `j5::J5-04 she swaps 10 points…` | pass |
+| J5-04 | till → member app | dian types 10 points in Bayar's Poin row and asks; she taps Approve in the member app (REST); the row turns into a voucher ("10 poin ditukar · Rp 10"), the voucher code is read back from `/progress` | `j5::J5-04 dian types 10 points…` | not run (new Bayar flow, 25 Oct) |
 | J5-05 | till → hub balance | balance 25 → 15, spent 10; one REDEEM_TO_VOUCHER of −10 with a redemption id; the voucher is in the voucher book; her voucher balance > 0; the member sheet reads 15 / spent 10 / On voucher | `j5::J5-05 the balance drops in the hub…` | pass |
 | J5-99 | screens | no collected miss | `j5::J5-99 [bug] the screens…` | **FAIL (bug F2)** — only F2 |
 

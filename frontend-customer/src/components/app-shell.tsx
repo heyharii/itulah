@@ -6,15 +6,17 @@ import {
   useRouter,
   useRouterState,
 } from "@tanstack/react-router"
-import { LayoutGroup, motion, useReducedMotion } from "motion/react"
+import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from "motion/react"
 import { ArrowLeft } from "lucide-react"
 
 import { Toaster } from "sonner"
 
+import { AskNotifier } from "@/components/ask-notifier"
 import { Glyph, type GlyphName } from "@/components/matte"
 import { PointsNotifier } from "@/components/points-notifier"
 import { Chip } from "@/components/ui/chip"
-import { SPRING_LAYOUT } from "@/lib/motion"
+import { SPRING_CELEBRATE, SPRING_LAYOUT } from "@/lib/motion"
+import { useLiveAsk } from "@/lib/redeem-asks"
 import { cn } from "@/lib/utils"
 
 /// Four destinations. Named for what is behind them rather than for a
@@ -51,6 +53,7 @@ export function AppShell() {
   return (
     <>
       <PointsNotifier />
+      <AskNotifier />
       {/* Toasts arrive from the top, under the status bar, and stack there —
           the bottom of the screen belongs to the tab bar. */}
       <Toaster
@@ -138,6 +141,9 @@ function BackBar({ kind }: { kind: "receipt" | "activity" }) {
 
 function TabBar({ pathname }: { pathname: string }) {
   const reduce = useReducedMotion()
+  // Only reads: `AskNotifier` is the one that asks the server. A cashier's
+  // ask sits on Tukar, so that is the tab that says so.
+  const { ask } = useLiveAsk()
 
   return (
     <>
@@ -172,11 +178,27 @@ function TabBar({ pathname }: { pathname: string }) {
                       className="absolute inset-0 rounded-[1.25rem] bg-matte-ground"
                     />
                   )}
-                  <Glyph
-                    name={tab.glyph}
-                    active={current}
-                    className="relative size-6"
-                  />
+                  <span className="relative flex">
+                    <Glyph
+                      name={tab.glyph}
+                      active={current}
+                      className="relative size-6"
+                    />
+                    <AnimatePresence>
+                      {tab.to === "/tukar-poin" && ask !== undefined && !current && (
+                        <motion.span
+                          key="ask"
+                          initial={reduce ? { opacity: 0 } : { opacity: 0, scale: 0.5 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={reduce ? { opacity: 0 } : { opacity: 0, scale: 0.5, transition: { duration: 0.15 } }}
+                          transition={reduce ? { duration: 0.15 } : SPRING_CELEBRATE}
+                          className="absolute -top-0.5 -right-1 size-3 rounded-full border-2 border-canvas bg-bad"
+                        >
+                          <span className="sr-only">Kasir meminta tukar poin</span>
+                        </motion.span>
+                      )}
+                    </AnimatePresence>
+                  </span>
                   <span
                     className={cn(
                       "relative text-tab transition-colors duration-[var(--t-hover)]",

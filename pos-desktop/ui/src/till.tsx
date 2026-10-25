@@ -56,7 +56,14 @@ import {
   spendBenefit,
   type BenefitHolder,
 } from "@/benefit"
-import { confirmRedeemRequest, lookupRedeemRequest } from "@/redeem"
+import {
+  askRedeem,
+  cancelRedeem,
+  confirmRedeemRequest,
+  lookupRedeemRequest,
+  redeemProgress,
+  type ConfirmedRedeemRequest,
+} from "@/redeem"
 import { useNodeConfig, useSession, type NodeConfig } from "@/session"
 import {
   refreshPaymentMethods,
@@ -68,6 +75,7 @@ import {
   type MethodTile,
 } from "@/payment-methods"
 import { articleId, sku as skuText } from "@/sku"
+import { Photo, usePhoto } from "@/photo"
 import { readScan } from "@epc"
 import { money, units as grouped } from "@itulah/contract/money"
 
@@ -699,7 +707,6 @@ export type Where =
   | "finish"
   | "return"
   | "void"
-  | "redeem"
   | "setup"
   /// What is plugged into this till — an Admin's, opened from the door.
   | "peripherals"
@@ -715,10 +722,13 @@ type ReturnMode = {
   /// movements do not reach that far (the node still checks every one).
   readonly soldTags: ReadonlySet<string> | null
   readonly back: readonly {
+    /// The tag read back; for a piece sold without a tag, a key of the till's.
     readonly epc: string
     readonly sku: string
     readonly name: string
     readonly unitMinor: number
+    /// Sold without a tag: it comes back by its SKU (owner, 25 Oct 2026).
+    readonly untagged?: boolean
   }[]
   /// The returned piece the next replacement goes under; -1 (the piece clicked
   /// again) means the next scan is "Barang baru", an extra item paid in Bayar.
@@ -838,6 +848,9 @@ export function Till({
     | "register"
     | "coupon"
     | { readonly receipt: string }
+    /// Enter on a picked line (or a click on its photo or name): the item card,
+    /// by the line's key.
+    | { readonly item: string }
     /// A refused sale being resolved, by its outbox row.
     | { readonly resolve: string }
   >(null)
@@ -1526,6 +1539,36 @@ export function Till({
   /// A typed SKU, the way this shop's node takes it.
   const sellTyped = useCallback(
     (row: api.CatalogRow, many = 1) => {
+      // Return mode: a SKU this receipt sold without a tag, and not all of
+      // it back yet, is a piece coming back (owner, 25 Oct 2026: "yg penting
+      // tau skunya"). Anything else typed is a replacement, once something
+      // came back.
+      const r = retRef.current
+      if (r !== null) {
+        const open = r.receipt.untagged.get(row.sku_code) ?? 0
+        const picked = r.back.filter((one) => one.untagged === true && one.sku === row.sku_code).length
+        const take = Math.min(many, open - picked)
+        if (take > 0) {
+          const line = r.receipt.lines.find((one) => one.skuCode === row.sku_code)
+          const added = Array.from({ length: take }, () => ({
+            epc: `untagged-back:${crypto.randomUUID()}`,
+            sku: row.sku_code,
+            name: line?.name ?? row.name,
+            unitMinor: line?.unitMinor ?? row.unit_price_minor ?? 0,
+            untagged: true,
+          }))
+          setCheck([])
+          setCheckSell(false)
+          setRet({ ...r, back: [...r.back, ...added], sel: r.back.length })
+          setNote(null)
+          sound.read()
+          return
+        }
+        if (r.back.length === 0) {
+          setNote({ bad: true, text: "Scan dulu barang yang dikembalikan" })
+          return
+        }
+      }
       // Stock 0 sells too: the node takes the stock below zero (★ Stok minus).
       if (untaggedOkNow.current === true) {
         for (let n = 0; n < many; n += 1) sellNoTag(row)
@@ -1693,10 +1736,8 @@ export function Till({
       if (scanned.kind === "sku") {
         const row = bySku.get(scanned.sku_code)
         if (row !== undefined) {
-          if (ret !== null && ret.back.length === 0) {
-            setNote({ bad: true, text: "Scan dulu barang yang dikembalikan" })
-            return "other"
-          }
+          // In Return mode `sellTyped` decides: a piece this receipt sold
+          // without a tag comes back; else, once one has, a replacement.
           sellTyped(row, many)
           return "other"
         }
@@ -1942,7 +1983,9 @@ export function Till({
         cancelReturn()
         return
       }
-      if (units.length > 0) setPanel("cancel")
+      // Straight to the Kepala toko's or an Admin's finger, no reason asked
+      // (owner, 25 Oct 2026).
+      if (units.length > 0) cancelSale()
     },
     return: () => {
       if (ret !== null) return
@@ -2031,7 +2074,7 @@ export function Till({
     }
     // Member first (client, 23 Oct 2026): scan the card or type the number,
     // register, or Enter to go on without one.
-    if (customerId === null && !asked) {
+    if (customerId === null) {
       setPanel("ask")
       return
     }
@@ -2056,6 +2099,12 @@ export function Till({
       return
     }
     const tags = ret.back.map((one) => one.epc)
+    // A piece sold without a tag goes by its SKU (owner, 25 Oct 2026).
+    const lines: api.ReturnLine[] = ret.back.map((one) =>
+      one.untagged === true
+        ? { epc: "", sku_code: one.sku, disposition: "RESALEABLE" }
+        : { epc: one.epc, disposition: "RESALEABLE" },
+    )
     const receipt = ret.receipt
     const backMinor = ret.back.reduce((sum, one) => sum + one.unitMinor, 0)
     const shape = JSON.stringify([receipt.saleId, tags])
@@ -2078,7 +2127,7 @@ export function Till({
             const method = await creditMethod()
             const reply = await api.returnSale({
               sale_id: receipt.saleId,
-              lines: tags.map((epc) => ({ epc, disposition: "RESALEABLE" })),
+              lines,
               refund_method: method,
               refund_reference: referenceFor(receipt.receiptNo),
               reason: "Return → tukar barang",
@@ -2389,6 +2438,16 @@ export function Till({
         null)
   const pickedLineKey = pickedBag !== null ? bagKey(pickedBag) : (pickedGroup?.key ?? null)
   const lineKeys = [...shownGroups.map((group) => group.key), ...addedBags.map(bagKey)]
+  // The item card follows its line: if the line is gone (its last piece came
+  // off), the card goes with it rather than leaving the counter blocked.
+  const itemKey = panel !== null && typeof panel === "object" && "item" in panel ? panel.item : null
+  const itemGroup = itemKey === null ? null : (groups.find((group) => group.key === itemKey) ?? null)
+  useEffect(() => {
+    if (itemKey !== null && itemGroup === null) {
+      setPanel(null)
+      scan.current?.focus()
+    }
+  }, [itemKey, itemGroup])
 
   /// ↑ ↓ in the scan field: the line numpad − will take a unit off.
   function movePick(by: 1 | -1) {
@@ -2421,22 +2480,38 @@ export function Till({
     sellNoTag(row, pickedGroup.repFor ?? -1)
   }
 
-  /// Kurangi (numpad −): one piece off the picked line. A piece with no tag
-  /// just goes; the last piece of a line, or a tag, goes with the Kepala
-  /// toko's finger as it always did.
+  /// Kurangi (numpad −): one piece off the picked line, with the Kepala
+  /// toko's finger.
   function lessPicked() {
     if (pickedBag !== null) {
       bagLess(pickedBag)
       return
     }
     if (pickedGroup === null) return
+    // Every piece taken off waits for the Kepala toko's or an Admin's finger,
+    // a typed piece too (owner, 25 Oct 2026).
     const loose = pickedGroup.units.filter(isUntagged)
     if (pickedGroup.units.length > 1 && loose.length > 0) {
-      const gone = loose[loose.length - 1].epc
-      setUnits((was) => was.filter((one) => one.epc !== gone))
+      askRemove(loose.slice(-1))
       return
     }
     removeFromLine(pickedGroup.sku, pickedGroup.units)
+  }
+
+  /// Batalkan transaksi: the whole basket goes once the Kepala toko or an
+  /// Admin puts a finger on it.
+  function cancelSale() {
+    approval.ask({
+      action: "CANCEL_BASKET",
+      title: "Batalkan transaksi",
+      detail: `${units.length} barang · ${money(total, currency)}`,
+      epcs: wireOf(units).epcs,
+      amountMinor: total,
+      onApproved: (by) => {
+        setNote({ bad: false, text: `Transaksi dibatalkan — disetujui ${by.name}` })
+        clearBasket()
+      },
+    })
   }
 
   /// Ctrl+P / Print: this shift's picked receipt again, stamped as a copy.
@@ -2663,9 +2738,14 @@ export function Till({
   const readTags = units.filter(
     (unit) => !isUntagged(unit) && !typedEpcs.current.has(unit.epc),
   ).length
+  // Until the shell has answered about the R3, the chip says it is still
+  // looking rather than "Siap" (owner, 25 Oct 2026: "Siap" then "Tidak
+  // terhubung" read as the reader dropping out).
   const rfidWords = rfidBusy
     ? "Membaca…"
-    : readerTrouble !== null
+    : !isWeb && reader === null
+      ? "Memeriksa…"
+      : readerTrouble !== null
       ? READER_WORDS[readerTrouble][0]
       : readTags > 0
         ? `${grouped(readTags)} tag`
@@ -2711,6 +2791,9 @@ export function Till({
     readonly pair?: { readonly label: string; readonly onCycle: () => void } | null
     readonly removeLabel: string
     readonly onRemove: () => void
+    /// An article line wears its photograph (a plain square without one); a
+    /// bag does not. The stored SKU, not the one written with a dot.
+    readonly photoSku?: string
   }) {
     const picked = line.key === pickedLineKey
     const named = line.name ?? line.sku
@@ -2733,15 +2816,43 @@ export function Till({
       >
         {!narrow && <td className="mute num">{line.sku}</td>}
         <td>
+          <div className="nm-r">
+            {line.photoSku !== undefined && (
+              <button
+                type="button"
+                className="ph-b"
+                tabIndex={-1}
+                aria-label={`Lihat ${named}`}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  setPickedKey(line.key)
+                  setPanel({ item: line.key })
+                }}
+              >
+                <Photo sku={line.photoSku} has={bySku.get(line.photoSku)?.has_image === true} />
+              </button>
+            )}
           <div className="nm-2">
             <div className="nm-w">
               {line.arrow === true && <span className="rep-arrow">↳</span>}
-              <span className={line.name === null ? "nm-t none" : "nm-t"}>
+              <span
+                className={line.name === null ? "nm-t none" : line.photoSku !== undefined ? "nm-t link" : "nm-t"}
+                onClick={
+                  line.photoSku !== undefined
+                    ? (event) => {
+                        event.stopPropagation()
+                        setPickedKey(line.key)
+                        setPanel({ item: line.key })
+                      }
+                    : undefined
+                }
+              >
                 {line.name ?? "Tidak ada di daftar harga"}
               </span>
               {line.price === null && <span className="t-flag">TANPA HARGA</span>}
             </div>
             {line.sub !== undefined && line.sub !== "" && <span className="nm-sub">{line.sub}</span>}
+          </div>
           </div>
         </td>
         {!narrow && (
@@ -2790,22 +2901,9 @@ export function Till({
             </span>
           )}
         </td>
-        <td className="c">
-          {picked && (
-            <button
-              type="button"
-              className="t-rm"
-              aria-label={line.removeLabel}
-              onClick={(event) => {
-                event.stopPropagation()
-                line.onRemove()
-                scan.current?.focus()
-              }}
-            >
-              <Lu name="trash" />
-            </button>
-          )}
-        </td>
+        {/* No trash on a line (owner, 25 Oct 2026): a piece comes off with
+            − Kurangi, and the Kepala toko's finger, one at a time. */}
+        <td className="c" />
       </tr>
       {free !== null && (
         <tr className="t-free" onClick={() => setPickedKey(line.key)}>
@@ -3071,6 +3169,19 @@ export function Till({
                   event.preventDefault()
                   const field = scan.current
                   if (field === null) return
+                  // Enter on an empty field is Bayar, beside F12 (owner, 25 Oct
+                  // 2026); a scan always arrives with its code before its Enter.
+                  if (field.value.trim() === "") {
+                    if (overlayOpen) return
+                    // A line picked with ↑ ↓ or a click: Enter shows the item
+                    // (owner, 25 Oct 2026). Nothing picked: Bayar, as before.
+                    if (pickedKey !== null && !checking && pickedGroup !== null && pickedGroup.key === pickedKey) {
+                      setPanel({ item: pickedGroup.key })
+                      return
+                    }
+                    if (units.length > 0 && !checking) doKey.pay()
+                    return
+                  }
                   onScan(field.value)
                   field.value = ""
                 }}
@@ -3303,6 +3414,7 @@ export function Till({
                             onMouseDown={(event) => event.preventDefault()}
                             onClick={() => sellTyped(row)}
                           >
+                            <Photo sku={row.sku_code} has={row.has_image === true} className="chk" />
                             <span className="nm">
                               {index < 9 && <span className="kbd">{index + 1}</span>} {row.name}
                             </span>
@@ -3313,6 +3425,7 @@ export function Till({
                           </button>
                         ) : (
                           <div className="t-chk" key={row.sku_code}>
+                            <Photo sku={row.sku_code} has={row.has_image === true} className="chk" />
                             <span className="nm">{row.name}</span>
                             <span className="pr">{money(row.unit_price_minor, currency)}</span>
                             <span className="mt">
@@ -3352,7 +3465,13 @@ export function Till({
               <div className="t-grid">
                 <div className="t-empty">
                   <Lu name="rfid" size={40} stroke={1.5} />
-                  <p>{ret !== null ? "Scan tag barang yang dikembalikan" : "Taruh barang di reader"}</p>
+                  <p>
+                    {ret !== null
+                      ? ret.receipt.untagged.size > 0
+                        ? "Scan tag atau ketik SKU barang yang dikembalikan"
+                        : "Scan tag barang yang dikembalikan"
+                      : "Taruh barang di reader"}
+                  </p>
                 </div>
               </div>
             ) : (
@@ -3439,6 +3558,7 @@ export function Till({
                               : plain(group.price * quantity - (promo?.cut ?? 0), currency),
                           removeLabel: `Hapus satu ${group.name ?? skuText(group.sku)}`,
                           onRemove: () => removeFromLine(group.sku, group.units),
+                          photoSku: group.unknown ? undefined : group.sku,
                         })
                       }
                       if (ret === null) return groups.map(groupRow)
@@ -3502,6 +3622,13 @@ export function Till({
                     {freshOnes > 0 && ` · ${freshOnes} baru`}
                   </span>
                 </span>
+              )}
+              {/* A Return can be called off from the screen, not only with F7
+                  (owner, 25 Oct 2026). */}
+              {ret !== null && (
+                <button type="button" className="tf-cancel" onClick={() => cancelReturn()}>
+                  Batalkan return <span className="kbd">F7</span>
+                </button>
               )}
               <span className="sp" />
               <div className="tf-total">
@@ -3870,6 +3997,26 @@ export function Till({
         />
       )}
 
+      {itemGroup !== null && (
+        <ItemCard
+          sku={itemGroup.sku}
+          name={itemGroup.name}
+          row={bySku.get(itemGroup.sku)}
+          division={subOf(itemGroup.sku)}
+          tags={tagsOf.get(itemGroup.sku) ?? []}
+          quantity={itemGroup.units.length}
+          price={itemGroup.price}
+          was={markdownBase(itemGroup)}
+          marks={[
+            ...(itemGroup.idTag !== null ? [itemGroup.idTag.text] : []),
+            ...(freeSkus.has(itemGroup.sku) ? ["Gratis"] : []),
+            ...(lineCuts.get(itemGroup.key)?.tags ?? []),
+          ]}
+          currency={currency}
+          onClose={leavePanel}
+        />
+      )}
+
       {panel === "ask" && (
         <MemberSheet
           key="ask"
@@ -4114,6 +4261,100 @@ const LU = {
     </>
   ),
 } as const
+
+/// Enter on a picked line, or a click on its photo or name: the article as a
+/// card over the counter — large photograph, then the facts as label and value.
+/// Esc or × closes it (the window's Esc is `leavePanel`).
+function ItemCard({
+  sku,
+  name,
+  row,
+  division,
+  tags,
+  quantity,
+  price,
+  was,
+  marks,
+  currency,
+  onClose,
+}: {
+  sku: string
+  name: string | null
+  row: api.CatalogRow | undefined
+  /// "Pria · Koko, Lebaran": the division, then the tags, as under the name.
+  division: string
+  tags: readonly string[]
+  quantity: number
+  price: number | null
+  was: number | null
+  marks: readonly string[]
+  currency: string
+  onClose: () => void
+}) {
+  const [enter] = useState(viaPointer)
+  const photo = usePhoto(sku, row?.has_image === true)
+  const facts: Array<readonly [string, string]> = [
+    ["SKU", skuText(sku)],
+    ["Kode artikel", articleId(row?.article_code, sku)],
+    ["Barcode", row?.barcode ?? "—"],
+    ["Divisi", division === "" ? "—" : division],
+    ["Tag", tags.length === 0 ? "—" : tags.join(", ")],
+  ]
+  return (
+    <div
+      className={enter ? "xchd enter" : "xchd"}
+      onMouseDown={(event) => event.target === event.currentTarget && onClose()}
+    >
+      <section className="dlg item" role="dialog" aria-modal="true" aria-label={name ?? skuText(sku)}>
+        <div className="dlg-head">
+          <p className="ttl">{name ?? skuText(sku)}</p>
+          <button type="button" className="x-btn" aria-label="Tutup" onClick={onClose}>
+            <Lu name="x" />
+          </button>
+        </div>
+        <div className="dlg-body">
+          <div className="item-ph">
+            {photo === null ? (
+              <span className="item-none">{row?.has_image === true ? "" : "Belum ada foto"}</span>
+            ) : (
+              <img src={photo} alt={name ?? ""} draggable={false} />
+            )}
+          </div>
+          <dl className="item-f">
+            {facts.map(([label, value]) => (
+              <div key={label}>
+                <dt>{label}</dt>
+                <dd className="num">{value}</dd>
+              </div>
+            ))}
+            <div>
+              <dt>Harga</dt>
+              <dd className="num">
+                {price === null ? "Tanpa harga" : money(price, currency)}
+                {was !== null && <s className="item-was">{money(was, currency)}</s>}
+              </dd>
+            </div>
+            <div>
+              <dt>Jumlah</dt>
+              <dd className="num">{quantity}</dd>
+            </div>
+            <div>
+              <dt>Keterangan</dt>
+              <dd>{marks.length === 0 ? "—" : marks.join(" · ")}</dd>
+            </div>
+          </dl>
+        </div>
+        <div className="dlg-foot">
+          <span className="sp" />
+          <button type="button" className="ds-btn ds-btn--ghost" onClick={onClose}>
+            <span>Tutup</span>
+            <span className="kbd">Esc</span>
+          </button>
+        </div>
+      </section>
+    </div>
+  )
+}
 
 function Lu({
   name,
@@ -4721,6 +4962,21 @@ type Tender = {
   readonly voucherCheckoutId: string | null
 }
 
+/// A Poin ask head office has taken and the shopper has not answered yet. The
+/// code the shopper was sent on WhatsApp never comes back here.
+type PointsAsk = {
+  readonly requestId: string
+  readonly points: number
+  /// What head office says the points buy — the truth, never `points` itself.
+  readonly valueMinor: number
+  readonly expiresAt: string
+  /// `0812****7890`, where the code went; null when none went and only the
+  /// member app can approve.
+  readonly sentTo: string | null
+  /// Why no code went, in head office's English.
+  readonly notSent: string | null
+}
+
 /// One row of the Pay dialog — pay look E · Chip EDC of
 /// pos-classic-prototype.html: Tunai, an EDC (or more), Voucher, Diskon karyawan
 /// and, with a member, Poin. A row is always on the list; it takes an amount
@@ -4747,12 +5003,21 @@ type PayLine = {
   readonly secured: Tender | null
   /// A card: the machine's own bank (On us) or another bank's card (Off us).
   readonly onus?: "On us" | "Off us" | null
-  /// The Poin line (7Soft's REDEEM), offered while a member is on the sale: the
-  /// member's six-digit code from their app, confirmed at head office into a
-  /// voucher, which this line then pays with as the Voucher line would.
+  /// The Poin line (7Soft's REDEEM), offered while a member is on the sale. The
+  /// cashier types how many points and asks head office (owner, 25 Oct 2026:
+  /// the shopper does not choose); the shopper approves in the member app or
+  /// reads back the six digits head office WhatsApps them, and either way head
+  /// office confirms it into a voucher, which this line then pays with as the
+  /// Voucher line would.
   readonly poin?: boolean
+  /// The points the cashier typed, digits. Undefined until they type: the row
+  /// then suggests as many as the member has and the bill still needs.
+  readonly points?: string
+  /// The ask while it waits for the shopper; null before it is made and after.
+  readonly ask?: PointsAsk | null
+  /// The six digits the shopper read back, typed while the ask waits.
   readonly redeem?: string
-  /// What the confirmed code bought; `code` then holds the voucher's code.
+  /// What the confirmed ask bought; `code` then holds the voucher's code.
   readonly redeemed?: { readonly points: number | null; readonly value: number } | null
   /// What a voucher's check answered, for the middle of its row: "Komplimen ·
   /// CODE · saldo 50.000". Set once the code is known; it opens the amount.
@@ -4816,7 +5081,83 @@ const NEEDS_ANSWER = "Jawab dulu"
 const EMPTY_BALANCE = "Saldo kosong"
 const FIXED = "fixed"
 
-const WRONG_POINTS_CODE = "Kode salah · minta pelanggan buka app member"
+const WRONG_POINTS_CODE = "Kode salah · minta pelanggan baca ulang dari WhatsApp"
+
+/// A Poin refusal in the counter's words. `null`: head office has no live ask
+/// matching the code typed — the wrong code. Head office's own sentences are
+/// read first, because a refusal other than the plain ones comes back through
+/// the node as a 503 with the sentence inside.
+function pointsRefusal(reply: { readonly problem: string | null; readonly status: number }): string | null {
+  const said = reply.problem ?? ""
+  if (/no live redemption/i.test(said)) return null
+  const has = /has ([\d.,]+) points/i.exec(said)
+  if (has !== null) return `Poin member hanya ${grouped(Number(has[1].replace(/\D/g, "")))}.`
+  if (/blocked/i.test(said)) return "Member ini diblokir."
+  if (/not connected/i.test(said)) {
+    return "WhatsApp kantor pusat belum tersambung — minta pelanggan setujui di app member."
+  }
+  if (/\bno member\b/i.test(said)) return "Member tidak ditemukan."
+  if (reply.status === 405 || (reply.status === 404 && reply.problem === null)) {
+    return "Server toko ini belum bisa tukar poin."
+  }
+  if (reply.status === 0 || reply.status === 502 || reply.status === 503 || reply.status === 504) {
+    return "Kantor pusat tidak terjangkau — coba lagi sebentar."
+  }
+  if (reply.status === 404 || /not found|no such/i.test(said)) return null
+  if (reply.status === 401 || reply.status === 403) return "Server toko menolak tukar poin dari kasir ini."
+  return said || `Server toko menolak (${reply.status}).`
+}
+
+/// Why head office sent the shopper no WhatsApp code, for the end of the
+/// waiting line.
+function notSentWords(why: string): string {
+  if (/no whatsapp|not connected/i.test(why)) return "WhatsApp kantor pusat belum tersambung"
+  if (/not a phone number/i.test(why)) return "Nomor member bukan nomor HP"
+  return "Kode WhatsApp tidak terkirim"
+}
+
+/// The one line a waiting Poin row says.
+const waitWords = (ask: PointsAsk) =>
+  ask.sentTo !== null
+    ? `Menunggu pelanggan — kode dikirim ke WhatsApp ${ask.sentTo}, atau setujui di app member`
+    : `Minta pelanggan menyetujui di app member${ask.notSent === null ? "" : ` · ${notSentWords(ask.notSent)}`}`
+
+/// What the voucher head office hands back does to a Poin row: the voucher pays
+/// it, never more than is still owed (`rest`). Points spent cannot be taken
+/// back here, so the amount fills at once.
+function poinVoucher(
+  done: ConfirmedRedeemRequest,
+  ask: PointsAsk | null | undefined,
+  rest: number,
+): Partial<PayLine> {
+  const value = done.voucher_value_minor ?? ask?.valueMinor ?? 0
+  return {
+    code: done.voucher_code ?? "",
+    redeemed: { points: done.points_spent ?? ask?.points ?? null, value },
+    amount: Math.min(value, rest),
+    auto: true,
+    bad: false,
+    ask: null,
+    redeem: "",
+  }
+}
+
+/// A waiting ask's minutes and seconds, ticking on its own so the dialog does
+/// not render once a second for it.
+function Countdown({ until }: { readonly until: string }) {
+  const left = () => {
+    const seconds = Math.ceil((Date.parse(until) - Date.now()) / 1000)
+    return Number.isFinite(seconds) ? Math.max(0, seconds) : 0
+  }
+  const [seconds, setSeconds] = useState(left)
+  useEffect(() => {
+    setSeconds(left())
+    const timer = window.setInterval(() => setSeconds(left()), 1000)
+    return () => window.clearInterval(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [until])
+  return <span className="num">{`${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`}</span>
+}
 
 /// The keypad is for touch; the counter types. Hidden until asked for, and the
 /// till remembers the choice (client, 24 Oct 2026).
@@ -4978,7 +5319,7 @@ function Payment({
     const benefit = tiles.find((one) => one.wire === "BENEFIT")
     if (benefit !== undefined) out.push(blank(benefit.key, firstBank(benefit)))
     if (customerId !== null && pointsOffered && voucher !== undefined) {
-      out.push(blank(voucher.key, firstBank(voucher), { poin: true, redeem: "", redeemed: null }))
+      out.push(blank(voucher.key, firstBank(voucher), { poin: true, ask: null, redeem: "", redeemed: null }))
     }
     return out
   }
@@ -5018,6 +5359,8 @@ function Payment({
   // The next digit replaces the amount rather than extending it.
   const fresh = useRef(true)
   const [busy, setBusy] = useState(false)
+  // The voucher row whose whole code is being checked at head office.
+  const [voucherBusy, setVoucherBusy] = useState<number | null>(null)
   // Set by the first press of Pembayaran diterima that gets as far as writing the sale.
   const completing = useRef(false)
   const leaving = useRef(false)
@@ -5164,10 +5507,13 @@ function Payment({
     }
     return askOf(line) !== null ? NEEDS_ANSWER : null
   }
-  /// Whether the row shows a code field in its amount column (Voucher, Poin) or
-  /// its middle (the balance code, where a finger cannot be used).
+  /// Whether the row shows a field in its amount column (Voucher; Poin, first
+  /// for the points and then for the shopper's code, which exists only when
+  /// head office managed to send one) or its middle (the balance code, where a
+  /// finger cannot be used).
   const takesCode = (line: PayLine) => {
-    if (line.poin || isVoucher(line)) return lockOf(line) === NEEDS_CODE
+    if (line.poin) return lockOf(line) === NEEDS_CODE && (line.ask == null || line.ask.sentTo !== null)
+    if (isVoucher(line)) return lockOf(line) === NEEDS_CODE
     return isBenefit(line) && line.holder === null && !basketHasPromotion && benefitCode
   }
 
@@ -5176,12 +5522,18 @@ function Payment({
   // so the field is the row's own.
   const focused = lines[focus]
   const typesCode = !fingerAsk && focused !== undefined && takesCode(focused)
+  // The Poin row swaps its field when the ask is made or ends: the caret follows.
+  const askedId = focused?.ask?.requestId ?? null
   useEffect(() => {
     if (fingerAsk) return
     const target = (typesCode ? code.current : null) ?? dialog.current
-    if (target !== null && document.activeElement !== target) target.focus()
+    if (target !== null && document.activeElement !== target) {
+      target.focus()
+      // The points suggested are replaced by the first digit typed.
+      if (target instanceof HTMLInputElement && focused?.poin === true && askedId === null) target.select()
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focus, focused?.id, typesCode, fingerAsk])
+  }, [focus, focused?.id, typesCode, fingerAsk, askedId])
 
   const clearSaid = () => {
     setNote(null)
@@ -5258,7 +5610,13 @@ function Payment({
       return
     }
     if (line.poin) {
-      setNote("Masukkan kode dari app member dulu")
+      setNote(
+        line.ask == null
+          ? "Ketik jumlah poin, lalu Enter"
+          : line.ask.sentTo === null
+            ? "Menunggu pelanggan menyetujui di app member"
+            : "Ketik kode 6 angka dari pelanggan",
+      )
       code.current?.focus()
       return
     }
@@ -5503,7 +5861,11 @@ function Payment({
     clearSaid()
     const wanted = raw.trim().toUpperCase()
     if (wanted.length < 8) return
+    // A whole code (twelve characters) is checked with the field locked and
+    // saying so, until head office answers.
+    if (wanted.length >= 12) setVoucherBusy(id)
     void api.checkVoucher(wanted).then((reply) => {
+      if (wanted.length >= 12) setVoucherBusy((was) => (was === id ? null : was))
       const now = current(id)
       if (now === undefined || now.code.trim().toUpperCase() !== wanted || now.info != null) return
       // An invalid voucher takes nothing: the amount stays empty, the field
@@ -5582,29 +5944,194 @@ function Payment({
   }
 
   // ── Poin ─────────────────────────────────────────────────────────────────
+  // The cashier types how many points and asks; the shopper answers in the
+  // member app or with the six digits head office sent to their WhatsApp. The
+  // row then waits (`follow` asks head office every two seconds) and ends in a
+  // voucher, or in a sentence and the points as asked, ready to ask again.
 
-  /// The Poin field: the six digits from the member's app, nothing else. The
-  /// sixth looks it up.
+  /// The points the row would ask for: what the cashier typed, or — until they
+  /// type — as many as the member has and the bill still needs. 1 point is
+  /// Rp 1 today, but that is head office's to say: this only suggests, and the
+  /// ask's `value_minor` is what pays.
+  const wantedPoints = (all: readonly PayLine[], line: PayLine): number =>
+    line.points !== undefined
+      ? Number(line.points || 0)
+      : Math.max(0, Math.min(memberPoints ?? Number.POSITIVE_INFINITY, restIn(all, line)))
+
+  /// The points field: digits, never more than the member has or the bill
+  /// still needs. Nothing is sent by typing.
+  function setPoints(id: number, raw: string) {
+    const line = current(id)
+    if (line === undefined || line.redeemed || line.ask) return
+    const digits = raw.replace(/\D/g, "").replace(/^0+(?=\d)/, "").slice(0, 9)
+    const cap = Math.min(memberPoints ?? Number.POSITIVE_INFINITY, restIn(linesRef.current, line))
+    let said: string | null = null
+    let value = digits
+    if (digits !== "" && Number(digits) > cap) {
+      value = cap > 0 ? String(cap) : ""
+      said =
+        cap <= 0
+          ? memberPoints === 0
+            ? "Member belum punya poin"
+            : "Tagihan sudah tertutup oleh cara bayar lain"
+          : memberPoints !== null && cap === memberPoints
+            ? `Poin member hanya ${grouped(cap)}`
+            : `Poin diisi sisanya, ${money(cap, currency)}`
+    }
+    edit(id, { points: value, bad: false })
+    clearSaid()
+    if (said !== null) setNote(said)
+  }
+
+  /// The shopper's six digits, typed while the ask waits. The sixth confirms.
   function setRedeem(id: number, raw: string) {
     const line = current(id)
-    if (line === undefined || line.redeemed) return
+    if (line === undefined || line.redeemed || !line.ask) return
     const typed = raw.replace(/\D/g, "").slice(0, 6)
     edit(id, { redeem: typed, bad: false })
     clearSaid()
-    if (typed.length === 6) void redeemPoints(id, typed)
+    if (typed.length === 6) void redeemByCode(id, typed)
   }
 
-  /// The six digits are looked up and confirmed at head office — the same two
-  /// calls as F11 Tukar poin — and what they buy is a voucher, which this row
-  /// pays with (`code`), never more than is still owed. Head office sets the
-  /// rate; the till never sends one. Points spent cannot be taken back here, so
-  /// the amount fills at once, the rest of the bill or all of what was bought.
-  async function redeemPoints(id: number, typed: string) {
+  /// The shopper approved — in the app or by the code: the voucher pays the row.
+  function takeVoucher(id: number, done: ConfirmedRedeemRequest) {
     const line = current(id)
-    if (line === undefined || customerId === null || busy || line.redeemed) return
+    if (line === undefined || line.redeemed || done.voucher_code === undefined) return
+    const patch = poinVoucher(done, line.ask, restIn(linesRef.current, line))
+    edit(id, patch)
+    if (done.balance_points !== undefined) setMemberPoints(done.balance_points)
+    setReveal(id)
+    fresh.current = true
+    setProblem(null)
+    setMiss(null)
+    const points = patch.redeemed?.points ?? null
+    setNote(`${points === null ? "Poin" : `${grouped(points)} poin`} ditukar · ${money(patch.redeemed?.value ?? 0, currency)}`)
+  }
+
+  /// The ask ended without the shopper approving it: the row opens again with
+  /// the points as they were asked, red, and the sentence says why.
+  function endAsk(id: number, words: string) {
+    const line = current(id)
+    if (line === undefined || !line.ask) return
+    edit(id, { ask: null, redeem: "", points: String(line.ask.points), bad: true })
+    setProblem(words)
+    setNote(null)
+    setMiss(null)
+  }
+
+  /// Enter on the points: ask head office. The shopper is then asked in their
+  /// app and on WhatsApp — nothing goes before this.
+  async function askPoints(id: number) {
+    const line = current(id)
+    if (line === undefined || customerId === null || busy || line.redeemed || line.ask) return
+    const wanted = wantedPoints(linesRef.current, line)
+    if (wanted <= 0) {
+      edit(id, { bad: true })
+      setProblem("Ketik jumlah poin dulu.")
+      setNote(null)
+      return
+    }
+    setBusy(true)
+    clearSaid()
+    const reply = await askRedeem(customerId, wanted)
+    setBusy(false)
+    const asked = reply.body
+    if (!reply.ok || asked?.request_id === undefined) {
+      edit(id, { bad: true })
+      setProblem(pointsRefusal(reply) ?? "Member tidak ditemukan.")
+      return
+    }
+    edit(id, {
+      ask: {
+        requestId: asked.request_id,
+        points: asked.points,
+        valueMinor: asked.value_minor,
+        expiresAt: asked.expires_at,
+        sentTo: asked.sent_to,
+        notSent: asked.not_sent,
+      },
+      points: String(asked.points),
+      redeem: "",
+      bad: false,
+    })
+  }
+
+  /// Take a waiting ask back. `spent`: the shopper approved it first, so the
+  /// points are gone and the voucher — if it could be read — pays this bill.
+  /// `failed`: head office could not be reached, so the ask may still be live.
+  async function cancelAsk(
+    ask: PointsAsk,
+  ): Promise<
+    | { readonly kind: "cancelled" }
+    | { readonly kind: "spent"; readonly voucher: ConfirmedRedeemRequest | null }
+    | { readonly kind: "failed"; readonly words: string }
+  > {
+    const reply = await cancelRedeem(ask.requestId)
+    if (reply.ok || reply.status === 404) return { kind: "cancelled" }
+    if (reply.status === 409) {
+      const seen = await redeemProgress(ask.requestId)
+      return { kind: "spent", voucher: seen.ok ? (seen.body?.voucher ?? null) : null }
+    }
+    return { kind: "failed", words: pointsRefusal(reply) ?? "Permintaan poin belum bisa dibatalkan." }
+  }
+
+  /// × on a waiting ask, to change the points or because the shopper pays
+  /// another way: the ask is taken back and the points open again.
+  async function clearAsk(id: number) {
+    const line = current(id)
+    const ask = line?.ask
+    if (line === undefined || ask == null || busy) return
+    setBusy(true)
+    clearSaid()
+    const out = await cancelAsk(ask)
+    setBusy(false)
+    if (out.kind === "failed") {
+      setProblem(out.words)
+      return
+    }
+    if (out.kind === "spent") {
+      // Approved in the same moment: keep the voucher; if it could not be read
+      // the next `follow` fetches it.
+      if (out.voucher?.voucher_code !== undefined) takeVoucher(id, out.voucher)
+      else setNote("Pelanggan sudah menyetujui · poin ditukar")
+      return
+    }
+    edit(id, { ask: null, redeem: "", points: String(ask.points), bad: false })
+  }
+
+  /// A waiting ask taken back before the sale is written: the shopper approving
+  /// it after the bill is closed would spend points on a bill that never took
+  /// them. True when the shopper approved first — the voucher is on the row and
+  /// the cashier looks at the figures once more before Pembayaran diterima.
+  async function dropWaitingAsk(): Promise<boolean> {
+    const waiting = linesRef.current.find((line) => line.poin === true && line.ask != null)
+    const ask = waiting?.ask
+    if (waiting === undefined || ask == null) return false
+    setBusy(true)
+    const out = await cancelAsk(ask)
+    setBusy(false)
+    if (out.kind === "spent") {
+      if (out.voucher?.voucher_code !== undefined) takeVoucher(waiting.id, out.voucher)
+      else setNote("Pelanggan sudah menyetujui · poin ditukar")
+      return true
+    }
+    // Cancelled — or head office out of reach, and the ask lapses by itself in
+    // minutes: the sale is not held up for it.
+    if (out.kind === "cancelled") edit(waiting.id, { ask: null, redeem: "", points: String(ask.points) })
+    return false
+  }
+
+  /// The shopper's six digits, read back: found and confirmed at head office,
+  /// the same two calls as ever. The voucher that comes back is the one the
+  /// app's Approve would have produced.
+  async function redeemByCode(id: number, typed: string) {
+    const line = current(id)
+    const ask = line?.ask
+    if (line === undefined || ask == null || customerId === null || busy || line.redeemed) return
     // `null`: no such live request — the wrong code.
     const refuse = (words: string | null) => {
       setBusy(false)
+      if (current(id)?.redeemed) return
       edit(id, { bad: true })
       if (words === null) {
         setNote(WRONG_POINTS_CODE)
@@ -5614,23 +6141,16 @@ function Payment({
         setNote(null)
       }
     }
-    const why = (reply: { readonly problem: string | null; readonly status: number }): string | null =>
-      reply.status === 405 || (reply.status === 404 && reply.problem === null)
-        ? "Server toko ini belum bisa tukar poin."
-        : reply.status === 404 || /no live redemption|not found|no such/i.test(reply.problem ?? "")
-          ? null
-          : reply.status === 0 || reply.status === 502 || reply.status === 503 || reply.status === 504
-            ? "Kantor pusat tidak terjangkau — coba lagi sebentar."
-            : (reply.problem ?? `Server toko menolak (${reply.status}).`)
     if (typed.length !== 6) {
-      refuse("Kode tukar poin itu 6 angka dari app member.")
+      refuse("Kode tukar poin itu 6 angka dari WhatsApp pelanggan.")
       return
     }
     setBusy(true)
     clearSaid()
     const found = await lookupRedeemRequest(customerId, typed)
-    if (!found.ok || found.body?.request_id === undefined) {
-      refuse(why(found))
+    // A code that belongs to some other ask (this one was replaced) is not this ask's.
+    if (!found.ok || found.body?.request_id === undefined || found.body.request_id !== ask.requestId) {
+      refuse(found.ok ? null : pointsRefusal(found))
       return
     }
     const state = found.body.status
@@ -5642,26 +6162,45 @@ function Payment({
     }
     const done = await confirmRedeemRequest(found.body.request_id)
     if (!done.ok || done.body?.voucher_code === undefined) {
-      refuse(why(done))
+      refuse(pointsRefusal(done))
       return
     }
     setBusy(false)
-    const voucher = done.body.voucher_code
-    const value = done.body.voucher_value_minor ?? 0
-    const points = done.body.points_spent ?? found.body.points ?? null
-    edit(id, {
-      code: voucher,
-      redeemed: { points, value },
-      amount: Math.min(value, restIn(linesRef.current, line)),
-      auto: true,
-      bad: false,
-    })
-    setReveal(id)
-    fresh.current = true
-    setProblem(null)
-    setMiss(null)
-    setNote(`${points === null ? "Poin" : `${grouped(points)} poin`} ditukar · ${money(value, currency)}`)
+    takeVoucher(id, done.body)
   }
+
+  /// One look at where the waiting ask stands. Bound to the interval below by a
+  /// ref, so it always works on this render's figures.
+  async function follow(requestId: string) {
+    const reply = await redeemProgress(requestId)
+    const row = linesRef.current.find((one) => one.poin === true && one.ask?.requestId === requestId)
+    if (row === undefined) return
+    const voucher = reply.ok ? reply.body?.voucher : null
+    if (voucher?.voucher_code !== undefined) {
+      takeVoucher(row.id, voucher)
+      return
+    }
+    const status = reply.ok ? reply.body?.request.status : undefined
+    if (status === "CANCELLED") endAsk(row.id, "Pelanggan menolak penukaran poin.")
+    else if (status === "EXPIRED") endAsk(row.id, "Waktu persetujuan habis — minta lagi.")
+    else if (!reply.ok && reply.status === 404) endAsk(row.id, "Permintaan poin tidak ditemukan — minta lagi.")
+    // Anything else — the line down for a moment — is looked at again in two seconds.
+  }
+  const followRef = useRef(follow)
+  followRef.current = follow
+  const waitingFor = lines.find((one) => one.poin === true && one.ask != null)?.ask?.requestId ?? null
+  useEffect(() => {
+    if (waitingFor === null) return
+    let looking = false
+    const timer = window.setInterval(() => {
+      if (looking) return
+      looking = true
+      void followRef.current(waitingFor).finally(() => {
+        looking = false
+      })
+    }, 2000)
+    return () => window.clearInterval(timer)
+  }, [waitingFor])
 
   /// The tender a line becomes, built as the till always built it.
   function tenderOf(
@@ -5705,6 +6244,10 @@ function Payment({
   async function pay() {
     // The reason is already on screen beside the money (`holdBack`).
     if (busy || completing.current || holdBack !== null) return
+    // A Poin ask nobody answered is taken back before the bill is closed.
+    if (ok && linesRef.current.some((line) => line.poin === true && line.ask != null)) {
+      if (await dropWaitingAsk()) return
+    }
     const all = linesRef.current
     // An EDC with money and a question still open: the question turns red.
     const open = all.find((line) => line.amount > 0 && askOf(line) !== null)
@@ -6033,16 +6576,36 @@ function Payment({
           }),
         ),
     )
+    // A Poin ask nobody has answered is taken back, and not waited for. Should
+    // the shopper have approved it in that same moment, the voucher is kept on
+    // the row for when Bayar opens again.
+    for (const line of all) {
+      if (line.poin !== true || line.ask == null) continue
+      void cancelAsk(line.ask).then((out) => {
+        const kept = payKept
+        if (out.kind !== "spent" || out.voucher?.voucher_code === undefined) return
+        const voucher = out.voucher
+        if (kept === null || kept.basket !== basket) return
+        payKept = {
+          basket,
+          lines: kept.lines.map((one) =>
+            one.id === line.id ? { ...one, ...poinVoucher(voucher, line.ask, restIn(kept.lines, one)) } : one,
+          ),
+        }
+      })
+    }
     // Kept for this basket; a voucher hold went back above, so those rows open
     // unheld again, and a balance spent is gone from its row with its money.
     payKept = {
       basket,
       lines: all.map((line) =>
-        line.secured === null
-          ? line
-          : tileOf(line).wire === "BENEFIT"
-            ? { ...line, holder: null, finger: null, code: "", amount: 0, auto: false, secured: null }
-            : { ...line, secured: null },
+        line.poin === true && line.ask != null
+          ? { ...line, ask: null, redeem: "", points: String(line.ask.points) }
+          : line.secured === null
+            ? line
+            : tileOf(line).wire === "BENEFIT"
+              ? { ...line, holder: null, finger: null, code: "", amount: 0, auto: false, secured: null }
+              : { ...line, secured: null },
       ),
     }
   }
@@ -6143,8 +6706,9 @@ function Payment({
     setNote("Jari belum bisa dipakai di kasir ini · ketik kode 6 angka dari HP karyawan")
   }
 
-  /// Enter in a code field: a balance code is looked up, a points code is
-  /// confirmed; otherwise the caret goes back to the dialog and Bayar is tried.
+  /// Enter in a code field: a balance code is looked up, the points are asked
+  /// for (or, once asked, the shopper's code confirmed); otherwise the caret
+  /// goes back to the dialog and Bayar is tried.
   function fieldEnter() {
     const line = linesRef.current[focusAt.current]
     if (line === undefined) return
@@ -6153,7 +6717,16 @@ function Payment({
       return
     }
     if (line.poin && !line.redeemed) {
-      void redeemPoints(line.id, (line.redeem ?? "").replace(/\D/g, ""))
+      if (line.ask == null) void askPoints(line.id)
+      else void redeemByCode(line.id, (line.redeem ?? "").replace(/\D/g, ""))
+      return
+    }
+    // Enter on a voucher not yet taken checks it now (owner, 25 Oct 2026:
+    // "enter voucher ga terjadi apa apa").
+    if (needsCode(tileOf(line)) && line.poin !== true && line.info == null) {
+      const typed = line.code.trim()
+      if (typed.length < 8) setNote("Ketik kode voucher (12 huruf), lalu Enter.")
+      else setVoucherCode(line.id, typed)
       return
     }
     dialog.current?.focus()
@@ -6543,12 +7116,44 @@ function Payment({
     let mid: React.ReactNode = null
     if (isEdc(line)) mid = edcMid(line, i)
     else if (line.poin) {
+      // Before the ask the member's balance; while it waits, what was asked
+      // and what it buys, with × to take it back; then what the voucher paid.
+      const ask = line.ask ?? null
       const words = line.redeemed
         ? `${line.redeemed.points === null ? "" : `${grouped(line.redeemed.points)} poin = `}${money(line.redeemed.value, currency)}`
-        : memberPoints === null
-          ? ""
-          : `${grouped(memberPoints)} poin`
-      mid = <div className="mmid">{words !== "" && <span className="vinfo">{words}</span>}</div>
+        : ask !== null
+          ? `${grouped(ask.points)} poin = ${money(ask.valueMinor, currency)}`
+          : memberPoints === null
+            ? ""
+            : `Saldo ${grouped(memberPoints)} poin`
+      mid = (
+        <div className="mmid">
+          {words !== "" && <span className="vinfo">{words}</span>}
+          {ask !== null && cross("Batalkan permintaan poin", () => void clearAsk(line.id))}
+          {ask === null && !line.redeemed && (
+            <button
+              type="button"
+              tabIndex={-1}
+              className="ds-btn ds-btn--primary ds-btn--sm"
+              disabled={busy}
+              onMouseDown={keepFocus}
+              onClick={(event) => {
+                take(event)
+                focusRow(i)
+                void askPoints(line.id)
+              }}
+            >
+              Minta persetujuan
+              {on && (
+                <>
+                  {" "}
+                  <span className="kbd">Enter</span>
+                </>
+              )}
+            </button>
+          )}
+        </div>
+      )
     } else if (tile.wire === "VOUCHER") {
       // The code goes where the money goes; once it is a voucher, the voucher
       // fills the amount, and × takes it off again.
@@ -6557,7 +7162,22 @@ function Payment({
           {line.info != null && (
             <>
               <span className="vinfo">{line.info}</span>
-              {cross(`Batalkan voucher ${line.code.trim().toUpperCase()}`, () => void clearRow(line))}
+              {/* A word, not a faint ×, so it reads as the button it is
+                  (owner, 25 Oct 2026). */}
+              <button
+                type="button"
+                tabIndex={-1}
+                className="vcancel"
+                aria-label={`Batalkan voucher ${line.code.trim().toUpperCase()}`}
+                disabled={busy}
+                onMouseDown={keepFocus}
+                onClick={(event) => {
+                  take(event)
+                  void clearRow(line)
+                }}
+              >
+                Batalkan
+              </button>
             </>
           )}
         </div>
@@ -6579,27 +7199,6 @@ function Payment({
             <span className="vinfo">Tidak bisa bersama promo</span>
           ) : (
             <>
-              {byFinger && (
-                <button
-                  type="button"
-                  tabIndex={-1}
-                  className="ds-btn ds-btn--tint ds-btn--sm"
-                  disabled={busy}
-                  onMouseDown={keepFocus}
-                  onClick={(event) => {
-                    take(event)
-                    openFinger()
-                  }}
-                >
-                  Jari karyawan
-                  {on && (
-                    <>
-                      {" "}
-                      <span className="kbd">Spasi</span>
-                    </>
-                  )}
-                </button>
-              )}
               {takesCode(line) &&
                 field({
                   className: "minput",
@@ -6616,19 +7215,68 @@ function Payment({
     } else mid = <div className="mmid" />
     let amount: React.ReactNode
     if (lock === NEEDS_CODE && line.poin) {
-      amount = field({
-        className: "minput amt-code",
-        value: line.redeem ?? "",
-        onChange: (event) => setRedeem(line.id, event.target.value),
-        inputMode: "numeric",
-        maxLength: 6,
-        placeholder: "Kode dari app",
-        "aria-label": "Kode dari app member",
-      })
+      // The cashier's points first; once asked, the shopper's six digits —
+      // and none of that when no code went, because only the app can approve.
+      const points = wantedPoints(lines, line)
+      amount =
+        line.ask == null ? (
+          <label className={`amt amt-pts${bad ? " bad" : ""}`}>
+            <span className="cur">Poin</span>
+            {field({
+              value: points > 0 ? grouped(points) : "",
+              onChange: (event) => setPoints(line.id, event.target.value),
+              onFocus: (event) => {
+                if (focusAt.current !== i) focusRow(i)
+                event.currentTarget.select()
+              },
+              inputMode: "numeric",
+              placeholder: "0",
+              "aria-label": "Jumlah poin",
+            })}
+          </label>
+        ) : line.ask.sentTo !== null ? (
+          field({
+            className: "minput amt-code",
+            value: line.redeem ?? "",
+            onChange: (event) => setRedeem(line.id, event.target.value),
+            inputMode: "numeric",
+            maxLength: 6,
+            placeholder: "Kode 6 angka",
+            "aria-label": "Kode dari pelanggan",
+          })
+        ) : (
+          <span className="amt-none" aria-hidden="true" />
+        )
+    } else if (tile.wire === "BENEFIT" && byFinger && line.holder === null && !basketHasPromotion) {
+      // Verifikasi sits where the voucher's code field sits, the same size
+      // (owner, 25 Oct 2026 sketch): the employee's finger.
+      amount = (
+        <button
+          type="button"
+          tabIndex={-1}
+          className="minput amt-code mverify"
+          disabled={busy}
+          onMouseDown={keepFocus}
+          onClick={(event) => {
+            take(event)
+            openFinger()
+          }}
+        >
+          Verifikasi
+          {on && (
+            <>
+              {" "}
+              <span className="kbd">Spasi</span>
+            </>
+          )}
+        </button>
+      )
     } else if (lock === NEEDS_CODE) {
       amount = field({
         className: "minput amt-code amt-vcode",
-        value: line.code,
+        value: voucherBusy === line.id ? "Memeriksa…" : line.code,
+        readOnly: voucherBusy === line.id,
+        "aria-busy": voucherBusy === line.id,
         onChange: (event) => setVoucherCode(line.id, event.target.value),
         placeholder: "Kode voucher",
         "aria-label": "Kode voucher",
@@ -6656,6 +7304,12 @@ function Payment({
         <span className="ml">{name}</span>
         {mid}
         {amount}
+        {line.poin === true && line.ask != null && (
+          <p className="pwait">
+            <span>{waitWords(line.ask)}</span>
+            <Countdown until={line.ask.expiresAt} />
+          </p>
+        )}
       </div>
     )
   }

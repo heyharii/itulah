@@ -88,18 +88,18 @@ export function ProfileView() {
         <ListRow
           art="shield"
           title="Keamanan"
-          description="Ponsel ini terhubung lewat kode dari kasir. Tidak ada kata sandi yang disimpan."
+          description="Ponsel ini masuk lewat kode. Tidak ada kata sandi yang disimpan."
         />
       </ListGroup>
 
       <ListGroup className="rise mt-4" style={step(3)}>
         {/* Said plainly, because a shared phone is the ordinary case here and
             the person pressing this needs to know what it costs them:
-            getting back in means asking a cashier for another code. */}
+            getting back in means another code. */}
         <ListRow
           art="logout"
           title="Putuskan ponsel ini"
-          description="Untuk menghubungkan lagi, minta kode baru ke kasir."
+          description="Untuk masuk lagi, pakai kode WhatsApp atau kode dari kasir."
           tone="danger"
           onClick={signOut}
         />

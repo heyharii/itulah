@@ -136,24 +136,28 @@ export function StopDialog({
         />
       </div>
 
-      <dl className="mt-4 divide-y divide-hairline rounded-card border border-hairline">
-        {facts.map((fact) => (
-          <div
-            key={fact.term}
-            className="grid grid-cols-[7.5rem_minmax(0,1fr)] gap-x-4 px-4 py-2.5 text-[0.9375rem]"
-          >
-            <dt className="text-mute">{fact.term}</dt>
-            <dd
-              className={cn(
-                "[overflow-wrap:anywhere]",
-                fact.bad === true ? "text-bad-fg" : "text-ink"
-              )}
+      {/* A question the title and sub already say all of (Unlink the
+          WhatsApp number?) has no facts to list. */}
+      {facts.length > 0 && (
+        <dl className="mt-4 divide-y divide-hairline rounded-card border border-hairline">
+          {facts.map((fact) => (
+            <div
+              key={fact.term}
+              className="grid grid-cols-[7.5rem_minmax(0,1fr)] gap-x-4 px-4 py-2.5 text-[0.9375rem]"
             >
-              {fact.value}
-            </dd>
-          </div>
-        ))}
-      </dl>
+              <dt className="text-mute">{fact.term}</dt>
+              <dd
+                className={cn(
+                  "[overflow-wrap:anywhere]",
+                  fact.bad === true ? "text-bad-fg" : "text-ink"
+                )}
+              >
+                {fact.value}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
 
       {children !== undefined && <div className="mt-5">{children}</div>}
 

@@ -30,9 +30,12 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 
 import * as api from "@/api"
+import { isWeb } from "@/edition"
 import { Icon } from "@/icons"
 import { PinPad } from "@/pinpad"
-import { useSession } from "@/session"
+import { useFingerWatch, useScanner } from "@/scanner"
+import { Sensor, type Read } from "@/sensor"
+import { NO_FINGER, useSession } from "@/session"
 import { SIMULATED, SIM_SECRET } from "@/simulation"
 
 /// How much notice the counter gets. Long enough to reach the mouse from the
@@ -178,16 +181,30 @@ export function useIdleLock(minutes: number): IdleLock {
 /// `onUnlockPin` is the same yes-or-no for the pad, and both are wired by the
 /// shell, which is what keeps "unlocked" a thing the node decided rather than
 /// a thing a keypress did.
+///
+/// On a till with a fingerprint scanner the card is the sensor and nothing
+/// else (owner, 25 Oct 2026: the door is finger only, and a lock asking for a
+/// password nobody at the counter types was a dead end): the person who walked
+/// away puts their finger back. And every card has Keluar, so a counter is
+/// never stuck behind it — the shift stays open, and its owner comes back in
+/// through the door.
 export function LockScreen({
   actorId,
   onUnlock,
   onUnlockPin,
+  onFingerUnlocked,
+  onSignOut,
 }: {
   actorId: string
   onUnlock: (username: string, password: string) => Promise<boolean>
   onUnlockPin?: (username: string, pin: string) => Promise<boolean>
+  /// The node accepted the finger of the person signed in here.
+  onFingerUnlocked: () => void
+  /// Keluar: the till goes back to its door.
+  onSignOut: () => void
 }) {
-  const { problem, me } = useSession()
+  const { problem: said, me, signInWithFinger } = useSession()
+  const problem = said === null ? null : refusalInWords(said)
   const name = me?.display_name ?? actorId
   // Whoever walked away is nearly always whoever comes back, so their name is
   // already in the field. It stays editable: a supervisor opening the counter
@@ -302,6 +319,86 @@ export function LockScreen({
     if (!accepted) field.current?.focus()
   }
 
+  // The scanner on this till: then the card is the sensor, listening on its
+  // own, and the finger has to be the signed-in person's.
+  const scanner = useScanner()
+  const byFinger = !isWeb && scanner === true
+  const [read, setRead] = useState<Read>("idle")
+  const [fingerNote, setFingerNote] = useState<string | null>(null)
+
+  /// Wait for one finger and claim it at the node as `actorId`'s. Answers
+  /// whether to go on listening.
+  async function byScanner(watch?: string): Promise<boolean> {
+    let placed = watch === undefined
+    if (placed) setRead("reading")
+    const refusal = await signInWithFinger(actorId, {
+      watch,
+      waitMs: watch === undefined ? 10_000 : 15_000,
+      onPlaced:
+        watch === undefined
+          ? undefined
+          : () => {
+              placed = true
+              setFingerNote(null)
+              setRead("reading")
+            },
+    })
+    if (refusal === NO_FINGER) {
+      if (watch === undefined) setRead("idle")
+      return true
+    }
+    if (!placed) {
+      setFingerNote(refusal)
+      return false
+    }
+    if (refusal !== null) {
+      setRead("no")
+      setFingerNote(refusal)
+      window.setTimeout(() => setRead((state) => (state === "no" ? "idle" : state)), 1700)
+      return false
+    }
+    setRead("done")
+    window.setTimeout(onFingerUnlocked, 600)
+    return false
+  }
+
+  useFingerWatch(byFinger && read === "idle", (watch) => byScanner(watch))
+
+  const leave = (
+    <button className="btn lg" style={{ width: "100%" }} type="button" onClick={onSignOut}>
+      Keluar
+    </button>
+  )
+
+  if (byFinger) {
+    // Drawn as the Kepala toko's approval is (`approval.tsx`): the door's own
+    // sensor, in the door's own card.
+    return (
+      <form ref={card} className="pdoor papr" aria-label="Kasir terkunci" onSubmit={(event) => event.preventDefault()}>
+        <div className="sup">
+          <p className="d-ttl">Kasir terkunci</p>
+          <p className="d-sub" style={{ textAlign: "center" }}>{name}</p>
+          <Sensor state={read} small onPress={() => void (read === "idle" && byScanner())} />
+          <p className={`d-say${read === "no" ? " bad" : ""}`} aria-live="polite">
+            {read === "reading"
+              ? "Membaca…"
+              : read === "done"
+                ? "Dikenali"
+                : read === "no"
+                  ? "Jari tidak dikenali"
+                  : `${name.split(" ")[0]}, tempelkan jari`}
+          </p>
+          <p className="d-hint">{read !== "reading" ? (fingerNote ?? "") : ""}</p>
+          <div className="sup-foot">
+            <button className="pd-btn" type="button" onClick={onSignOut} disabled={read === "reading"}>
+              Keluar
+            </button>
+          </div>
+        </div>
+      </form>
+    )
+  }
+
   // No scanner here, only the simulated one: the person who walked away puts
   // their finger back, and that is the whole card.
   if (SIMULATED && !pinOffered) {
@@ -342,6 +439,7 @@ export function LockScreen({
               {problem}
             </p>
           )}
+          {leave}
         </form>
       </div>
     )
@@ -441,7 +539,14 @@ export function LockScreen({
         >
           {busy || pinBusy ? "Memeriksa…" : "Buka kunci"}
         </button>
+        {leave}
       </form>
     </div>
   )
+}
+
+/// The node's refusal, said the way the counter says things.
+function refusalInWords(said: string): string {
+  if (/invalid username or password/i.test(said)) return "Username atau password salah."
+  return said.replace(/^(unauthorized|forbidden|conflict|invalid request): /i, "")
 }

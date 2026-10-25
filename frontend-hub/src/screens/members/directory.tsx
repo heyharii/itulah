@@ -1,4 +1,5 @@
 import {
+  useInfiniteQuery,
   useQuery,
   useSuspenseInfiniteQuery,
   useSuspenseQuery,
@@ -12,22 +13,38 @@ import { Suspense, useDeferredValue, useMemo, useState } from "react"
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
 import { AppLink } from "@/components/ui/app-link"
+import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
+import {
+  MiniCell,
+  MiniRow,
+  MiniTable,
+  SheetSection,
+} from "@/components/ui/rows"
 import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
+import {
+  SheetEmpty,
+  SheetError,
+  SheetLoading,
+  SheetQuery,
+} from "@/components/ui/sheet-states"
 import { EmptyState, LoadingState, NoMatch } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { isComplete, useFilters } from "@/lib/filters"
-import { count, day, money } from "@/lib/format"
+import { count, day, EMPTY, money } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
+import { useNameOfLogin } from "@/lib/queries/hr-employees"
 import {
   describeSegment,
   memberDirectoryQuery,
   MEMBERS_PAGE,
+  memberQuery,
+  memberRedemptionsQuery,
   memberSegmentsQuery,
   savedSegmentKeys,
   savedSegments,
@@ -38,6 +55,7 @@ import {
   type SegmentKey,
 } from "@/lib/queries/members"
 import { toServerFilters } from "@/lib/queries/reports"
+import { customerTransactions, storeopsKeys } from "@/lib/queries/storeops"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { useDebounced } from "@/lib/use-debounced"
@@ -49,6 +67,12 @@ import {
   Sentence,
 } from "@/components/ui/phone-cards"
 import { IssueCode } from "@/screens/members/counter"
+import { MemberReceiptSheet } from "@/screens/sales/customer"
+import type {
+  CustomerTransaction,
+  RedeemRequest,
+  RedeemRequestStatus,
+} from "@itulah/contract"
 
 /// The member directory — everybody holding a card, and what they have done
 /// with it.
@@ -98,6 +122,7 @@ const FILTER_COLUMN: Readonly<Record<string, string>> = {
 /// have no order worth reading, and the strip above already groups by it.
 const SORTS: Readonly<Record<string, MemberSort>> = {
   member: "name",
+  phone: "card",
   spent: "spent",
   sales: "transactions",
   atv: "atv",
@@ -151,6 +176,14 @@ function lastSeen(row: MemberRow): string {
   return `${count(row.days_since_purchase)} days ago`
 }
 
+/// `L` and `P` as the till takes them, in words. `null` for a member the till
+/// never asked.
+function genderWord(gender: MemberRow["gender"]): string | null {
+  if (gender === "L") return "Male"
+  if (gender === "P") return "Female"
+  return null
+}
+
 /// Takings over receipts, and pieces over receipts. Both are the retail
 /// figures — ATV and UPT — and both are worked out here rather than sent,
 /// because the two parts are already on the row and a third number on the wire
@@ -194,6 +227,64 @@ function columnsFor(
           {row.original.display_name ?? row.original.member_id}
         </span>
       ),
+    },
+    // What the till registers, in the order it asks for it (client, 23 Oct
+    // 2026). The phone is the card number of a member registered at a till.
+    // Address and birth place are in the sheet only: a column of them would
+    // be a column of sentences.
+    {
+      id: "phone",
+      accessorFn: (row) => row.member_id,
+      header: "Phone",
+      size: 140,
+      meta: { card: "hide", priority: 2 },
+      cell: ({ row }) => (
+        <span className="tabular-nums">{row.original.member_id}</span>
+      ),
+    },
+    {
+      id: "gender",
+      accessorFn: (row) => genderWord(row.gender) ?? "",
+      header: "Gender",
+      size: 90,
+      enableSorting: false,
+      meta: { card: "hide", priority: 3 },
+      cell: ({ row }) => {
+        const word = genderWord(row.original.gender)
+        return word === null ? (
+          <span className="text-mute">—</span>
+        ) : (
+          <span>{word}</span>
+        )
+      },
+    },
+    {
+      id: "birth",
+      accessorFn: (row) => row.birth_date ?? "",
+      header: "Birth Date",
+      size: 120,
+      enableSorting: false,
+      meta: { card: "hide", priority: 3 },
+      cell: ({ row }) =>
+        row.original.birth_date === null ? (
+          <span className="text-mute">—</span>
+        ) : (
+          <span className="tabular-nums">{day(row.original.birth_date)}</span>
+        ),
+    },
+    {
+      id: "email",
+      accessorFn: (row) => row.email ?? "",
+      header: "Email",
+      size: 200,
+      enableSorting: false,
+      meta: { card: "hide", priority: 3 },
+      cell: ({ row }) =>
+        row.original.email === null ? (
+          <span className="text-mute">—</span>
+        ) : (
+          <span className="block truncate">{row.original.email}</span>
+        ),
     },
     {
       id: "segment",
@@ -603,7 +694,9 @@ function MemberBook() {
     )
   )
 
-  const selected = rows.find((row) => row.member_id === open.value) ?? null
+  /// The row as the list already holds it. A member opened from a link is not
+  /// necessarily among the loaded pages; the sheet reads that one itself.
+  const selected = rows.find((row) => row.member_id === open.value)
 
   return (
     <>
@@ -789,7 +882,8 @@ function MemberBook() {
       )}
 
       <MemberSheet
-        member={selected}
+        memberId={open.value}
+        row={selected}
         windows={windows}
         onClose={() => open.close()}
       />
@@ -799,130 +893,403 @@ function MemberBook() {
 
 // ---------------------------------------------------------------------------
 
-/// One member, as the directory already knows them.
+/// One member: what the till registered, what they hold, what they have done
+/// with it, and the two histories behind those figures — every purchase and
+/// every redemption.
 ///
-/// Everything here came down with the list, so opening a member costs nothing
-/// and works offline of any further request. What it deliberately does NOT do
-/// is show their transactions: those are a different read against a different
-/// route, they can run to hundreds of rows, and Store Ops already has a screen
-/// built for exactly that. The link at the foot goes there with the card
-/// number already in it.
+/// The facts come down with the list when the member is on it, so opening a
+/// row costs nothing. When the sheet was opened from a link and the list has
+/// not loaded the page they are on, the sheet reads the member itself
+/// (`GET /api/v1/members/{id}`). The histories are always their own reads: each
+/// can run to hundreds of rows, and a purchase opens its receipt in a sheet
+/// over this one.
 function MemberSheet({
-  member,
+  memberId,
+  row,
   windows,
   onClose,
 }: {
-  member: MemberRow | null
+  memberId: string | undefined
+  /// The row as the directory already holds it, if it does.
+  row: MemberRow | undefined
   windows: {
     readonly active_days: number
     readonly lapsing_days: number
   } | null
   onClose: () => void
 }) {
+  /// The same key the Sales screen's Member page opens a receipt by.
+  const receipt = useSheet("sale")
+  const found = useQuery({
+    ...memberQuery(memberId ?? ""),
+    enabled: memberId !== undefined && row === undefined,
+  })
+  const member = row ?? found.data ?? null
   const segment =
     member && windows ? describeSegment(member.segment, windows) : null
-  const atv =
-    member === null ? null : per(member.spent_minor, member.transaction_count)
-  const upt =
-    member === null ? null : per(member.units_total, member.transaction_count)
 
   return (
-    <Sheet
-      open={member !== null}
-      onOpenChange={(next) => !next && onClose()}
-      id={member?.member_id}
-      title={member?.display_name ?? "No name given"}
-    >
-      {member && (
-        <div className="flex flex-col gap-5">
-          <div className="flex flex-col gap-2">
+    <>
+      <Sheet
+        open={memberId !== undefined}
+        onOpenChange={(next) => !next && onClose()}
+        size="rail"
+        stack
+        id={memberId}
+        title={
+          member === null ? "Member" : (member.display_name ?? "No name given")
+        }
+        badge={
+          member === null ? undefined : (
             <Pill tone={segmentTone(member.segment)}>
               {segment?.label ?? member.segment}
             </Pill>
-            {segment && (
-              <p className="text-[0.9375rem] leading-relaxed text-body">
-                {segment.meaning}
-              </p>
-            )}
-          </div>
-
-          {/* The whole record, including the four figures the table dropped:
-              the card number itself, what promotions gave back, what the shop
-              still owes on vouchers, and whether a phone is paired. A row is a
-              scan; this is the answer to a question about one person. */}
-          <Facts>
-            <Fact term="Card">{member.member_id}</Fact>
-            <Fact term="Joined">{day(member.joined_on)}</Fact>
-            <Fact term="First bought">{day(member.first_purchase_at)}</Fact>
-            <Fact term="Last purchase">{lastSeen(member)}</Fact>
-            <Fact term="Spend">{money(member.spent_minor)}</Fact>
-            <Fact term="Transactions">{count(member.transaction_count)}</Fact>
-            <Fact term="Avg transaction">
-              {atv === null ? "—" : money(Math.round(atv))}
-            </Fact>
-            <Fact term="Units">{count(member.units_total)}</Fact>
-            <Fact term="UPT">{upt === null ? "—" : decimal(upt)}</Fact>
-            <Fact term="Points held">{count(member.points_balance)}</Fact>
-            <Fact term="Points earned">
-              {count(member.points_earned_total)}
-            </Fact>
-            <Fact term="Points spent">{count(member.points_spent_total)}</Fact>
-            <Fact term="Saved by promotions">{money(member.saved_minor)}</Fact>
-            <Fact term="On voucher">{money(member.voucher_balance_minor)}</Fact>
-            <Fact term="App">{member.paired ? "Paired" : "Card only"}</Fact>
-          </Facts>
-
-          {/* The act that turns a card into somebody who can see their own
-              points. Here rather than at the foot with the links because it is
-              a write, and a write belongs above the places this sheet sends
-              you. Already-paired members still get it: a new phone is the
-              ordinary reason somebody asks. */}
-          <div className="flex flex-col gap-2">
-            {member.paired && (
-              <p className="text-[0.9375rem] leading-relaxed text-body">
-                A phone is already paired to this card. Issuing a code pairs
-                another — which is what a replaced handset needs, and is also
-                what somebody else's phone would need, so ask for the card.
-              </p>
-            )}
-            {/* Keyed, and it is load-bearing: this sheet stays mounted when
-                somebody clicks the next row, so an unkeyed panel would hand a
-                code requested for one member to whatever member is on screen
-                when the reply lands. See `IssueCode`. */}
-            <IssueCode
-              key={member.member_id}
-              memberId={member.member_id}
-              blocked={member.blocked_at !== null}
+          )
+        }
+      >
+        {memberId === undefined ? null : member === null ? (
+          found.isError ? (
+            <SheetError
+              error={found.error}
+              onRetry={() => void found.refetch()}
             />
-          </div>
+          ) : (
+            <SheetLoading what="member" />
+          )
+        ) : (
+          <MemberBody member={member} onOpenSale={receipt.open} />
+        )}
+      </Sheet>
 
-          {member.blocked_at !== null && (
-            // Blocked, not deleted, and the sheet has to say which: the sales
-            // stay attributed to this row, and deleting it would leave them
-            // pointing at a member nobody can look up.
-            <p className="text-[0.9375rem] leading-relaxed text-bad">
-              Membership stopped on {day(member.blocked_at)}. Their sales stay
-              attributed to this card, which is why the row is blocked rather
-              than removed.
-            </p>
-          )}
+      {/* Over the member, never without one: a receipt left in the address
+          after its member is shut would open on its own the next time. */}
+      <MemberReceiptSheet
+        customerId={memberId ?? ""}
+        saleId={memberId === undefined ? null : (receipt.value ?? null)}
+        onClose={receipt.close}
+      />
+    </>
+  )
+}
 
-          <div className="flex flex-wrap gap-2">
-            <AppLink
-              to="/sales/customer"
-              sheet={{ key: "member", value: member.member_id }}
-              variant="ghost"
+/// The sheet's sections, in the order they are asked about: who they are, what
+/// they have spent, what they hold, the act that gives their phone access, and
+/// then the histories.
+function MemberBody({
+  member,
+  onOpenSale,
+}: {
+  member: MemberRow
+  onOpenSale: (saleId: string) => void
+}) {
+  const atv = per(member.spent_minor, member.transaction_count)
+  const upt = per(member.units_total, member.transaction_count)
+
+  return (
+    <>
+      {/* What the POS registers at F5 and shows on a lookup. */}
+      <Facts>
+        <Fact term="Phone number">{member.member_id}</Fact>
+        <Fact term="Name">{member.display_name ?? EMPTY}</Fact>
+        <Fact term="Gender">{genderWord(member.gender) ?? EMPTY}</Fact>
+        <Fact term="Birth place">{member.birth_place ?? EMPTY}</Fact>
+        <Fact term="Birth date">
+          {member.birth_date === null ? EMPTY : day(member.birth_date)}
+        </Fact>
+        <Fact term="Joined">{day(member.joined_on)}</Fact>
+        <Fact term="Points balance">{count(member.points_balance)}</Fact>
+        <Fact term="Status">
+          {member.blocked_at === null
+            ? "Active"
+            : `Blocked since ${day(member.blocked_at)}`}
+        </Fact>
+        <Fact term="Email" wide>
+          {member.email ?? EMPTY}
+        </Fact>
+        <Fact term="Address" wide>
+          {member.address ?? EMPTY}
+        </Fact>
+      </Facts>
+
+      {/* The figures the table dropped: what promotions gave back, what the
+          shop still owes on vouchers, and whether a phone is paired. A row is
+          a scan; this is the answer to a question about one person. */}
+      <SheetSection title="Spending">
+        <Facts>
+          <Fact term="Spend">{money(member.spent_minor)}</Fact>
+          <Fact term="Transactions">{count(member.transaction_count)}</Fact>
+          <Fact term="Avg transaction">
+            {atv === null ? "—" : money(Math.round(atv))}
+          </Fact>
+          <Fact term="Units">{count(member.units_total)}</Fact>
+          <Fact term="UPT">{upt === null ? "—" : decimal(upt)}</Fact>
+          <Fact term="Saved by promotions">{money(member.saved_minor)}</Fact>
+          <Fact term="First bought">{day(member.first_purchase_at)}</Fact>
+          <Fact term="Last purchase">{lastSeen(member)}</Fact>
+        </Facts>
+      </SheetSection>
+
+      <SheetSection title="Points and vouchers">
+        <Facts>
+          <Fact term="Points earned">{count(member.points_earned_total)}</Fact>
+          <Fact term="Points spent">{count(member.points_spent_total)}</Fact>
+          <Fact term="On voucher">{money(member.voucher_balance_minor)}</Fact>
+          <Fact term="App">{member.paired ? "Paired" : "Not paired"}</Fact>
+        </Facts>
+      </SheetSection>
+
+      {/* The act that turns a card into somebody who can see their own
+          points. Here rather than at the foot with the links because it is a
+          write, and a write belongs above the places this sheet sends you.
+          Already-paired members still get it: a new phone is the ordinary
+          reason somebody asks. */}
+      <div className="flex flex-col gap-2">
+        {member.paired && (
+          <p className="text-[0.9375rem] leading-relaxed text-body">
+            A phone is already paired to this card. Issuing a code pairs another
+            — which is what a replaced handset needs, and is also what somebody
+            else's phone would need, so ask for the card.
+          </p>
+        )}
+        {/* Keyed, and it is load-bearing: this sheet stays mounted when
+            somebody clicks the next row, so an unkeyed panel would hand a
+            code requested for one member to whatever member is on screen when
+            the reply lands. See `IssueCode`. */}
+        <IssueCode
+          key={member.member_id}
+          memberId={member.member_id}
+          blocked={member.blocked_at !== null}
+        />
+      </div>
+
+      {/* Keyed for the same reason: the next row is a different history. */}
+      <MemberTransactions
+        key={`sales-${member.member_id}`}
+        memberId={member.member_id}
+        total={member.transaction_count}
+        onOpen={onOpenSale}
+      />
+      <MemberRedemptions
+        key={`redemptions-${member.member_id}`}
+        memberId={member.member_id}
+      />
+
+      <div className="flex flex-wrap gap-2">
+        <AppLink
+          to="/sales/customer"
+          sheet={{ key: "member", value: member.member_id }}
+          variant="ghost"
+        >
+          Their transactions
+        </AppLink>
+        <AppLink
+          to="/members/points-ledger"
+          sheet={{ key: "customer", value: member.member_id }}
+          variant="ghost"
+        >
+          Points ledger
+        </AppLink>
+        {member.voucher_balance_minor > 0 && (
+          <AppLink to="/commercial/vouchers" variant="ghost">
+            Their vouchers
+          </AppLink>
+        )}
+      </div>
+    </>
+  )
+}
+
+/// Their purchases, newest first, a page at a time.
+///
+/// The Sales screen's Member page reads the same endpoint with the same cursor
+/// and the same page size, under the same key when nothing narrows it — so a
+/// member read here is already in hand there, and the other way round. A row
+/// opens the receipt.
+function MemberTransactions({
+  memberId,
+  total,
+  onOpen,
+}: {
+  memberId: string
+  /// Completed purchases, from the member's row.
+  total: number
+  onOpen: (saleId: string) => void
+}) {
+  const history = useInfiniteQuery({
+    queryKey: storeopsKeys.customerHistory(memberId),
+    queryFn: ({ pageParam, signal }) =>
+      customerTransactions(
+        memberId,
+        {
+          limit: 25,
+          beforeOccurredAt: pageParam?.at,
+          beforeSaleId: pageParam?.id,
+        },
+        signal
+      ),
+    initialPageParam: undefined as { at: string; id: string } | undefined,
+    getNextPageParam: (last) =>
+      last.next_before_occurred_at !== null && last.next_before_sale_id !== null
+        ? { at: last.next_before_occurred_at, id: last.next_before_sale_id }
+        : undefined,
+  })
+  const sales = useMemo<CustomerTransaction[]>(
+    () => history.data?.pages.flatMap((page) => page.transactions) ?? [],
+    [history.data]
+  )
+
+  return (
+    <SheetSection
+      title="Transactions"
+      aside={total === 0 ? undefined : count(total)}
+    >
+      <SheetQuery query={history} what="transactions">
+        {() =>
+          sales.length === 0 ? (
+            <SheetEmpty>No purchases yet</SheetEmpty>
+          ) : (
+            <>
+              <MiniTable
+                head={[
+                  "Date",
+                  { label: "Store", align: "left" },
+                  { label: "Receipt", align: "left" },
+                  "Total",
+                  "Points",
+                ]}
+              >
+                {sales.map((sale) => (
+                  <MiniRow key={sale.sale_id}>
+                    <MiniCell>
+                      <button
+                        type="button"
+                        onClick={() => onOpen(sale.sale_id)}
+                        className="record-link text-left tabular-nums"
+                      >
+                        {day(sale.occurred_at)}
+                      </button>
+                      {sale.status === "VOIDED" && (
+                        <span className="block text-mute">Voided</span>
+                      )}
+                    </MiniCell>
+                    <MiniCell>{sale.site_name ?? sale.site_id}</MiniCell>
+                    <MiniCell className="tabular-nums">
+                      {sale.receipt_no ?? <span className="text-mute">—</span>}
+                    </MiniCell>
+                    <MiniCell align="right" className="font-medium text-ink">
+                      {money(sale.total_minor)}
+                    </MiniCell>
+                    <MiniCell align="right">
+                      {sale.points_earned === 0 ? (
+                        <span className="text-mute">—</span>
+                      ) : (
+                        count(sale.points_earned)
+                      )}
+                    </MiniCell>
+                  </MiniRow>
+                ))}
+              </MiniTable>
+              {history.hasNextPage && (
+                <div>
+                  <Button
+                    variant="ghost"
+                    pending={history.isFetchingNextPage}
+                    onClick={() => void history.fetchNextPage()}
+                  >
+                    Show more
+                  </Button>
+                </div>
+              )}
+            </>
+          )
+        }
+      </SheetQuery>
+    </SheetSection>
+  )
+}
+
+/// Each status in its own word and tone. A request that ran out or was called
+/// off is neutral: nothing is owed on it and nothing needs doing.
+const REDEMPTION_STATUS: Readonly<
+  Record<
+    RedeemRequestStatus,
+    { readonly label: string; readonly tone: "ok" | "warn" | "neutral" }
+  >
+> = {
+  PENDING: { label: "Pending", tone: "warn" },
+  CONFIRMED: { label: "Confirmed", tone: "ok" },
+  CANCELLED: { label: "Cancelled", tone: "neutral" },
+  EXPIRED: { label: "Expired", tone: "neutral" },
+}
+
+/// What they asked to turn into vouchers, newest first, and what became of
+/// each: where it was asked, by whom, and — for a confirmed one — how it was
+/// approved. Never the code itself; the server does not send it.
+function MemberRedemptions({ memberId }: { memberId: string }) {
+  const requests = useQuery(memberRedemptionsQuery(memberId))
+  const nameOf = useNameOfLogin()
+
+  return (
+    <SheetSection
+      title="Redemptions"
+      aside={
+        requests.data === undefined || requests.data.length === 0
+          ? undefined
+          : count(requests.data.length)
+      }
+    >
+      <SheetQuery query={requests} what="redemptions">
+        {(list: RedeemRequest[]) =>
+          list.length === 0 ? (
+            <SheetEmpty>No redemptions yet</SheetEmpty>
+          ) : (
+            <MiniTable
+              head={[
+                "Date",
+                { label: "Store", align: "left" },
+                "Points",
+                "Value",
+                { label: "Status", align: "left" },
+              ]}
             >
-              Their transactions
-            </AppLink>
-            {member.voucher_balance_minor > 0 && (
-              <AppLink to="/commercial/vouchers" variant="ghost">
-                Their vouchers
-              </AppLink>
-            )}
-          </div>
-        </div>
-      )}
-    </Sheet>
+              {list.map((request) => {
+                const status = REDEMPTION_STATUS[request.status]
+                return (
+                  <MiniRow key={request.request_id}>
+                    <MiniCell className="tabular-nums">
+                      {day(request.requested_at)}
+                    </MiniCell>
+                    <MiniCell>
+                      {request.store_name ?? (
+                        <span className="text-mute">—</span>
+                      )}
+                      {request.asked_by !== null && (
+                        <span className="block text-mute">
+                          Asked by {nameOf(request.asked_by)}
+                        </span>
+                      )}
+                    </MiniCell>
+                    <MiniCell align="right">{count(request.points)}</MiniCell>
+                    <MiniCell align="right" className="font-medium text-ink">
+                      {money(request.value_minor)}
+                    </MiniCell>
+                    <MiniCell>
+                      <Pill tone={status.tone}>{status.label}</Pill>
+                      {request.status === "CONFIRMED" && (
+                        <span className="mt-1 block text-mute">
+                          {request.approved_in_app
+                            ? "Via the app"
+                            : "Via WhatsApp code"}
+                        </span>
+                      )}
+                    </MiniCell>
+                  </MiniRow>
+                )
+              })}
+            </MiniTable>
+          )
+        }
+      </SheetQuery>
+    </SheetSection>
   )
 }

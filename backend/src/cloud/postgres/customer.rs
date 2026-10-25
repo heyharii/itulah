@@ -56,6 +56,10 @@ pub struct CustomerTransaction {
     /// The shop's own name, for a shopper who knows "Store 01" and not
     /// `store-01`. `None` for a site the centre has no row for.
     pub site_name: Option<String>,
+    /// The number printed on the till's receipt (`edge_sale.receipt_no`, 0988)
+    /// — what a shopper reads off the struk. `None` for a sale made before
+    /// tills numbered them.
+    pub receipt_no: Option<String>,
     /// `COMPLETED`, or `VOIDED` once the shop cancelled it. A voided sale stays
     /// in the history — the shopper was there and may ask about it — but it
     /// earned nothing and counts toward no total.
@@ -202,6 +206,7 @@ fn transaction_from_row(row: &sqlx::postgres::PgRow) -> Result<CustomerTransacti
         occurred_at: row.try_get("occurred_at")?,
         site_id: row.try_get("site_id")?,
         site_name: row.try_get("site_name")?,
+        receipt_no: row.try_get("receipt_no")?,
         status: row.try_get("status")?,
         currency: row.try_get("currency")?,
         total_minor: row.try_get("total_minor")?,
@@ -244,6 +249,7 @@ pub async fn customer_transactions(
                 s.occurred_at,
                 s.site_id,
                 site.name AS site_name,
+                s.receipt_no,
                 s.status,
                 s.currency,
                 s.total_minor,
@@ -313,6 +319,7 @@ pub async fn customer_transaction(
                 s.occurred_at,
                 s.site_id,
                 site.name AS site_name,
+                s.receipt_no,
                 s.status,
                 s.currency,
                 s.total_minor,

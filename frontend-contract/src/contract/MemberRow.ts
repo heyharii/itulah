@@ -15,6 +15,13 @@ member_id: string,
  */
 display_name: string | null, joined_on: string, 
 /**
+ * What the till registers (client, 23 Oct 2026): `L` or `P`. `None` for a
+ * member enrolled before the till asked, or at the hub — the five fields
+ * from here are all nullable for that reason, and none of them is
+ * searchable (see [`MemberQuery::q`]).
+ */
+gender: string | null, birth_place: string | null, birth_date: string | null, address: string | null, email: string | null, 
+/**
  * Set when a membership was stopped. Blocked rather than deleted: the
  * sales stay, and deleting would leave them attributed to nobody.
  */

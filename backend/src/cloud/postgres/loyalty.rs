@@ -534,57 +534,109 @@ impl RedeemRequestStatus {
 }
 
 /// A request to turn points into a voucher — reused for a shopper's own
-/// history and for what a cashier's lookup answers with. Never carries the
-/// code: see [`IssuedRedeemRequest`] for the one response that does.
+/// history, head office's, and what a cashier's lookup answers with. Never
+/// carries the code: that went to the shopper's WhatsApp and nowhere else.
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 #[derive(Clone, Debug, Serialize)]
 pub struct RedeemRequest {
     pub request_id: Uuid,
     pub points: i64,
+    /// What the points buy, at the scheme's own rate.
+    pub value_minor: i64,
     pub status: RedeemRequestStatus,
     pub requested_at: DateTime<Utc>,
     pub expires_at: DateTime<Utc>,
     pub redemption_id: Option<Uuid>,
+    /// The shop whose cashier asked.
+    pub store_name: Option<String>,
+    /// The cashier's username.
+    pub asked_by: Option<String>,
+    /// Approved by the shopper in the member app, rather than by the code
+    /// they read back.
+    pub approved_in_app: bool,
 }
 
-/// A request, the one moment its code is knowable.
-///
-/// The same shape `IssuedPairingCode` is, and for the same reason: the six
-/// digits are in this response and in no table anywhere — what is stored is a
-/// hash, and a code lost before it is shown to a cashier is replaced, not
-/// looked up.
+/// The columns [`redeem_request_from`] reads, with the shop's name.
+const REDEEM_REQUEST_COLUMNS: &str = "r.request_id, r.points, r.requested_at, r.expires_at,
+        r.attempts, r.confirmed_at, r.cancelled_at, r.redemption_id, r.asked_by,
+        r.approved_in_app_at, s.name AS store_name";
+
+fn redeem_request_from(row: &sqlx::postgres::PgRow, now: DateTime<Utc>) -> RedeemRequest {
+    let confirmed_at: Option<DateTime<Utc>> = row.get("confirmed_at");
+    let cancelled_at: Option<DateTime<Utc>> = row.get("cancelled_at");
+    let expires_at: DateTime<Utc> = row.get("expires_at");
+    let attempts: i32 = row.get("attempts");
+    let points: i64 = row.get("points");
+    let approved_in_app_at: Option<DateTime<Utc>> = row.get("approved_in_app_at");
+    RedeemRequest {
+        request_id: row.get("request_id"),
+        points,
+        value_minor: voucher_value_for_points(points),
+        status: RedeemRequestStatus::of(confirmed_at, cancelled_at, expires_at, attempts, now),
+        requested_at: row.get("requested_at"),
+        expires_at,
+        redemption_id: row.get("redemption_id"),
+        store_name: row.get("store_name"),
+        asked_by: row.get("asked_by"),
+        approved_in_app: approved_in_app_at.is_some(),
+    }
+}
+
+/// What a cashier is told once they have asked: never the code.
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 #[derive(Clone, Debug, Serialize)]
-pub struct IssuedRedeemRequest {
+pub struct RedeemAsk {
     pub request_id: Uuid,
     pub points: i64,
-    pub code: String,
+    pub value_minor: i64,
     pub expires_at: DateTime<Utc>,
+    /// `0812****7890`: where the code went on WhatsApp. `None` when it went
+    /// nowhere, and only the member app can approve the request.
+    pub sent_to: Option<String>,
+    /// Why no code went, when one was meant to.
+    pub not_sent: Option<String>,
 }
 
-/// Ask to turn `points` into a voucher.
+/// Who is asking, from which shop — the node's own word for both.
+pub struct RedeemAsker<'a> {
+    pub actor: &'a str,
+    pub origin_id: &'a str,
+    pub site_id: Option<&'a str>,
+}
+
+/// A cashier asks to spend `points` of a member's (owner, 25 Oct 2026:
+/// "customer ga usah masukin berapa, cukup kasir aja yg input mau berapa").
 ///
-/// Refuses a second live request rather than queuing one behind it — a
-/// cashier reading a member's current ask must never have to choose between
-/// two, and a member with one already waiting is told to use or let that one
-/// lapse first, not handed a second code.
+/// The shopper approves it one of two ways: tapping Approve in the member app,
+/// or reading back the six digits sent to their WhatsApp. The code goes to
+/// WhatsApp and nowhere else — a cashier who could see it could approve their
+/// own ask.
 ///
-/// The balance is checked here so a request nobody could ever honour is never
-/// shown to a shopper as "asked". It is checked again, inside a lock, at
-/// confirm time — this call only says the ask was reasonable when it was
-/// made, not that it still will be when a cashier gets to it.
-pub async fn create_redeem_request(
+/// Asking again replaces the member's live request rather than refusing: the
+/// usual reason is that the shopper changed their mind about how much, or the
+/// message never came.
+pub async fn ask_redeem_request(
     pool: &PgPool,
     member_id: &str,
     points: i64,
-) -> Result<IssuedRedeemRequest, AppError> {
+    asker: RedeemAsker<'_>,
+) -> Result<RedeemAsk, AppError> {
     let member_id = member_id.trim();
     if points <= 0 {
         return Err(AppError::Validation(
             "a redemption has to ask for at least one point".into(),
         ));
     }
-
+    let blocked: Option<Option<DateTime<Utc>>> =
+        sqlx::query_scalar("SELECT blocked_at FROM member WHERE member_id = $1")
+            .bind(member_id)
+            .fetch_optional(pool)
+            .await?;
+    match blocked {
+        None => return Err(AppError::NotFound(format!("no member {member_id}"))),
+        Some(Some(_)) => return Err(AppError::Conflict("this membership is blocked".into())),
+        Some(None) => {}
+    }
     let balance: Option<i64> =
         sqlx::query_scalar("SELECT balance_points FROM points_account WHERE customer_id = $1")
             .bind(member_id)
@@ -597,99 +649,252 @@ pub async fn create_redeem_request(
         )));
     }
 
-    let now = Utc::now();
-    let live = sqlx::query(
-        "SELECT confirmed_at, cancelled_at, expires_at, attempts
-           FROM member_redeem_request
+    let mut tx = pool.begin().await?;
+    // One ask at a time per member: two tills — or one cashier pressing twice —
+    // queue here, and the second replaces the first rather than both staying
+    // live (CONSISTENCY-MATRIX R3).
+    sqlx::query("SELECT 1 FROM member WHERE member_id = $1 FOR UPDATE")
+        .bind(member_id)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query(
+        "UPDATE member_redeem_request
+            SET cancelled_at = now(), cancelled_by = 'REPLACED'
           WHERE member_id = $1
-          ORDER BY requested_at DESC
-          LIMIT 1",
+            AND confirmed_at IS NULL AND cancelled_at IS NULL AND expires_at > now()",
     )
     .bind(member_id)
-    .fetch_optional(pool)
-    .await?
-    .is_some_and(|row| {
-        let status = RedeemRequestStatus::of(
-            row.get("confirmed_at"),
-            row.get("cancelled_at"),
-            row.get("expires_at"),
-            row.get("attempts"),
-            now,
-        );
-        status.is_live()
-    });
-    if live {
-        return Err(AppError::Conflict(
-            "a redemption is already waiting to be confirmed".into(),
-        ));
-    }
-
+    .execute(&mut *tx)
+    .await?;
     let request_id = Uuid::new_v4();
     let code = security::random_digits(6);
-    let expires_at = now + Duration::minutes(REDEEM_REQUEST_TTL_MINUTES);
+    let expires_at = Utc::now() + Duration::minutes(REDEEM_REQUEST_TTL_MINUTES);
     sqlx::query(
         "INSERT INTO member_redeem_request
-             (request_id, member_id, points, code_sha256, expires_at)
-         VALUES ($1,$2,$3,$4,$5)",
+             (request_id, member_id, points, code_sha256, expires_at,
+              asked_by, origin_id, site_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
     )
     .bind(request_id)
     .bind(member_id)
     .bind(points)
     .bind(security::sha256_hex(&code))
     .bind(expires_at)
-    .execute(pool)
+    .bind(asker.actor)
+    .bind(asker.origin_id)
+    .bind(asker.site_id)
+    .execute(&mut *tx)
     .await?;
+    tx.commit().await?;
 
-    Ok(IssuedRedeemRequest {
+    let value_minor = voucher_value_for_points(points);
+    let mut sent_to = None;
+    let mut not_sent = None;
+    if crate::cloud::whatsapp::gateway().is_none() {
+        not_sent = Some("head office has no WhatsApp set up".to_string());
+    } else if crate::cloud::whatsapp::wa_number(member_id).is_none() {
+        not_sent = Some(format!("{member_id} is not a phone number"));
+    } else {
+        let store: Option<String> = match asker.site_id {
+            Some(site) => sqlx::query_scalar("SELECT name FROM site WHERE id = $1")
+                .bind(site)
+                .fetch_optional(pool)
+                .await?,
+            None => None,
+        };
+        let grouped = crate::cloud::whatsapp::grouped;
+        let text = format!(
+            "Tukar {} poin (Rp {}){}.\nKode: {code}\n\
+             Berikan kode ini kepada kasir, atau setujui di app member. Berlaku \
+             {REDEEM_REQUEST_TTL_MINUTES} menit. Abaikan bila Anda tidak sedang berbelanja.",
+            grouped(points),
+            grouped(value_minor),
+            store.map(|name| format!(" di {name}")).unwrap_or_default(),
+        );
+        match crate::cloud::whatsapp::send(member_id, &text).await {
+            Ok(_) => {
+                sqlx::query("UPDATE member_redeem_request SET sent_at = now() WHERE request_id = $1")
+                    .bind(request_id)
+                    .execute(pool)
+                    .await?;
+                sent_to = Some(crate::cloud::whatsapp::masked(member_id));
+            }
+            Err(error) => not_sent = Some(error.to_string()),
+        }
+    }
+
+    Ok(RedeemAsk {
         request_id,
         points,
-        code,
+        value_minor,
         expires_at,
+        sent_to,
+        not_sent,
     })
 }
 
-/// A member's own requests, newest first — the "list redeem poin mereka"
-/// screen.
+/// One request, read with the shop's name.
+async fn redeem_request(pool: &PgPool, request_id: Uuid) -> Result<RedeemRequest, AppError> {
+    let row = sqlx::query(&format!(
+        "SELECT {REDEEM_REQUEST_COLUMNS}
+           FROM member_redeem_request r
+           LEFT JOIN site s ON s.id = r.site_id
+          WHERE r.request_id = $1"
+    ))
+    .bind(request_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound("redeem request".into()))?;
+    Ok(redeem_request_from(&row, Utc::now()))
+}
+
+/// Where a cashier's ask stands, for the till that is waiting on it: once the
+/// shopper has approved it in the app it is a voucher, and the voucher is in
+/// the answer. Only the shop that asked may read it.
+pub async fn redeem_ask_progress(
+    pool: &PgPool,
+    request_id: Uuid,
+    origin_id: &str,
+) -> Result<Value, AppError> {
+    let asked: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT origin_id, asked_by FROM member_redeem_request WHERE request_id = $1",
+    )
+    .bind(request_id)
+    .fetch_optional(pool)
+    .await?;
+    let Some((origin, asked_by)) = asked else {
+        return Err(AppError::NotFound("redeem request".into()));
+    };
+    if origin.as_deref() != Some(origin_id) {
+        return Err(AppError::NotFound("redeem request".into()));
+    }
+    let request = redeem_request(pool, request_id).await?;
+    let voucher = if request.status == RedeemRequestStatus::Confirmed {
+        // Answered from what was written: the same key returns the voucher
+        // already issued (`redeem_points_to_voucher`).
+        Some(confirm_redeem_request(pool, request_id, asked_by.as_deref().unwrap_or("member")).await?)
+    } else {
+        None
+    };
+    Ok(json!({ "request": request, "voucher": voucher }))
+}
+
+/// A cashier takes their ask back — the shopper paid another way. A request
+/// already spent cannot be: its voucher exists.
+pub async fn cancel_redeem_ask(
+    pool: &PgPool,
+    request_id: Uuid,
+    origin_id: &str,
+) -> Result<RedeemRequest, AppError> {
+    let done = sqlx::query(
+        "UPDATE member_redeem_request
+            SET cancelled_at = now(), cancelled_by = 'CASHIER'
+          WHERE request_id = $1 AND origin_id = $2
+            AND confirmed_at IS NULL AND cancelled_at IS NULL",
+    )
+    .bind(request_id)
+    .bind(origin_id)
+    .execute(pool)
+    .await?;
+    let request = redeem_request(pool, request_id).await?;
+    if done.rows_affected() == 0 && request.status == RedeemRequestStatus::Confirmed {
+        return Err(AppError::Conflict(
+            "those points are already spent: the voucher pays this bill".into(),
+        ));
+    }
+    Ok(request)
+}
+
+/// The shopper approves a cashier's ask in the member app: the points are
+/// spent at once, and the till waiting on it finds a voucher.
+pub async fn approve_redeem_request(
+    pool: &PgPool,
+    member_id: &str,
+    request_id: Uuid,
+) -> Result<RedeemRequest, AppError> {
+    let mut tx = pool.begin().await?;
+    let Some(row) = sqlx::query(
+        "SELECT asked_by, expires_at, attempts, confirmed_at, cancelled_at
+           FROM member_redeem_request
+          WHERE request_id = $1 AND member_id = $2
+          FOR UPDATE",
+    )
+    .bind(request_id)
+    .bind(member_id.trim())
+    .fetch_optional(&mut *tx)
+    .await?
+    else {
+        return Err(AppError::NotFound("redeem request".into()));
+    };
+    let status = RedeemRequestStatus::of(
+        row.get("confirmed_at"),
+        row.get("cancelled_at"),
+        row.get("expires_at"),
+        row.get("attempts"),
+        Utc::now(),
+    );
+    if status != RedeemRequestStatus::Pending && status != RedeemRequestStatus::Confirmed {
+        return Err(AppError::Conflict(match status {
+            RedeemRequestStatus::Cancelled => "that request was cancelled".into(),
+            _ => "that request has expired".into(),
+        }));
+    }
+    let asked_by: Option<String> = row.get("asked_by");
+    sqlx::query(
+        "UPDATE member_redeem_request
+            SET approved_in_app_at = COALESCE(approved_in_app_at, now())
+          WHERE request_id = $1 AND confirmed_at IS NULL",
+    )
+    .bind(request_id)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    confirm_redeem_request(pool, request_id, asked_by.as_deref().unwrap_or("member")).await?;
+    redeem_request(pool, request_id).await
+}
+
+/// The shopper turns a cashier's ask down in the member app.
+pub async fn decline_redeem_request(
+    pool: &PgPool,
+    member_id: &str,
+    request_id: Uuid,
+) -> Result<RedeemRequest, AppError> {
+    sqlx::query(
+        "UPDATE member_redeem_request
+            SET cancelled_at = now(), cancelled_by = 'MEMBER'
+          WHERE request_id = $1 AND member_id = $2
+            AND confirmed_at IS NULL AND cancelled_at IS NULL",
+    )
+    .bind(request_id)
+    .bind(member_id.trim())
+    .execute(pool)
+    .await?;
+    let request = redeem_request(pool, request_id).await?;
+    if request.status == RedeemRequestStatus::Confirmed {
+        return Err(AppError::Conflict("those points are already spent".into()));
+    }
+    Ok(request)
+}
+
+/// A member's requests, newest first — the shopper's own list, and head
+/// office's.
 pub async fn list_redeem_requests(
     pool: &PgPool,
     member_id: &str,
 ) -> Result<Vec<RedeemRequest>, AppError> {
     let now = Utc::now();
-    let rows = sqlx::query(
-        "SELECT request_id, points, requested_at, expires_at, attempts,
-                confirmed_at, cancelled_at, redemption_id
-           FROM member_redeem_request
-          WHERE member_id = $1
-          ORDER BY requested_at DESC
-          LIMIT 200",
-    )
+    let rows = sqlx::query(&format!(
+        "SELECT {REDEEM_REQUEST_COLUMNS}
+           FROM member_redeem_request r
+           LEFT JOIN site s ON s.id = r.site_id
+          WHERE r.member_id = $1
+          ORDER BY r.requested_at DESC
+          LIMIT 200"
+    ))
     .bind(member_id.trim())
     .fetch_all(pool)
     .await?;
-
-    Ok(rows
-        .iter()
-        .map(|row| {
-            let confirmed_at: Option<DateTime<Utc>> = row.get("confirmed_at");
-            let cancelled_at: Option<DateTime<Utc>> = row.get("cancelled_at");
-            let expires_at: DateTime<Utc> = row.get("expires_at");
-            let attempts: i32 = row.get("attempts");
-            RedeemRequest {
-                request_id: row.get("request_id"),
-                points: row.get("points"),
-                status: RedeemRequestStatus::of(
-                    confirmed_at,
-                    cancelled_at,
-                    expires_at,
-                    attempts,
-                    now,
-                ),
-                requested_at: row.get("requested_at"),
-                expires_at,
-                redemption_id: row.get("redemption_id"),
-            }
-        })
-        .collect())
+    Ok(rows.iter().map(|row| redeem_request_from(row, now)).collect())
 }
 
 /// The one answer every failed lookup gives.
@@ -704,7 +909,7 @@ fn redeem_request_refused() -> AppError {
 
 /// A cashier's guess at a shopper's code, against that member's current live
 /// request — there can be at most one, by construction of
-/// [`create_redeem_request`], so naming the member is enough to name the
+/// [`ask_redeem_request`], so naming the member is enough to name the
 /// request.
 ///
 /// Mirrors `redeem_pairing_code`'s attempt counting exactly, and for the same
@@ -765,14 +970,7 @@ pub async fn lookup_redeem_request(
     }
 
     tx.commit().await?;
-    Ok(RedeemRequest {
-        request_id,
-        points: row.get("points"),
-        status: RedeemRequestStatus::Pending,
-        requested_at: row.get("requested_at"),
-        expires_at,
-        redemption_id: row.get("redemption_id"),
-    })
+    redeem_request(pool, request_id).await
 }
 
 /// Turn a confirmed request into a voucher: the request's own confirmation
