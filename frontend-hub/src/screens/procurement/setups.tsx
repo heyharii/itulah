@@ -22,7 +22,7 @@ import { createPortal } from "react-dom"
 import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { POP_MOTION } from "@/lib/filter-chrome"
-import { useSetupPrice, writeSetupPrice } from "@/screens/procurement/setup-price"
+import { isFormDraft, useSetupPrice, writeSetupPrice } from "@/screens/procurement/setup-price"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Dialog, SavedDialog } from "@/components/ui/dialog"
@@ -241,13 +241,15 @@ export function SetupWorkspace() {
   const sessions = useQuery({
     queryKey: procurementKeys.setups(),
     queryFn: ({ signal }) => listSetupSessions(signal),
+    // Live like every hub table (owner, 25 Oct 2026: a min. price set on one
+    // laptop did not show on the next): every 10 s, every 2 s while one runs.
     refetchInterval: (query) =>
       query.state.data?.some(
         (row) =>
           row.issue_state === "QUEUED" || row.issue_state === "PROCESSING"
       )
         ? 2000
-        : false,
+        : 10_000,
   })
   const processingBefore = useRef(new Set<string>())
   useEffect(() => {
@@ -974,6 +976,7 @@ function SetPrice({
   cogs: number
 }) {
   const kept = useSetupPrice(lineId)
+  const client = useQueryClient()
   const [open, setOpen] = useState(false)
   const [pricing, setPricing] = useState<Pricing>({
     purchase: String(cogs),
@@ -1026,7 +1029,7 @@ function SetPrice({
               onSubmit={(event) => {
                 event.preventDefault()
                 if (base <= cogs) return
-                writeSetupPrice(lineId, base)
+                void writeSetupPrice(client, lineId, base)
                 setOpen(false)
               }}
             >
@@ -3062,7 +3065,10 @@ function SessionComposer({
   /// sizes, pieces and SKU prices under the one shared header. With a single
   /// tab this is exactly the form it always was.
   const [saved] = useState(
-    () => readSetupDraft(receipt.receipt_line_id) ?? initial ?? null
+    () =>
+      readSetupDraft(receipt.receipt_line_id) ??
+      // A stored payload holding only the card's min. price is no form draft.
+      (isFormDraft(initial) ? initial : null)
   )
   const [tabs, setTabs] = useState<readonly ArticleTab[]>(() => {
     if (saved !== null) return saved.tabs
