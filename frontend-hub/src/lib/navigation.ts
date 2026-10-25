@@ -41,6 +41,7 @@ import { lettersNav } from "@/screens/letters/nav"
 import { assetsNav } from "@/screens/assets/nav"
 import { contractsNav } from "@/screens/contracts/nav"
 import { maintenanceNav, serviceScheduleNav } from "@/screens/maintenance/nav"
+import { projectsNav } from "@/screens/projects/nav"
 import { vendorsNav } from "@/screens/vendors/nav"
 import { chatNav, discussionsNav, libraryNav } from "@/screens/workplace/nav"
 import { gaOverviewNav } from "@/screens/ga/nav"
@@ -339,6 +340,7 @@ export const modules: readonly AppModule[] = [
   assetsNav,
   maintenanceNav,
   serviceScheduleNav,
+  projectsNav,
   gaSuppliesNav,
   libraryNav,
   systemNav,
@@ -550,6 +552,7 @@ const allDomains: readonly AppDomain[] = [
       "ga-supplies",
       "maintenance",
       "maintenance-schedule",
+      "projects",
       "ga-assets",
       "contracts",
       "ga-locations",
@@ -822,6 +825,7 @@ const SECTION_OF_MODULE: Readonly<Record<string, SectionCode>> = {
   "ga-supplies": "ga",
   maintenance: "ga",
   "maintenance-schedule": "ga",
+  projects: "ga",
   "ga-assets": "ga",
   contracts: "ga",
   "ga-locations": "ga",

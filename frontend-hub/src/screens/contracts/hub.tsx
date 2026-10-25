@@ -5,16 +5,13 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { ConfirmButton } from "@/components/ui/dialog"
 import { Field, Input } from "@/components/ui/field"
-import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, LoadingState } from "@/components/ui/states"
 import { Meter } from "@/components/ui/meter"
-import { Pill } from "@/components/ui/pill"
-import { compactFormat, day, money, percentBps, span } from "@/lib/format"
+import { compactFormat, day, money, span } from "@/lib/format"
 import {
   archiveGaContract,
   gaContractHub,
-  gaContractTypes,
   gaKeys,
   recordMeterReading,
   updateGaContract,
@@ -29,8 +26,7 @@ import {
 import { coversAssets } from "@/screens/contracts/claim-words"
 import { ClaimSheetHost, PolicyClaimsSection } from "@/screens/contracts/claims"
 import { ContractCoversSection } from "@/screens/contracts/covers"
-import { FinanceMark, StandingPill } from "@/screens/contracts/parts"
-import { BillRequestForm } from "@/screens/ga/bill-request"
+import { StandingPill } from "@/screens/contracts/parts"
 import type {
   GaContractHub,
   GaContractRow,
@@ -60,16 +56,13 @@ const UNCHANGED: UpdateGaContractRequest = {
   status: null,
 }
 
-/// One contract, as GA keeps the deal — and the half that belongs to the
-/// other desk is marked as the other desk's.
+/// One contract, as GA keeps the deal.
 ///
-/// # Tabs, and why bills are not GA's tab to act on
+/// # No bills here
 ///
-/// Details is GA's own fact. Bills and Recurring bills are Finance's answers
-/// pointed back at this contract through `contract_id` — read here so the
-/// person renewing the deal can see what it has been costing, and marked
-/// Finance's because the ledger behind them is not this register's. GA sends a
-/// supplier's bill from the Bills tab as a draft; posting it stays Finance's.
+/// A supplier's invoice always goes to Finance, never through GA, so the
+/// bills and recurring bills under a contract are Finance's to read on
+/// Finance's screens. GA keeps the deal itself: its details, usage and papers.
 ///
 /// # Usage exists for one group
 ///
@@ -223,13 +216,6 @@ export function ContractHubSheet({
                   label: "Details",
                   content: <DetailTab hub={hub.data} />,
                 },
-                {
-                  value: "bills",
-                  label: "Bills (Finance)",
-                  content: (
-                    <BillsTab row={hub.data.contract} bills={hub.data.bills} />
-                  ),
-                },
                 // Only the subscribers carry meters. The other fifteen types
                 // would draw a tab with nothing to read.
                 ...(hub.data.contract.group_code === "LANGGANAN"
@@ -246,11 +232,6 @@ export function ContractHubSheet({
                       },
                     ]
                   : []),
-                {
-                  value: "templates",
-                  label: "Recurring bills (Finance)",
-                  content: <TemplatesTab templates={hub.data.templates} />,
-                },
                 {
                   value: "documents",
                   label: "Documents",
@@ -273,32 +254,13 @@ export function ContractHubSheet({
   )
 }
 
-/// The deal's own facts, plus the one warning this register owes the reader:
-/// when Finance's map has no expense account for this type, every bill under
-/// the contract is a decision Finance has not made yet (brief §4.2).
+/// The deal's own facts.
 function DetailTab({ hub }: { hub: GaContractHub }) {
   const partyName = useContractParty()
   const contract = hub.contract
 
-  // Resolved for the contract's own site; a scope contract (all stores) is
-  // read at the server's default, which is where Finance reads it too.
-  const types = useQuery({
-    queryKey: gaKeys.contractTypes(contract.site_id),
-    queryFn: ({ signal }) => gaContractTypes(contract.site_id, signal),
-    staleTime: 5 * 60 * 1000,
-  })
-
-  const type = types.data?.find((one) => one.code === contract.contract_type)
-
   return (
     <div className="flex flex-col gap-5">
-      {type?.expense_account_code === null && (
-        <MissingAccountBox
-          contractType={contract.contract_type}
-          prepaid={type.prepaid_account_code}
-        />
-      )}
-
       <section>
         <h4 className="mb-2.5 border-b border-hairline pb-1.5 text-card-title font-semibold text-ink">
           Contract details
@@ -356,165 +318,6 @@ function DetailTab({ hub }: { hub: GaContractHub }) {
       {contract.group_code === "ASURANSI" && (
         <PolicyClaimsSection contract={contract} covers={hub.covers} />
       )}
-    </div>
-  )
-}
-
-/// The account Finance would bill this contract's expense to does not exist —
-/// either because the COA itself has no such account yet, or because the type
-/// deliberately borrows its expense from somewhere else. Both are Finance's
-/// decision to unblock; the box exists so a GA reader stops wondering why the
-/// bills under this contract look odd.
-function MissingAccountBox({
-  contractType,
-  prepaid,
-}: {
-  contractType: string
-  prepaid: string | null
-}) {
-  let sentence: string
-  if (contractType === "SEWA_KENDARAAN") {
-    sentence = `Vehicle rental expense is not yet in the COA; bills can be recorded to the prepaid account${prepaid === null ? "" : ` (${prepaid})`}, but releasing it stays on hold. Finance's decision.`
-  } else if (contractType === "JASA_MAINTENANCE") {
-    sentence = `Maintenance contract expense follows the object being maintained (repair_expense); its mapping ships together with the Repairs module. In the meantime, bills can be recorded to the prepaid account${prepaid === null ? "" : ` (${prepaid})`}.`
-  } else {
-    sentence =
-      "This contract type doesn't have an expense account in the account map for this site yet. Finance maps it; until then, bills under this type stay in the prepaid account."
-  }
-  return <Banner tone="warn">{sentence}</Banner>
-}
-
-/// The bills pointed at this contract: Finance's ledger, read.
-///
-/// The figures count bills Finance has POSTED against this contract; a bill
-/// GA sent from here shows once it is posted.
-function BillsTab({
-  row,
-  bills,
-}: {
-  row: GaContractRow
-  bills: GaContractHub["bills"]
-}) {
-  const [billing, setBilling] = useState(false)
-  // A contract GA pays (not one the company lets out), with a supplier on it.
-  // A contract over several sites splits its bill per site, which is Finance's
-  // form to do; one site is a single line GA can send.
-  const payable = row.group_code !== "DISEWAKAN" && row.supplier_id !== null
-  return (
-    <div className="flex flex-col gap-4">
-      {payable &&
-        !billing &&
-        (row.site_id !== null ? (
-          <div>
-            <Button variant="soft" onClick={() => setBilling(true)}>
-              Send bill to Finance
-            </Button>
-          </div>
-        ) : (
-          <p className="text-pill text-mute">
-            This contract covers several sites, so Finance enters its bill and
-            splits it per site.
-          </p>
-        ))}
-      {billing && row.site_id !== null && (
-        <BillRequestForm
-          source={{
-            site_id: row.site_id,
-            supplier_id: row.supplier_id,
-            supplier_name: row.supplier_name,
-            amount_minor: null,
-            memo: row.contract_number ?? row.contract_type_name,
-            contract_id: row.contract_id,
-            period: true,
-          }}
-          onDone={() => setBilling(false)}
-          onCancel={() => setBilling(false)}
-        />
-      )}
-      {/* Billed and remaining are summed from posted SUPPLIER bills. On a
-          leased-out contract that is not what the tenant paid, so the figures
-          are not drawn until a receivables source exists. */}
-      {row.group_code !== "DISEWAKAN" && (
-        <>
-          <div className="grid grid-cols-2 gap-3">
-            <figure>
-              <figcaption className="text-eyebrow font-medium text-body">
-                Billed to date <FinanceMark />
-              </figcaption>
-              <div className="mt-1 text-[1.125rem] leading-none font-semibold tracking-[-0.02em] text-ink tabular-nums">
-                {money(row.billed_minor)}
-              </div>
-            </figure>
-            <figure>
-              <figcaption className="text-eyebrow font-medium text-body">
-                Remaining <FinanceMark />
-              </figcaption>
-              <div className="mt-1 text-[1.125rem] leading-none font-semibold tracking-[-0.02em] text-ink tabular-nums">
-                {money(row.remaining_minor)}
-                {row.remaining_minor === null && (
-                  <span className="text-pill font-normal text-mute">
-                    {" "}
-                    · no contract value
-                  </span>
-                )}
-              </div>
-            </figure>
-          </div>
-
-          {row.contract_value_minor !== null &&
-            row.contract_value_minor > 0 && (
-              <Meter value={row.billed_minor / row.contract_value_minor} />
-            )}
-        </>
-      )}
-
-      <div className="overflow-x-auto">
-        <div className="min-w-[26rem]">
-          <MiniTable
-            head={[
-              "Number",
-              { label: "Date", align: "left" },
-              { label: "Amount", align: "right" },
-              { label: "Account", align: "left" },
-            ]}
-          >
-            {bills.length === 0 ? (
-              <MiniRow>
-                <MiniCell colSpan={4}>
-                  <span className="text-meta text-mute">
-                    No bills point to this contract yet.
-                  </span>
-                </MiniCell>
-              </MiniRow>
-            ) : (
-              bills.map((bill) => (
-                <MiniRow key={bill.invoice_id}>
-                  <MiniCell>
-                    <span className="font-mono text-id">
-                      {bill.invoice_number}
-                    </span>
-                  </MiniCell>
-                  <MiniCell>{day(bill.invoice_date)}</MiniCell>
-                  <MiniCell align="right" className="tabular-nums">
-                    {money(bill.amount_minor)}
-                  </MiniCell>
-                  <MiniCell>
-                    <span className="font-mono text-id">
-                      {bill.account_code}
-                    </span>
-                  </MiniCell>
-                </MiniRow>
-              ))
-            )}
-          </MiniTable>
-        </div>
-      </div>
-
-      <p className="text-pill text-mute">
-        Counted from bills Finance has posted against this contract; a bill sent
-        from here shows once Finance posts it. The prepaid period is the bill's
-        own period, not the contract's.
-      </p>
     </div>
   )
 }
@@ -732,72 +535,6 @@ function ReadingForm({
           Cancel
         </Button>
       </div>
-    </div>
-  )
-}
-
-/// The recurring templates raised under this contract — Finance's, read only.
-///
-/// A template is how the bills HAPPEN: Finance names the amount and the day,
-/// and this register only gets to see which template points here. A GA screen
-/// that could edit one would be editing Finance's billing run from the wrong
-/// side of the fence.
-function TemplatesTab({
-  templates,
-}: {
-  templates: GaContractHub["templates"]
-}) {
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="overflow-x-auto">
-        <div className="min-w-[34rem]">
-          <MiniTable
-            head={[
-              "Label",
-              { label: "Estimate", align: "right" },
-              { label: "Tolerance", align: "right" },
-              { label: "Due Day", align: "right" },
-              { label: "Status", align: "left" },
-            ]}
-          >
-            {templates.length === 0 ? (
-              <MiniRow>
-                <MiniCell colSpan={5}>
-                  <span className="text-meta text-mute">
-                    No recurring bills point to this contract yet. Templates are
-                    created by Finance in Recurring bills.
-                  </span>
-                </MiniCell>
-              </MiniRow>
-            ) : (
-              templates.map((template) => (
-                <MiniRow key={template.template_id}>
-                  <MiniCell>{template.label}</MiniCell>
-                  <MiniCell align="right" className="tabular-nums">
-                    {money(template.expected_subtotal_minor)}
-                  </MiniCell>
-                  <MiniCell align="right" className="tabular-nums">
-                    {percentBps(template.tolerance_bps)}
-                  </MiniCell>
-                  <MiniCell align="right" className="tabular-nums">
-                    {template.due_day}
-                  </MiniCell>
-                  <MiniCell>
-                    <Pill tone={template.active ? "ok" : "neutral"}>
-                      {template.active ? "Active" : "Inactive"}
-                    </Pill>
-                  </MiniCell>
-                </MiniRow>
-              ))
-            )}
-          </MiniTable>
-        </div>
-      </div>
-      <p className="text-pill text-mute">
-        <FinanceMark className="mr-1 align-[0.0625rem]" /> The monthly amount
-        belongs to the recurring bill (Finance); the contract stores the agreed
-        total value, not the monthly figure.
-      </p>
     </div>
   )
 }

@@ -73,6 +73,8 @@ pub mod flows;
 pub mod ga;
 /// GA's papers, originals and operating expenses (0974).
 pub mod ga_records;
+/// Projects (0997): GA's store openings and renovations, and Finance's capitalising.
+pub mod projects;
 pub mod giro_print;
 pub mod grievance;
 pub mod hire;
@@ -1645,6 +1647,7 @@ pub fn router(state: AppState) -> Router {
     // not a corner of the books. See `http/ga.rs`.
     .merge(ga::routes(Router::new()))
     .merge(ga_records::routes(Router::new()))
+    .merge(projects::routes(Router::new()))
     .merge(tax::routes(Router::new()))
     // The two lists the forty-account chart made necessary: what a line may
     // be categorised as, and what an asset may be filed as. Read-only — both

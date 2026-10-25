@@ -205,6 +205,12 @@ mod ga_claims;
 /// A vehicle's odometer over time: typed, from a receipt, or read at a service
 /// (0975). The latest reading drives km-based service.
 mod ga_odometer;
+/// Projects, GA's half: a store opening or a renovation, its tasks counted
+/// back from the opening day, and the records it holds (0997).
+mod ga_projects;
+/// Projects, Finance's half: the cost lines a project gathered, and placing
+/// them when it is capitalised (0997).
+mod project_costs;
 /// GA's places: the site register read as a list of places, the one-to-one
 /// facilities detail beside it, and the hub that reads every reference back at
 /// a place. See the module for why a site without a detail still appears.
@@ -314,6 +320,7 @@ pub use commercial::*;
 pub use company_banks::*;
 pub use components::*;
 pub use contractor_projects::*;
+pub use project_costs::*;
 pub use control::*;
 pub use corrections::*;
 pub use counts::*;
@@ -423,6 +430,7 @@ pub use ga_claims::*;
 pub use ga_contracts::*;
 pub use ga_expenses::*;
 pub use ga_odometer::*;
+pub use ga_projects::*;
 pub use ga_locations::*;
 pub use ga_maintenance::*;
 pub use ga_papers::*;

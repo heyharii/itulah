@@ -198,6 +198,11 @@ export const screens: ScreenMap = {
     () => import("@/screens/finance/accruals"),
     (m) => m.Accruals
   ),
+  "/finance/assets/contractor-projects/$project": lazyScreen(
+    "projects/page",
+    () => import("@/screens/projects/page"),
+    (m) => m.FinanceProjectScreen
+  ),
   "/finance/assets/contractor-projects": lazyScreen(
     "finance/contractor-projects",
     () => import("@/screens/finance/contractor-projects"),

@@ -172,6 +172,10 @@ pub enum RecordKind {
     /// Damage to an insured thing claimed under its policy (0975): photos, the
     /// police report and the survey letter hang on it.
     InsuranceClaim,
+    /// A store opening or a renovation (0997): its tasks, the assets it
+    /// registers, the work it asks for and the cost Finance capitalises.
+    /// Files and the activity hang on it.
+    Project,
     /// Routine spending GA records on a thing or a place — fuel, tyres, oil —
     /// and hands to Finance (0974). The receipt hangs on it.
     OperatingExpense,
@@ -238,7 +242,7 @@ impl RecordKind {
     /// Exported because two guards read it: the conformance test that compares
     /// this list against the `record_kind` table, and the catalogue that
     /// records which kind each route files under.
-    pub const ALL: [Self; 77] = [
+    pub const ALL: [Self; 78] = [
         Self::Article,
         Self::ArticleSetup,
         Self::Colour,
@@ -290,6 +294,7 @@ impl RecordKind {
         Self::Location,
         Self::SupplyRequest,
         Self::InsuranceClaim,
+        Self::Project,
         Self::OperatingExpense,
         Self::DocumentOriginal,
         Self::BankLine,
@@ -372,6 +377,7 @@ impl RecordKind {
             Self::Location => "location",
             Self::SupplyRequest => "supply_request",
             Self::InsuranceClaim => "insurance_claim",
+            Self::Project => "project",
             Self::OperatingExpense => "operating_expense",
             Self::DocumentOriginal => "document_original",
             Self::BankLine => "bank_line",
@@ -456,6 +462,7 @@ impl RecordKind {
             Self::Location => "Location",
             Self::SupplyRequest => "Supply request",
             Self::InsuranceClaim => "Insurance claim",
+            Self::Project => "Project",
             Self::OperatingExpense => "Operating expense",
             Self::DocumentOriginal => "Document original",
             Self::BankLine => "Bank line",
@@ -555,6 +562,7 @@ impl RecordKind {
             Self::Location => "/api/v1/ga/locations",
             Self::SupplyRequest => "/api/v1/ga/supplies",
             Self::InsuranceClaim => "/api/v1/ga/claims",
+            Self::Project => "/api/v1/ga/projects",
             Self::OperatingExpense => "/api/v1/ga/operating-expenses",
             Self::DocumentOriginal => "/api/v1/ga/originals",
             Self::BankLine => "/api/v1/finance/bank-lines",
@@ -714,6 +722,10 @@ const ROUTE_SUBJECTS: &[(&str, RecordKind)] = &[
     ("/api/v1/ga/claims/{}/reject", RecordKind::InsuranceClaim),
     ("/api/v1/ga/claims/{}/pay", RecordKind::InsuranceClaim),
     ("/api/v1/ga/claims/{}/repair", RecordKind::InsuranceClaim),
+    ("/api/v1/ga/projects/{}", RecordKind::Project),
+    ("/api/v1/ga/projects/{}/close", RecordKind::Project),
+    ("/api/v1/ga/projects/{}/tasks", RecordKind::Project),
+    ("/api/v1/ga/projects/{}/links", RecordKind::Project),
     ("/api/v1/holiday-calendars/{}", RecordKind::HolidayCalendar),
     ("/api/v1/hire-proposals/{}", RecordKind::HireProposal),
     ("/api/v1/inventory/allotments/{}", RecordKind::Allotment),

@@ -143,6 +143,11 @@ export function buildOf(build: string | undefined | null) {
   )
 }
 
+/// What GA registers. Pre-opening and Contract in Progress are not things GA
+/// receives: they are what Finance makes of a project's cost when it
+/// capitalises it (0997), so the register form never offers them.
+export const NOT_REGISTERED_BY_GA: readonly string[] = ["DEFERRED", "CIP"]
+
 /// The readings of the register, drawn as the chips above it.
 ///
 /// Seven are how the THINGS are found — "show me the machines", "show me the
@@ -224,9 +229,11 @@ export const BUILD_VIEWS: readonly {
     icon: AppWindow,
   },
   {
+    // Not "Projects" any more: that is GA's own menu since 0997. What is
+    // read here is the cost Finance keeps as work in progress or Pre-opening.
     value: "projects",
-    label: "Projects",
-    note: "Pre-opening costs and work in progress, until the result is ready to be registered as an asset.",
+    label: "Work in progress",
+    note: "Pre-opening and Contract in Progress, kept by Finance.",
     builds: ["DEFERRED", "CIP"],
     icon: Hammer,
   },

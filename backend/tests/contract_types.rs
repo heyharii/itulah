@@ -1554,6 +1554,24 @@ fn the_wire_types_are_written_for_the_browser() {
         LinkGaClaimRepairRequest,
         GaOdometerReading,
         RecordGaOdometerReadingRequest,
+        // 0997: projects — GA's store openings and renovations, and Finance's
+        // capitalising of their cost.
+        GaProjectRow,
+        GaProjectTask,
+        GaProjectAsset,
+        GaProjectWork,
+        GaProjectPage,
+        CreateGaProjectRequest,
+        AddGaProjectTaskRequest,
+        UpdateGaProjectTaskRequest,
+        CloseGaProjectRequest,
+        LinkGaProjectRequest,
+        ProjectCost,
+        LinkProjectCostRequest,
+        CapitaliseLineRequest,
+        CapitaliseAssetLife,
+        CapitaliseProjectRequest,
+        ContractorProject,
     );
     inventory_backend::cloud::postgres::GaSupplyPage::export_all(&config)
         .unwrap_or_else(|e| panic!("GaSupplyPage: {e}"));

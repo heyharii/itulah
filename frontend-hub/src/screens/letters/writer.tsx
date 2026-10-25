@@ -415,7 +415,7 @@ export function WrittenLetter({
         </div>
 
         {/* The side: what happens to the letter, not what it says. */}
-        <aside className="flex shrink-0 flex-col border-hairline bg-canvas lg:w-[21.75rem] lg:border-l max-lg:border-t">
+        <aside className="flex shrink-0 flex-col border-hairline bg-canvas lg:w-[18.5rem] lg:border-l max-lg:border-t">
           <div className="flex-1 overflow-y-auto px-6 py-5">
             {problem && (
               <Banner tone="bad" className="mb-4">
@@ -509,7 +509,12 @@ export function WrittenLetter({
               </Block>
             )}
 
-            <RecordPanel subject={{ kind: "letter", id }} />
+            {/* The block above already ends on a hairline; a second one here
+                drew the line twice. */}
+            <RecordPanel
+              subject={{ kind: "letter", id }}
+              className="mt-0 border-t-0 pt-0"
+            />
           </div>
 
           {letter.status !== "VOID" && (

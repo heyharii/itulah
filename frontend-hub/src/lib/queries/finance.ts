@@ -3356,11 +3356,17 @@ export interface ContractorProject {
   readonly project_id: string
   readonly project_number: string
   readonly name: string
-  readonly supplier_id: string
+  /// `CONTRACTOR` (0720's), `STORE_OPENING` or `RENOVATION` (0997).
+  readonly kind: "CONTRACTOR" | "STORE_OPENING" | "RENOVATION"
+  readonly supplier_id: string | null
   readonly supplier_name: string | null
   readonly unit_id: string
+  readonly site_id: string | null
+  readonly opens_on: string | null
   readonly note: string | null
-  readonly status: "OPEN" | "CLOSED"
+  /// GA closes a project (`READY`); Finance capitalises it (0997).
+  readonly status: "OPEN" | "READY" | "CAPITALISED"
+  readonly ready_on: string | null
   readonly opened_at: string
   readonly closed_on: string | null
   readonly advanced_minor: number

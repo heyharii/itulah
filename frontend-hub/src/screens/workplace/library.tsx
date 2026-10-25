@@ -378,24 +378,23 @@ export function Library() {
             where a file is kept, the filter panel — and how it is drawn at the
             right, the same line Purchase orders draws. On a phone they are the
             dock's. */}
-        <SubTabs
-          className="max-md:hidden"
-          tabs={tabs.map((tab) => ({
-            value: tab.value,
-            label: (
-              <span>
-                {tab.label}
-                <span className="ml-1.5 text-body tabular-nums">
-                  {count(tab.count)}
-                </span>
-              </span>
-            ),
-          }))}
-          value={where}
-          onChange={(next) => setWhere(next as Where)}
-        />
-
         <div className="group/bar mb-3 flex flex-wrap items-center gap-2 max-md:hidden">
+          <SubTabs
+            className="max-md:hidden"
+            tabs={tabs.map((tab) => ({
+              value: tab.value,
+              label: (
+                <span>
+                  {tab.label}
+                  <span className="ml-1.5 text-body tabular-nums">
+                    {count(tab.count)}
+                  </span>
+                </span>
+              ),
+            }))}
+            value={where}
+            onChange={(next) => setWhere(next as Where)}
+          />
           <FilterPanel
             model={filters}
             table={table}

@@ -29,9 +29,8 @@ import {
   ReplaceSheet,
   UploadSheet,
 } from "@/screens/assets/asset-forms"
+import { AssetPhotoPanel, PHOTO_TYPE } from "@/screens/assets/asset-photo"
 import {
-  AccountsSection,
-  AssetFigures,
   ContractsSection,
   DocumentsSection,
   IdentitySection,
@@ -144,7 +143,12 @@ export function AssetHubSheet({
   })
   // Everything filed against the asset. Each key is under the GA prefix, so
   // every GA write that invalidates `["ga"]` refreshes the sections too.
-  const papers = useQuery({ ...papersQuery({ asset: id }), enabled })
+  // The photo is a document too; it is drawn at the top, not listed here.
+  const papers = useQuery({
+    ...papersQuery({ asset: id }),
+    select: (rows) => rows.filter((paper) => paper.doc_type !== PHOTO_TYPE),
+    enabled,
+  })
   const contracts = useQuery({ ...assetContractsQuery(id), enabled })
   const tasks = useQuery({ ...assetTasksQuery(id), enabled })
   const inspections = useQuery({ ...assetInspectionsQuery(id), enabled })
@@ -257,13 +261,7 @@ export function AssetHubSheet({
                 <CompleteDraft asset={loaded.asset} />
               )}
 
-              <AssetFigures
-                asset={loaded.asset}
-                tasks={tasks.data}
-                repairs={repairs.data}
-                contracts={contracts.data}
-                odometer={odometer}
-              />
+              <AssetPhotoPanel asset={loaded.asset} />
 
               <IdentitySection
                 asset={loaded.asset}
@@ -340,7 +338,6 @@ export function AssetHubSheet({
                 onOpenDisposal={onRequestDisposal}
               />
 
-              <AccountsSection asset={loaded.asset} />
             </>
           )}
         </SheetQuery>

@@ -15,6 +15,8 @@ import {
   registerGaAsset,
   useGaSites,
 } from "@/lib/queries/ga"
+import { toast } from "@/lib/toast"
+import { PhotoPick, uploadAssetPhoto } from "@/screens/assets/asset-photo"
 import type { GaBuildSpec } from "@itulah/contract"
 
 /// Registering a thing, from the side of the person holding it.
@@ -46,6 +48,7 @@ export function RegisterAssetSheet({
   onClose,
   onRegistered,
   builds,
+  site,
 }: {
   open: boolean
   onClose: () => void
@@ -54,9 +57,15 @@ export function RegisterAssetSheet({
   /// is narrowed to, or all eleven when it is not. A licence is not offered
   /// from the vehicles, because it would be filed in the wrong place.
   builds: readonly string[]
+  /// The place it is registered at, when the form is opened for one: a
+  /// project registers its assets at the project's site.
+  site?: string
 }) {
   const client = useQueryClient()
-  const [form, setForm] = useState<Record<string, string>>({})
+  const [form, setForm] = useState<Record<string, string>>(
+    site === undefined ? {} : { site_id: site }
+  )
+  const [photo, setPhoto] = useState<File | null>(null)
   const set = (key: string, value: string) =>
     setForm((current) => ({ ...current, [key]: value }))
 
@@ -113,9 +122,18 @@ export function RegisterAssetSheet({
         notes: blank(form.notes),
         quantity: form.quantity === undefined ? 1 : Number(form.quantity),
       }),
-    onSuccess: (asset) => {
+    onSuccess: async (asset) => {
+      // The asset exists now, so the photo can be filed against it. A photo
+      // that fails does not undo the registration: it can be added again
+      // from the asset's sheet.
+      if (photo !== null) {
+        await uploadAssetPhoto(asset, photo).catch(() =>
+          toast.error("Asset registered, but the photo was not saved")
+        )
+      }
       void client.invalidateQueries({ queryKey: gaKeys.all })
       setForm({})
+      setPhoto(null)
       onRegistered(asset.asset_id)
     },
   })
@@ -160,7 +178,7 @@ export function RegisterAssetSheet({
           <Banner tone="bad">{save.error.message}</Banner>
         )}
 
-        <Section title="Asset type" aside="determines the fields below">
+        <Section title="Asset type">
           {offered.length === 0 ? (
             <p className="text-meta text-mute">
               {schema.isLoading ? "Reading the list…" : "No types here."}
@@ -211,11 +229,7 @@ export function RegisterAssetSheet({
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <Field
-              label="Class"
-              required
-              aside="determines the Finance account"
-            >
+            <Field label="Class" required>
               <Select
                 value={form.class_code ?? ""}
                 onChange={(next) => set("class_code", next)}
@@ -277,10 +291,11 @@ export function RegisterAssetSheet({
           </div>
         </Section>
 
-        <Section
-          title="Condition"
-          aside="items needing service show up in Overview"
-        >
+        <Section title="Photo">
+          <PhotoPick file={photo} onChange={setPhoto} />
+        </Section>
+
+        <Section title="Condition">
           <Choices
             label="Condition"
             columns={3}

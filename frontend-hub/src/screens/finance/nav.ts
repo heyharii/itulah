@@ -761,6 +761,14 @@ export const financeNav: AppModule = {
           icon: HardHat,
           hidden: true,
         },
+        // A store opening or a renovation, read by Finance on the project's
+        // own page (0997): GA's page with Costs in front.
+        {
+          path: "/finance/assets/contractor-projects/$project",
+          label: "Project",
+          icon: HardHat,
+          hidden: true,
+        },
         // Month End
         {
           path: "/finance/setup/periods",

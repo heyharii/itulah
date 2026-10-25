@@ -33,7 +33,7 @@ import { Pill, Status } from "@/components/ui/pill"
 import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState, LoadingState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
-import { BUILDS, BUILD_VIEWS } from "@/lib/builds"
+import { BUILDS, BUILD_VIEWS, NOT_REGISTERED_BY_GA } from "@/lib/builds"
 import {
   useFilterState,
   type Filter,
@@ -46,6 +46,7 @@ import { gaAssetBookQuery, gaAssets, gaKeys } from "@/lib/queries/ga"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { useDebounced } from "@/lib/use-debounced"
+import { AssetThumb } from "@/screens/assets/asset-photo"
 import { AssetHubSheet, gaStatusWords } from "@/screens/assets/hub"
 import { RegisterAssetSheet } from "@/screens/assets/register"
 import { DisposalSheet, ReplacementSheet } from "@/screens/maintenance/hub"
@@ -188,7 +189,9 @@ export function Assets() {
         open={adding}
         // The builds the kind means, so a licence is not offered from the
         // vehicles; every build when nothing is narrowed.
-        builds={view?.builds ?? BUILDS.map((one) => one.value)}
+        builds={(view?.builds ?? BUILDS.map((one) => one.value)).filter(
+          (build) => !NOT_REGISTERED_BY_GA.includes(build)
+        )}
         onClose={() => setAdding(false)}
         onRegistered={(assetId) => {
           setAdding(false)
@@ -346,12 +349,15 @@ function columnsFor(shelf: Shelf): ColumnDef<TableSetup, AssetLine>[] {
       cell: ({ row }) => {
         const { asset } = row.original
         return (
-          <span className="flex min-w-0 flex-col">
-            <span className="truncate font-medium text-ink">{asset.name}</span>
-            <span className="truncate text-mute">
-              {asset.serial_number === null
-                ? asset.asset_number
-                : `${asset.asset_number} · ${asset.serial_number}`}
+          <span className="flex min-w-0 items-center gap-3">
+            <AssetThumb assetId={asset.asset_id} build={asset.build} />
+            <span className="flex min-w-0 flex-col">
+              <span className="truncate font-medium text-ink">{asset.name}</span>
+              <span className="truncate text-mute">
+                {asset.serial_number === null
+                  ? asset.asset_number
+                  : `${asset.asset_number} · ${asset.serial_number}`}
+              </span>
             </span>
           </span>
         )

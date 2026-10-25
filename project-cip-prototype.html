@@ -1,0 +1,1041 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Projects</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<style>
+:root{
+  --ink:#1d1d1f;--body:#424245;--mute:#6e6e73;--faint:#c7c7cc;
+  --hairline:#e8e8ec;--row-line:#eeeef1;--band:#fafafb;--soft-2:#f2f2f5;--soft-3:#f5f5f7;
+  --rail-2:#f5f5f7;--rail-3:#efeff2;
+  --accent:#2862dc;--accent-bg:#eef3fc;--cta-hover:#2055c7;
+  --ok:#36b827;--warn:#c9892e;--bad:#d70015;--bad-fg:#d70015;--info:#2862dc;
+  --r-card:10px;--r-inner:8px;--r-sheet:16px;
+  --ease-out:cubic-bezier(.23,1,.32,1);--ease-drawer:cubic-bezier(.32,.72,0,1);
+  --ring:0 0 0 1px rgb(0 0 0/5%),0 2px 8px rgb(0 0 0/5%),0 24px 64px rgb(0 0 0/14%);
+}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%}
+body{font:15px/1.45 Inter,system-ui,sans-serif;color:var(--ink);background:#fff;-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+p{margin:0}
+
+/* prototype chrome */
+.chrome{position:sticky;top:0;z-index:80;display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center;padding:10px 16px;background:#20242c;color:#fff}
+.chrome .grp{display:flex;gap:4px;align-items:center;flex-wrap:wrap}
+.chrome .grp>span{opacity:.55;margin-right:6px}
+.chrome button{border:0;border-radius:999px;padding:6px 12px;background:#353a44;color:#fff;cursor:pointer;font-size:15px}
+.chrome button[aria-pressed=true]{background:#fff;color:#20242c;font-weight:600}
+
+/* hub shell */
+.shell{display:flex;gap:12px;min-height:calc(100vh - var(--ch,52px));padding:12px 12px 12px 0;background:#ececef}
+.rail{width:64px;flex:none;display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 0}
+.rail .mk{width:36px;height:36px;margin-bottom:10px}
+.rail i{display:block;width:36px;height:36px;border-radius:9px;background:#e2e2e6}
+.rail i.on{background:#fff;box-shadow:0 0 0 1px rgb(0 0 0/5%)}
+.panel{width:216px;flex:none;align-self:flex-start;position:sticky;top:calc(var(--ch,52px) + 12px);min-height:calc(100vh - var(--ch,52px) - 24px);background:#fff;border-radius:16px;box-shadow:0 0 0 1px rgb(0 0 0/4%);padding:14px 10px}
+.panel h2{font-size:17px;font-weight:600;margin:6px 10px 14px}
+.panel a{display:flex;justify-content:space-between;padding:8px 10px;border-radius:8px;color:#3a3a3c;text-decoration:none;cursor:default}
+.panel a.on{background:var(--accent-bg);color:var(--accent);font-weight:500}
+.panel a i{font-style:normal;color:var(--mute)}
+.panel hr{border:0;border-top:1px solid var(--hairline);margin:8px 10px}
+.panel small{display:block;margin:14px 10px 4px;color:var(--mute);font-size:15px}
+.page{flex:1;min-width:0;padding:26px 32px 64px;background:#fff;border-radius:16px;box-shadow:0 0 0 1px rgb(0 0 0/4%)}
+.panel a.sub{padding-left:24px}
+.panel .nest{position:relative}
+.panel .nest::before{content:"";position:absolute;left:15px;top:4px;bottom:4px;width:1px;background:var(--hairline)}
+
+.crumb{color:var(--mute);margin-bottom:2px}
+.head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.head h1{font-size:17px;font-weight:600;margin:0;line-height:24px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.head .sub{color:var(--mute)}
+.head .acts{display:flex;gap:8px;align-items:center}
+.st{display:inline-flex;align-items:center;gap:8px;white-space:nowrap;font-weight:400;font-size:15px}
+.st::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--c,var(--faint));flex:none}
+.st.ok{--c:var(--ok)} .st.warn{--c:var(--warn)} .st.info{--c:var(--info)} .st.faint{--c:var(--faint);color:var(--mute)} .st.bad{--c:var(--bad);color:var(--bad-fg)}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:36px;padding:0 14px;border:0;border-radius:var(--r-inner);cursor:pointer;font-weight:600;white-space:nowrap;transition:transform 160ms var(--ease-out),background-color 150ms ease,opacity 150ms ease}
+.btn:active:not(:disabled){transform:scale(.97)}
+.btn:disabled{opacity:.4;cursor:default}
+.btn.sm{height:32px;padding:0 12px}
+.btn.primary{background:var(--accent);color:#fff}
+.btn svg{width:17px;height:17px}
+@media (hover:hover) and (pointer:fine){.btn.primary:hover:not(:disabled){background:var(--cta-hover)}}
+.act{display:inline-flex;align-items:center;gap:4px;border:0;background:none;padding:0;color:var(--accent);font-weight:500;cursor:pointer;transition:opacity 150ms ease,transform 160ms var(--ease-out)}
+.act:active{transform:scale(.97)}
+.act svg{width:16px;height:16px}
+
+.banner{display:flex;align-items:center;gap:14px;margin-top:20px;padding:14px 18px;border-radius:var(--r-card);background:var(--soft-3)}
+.banner b{font-weight:600}
+.banner .why{color:var(--mute)}
+
+.tabs{display:flex;gap:24px;border-bottom:1px solid var(--hairline);margin:20px 0 0}
+.tabs button{border:0;background:none;padding:10px 0;color:var(--mute);cursor:pointer}
+.tabs button i{font-style:normal;margin-left:6px}
+.tabs button.on{color:var(--ink);font-weight:600;box-shadow:inset 0 -2px 0 var(--ink)}
+
+.kpis{display:flex;flex-wrap:wrap;margin:22px 0 4px;row-gap:12px}
+.kpi{padding:0 24px;border-left:1px solid var(--hairline)}
+.kpi:first-child{padding-left:0;border-left:0}
+.kpi small{display:block;color:var(--mute);font-size:15px}
+.kpi b{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}
+.kpi b.warn{color:var(--warn)}
+
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:20px 0 16px}
+.search{flex:0 1 300px;height:36px;border:1px solid var(--hairline);border-radius:var(--r-inner);padding:0 12px}
+
+.sec{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:0 0 10px}
+.sec h3{margin:0;font-size:15px;font-weight:600}
+.sec h3 span{color:var(--mute);font-weight:400;margin-left:8px}
+.frame{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden}
+table{width:100%;border-collapse:collapse;table-layout:fixed}
+th{height:44px;background:var(--band);color:var(--mute);font-weight:500;text-align:left;padding:0 20px;border-bottom:1px solid var(--hairline)}
+td{padding:14px 20px;border-top:1px solid var(--row-line);vertical-align:middle}
+tbody tr:first-child td{border-top:0}
+tfoot td{background:var(--band);border-top:1px solid var(--hairline);font-weight:600}
+th.r,td.r{text-align:right;font-variant-numeric:tabular-nums}
+td .g{display:block;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.trunc{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.name{font-weight:500}
+tr.link{cursor:pointer}
+@media (hover:hover) and (pointer:fine){tr.link:hover td{background:var(--band)}}
+.who{display:flex;align-items:center;gap:12px;min-width:0}
+.thumb{flex:none;width:40px;height:40px;border-radius:var(--r-inner);background:var(--soft-2);display:grid;place-items:center;color:#8e8e93;overflow:hidden}
+.thumb svg{width:19px;height:19px}
+.thumb.ph{background:linear-gradient(135deg,#dfe6ef,#c8d3e0)}
+.goes{width:100%;height:36px;border:1px solid var(--hairline);border-radius:var(--r-inner);padding:0 10px;background:#fff}
+.goes.empty{border-color:var(--warn);color:var(--warn)}
+
+/* sheet (layer from the right) */
+.dim{position:fixed;inset:0;z-index:55;background:rgb(40 30 20/10%);opacity:0;pointer-events:none;transition:opacity 200ms var(--ease-out)}
+.dim.open{opacity:1;pointer-events:auto;transition:opacity 340ms var(--ease-drawer)}
+.sheet{position:fixed;z-index:56;top:calc(var(--ch,52px) + 10px);right:10px;bottom:10px;width:min(928px,calc(100vw - 20px));display:flex;flex-direction:column;background:#fff;border-radius:var(--r-sheet);box-shadow:var(--ring);transform:translateX(calc(100% + 20px));transition:transform 200ms var(--ease-out)}
+.sheet.open{transform:none;transition:transform 340ms var(--ease-drawer)}
+.sh-h{display:flex;justify-content:space-between;gap:12px;padding:28px 36px 20px;border-bottom:1px solid var(--hairline)}
+.sh-b{flex:1;overflow:auto;padding:28px 36px 36px;display:flex;flex-direction:column;gap:40px}
+.sh-f{display:flex;justify-content:flex-end;align-items:center;gap:10px;min-height:68px;padding:14px 36px;border-top:1px solid var(--hairline)}
+.x{flex:none;display:grid;place-items:center;width:32px;height:32px;border:0;border-radius:50%;background:var(--soft-2);color:var(--mute);cursor:pointer;transition:transform 160ms var(--ease-out)}
+.x:active{transform:scale(.94)}
+.x svg{width:18px;height:18px}
+.facts{display:grid;grid-template-columns:1fr 1fr;gap:20px 40px}
+.facts dt{color:var(--mute)}
+.facts dd{margin:2px 0 0}
+
+/* dialog */
+.scrim{position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;padding:16px;background:rgb(40 30 20/10%);opacity:0;pointer-events:none;transition:opacity 150ms ease}
+.scrim.open{opacity:1;pointer-events:auto;transition-duration:200ms}
+.dlg{width:min(620px,100%);max-height:calc(100vh - 32px);overflow:auto;background:#fff;border-radius:var(--r-sheet);box-shadow:var(--ring);opacity:0;transform:scale(.96);transition:opacity 150ms ease,transform 150ms var(--ease-out)}
+.scrim.open .dlg{opacity:1;transform:none;transition-duration:200ms}
+.dlg-h{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:24px 20px 0 28px}
+.dlg-h h2{margin:0;font-size:17px;font-weight:600}
+.dlg-b{padding:8px 28px 4px}
+.dlg-f{display:flex;justify-content:flex-end;gap:8px;padding:24px 28px}
+.dlg-f .btn{min-width:160px}
+.field{display:block;margin-top:24px}
+.field>span{display:block;font-weight:500;margin-bottom:8px}
+.field input,.field select{width:100%;height:47px;border:1px solid var(--hairline);border-radius:var(--r-inner);padding:0 12px;background:#fff;outline:0;transition:border-color 150ms ease,box-shadow 150ms ease}
+.field :is(input,select):focus{border-color:var(--accent);box-shadow:0 0 0 3px rgb(40 98 220/12%)}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:0 16px}
+.tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.tile{display:flex;align-items:center;gap:10px;min-height:47px;padding:8px 12px;border:1px solid var(--hairline);border-radius:var(--r-inner);background:#fff;cursor:pointer;text-align:left;transition:transform 160ms var(--ease-out),border-color 150ms ease}
+.tile:active{transform:scale(.97)}
+.tile svg{flex:none;width:18px;height:18px;color:#8e8e93}
+.tile.on{border-color:var(--accent);background:var(--accent-bg);color:var(--accent);font-weight:500}
+.tile.on svg{color:var(--accent)}
+.photo{display:flex;align-items:center;gap:16px}
+.photo .box{width:96px;height:96px;border:1px dashed var(--hairline);border-radius:var(--r-card);background:var(--soft-2);display:grid;place-items:center;color:var(--accent)}
+.photo .box svg{width:24px;height:24px}
+.sum{border:1px solid var(--hairline);border-radius:var(--r-card);margin-top:16px}
+.sum div{display:flex;justify-content:space-between;gap:16px;padding:12px 16px;border-top:1px solid var(--row-line)}
+.sum div:first-child{border-top:0}
+.sum span:first-child{color:var(--mute)}
+.sum b{font-weight:600;font-variant-numeric:tabular-nums}
+
+.toast{position:fixed;left:50%;bottom:28px;z-index:70;transform:translate(-50%,16px);opacity:0;background:#20242c;color:#fff;padding:11px 16px;border-radius:10px;pointer-events:none;transition:opacity 200ms ease,transform 240ms var(--ease-out)}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+
+/* tasks */
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:-4px 0 16px}
+.chip{display:inline-flex;align-items:center;gap:8px;height:36px;border:1px solid var(--hairline);background:#fff;border-radius:999px;padding:0 14px;cursor:pointer;color:var(--body);transition:transform 160ms var(--ease-out)}
+.chip:active{transform:scale(.97)}
+.chip i{font-style:normal;color:var(--mute)}
+.chip.on{border-color:var(--accent);background:var(--accent-bg);color:var(--accent);font-weight:600}
+.chip.on i{color:var(--accent)}
+.chip svg{width:17px;height:17px}
+.ck{flex:none;display:grid;place-items:center;width:22px;height:22px;border:1.5px solid var(--faint);border-radius:50%;background:#fff;cursor:pointer;color:#fff;transition:transform 160ms var(--ease-out),background-color 150ms ease,border-color 150ms ease}
+.ck:active{transform:scale(.9)}
+.ck svg{width:14px;height:14px;opacity:0;transition:opacity 150ms ease}
+.ck[aria-pressed=true]{background:var(--ok);border-color:var(--ok)}
+.ck[aria-pressed=true] svg{opacity:1}
+tr.done td{color:var(--mute)}
+tr.done .name{font-weight:400}
+.ms{display:inline-block;width:9px;height:9px;margin-right:8px;transform:rotate(45deg);background:var(--accent);border-radius:2px;vertical-align:1px}
+tr.done .ms{background:var(--faint)}
+.late{color:var(--bad-fg)}
+tr.today td{padding:0 20px;height:34px;background:var(--accent-bg);color:var(--accent);font-weight:600;border-top:1px solid #d6e2fa}
+tr.today + tr td{border-top-color:#d6e2fa}
+.cbox{width:60px;padding-right:0}
+
+/* project page */
+.tabsel{display:none;margin:20px 0 0}
+.tabsel select{width:100%;height:44px;border:1px solid var(--hairline);border-radius:var(--r-inner);padding:0 12px;background:#fff}
+.lnk{border:0;background:none;padding:0;color:inherit;font-weight:500;cursor:pointer;text-align:left;max-width:100%}
+@media (hover:hover) and (pointer:fine){.lnk:hover{color:var(--accent)}}
+.page-sec{margin-top:36px}
+.kind{color:var(--mute)}
+/* the record layer over a project */
+.sheet.r2{z-index:58;width:min(600px,calc(100vw - 20px));transform:translateX(calc(100% + 40px))}
+.sheet.r2.open{transform:none}
+.sheet.r2.over{right:22px;top:calc(var(--ch,52px) + 22px)}
+#dim2{z-index:57}
+.hero{display:flex;gap:20px;align-items:flex-end}
+.hero .ph{width:160px;height:160px;flex:none;border-radius:var(--r-card);display:grid;place-items:center;color:#8e8e93;background:var(--soft-2)}
+.hero .ph.on{background:linear-gradient(135deg,#dfe6ef,#c8d3e0)}
+.hero .ph svg{width:40px;height:40px}
+.doc{height:200px;border-radius:var(--r-card);background:var(--soft-3);display:grid;place-items:center;color:#8e8e93}
+.doc svg{width:44px;height:44px}
+
+@media (max-width:900px){
+  .rail,.panel{display:none}
+  .shell{padding:0;gap:0;background:#fff}
+  .page{padding:20px 16px 48px;border-radius:0;box-shadow:none}
+  .tabs.many{display:none}
+  td.cbox{float:left;width:auto;padding:2px 12px 0 0}
+  tr.today{padding:8px 16px;background:var(--accent-bg)}
+  tr.today td{height:auto;padding:0;border:0}
+  .tabsel.many{display:block}
+  .sheet.r2,.sheet.r2.over{right:0;top:calc(var(--ch,52px) + 4px);width:100%}
+  .sheet{top:calc(var(--ch,52px) + 4px);right:0;bottom:0;width:100%;border-radius:var(--r-sheet) var(--r-sheet) 0 0}
+  .sh-h,.sh-b,.sh-f{padding-left:20px;padding-right:20px}
+  .facts,.row2{grid-template-columns:1fr}
+  .tiles{grid-template-columns:1fr 1fr}
+  /* tables become stacked rows: nothing scrolls sideways */
+  table,tbody,tfoot,tr,td{display:block;width:100%}
+  thead{display:none}
+  tr{padding:12px 16px;border-top:1px solid var(--row-line)}
+  tbody tr:first-child{border-top:0}
+  td{padding:2px 0;border:0}
+  td.r{text-align:left}
+  td[data-l]::before{content:attr(data-l);color:var(--mute);margin-right:8px}
+  .kpi{padding:0 16px}
+  .search{flex:1 1 100%}
+}
+@media (prefers-reduced-motion:reduce){.sheet,.sheet.open{transition:opacity 200ms ease}.sheet:not(.open){opacity:0;transform:none;pointer-events:none}}
+</style>
+</head>
+<body>
+
+<div class="chrome">
+  <div class="grp"><span>GA</span>
+    <button data-view="ga-list">Projects</button>
+    <button data-do="chromeRegister" data-press="register">Register asset</button>
+  </div>
+  <div class="grp"><span>Project</span>
+    <button data-opt="sheet">Sheet · now</button>
+    <button data-opt="A">A · Tabs</button>
+    <button data-opt="B">B · In sidebar</button>
+    <button data-opt="C">C · One page</button>
+    <button data-opt="D">D · By kind</button>
+  </div>
+  <div class="grp"><span>Seen by</span>
+    <button data-role="ga">GA</button>
+    <button data-role="fin">Finance</button>
+  </div>
+  <div class="grp"><span>Finance</span>
+    <button data-view="fin-project">Project costs</button>
+    <button data-view="fin-pre">Pre-opening</button>
+  </div>
+  <div class="grp"><button id="reset">Reset</button></div>
+</div>
+
+<main id="app"></main>
+<div class="dim" id="dim"></div>
+<aside class="sheet" id="sheet" role="dialog" aria-modal="true"></aside>
+<div class="dim" id="dim2"></div>
+<aside class="sheet r2" id="sheet2" role="dialog" aria-modal="true"></aside>
+<div class="scrim" id="scrim"><div class="dlg" id="dlg" role="dialog" aria-modal="true"></div></div>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+/* ── data ─────────────────────────────────────────────────────────────── */
+const TYPES = [
+  ['BUILDING', 'Building', '<path d="M4 21V5l8-3 8 3v16M9 21v-5h6v5M8 8h1M15 8h1M8 12h1M15 12h1"/>'],
+  ['TECH', 'Technical equipment', '<rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9 9h6v6H9zM9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/>'],
+  ['FFE', 'Furniture & fixtures', '<path d="M6 11V7a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v4M4 11h16v5H4zM6 16v3M18 16v3"/>'],
+  ['IT', 'IT hardware', '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>'],
+  ['OE', 'Operating equipment', '<path d="M21 8l-9-5-9 5 9 5 9-5zM3 8v8l9 5 9-5V8M12 13v8"/>'],
+  ['VEHICLE', 'Vehicle', '<path d="M5 17h14M6 17v2M18 17v2M4 13l2-6h12l2 6v4H4z"/><circle cx="8" cy="14" r="1"/><circle cx="16" cy="14" r="1"/>'],
+  ['AUDIO', 'Audio / music', '<rect x="6" y="3" width="12" height="18" rx="2"/><circle cx="12" cy="14" r="3"/><circle cx="12" cy="7.5" r="1"/>'],
+  ['SOFTWARE', 'Software', '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/>'],
+  ['LAND', 'Land', '<path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z"/><path d="M9 3v15M15 6v15"/>'],
+];
+const typeOf = code => TYPES.find(t => t[0] === code);
+
+/* Dates: the prototype's today is 12 Nov 2026; a task's due is counted back
+   from the opening (H-n). */
+const OPENS = new Date(2026, 10, 15), TODAY = new Date(2026, 10, 12);
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const dueOf = off => new Date(OPENS.getTime() - off * 864e5);
+const dm = d => `${String(d.getDate()).padStart(2, '0')} ${MON[d.getMonth()]}`;
+const PEOPLE = [['Nina Oktaviani', 'GA'], ['Dian Pertiwi', 'GA'], ['Hari Santoso', 'Stores'], ['Sari Wulandari', 'HR'], ['Rudi Hartono', 'Merchandise'], ['Maya Anggraini', 'Marketing']];
+/* The client's own checklist for a new store, as the template a project of
+   that kind starts from. Off = days before the opening. */
+const STORE_OPENING = [
+  ['Tanda tangan kontrak kontraktor', 'Nina Oktaviani', 48],
+  ['Renovasi mulai', 'Nina Oktaviani', 45, true],
+  ['Izin PBG & reklame', 'Dian Pertiwi', 30],
+  ['Pesan AC, rak dan PC kasir', 'Nina Oktaviani', 21],
+  ['Buat toko di Stores', 'Hari Santoso', 14],
+  ['Rekrut tim & rekam sidik jari', 'Sari Wulandari', 10],
+  ['Training kasir', 'Dian Pertiwi', 7],
+  ['HO approve POS', 'Hari Santoso', 5],
+  ['Serah terima dari kontraktor', 'Nina Oktaviani', 3, true],
+  ['Stok pertama tiba dari DC', 'Rudi Hartono', 3],
+  ['Signage & promo opening', 'Maya Anggraini', 2],
+  ['Toko buka', 'Nina Oktaviani', 0, true],
+];
+const DONE_ON = { 0: '28 Sep', 1: '01 Oct', 2: '15 Oct', 3: '28 Oct', 4: '30 Oct', 5: '05 Nov', 6: '08 Nov' };
+const svg = (d, cls = '') => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+
+function fresh() {
+  return {
+    view: 'ga-list',
+    tab: 'open',
+    opt: 'A',                  // how a project opens: sheet · A · B · C · D
+    role: 'ga',                // whose eyes: GA or Finance
+    ptab: '',                  // the project page's tab
+    rec: null,                 // the record open over it: 'asset:a1', 'work:w2', 'file:f1', 'cost:c4'
+    dlg: null,
+    status: 'OPEN',            // OPEN → CLOSED (GA) → CAPITALISED (Finance)
+    handedBy: '', closedBy: '',
+    wk: { kind: 'Contract', name: '', who: '' },
+    tf: 'open',                // the Tasks tab's filter
+    tk: { name: '', who: 'Nina Oktaviani', off: 4 },
+    np: { name: 'Opening Brebes', site: 'Brebes', kind: 'Store opening', opens: '20 Dec 2026' },
+    made: [],                  // projects made in this session
+    tasks: STORE_OPENING.map(([name, who, off, ms], i) => ({ id: 't' + (i + 1), name, who, off, ms: !!ms, done: DONE_ON[i] ?? '', from: 'template' })),
+    assets: [
+      { id: 'a1', on: '01 Oct', no: 'AST-000047', name: 'Renovasi & interior toko', type: 'BUILDING', qty: 1, photo: true },
+      { id: 'a2', on: '29 Oct', no: 'AST-000048', name: 'AC split 2 PK — Daikin', type: 'TECH', qty: 2, photo: true },
+      { id: 'a3', on: '31 Oct', no: 'AST-000049', name: 'Rak dinding besi', type: 'OE', qty: 12, photo: false },
+      { id: 'a4', on: '06 Nov', no: 'AST-000050', name: 'PC kasir — Lenovo M70q', type: 'IT', qty: 2, photo: true },
+    ],
+    // What GA does for the project, besides its assets.
+    records: [
+      { id: 'w1', kind: 'Contract', name: 'Renovasi & fit-out', who: 'CV Bangun Jaya', state: 'Signed 28 Sep', icon: '<path d="M7 3h7l5 5v13H7zM14 3v5h5M10 13h6M10 17h6"/>',
+        facts: [['Supplier', 'CV Bangun Jaya'], ['Value', 'Rp 185.000.000'], ['Period', '1 Oct – 14 Nov 2026'], ['Signed', '28 Sep 2026']] },
+      { id: 'w2', kind: 'Repair', name: 'Atap bocor area gudang', who: 'CV Atap Prima', state: 'Done 24 Oct', icon: '<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/>',
+        facts: [['Done by', 'CV Atap Prima'], ['Reported', '20 Oct 2026'], ['Reported by', 'Nina Oktaviani'], ['Done', '24 Oct 2026']] },
+      { id: 'w3', kind: 'Supply request', name: 'ATK & perlengkapan opening', who: 'Gramedia', state: 'Received 9 Nov', icon: '<path d="M6 2l-3 4v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4zM3 6h18M16 10a4 4 0 0 1-8 0"/>',
+        facts: [['From', 'Gramedia'], ['Asked by', 'Dian Pertiwi'], ['Items', '14'], ['Received', '9 Nov 2026']] },
+      { id: 'w4', kind: 'Claim', name: 'Training kasir & transport', who: 'Dian Pertiwi', state: 'Paid 10 Nov', icon: '<path d="M3 7h18v10H3zM7 12h.01M17 12h.01"/><circle cx="12" cy="12" r="2"/>',
+        facts: [['Claimed by', 'Dian Pertiwi'], ['Approved by', 'Nina Oktaviani'], ['Paid', '10 Nov 2026']] },
+    ],
+    files: [
+      { id: 'f1', name: 'Kontrak renovasi — CV Bangun Jaya', type: 'PDF', size: '1,2 MB', on: '28 Sep', by: 'Nina Oktaviani' },
+      { id: 'f2', name: 'Layout toko Wonosobo', type: 'PDF', size: '3,4 MB', on: '02 Oct', by: 'Nina Oktaviani' },
+      { id: 'f3', name: 'Izin PBG Wonosobo', type: 'Image', size: '820 KB', on: '15 Oct', by: 'Dian Pertiwi' },
+    ],
+    // What Finance sees: every cost that names the project.
+    costs: [
+      { id: 'c1', on: '02 Oct', from: 'Bill', who: 'CV Bangun Jaya', what: 'Renovasi termin 1', amt: 74000000, to: 'a1' },
+      { id: 'c2', on: '20 Oct', from: 'Bill', who: 'CV Bangun Jaya', what: 'Renovasi termin 2', amt: 74000000, to: 'a1' },
+      { id: 'c3', on: '10 Nov', from: 'Bill', who: 'CV Bangun Jaya', what: 'Renovasi termin 3', amt: 37000000, to: 'a1' },
+      { id: 'c4', on: '28 Oct', from: 'Bill', who: 'PT Sejuk Abadi', what: 'AC split 2 PK × 2', amt: 16400000, to: 'a2' },
+      { id: 'c5', on: '30 Oct', from: 'Bill', who: 'CV Rak Jaya', what: 'Rak dinding besi × 12', amt: 21600000, to: 'a3' },
+      { id: 'c6', on: '05 Nov', from: 'Bill', who: 'Bhinneka', what: 'PC kasir × 2', amt: 18900000, to: 'a4' },
+      { id: 'c7', on: '01 Oct', from: 'Bill', who: 'Ibu Sri Rahayu', what: 'Sewa ruko Okt–Nov sebelum buka', amt: 30000000, to: 'PRE' },
+      { id: 'c8', on: '15 Oct', from: 'Petty cash', who: 'Toko Wonosobo', what: 'Izin reklame & PBG', amt: 4500000, to: 'PRE' },
+      { id: 'c9', on: '24 Oct', from: 'Repair', who: 'CV Atap Prima', what: 'Atap bocor area gudang', amt: 2750000, to: 'EXP' },
+      { id: 'c10', on: '09 Nov', from: 'Supply request', who: 'Gramedia', what: 'ATK & perlengkapan opening', amt: 1850000, to: 'EXP' },
+      { id: 'c11', on: '10 Nov', from: 'Claim', who: 'Dian Pertiwi', what: 'Training kasir & transport', amt: 3250000, to: 'PRE' },
+      { id: 'c12', on: '12 Nov', from: 'Bill', who: 'Percetakan Maju', what: 'Promo opening — spanduk, brosur', amt: 6800000, to: '' },
+    ],
+    months: 12,
+    reg: { project: 'p1', type: 'FFE', name: 'Meja kasir', qty: 1 },
+  };
+}
+let S = fresh();
+
+const OTHER = [
+  { id: 'p2', no: 'PRJ-0002', name: 'Renovasi Cikupa', site: 'Cikupa', kind: 'Renovation', opens: '30 Nov 2026', assets: 3, status: 'OPEN' },
+  { id: 'p0', no: 'PRJ-0001', name: 'Opening Jambi', site: 'Jambi', kind: 'Store opening', opens: '14 Aug 2026', assets: 9, status: 'CAPITALISED' },
+];
+const P = { id: 'p1', no: 'PRJ-0003', name: 'Opening Wonosobo', site: 'Wonosobo', kind: 'Store opening', opens: '15 Nov 2026', pic: 'Nina Oktaviani' };
+
+/* ── helpers ──────────────────────────────────────────────────────────── */
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const rp = n => 'Rp ' + Math.round(n).toLocaleString('id-ID');
+const WORD = { OPEN: ['info', 'Open'], CLOSED: ['warn', 'Closed'], CAPITALISED: ['ok', 'Capitalised'], IN_PROJECT: ['info', 'In project'], IN_USE: ['ok', 'In use'] };
+const st = s => `<span class="st ${WORD[s][0]}">${WORD[s][1]}</span>`;
+const assetState = () => S.status === 'CAPITALISED' ? 'IN_USE' : 'IN_PROJECT';
+const ICON = {
+  x: '<path d="M8 8l8 8M16 8l-8 8"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  cam: '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
+  chev: '<path d="M9 6l6 6-6 6"/>',
+};
+let toastTimer;
+function toast(t) { const el = $('#toast'); el.textContent = t; el.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), 2600); }
+function mark(cls) {
+  return `<svg class="${cls}" viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" rx="23.4" fill="#1d1d1f"/><path d="M64.32 28.88A28.25 28.25 0 1 0 64.32 68.12A7.25 7.25 0 0 0 53.89 58.05A13.75 13.75 0 1 1 53.89 38.95A7.25 7.25 0 0 0 64.32 28.88Z" fill="#fff"/><circle cx="75.5" cy="48.5" r="8" fill="#2862dc"/></svg>`;
+}
+function thumb(a) {
+  return a.photo ? `<span class="thumb ph">${svg(typeOf(a.type)[2])}</span>` : `<span class="thumb">${svg(typeOf(a.type)[2])}</span>`;
+}
+
+/* ── shell ────────────────────────────────────────────────────────────── */
+function gaShell(inner) {
+  return `<div class="shell">
+    <nav class="rail">${mark('mk')}<i></i><i></i><i></i><i></i><i class="on"></i><i></i></nav>
+    <nav class="panel"><h2>GA</h2>
+      <a>Overview</a><hr>
+      <a>Supply Requests</a><a>Repairs</a><a>Service Schedule</a>
+      ${nestProjects()}<hr>
+      <a>Assets</a><a>Contracts</a><a>Sites</a><a>Suppliers</a><hr>
+      <a>Letters</a><a>Files</a>
+    </nav>
+    <section class="page">${inner}</section></div>`;
+}
+function finShell(inner) {
+  return `<div class="shell">
+    <nav class="rail">${mark('mk')}<i></i><i></i><i class="on"></i><i></i><i></i><i></i></nav>
+    <nav class="panel"><h2>Finance</h2>
+      <a>Overview</a><small>Daily work</small><a>Stores</a><a>Payables</a><a>Cash &amp; Bank</a>
+      <small>Accounting</small><a>Journal</a><a class="on">Assets</a><a>Month End</a><a>Reports</a>
+      <small>Configuration</small><a>Setup</a>
+    </nav>
+    <section class="page">${inner}</section></div>`;
+}
+
+/* ── GA · Projects list ───────────────────────────────────────────────── */
+function gaList() {
+  const mine = { ...P, assets: S.assets.length, status: S.status };
+  const rows = [mine, ...S.made, ...OTHER];
+  const open = rows.filter(r => r.status === 'OPEN');
+  const shown = S.tab === 'open' ? open : rows.filter(r => r.status !== 'OPEN');
+  return gaShell(`
+    <div class="head"><div><h1>Projects</h1></div>
+      <div class="acts"><button class="btn primary" data-do="newProject">${svg(ICON.plus)}New project</button></div></div>
+    <div class="kpis">
+      <div class="kpi"><small>Open</small><b>${open.length}</b></div>
+      <div class="kpi"><small>Opening this month</small><b>1</b></div>
+      <div class="kpi"><small>Waiting for Finance</small><b class="${S.status === 'CLOSED' ? 'warn' : ''}">${S.status === 'CLOSED' ? 1 : 0}</b></div>
+    </div>
+    <div class="tabs"><button class="${S.tab === 'open' ? 'on' : ''}" data-tab="open">Open<i>${open.length}</i></button><button class="${S.tab === 'closed' ? 'on' : ''}" data-tab="closed">Closed<i>${rows.length - open.length}</i></button></div>
+    <div class="bar"><input class="search" placeholder="Search projects"></div>
+    <div class="frame"><table>
+      <thead><tr><th style="width:34%">Project</th><th>Site</th><th>Kind</th><th>Opens</th><th class="r" style="width:90px">Assets</th><th style="width:150px">Status</th></tr></thead>
+      <tbody>${shown.map(r => `<tr class="link" ${r.id === 'p1' ? 'data-do="openProject"' : ''}>
+        <td><span class="name trunc">${esc(r.name)}</span><span class="g">${r.no}</span></td>
+        <td data-l="Site">${esc(r.site)}</td><td data-l="Kind">${esc(r.kind)}</td><td data-l="Opens">${r.opens}</td>
+        <td class="r" data-l="Assets">${r.assets}</td><td>${st(r.status)}</td></tr>`).join('')}</tbody>
+    </table></div>`);
+}
+
+/* ── GA · Project sheet ───────────────────────────────────────────────── */
+function gaSheet() {
+  const banner = S.status === 'CLOSED'
+    ? `<div class="banner" style="margin:0"><span><b>Closed by ${esc(S.handedBy)} · ready 14 Nov</b></span></div>`
+    : S.status === 'CAPITALISED' ? `<div class="banner" style="margin:0"><span><b>Capitalised by ${esc(S.closedBy)} · 16 Nov</b> <span class="why">· assets in use from ${P.opens}</span></span></div>` : '';
+  const can = S.status === 'OPEN';
+  return `
+    <div class="sh-h"><div>
+      <div class="crumb">Projects / ${P.no}</div>
+      <div class="head"><h1>${P.name} ${st(S.status)}</h1></div>
+      <div class="head"><span class="sub">${P.site} · ${P.kind} · Opens ${P.opens}</span></div></div>
+      <button class="x" data-do="closeSheet" aria-label="Close">${svg(ICON.x)}</button></div>
+    <div class="sh-b">
+      ${banner}
+      <dl class="facts" style="margin:0">
+        <div><dt>Site</dt><dd>${P.site}</dd></div><div><dt>Kind</dt><dd>${P.kind}</dd></div>
+        <div><dt>Opens</dt><dd>${P.opens}</dd></div><div><dt>In charge</dt><dd>${P.pic}</dd></div>
+      </dl>
+      <section>
+        <div class="sec"><h3>Assets<span>${S.assets.length}</span></h3>${can ? `<button class="act" data-do="register">${svg(ICON.plus)}Asset</button>` : ''}</div>
+        <div class="frame"><table>
+          <thead><tr><th style="width:52%">Asset</th><th>Type</th><th class="r" style="width:80px">Qty</th><th style="width:140px">Status</th></tr></thead>
+          <tbody>${S.assets.map(a => `<tr class="link" data-rec="asset:${a.id}">
+            <td><span class="who">${thumb(a)}<span style="min-width:0"><span class="name trunc">${esc(a.name)}</span><span class="g">${a.no}</span></span></span></td>
+            <td data-l="Type">${typeOf(a.type)[1]}</td><td class="r" data-l="Qty">${a.qty}</td><td>${st(assetState())}</td></tr>`).join('')}</tbody>
+        </table></div>
+      </section>
+      <section>
+        <div class="sec"><h3>Work<span>${S.records.length}</span></h3></div>
+        <div class="frame"><table>
+          <thead><tr><th style="width:52%">What</th><th>From</th><th style="width:220px">Where it stands</th></tr></thead>
+          <tbody>${S.records.map(r => `<tr class="link" data-rec="work:${r.id}">
+            <td><span class="who"><span class="thumb">${svg(r.icon)}</span><span class="name trunc">${esc(r.name)}</span></span></td>
+            <td data-l="From">${r.kind}</td><td>${r.state}</td></tr>`).join('')}</tbody>
+        </table></div>
+      </section>
+    </div>
+    <div class="sh-f">${can ? `<button class="btn primary" data-do="gaClose">Close project</button>` : ''}</div>`;
+}
+
+/* ── GA · Register asset dialog ───────────────────────────────────────── */
+function registerDlg() {
+  const r = S.reg;
+  return `
+    <div class="dlg-h"><h2>Register asset</h2><button class="x" data-do="closeDlg" aria-label="Close">${svg(ICON.x)}</button></div>
+    <div class="dlg-b">
+      <label class="field"><span>Project</span>
+        <select data-reg="project"><option value="">None</option><option value="p1" ${r.project === 'p1' ? 'selected' : ''}>Opening Wonosobo</option><option value="p2" ${r.project === 'p2' ? 'selected' : ''}>Renovasi Cikupa</option></select></label>
+      <div class="field"><span>Asset type</span><div class="tiles">
+        ${TYPES.map(t => `<button class="tile ${r.type === t[0] ? 'on' : ''}" data-type="${t[0]}">${svg(t[2])}${t[1]}</button>`).join('')}
+      </div></div>
+      <div class="row2">
+        <label class="field"><span>Item name</span><input data-reg="name" value="${esc(r.name)}"></label>
+        <label class="field"><span>Quantity</span><input data-reg="qty" inputmode="numeric" value="${r.qty}"></label>
+      </div>
+      <label class="field"><span>Site</span><input value="${r.project === 'p2' ? 'Cikupa' : r.project === 'p1' ? 'Wonosobo' : ''}" ${r.project ? 'disabled' : ''} placeholder="Choose a site"></label>
+      <div class="field"><span>Photo</span><div class="photo"><span class="box">${svg(ICON.cam)}</span><button class="act">Add photo</button></div></div>
+    </div>
+    <div class="dlg-f"><button class="btn primary" data-do="saveAsset" ${r.name.trim() ? '' : 'disabled'}>Register</button></div>`;
+}
+
+/* ── Finance · Project costs ──────────────────────────────────────────── */
+function finPage() {
+  const total = S.costs.reduce((s, c) => s + c.amt, 0);
+  const by = k => S.costs.filter(c => k(c.to)).reduce((s, c) => s + c.amt, 0);
+  const toAssets = by(t => t.startsWith('a')), pre = by(t => t === 'PRE'), exp = by(t => t === 'EXP'), left = by(t => t === '');
+  const closed = S.status === 'CAPITALISED';
+  const opts = c => [['', 'Choose…'], ...S.assets.map(a => [a.id, `${a.name}${a.qty > 1 ? ' × ' + a.qty : ''}`]), ['PRE', 'Pre-opening'], ['EXP', 'Expense']]
+    .map(([v, l]) => `<option value="${v}" ${c.to === v ? 'selected' : ''}>${esc(l)}</option>`).join('');
+  const goesWord = t => t === 'PRE' ? 'Pre-opening' : t === 'EXP' ? 'Expense' : S.assets.find(a => a.id === t)?.name ?? '—';
+  const perAsset = S.assets.map(a => ({ a, sum: by(t => t === a.id) }));
+  return finShell(`
+    <div class="crumb">Assets / Projects</div>
+    <div class="head"><div><h1>${P.name} ${st(S.status)}</h1><div class="sub">${P.site} · ${P.no} · Opens ${P.opens}</div></div>
+      <div class="acts">${closed ? '' : `<button class="btn primary" data-do="closeProject" ${left === 0 && S.status === 'CLOSED' ? '' : 'disabled'}>Capitalise</button>`}</div></div>
+    ${S.status === 'OPEN' ? `<div class="banner"><span><b>GA has not closed it yet</b></span></div>` : ''}
+    <div class="kpis">
+      <div class="kpi"><small>Collected</small><b>${rp(total)}</b></div>
+      <div class="kpi"><small>To assets</small><b>${rp(toAssets)}</b></div>
+      <div class="kpi"><small>Pre-opening</small><b>${rp(pre)}</b></div>
+      <div class="kpi"><small>Expense</small><b>${rp(exp)}</b></div>
+      ${closed ? '' : `<div class="kpi"><small>Not split</small><b class="${left ? 'warn' : ''}">${rp(left)}</b></div>`}
+    </div>
+    <div style="height:28px"></div>
+    <div class="sec"><h3>Costs<span>${S.costs.length}</span></h3></div>
+    <div class="frame"><table>
+      <thead><tr><th style="width:96px">Date</th><th style="width:140px">From</th><th>What</th><th class="r" style="width:150px">Amount</th><th style="width:270px">Goes to</th></tr></thead>
+      <tbody>${S.costs.map(c => `<tr>
+        <td data-l="Date">${c.on}</td><td data-l="From">${c.from}</td>
+        <td><button class="lnk trunc" data-rec="cost:${c.id}">${esc(c.what)}</button><span class="g">${esc(c.who)}</span></td>
+        <td class="r" data-l="Amount">${rp(c.amt)}</td>
+        <td>${closed ? esc(goesWord(c.to)) : `<select class="goes ${c.to ? '' : 'empty'}" data-goes="${c.id}">${opts(c)}</select>`}</td></tr>`).join('')}</tbody>
+      <tfoot><tr><td colspan="3">Total</td><td class="r">${rp(total)}</td><td></td></tr></tfoot>
+    </table></div>
+    <div style="height:30px"></div>
+    <div class="sec"><h3>Assets<span>${S.assets.length}</span></h3></div>
+    <div class="frame"><table>
+      <thead><tr><th style="width:46%">Asset</th><th>Type</th><th class="r" style="width:80px">Qty</th><th class="r" style="width:170px">Cost</th><th style="width:130px">Status</th></tr></thead>
+      <tbody>${perAsset.map(({ a, sum }) => `<tr class="link" data-rec="asset:${a.id}">
+        <td><span class="who">${thumb(a)}<span style="min-width:0"><span class="name trunc">${esc(a.name)}</span><span class="g">${a.no}</span></span></span></td>
+        <td data-l="Type">${typeOf(a.type)[1]}</td><td class="r" data-l="Qty">${a.qty}</td><td class="r" data-l="Cost">${rp(sum)}</td><td>${st(assetState())}</td></tr>`).join('')}</tbody>
+    </table></div>`);
+}
+
+function closeDlg() {
+  const by = k => S.costs.filter(c => k(c.to)).reduce((s, c) => s + c.amt, 0);
+  return `
+    <div class="dlg-h"><h2>Capitalise ${P.name}</h2><button class="x" data-do="closeDlg" aria-label="Close">${svg(ICON.x)}</button></div>
+    <div class="dlg-b">
+      <div class="sum">
+        <div><span>Assets · ${S.assets.length}</span><b>${rp(by(t => t.startsWith('a')))}</b></div>
+        <div><span>Pre-opening</span><b>${rp(by(t => t === 'PRE'))}</b></div>
+        <div><span>Expense</span><b>${rp(by(t => t === 'EXP'))}</b></div>
+      </div>
+      <div class="row2">
+        <label class="field"><span>In use from</span><input value="${P.opens}"></label>
+        <label class="field"><span>Pre-opening over</span><select data-months><option ${S.months === 0 ? 'selected' : ''} value="0">Expense now</option>${[12, 24, 36].map(m => `<option value="${m}" ${S.months === m ? 'selected' : ''}>${m} months</option>`).join('')}</select></label>
+      </div>
+    </div>
+    <div class="dlg-f"><button class="btn primary" data-do="confirmClose">Capitalise</button></div>`;
+}
+
+/* ── Finance · Pre-opening ────────────────────────────────────────────── */
+/* What a store spent to get ready to open, held as one balance and released
+   into the store's costs month by month once it opens. */
+const MONTHS = ['Nov 2026','Dec 2026','Jan 2027','Feb 2027','Mar 2027','Apr 2027','May 2027','Jun 2027','Jul 2027','Aug 2027','Sep 2027','Oct 2027','Nov 2027','Dec 2027','Jan 2028','Feb 2028','Mar 2028','Apr 2028','May 2028','Jun 2028','Jul 2028','Aug 2028','Sep 2028','Oct 2028','Nov 2028','Dec 2028','Jan 2029','Feb 2029','Mar 2029','Apr 2029','May 2029','Jun 2029','Jul 2029','Aug 2029','Sep 2029','Oct 2029'];
+function prePage() {
+  const lines = S.costs.filter(c => c.to === 'PRE');
+  const total = lines.reduce((s, c) => s + c.amt, 0);
+  const closed = S.status === 'CAPITALISED';
+  const n = S.months;
+  const per = n ? Math.round(total / n) : total;
+  const sched = n ? MONTHS.slice(0, n).map((m, i) => ({ m, amt: i === n - 1 ? total - per * (n - 1) : per })) : [{ m: 'Nov 2026', amt: total }];
+  let left = total;
+  return finShell(`
+    <div class="crumb">Assets / Pre-opening</div>
+    <div class="head"><div><h1>Pre-opening · ${P.site} ${closed ? st('IN_USE').replace('In use', 'Releasing') : st('OPEN').replace('Open', 'Collecting')}</h1>
+      <div class="sub">${P.name} · ${P.no} · Opens ${P.opens}</div></div></div>
+    ${closed ? '' : `<div class="banner"><span><b>Still collecting</b></span></div>`}
+    <div class="kpis">
+      <div class="kpi"><small>Pre-opening</small><b>${rp(total)}</b></div>
+      <div class="kpi"><small>Released over</small><b>${n ? n + ' months' : 'At once'}</b></div>
+      <div class="kpi"><small>Per month</small><b>${rp(per)}</b></div>
+      <div class="kpi"><small>Released</small><b>${rp(0)}</b></div>
+    </div>
+    <div style="height:28px"></div>
+    <div class="sec"><h3>What it holds<span>${lines.length}</span></h3></div>
+    <div class="frame"><table>
+      <thead><tr><th style="width:96px">Date</th><th style="width:140px">From</th><th>What</th><th class="r" style="width:170px">Amount</th></tr></thead>
+      <tbody>${lines.map(c => `<tr><td data-l="Date">${c.on}</td><td data-l="From">${c.from}</td><td><span class="trunc">${esc(c.what)}</span><span class="g">${esc(c.who)}</span></td><td class="r" data-l="Amount">${rp(c.amt)}</td></tr>`).join('')}</tbody>
+      <tfoot><tr><td colspan="3">Total</td><td class="r">${rp(total)}</td></tr></tfoot>
+    </table></div>
+    <div style="height:30px"></div>
+    <div class="sec"><h3>Release<span>${sched.length}</span></h3></div>
+    <div class="frame"><table>
+      <thead><tr><th>Month</th><th class="r" style="width:190px">Into ${P.site}'s costs</th><th class="r" style="width:190px">Still held</th><th style="width:150px">Status</th></tr></thead>
+      <tbody>${sched.map((r, i) => { left -= r.amt; return `<tr><td>${r.m}</td><td class="r" data-l="Released">${rp(r.amt)}</td><td class="r" data-l="Held">${rp(left)}</td><td>${closed && i === 0 ? '<span class="st warn">Posts 30 Nov</span>' : '<span class="st faint">Planned</span>'}</td></tr>`; }).join('')}</tbody>
+    </table></div>`);
+}
+
+/* ── GA sidebar: B nests the open projects under Projects ─────────────── */
+function nestProjects() {
+  const openCount = S.status === 'OPEN' ? 2 : 1;
+  const inPage = S.view === 'project' && S.opt === 'B';
+  if (S.opt !== 'B') return `<a class="on">Projects <i>${openCount}</i></a>`;
+  const rows = [
+    { id: 'p1', name: P.name, live: S.status === 'OPEN' },
+    { id: 'p2', name: 'Renovasi Cikupa', live: true },
+  ].filter(r => r.live);
+  return `<a class="${inPage ? '' : 'on'}" data-view="ga-list">Projects <i>${openCount}</i></a>
+    <div class="nest">${rows.map(r => `<a class="sub ${inPage && r.id === 'p1' ? 'on' : ''}" ${r.id === 'p1' ? 'data-do="openProject"' : ''}>${esc(r.name)}</a>`).join('')}</div>`;
+}
+
+/* ── the project as a page: A · B · C · D ─────────────────────────────── */
+const KINDS = [['contracts', 'Contract', 'Contracts'], ['repairs', 'Repair', 'Repairs'], ['supplies', 'Supply request', 'Supply requests'], ['claims', 'Claim', 'Claims']];
+const costBy = k => S.costs.filter(c => k(c.to)).reduce((s, c) => s + c.amt, 0);
+const fileIcon = '<path d="M7 3h7l5 5v13H7zM14 3v5h5"/>';
+const imgIcon = '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/>';
+
+function pageTabs() {
+  const fin = S.role === 'fin';
+  const t = [];
+  if (fin) t.push(['costs', 'Costs', S.costs.length]);
+  else t.push(['tasks', 'Tasks', tasksLeft().length]);
+  if (S.opt === 'D') {
+    t.push(['all', 'All', S.assets.length + S.records.length + S.files.length]);
+    t.push(['assets', 'Assets', S.assets.length]);
+    KINDS.forEach(([key, kind, label]) => t.push([key, label, S.records.filter(r => r.kind === kind).length]));
+    t.push(['files', 'Files', S.files.length]);
+  } else {
+    t.push(['assets', 'Assets', S.assets.length], ['work', 'Work', S.records.length], ['files', 'Files', S.files.length]);
+  }
+  return t;
+}
+
+function assetsTable(fin) {
+  return `<div class="frame"><table>
+    <thead><tr><th style="width:46%">Asset</th><th>Type</th><th class="r" style="width:80px">Qty</th>${fin ? '<th class="r" style="width:170px">Cost</th>' : ''}<th style="width:140px">Status</th></tr></thead>
+    <tbody>${S.assets.map(a => `<tr class="link" data-rec="asset:${a.id}">
+      <td><span class="who">${thumb(a)}<span style="min-width:0"><span class="name trunc">${esc(a.name)}</span><span class="g">${a.no}</span></span></span></td>
+      <td data-l="Type">${typeOf(a.type)[1]}</td><td class="r" data-l="Qty">${a.qty}</td>
+      ${fin ? `<td class="r" data-l="Cost">${rp(costBy(t => t === a.id))}</td>` : ''}<td>${st(assetState())}</td></tr>`).join('')}</tbody>
+  </table></div>`;
+}
+function workTable(rows) {
+  if (!rows.length) return `<div class="frame"><table><tbody><tr><td class="kind">Nothing here yet.</td></tr></tbody></table></div>`;
+  return `<div class="frame"><table>
+    <thead><tr><th style="width:52%">What</th><th>Kind</th><th style="width:220px">Where it stands</th></tr></thead>
+    <tbody>${rows.map(r => `<tr class="link" data-rec="work:${r.id}">
+      <td><span class="who"><span class="thumb">${svg(r.icon)}</span><span style="min-width:0"><span class="name trunc">${esc(r.name)}</span><span class="g">${esc(r.who)}</span></span></span></td>
+      <td data-l="Kind">${r.kind}</td><td>${r.state}</td></tr>`).join('')}</tbody>
+  </table></div>`;
+}
+function filesTable() {
+  return `<div class="frame"><table>
+    <thead><tr><th style="width:52%">File</th><th>Added</th><th style="width:220px">By</th></tr></thead>
+    <tbody>${S.files.map(f => `<tr class="link" data-rec="file:${f.id}">
+      <td><span class="who"><span class="thumb">${svg(f.type === 'Image' ? imgIcon : fileIcon)}</span><span style="min-width:0"><span class="name trunc">${esc(f.name)}</span><span class="g">${f.type} · ${f.size}</span></span></span></td>
+      <td data-l="Added">${f.on}</td><td data-l="By">${esc(f.by)}</td></tr>`).join('')}</tbody>
+  </table></div>`;
+}
+function allTable() {
+  const rows = [
+    ...S.assets.map(a => ({ rec: 'asset:' + a.id, tile: thumb(a), name: a.name, sub: a.no, kind: 'Asset', state: st(assetState()) })),
+    ...S.records.map(r => ({ rec: 'work:' + r.id, tile: `<span class="thumb">${svg(r.icon)}</span>`, name: r.name, sub: r.who, kind: r.kind, state: r.state })),
+    ...S.files.map(f => ({ rec: 'file:' + f.id, tile: `<span class="thumb">${svg(f.type === 'Image' ? imgIcon : fileIcon)}</span>`, name: f.name, sub: `${f.type} · ${f.size}`, kind: 'File', state: 'Added ' + f.on })),
+  ];
+  return `<div class="frame"><table>
+    <thead><tr><th style="width:52%">What</th><th>Kind</th><th style="width:220px">Where it stands</th></tr></thead>
+    <tbody>${rows.map(r => `<tr class="link" data-rec="${r.rec}">
+      <td><span class="who">${r.tile}<span style="min-width:0"><span class="name trunc">${esc(r.name)}</span><span class="g">${esc(r.sub)}</span></span></span></td>
+      <td data-l="Kind">${r.kind}</td><td>${r.state}</td></tr>`).join('')}</tbody>
+  </table></div>`;
+}
+function costsTable() {
+  const closed = S.status === 'CAPITALISED';
+  const opts = c => [['', 'Choose…'], ...S.assets.map(a => [a.id, `${a.name}${a.qty > 1 ? ' × ' + a.qty : ''}`]), ['PRE', 'Pre-opening'], ['EXP', 'Expense']]
+    .map(([v, l]) => `<option value="${v}" ${c.to === v ? 'selected' : ''}>${esc(l)}</option>`).join('');
+  const goesWord = t => t === 'PRE' ? 'Pre-opening' : t === 'EXP' ? 'Expense' : S.assets.find(a => a.id === t)?.name ?? '—';
+  const total = S.costs.reduce((s, c) => s + c.amt, 0);
+  return `<div class="frame"><table>
+    <thead><tr><th style="width:96px">Date</th><th style="width:130px">From</th><th>What</th><th class="r" style="width:150px">Amount</th><th style="width:260px">Goes to</th></tr></thead>
+    <tbody>${S.costs.map(c => `<tr>
+      <td data-l="Date">${c.on}</td><td data-l="From">${c.from}</td>
+      <td><button class="lnk trunc" data-rec="cost:${c.id}">${esc(c.what)}</button><span class="g">${esc(c.who)}</span></td>
+      <td class="r" data-l="Amount">${rp(c.amt)}</td>
+      <td>${closed ? esc(goesWord(c.to)) : `<select class="goes ${c.to ? '' : 'empty'}" data-goes="${c.id}">${opts(c)}</select>`}</td></tr>`).join('')}</tbody>
+    <tfoot><tr><td colspan="3">Total</td><td class="r">${rp(total)}</td><td></td></tr></tfoot>
+  </table></div>`;
+}
+
+/* What a tab or a section holds, and the one action its bar carries. */
+function body(key) {
+  if (key === 'costs') return costsTable();
+  if (key === 'tasks') return tasksBlock();
+  if (key === 'assets') return assetsTable(S.role === 'fin');
+  if (key === 'work') return workTable(S.records);
+  if (key === 'files') return filesTable();
+  if (key === 'all') return allTable();
+  const kind = KINDS.find(k => k[0] === key)?.[1];
+  return workTable(S.records.filter(r => r.kind === kind));
+}
+function barAction(key) {
+  if (S.role === 'fin' || S.status !== 'OPEN') return '';
+  if (key === 'assets') return `<button class="btn primary sm" data-do="register">${svg(ICON.plus)}Register asset</button>`;
+  if (key === 'tasks') return `<button class="btn primary sm" data-do="newTask">${svg(ICON.plus)}Add task</button>`;
+  if (key === 'files') return `<button class="btn primary sm" data-do="addFile">${svg(ICON.plus)}Add file</button>`;
+  if (key === 'work' || key === 'all') return `<button class="btn primary sm" data-do="newWork">${svg(ICON.plus)}Add work</button>`;
+  const kind = KINDS.find(k => k[0] === key);
+  if (kind) return `<button class="btn primary sm" data-do="newWork" data-kind="${kind[1]}">${svg(ICON.plus)}Add ${kind[1].toLowerCase()}</button>`;
+  return '';
+}
+
+function projectPage() {
+  const fin = S.role === 'fin';
+  const total = S.costs.reduce((s, c) => s + c.amt, 0), left = costBy(t => t === '');
+  let act = '';
+  if (!fin && S.status === 'OPEN') act = `<button class="btn primary" data-do="gaClose">Close project</button>`;
+  if (fin && S.status !== 'CAPITALISED') act = `<button class="btn primary" data-do="closeProject" ${left === 0 && S.status === 'CLOSED' ? '' : 'disabled'}>Capitalise</button>`;
+  const banner = S.status === 'CLOSED'
+    ? `<div class="banner"><span><b>Closed by ${esc(S.handedBy)} · ready 14 Nov</b></span></div>`
+    : S.status === 'CAPITALISED' ? `<div class="banner"><span><b>Capitalised by ${esc(S.closedBy)} · 16 Nov</b> <span class="why">· assets in use from ${P.opens}</span></span></div>`
+    : fin ? `<div class="banner"><span><b>GA has not closed it yet</b></span></div>` : '';
+  const kpis = fin
+    ? `<div class="kpi"><small>Collected</small><b>${rp(total)}</b></div>
+       <div class="kpi"><small>To assets</small><b>${rp(costBy(t => t.startsWith('a')))}</b></div>
+       <div class="kpi"><small>Pre-opening</small><b>${rp(costBy(t => t === 'PRE'))}</b></div>
+       <div class="kpi"><small>Expense</small><b>${rp(costBy(t => t === 'EXP'))}</b></div>
+       ${S.status === 'CAPITALISED' ? '' : `<div class="kpi"><small>Not split</small><b class="${left ? 'warn' : ''}">${rp(left)}</b></div>`}`
+    : `<div class="kpi"><small>Opens</small><b>${P.opens}</b></div>
+       <div class="kpi"><small>Tasks left</small><b>${tasksLeft().length}</b></div>
+       <div class="kpi"><small>Late</small><b class="${tasksLate().length ? 'late' : ''}">${tasksLate().length}</b></div>
+       <div class="kpi"><small>Assets</small><b>${S.assets.length}</b></div>
+       <div class="kpi"><small>Work</small><b>${S.records.length}</b></div>`;
+  const head = `
+    <div class="crumb">${fin ? 'Assets / Projects' : 'Projects'}</div>
+    <div class="head"><div><h1>${P.name} ${st(S.status)}</h1><div class="sub">${P.site} · ${P.kind} · ${P.no}</div></div>
+      <div class="acts">${act}</div></div>
+    ${banner}
+    <div class="kpis">${kpis}</div>`;
+
+  let main;
+  if (S.opt === 'C') {
+    // C · no tabs: every part on one page, one under another.
+    const parts = [...(fin ? [['costs', 'Costs', S.costs.length]] : [['tasks', 'Tasks', tasksLeft().length]]), ['assets', 'Assets', S.assets.length], ['work', 'Work', S.records.length], ['files', 'Files', S.files.length]];
+    main = parts.map(([key, label, n]) => `<section class="page-sec">
+      <div class="sec"><h3>${label}<span>${n}</span></h3>${barAction(key)}</div>${body(key)}</section>`).join('');
+  } else {
+    const tabs = pageTabs();
+    if (!tabs.some(t => t[0] === S.ptab)) S.ptab = tabs[0][0];
+    const many = tabs.length > 3 ? 'many' : '';
+    main = `
+      <div class="tabs ${many}">${tabs.map(([k, l, n]) => `<button class="${S.ptab === k ? 'on' : ''}" data-ptab="${k}">${l}<i>${n}</i></button>`).join('')}</div>
+      <div class="tabsel ${many}"><select data-ptabsel>${tabs.map(([k, l, n]) => `<option value="${k}" ${S.ptab === k ? 'selected' : ''}>${l} · ${n}</option>`).join('')}</select></div>
+      <div class="bar"><input class="search" placeholder="Search ${tabs.find(t => t[0] === S.ptab)[1].toLowerCase()}">${barAction(S.ptab) ? `<span style="margin-left:auto">${barAction(S.ptab)}</span>` : ''}</div>
+      ${body(S.ptab)}`;
+  }
+  return (fin ? finShell : gaShell)(head + main);
+}
+
+/* ── tasks ─────────────────────────────────────────────────────────────── */
+const tasksLeft = () => S.tasks.filter(t => !t.done);
+const tasksLate = () => S.tasks.filter(t => !t.done && dueOf(t.off) < TODAY);
+const deptOf = who => PEOPLE.find(p => p[0] === who)?.[1] ?? 'GA';
+const tick = '<path d="M5 12.5l4.5 4.5L19 7.5" stroke-width="2.4"/>';
+function tasksBlock() {
+  const ro = S.role === 'fin' || S.status !== 'OPEN';
+  const all = [...S.tasks].sort((a, b) => b.off - a.off);
+  const n = { all: all.length, open: tasksLeft().length, late: tasksLate().length, done: all.length - tasksLeft().length };
+  const shown = all.filter(t => S.tf === 'all' || (S.tf === 'open' && !t.done) || (S.tf === 'done' && t.done) || (S.tf === 'late' && !t.done && dueOf(t.off) < TODAY));
+  const chip = (k, label, icon) => `<button class="chip ${S.tf === k ? 'on' : ''}" data-tf="${k}">${svg(icon)}${label}<i>${n[k]}</i></button>`;
+  let rows = '', todayDrawn = S.tf === 'done' || S.tf === 'late';
+  for (const t of shown) {
+    const due = dueOf(t.off);
+    if (!todayDrawn && due >= TODAY) { rows += `<tr class="today"><td colspan="4">Today · ${dm(TODAY)}</td></tr>`; todayDrawn = true; }
+    const late = !t.done && due < TODAY;
+    rows += `<tr class="link ${t.done ? 'done' : ''}" data-rec="task:${t.id}">
+      <td class="cbox"><button class="ck" data-ck="${t.id}" aria-pressed="${!!t.done}" aria-label="Done" ${ro ? 'disabled' : ''}>${svg(tick)}</button></td>
+      <td><span class="name trunc">${t.ms ? '<i class="ms"></i>' : ''}${esc(t.name)}</span><span class="g">${deptOf(t.who)}</span></td>
+      <td data-l="PIC"><span class="trunc">${esc(t.who)}</span></td>
+      <td data-l="Due"><span class="${late ? 'late' : ''}">${dm(due)}</span><span class="g">${t.done ? 'Done ' + t.done : t.off === 0 ? 'Opening day' : 'H-' + t.off}</span></td></tr>`;
+  }
+  if (!todayDrawn && S.tf !== 'done') rows += `<tr class="today"><td colspan="4">Today · ${dm(TODAY)}</td></tr>`;
+  return `<div class="chips">
+      ${chip('open', 'To do', '<circle cx="12" cy="12" r="8"/>')}
+      ${chip('late', 'Late', '<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>')}
+      ${chip('done', 'Done', '<circle cx="12" cy="12" r="8"/><path d="M8.5 12.5l2.5 2.5 4.5-5"/>')}
+      ${chip('all', 'All', '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>')}
+    </div>
+    <div class="frame"><table>
+      <thead><tr><th class="cbox"></th><th>Task</th><th style="width:200px">PIC</th><th style="width:150px">Due</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+}
+function taskDlg() {
+  const t = S.tk;
+  return `
+    <div class="dlg-h"><h2>Add task</h2><button class="x" data-do="closeDlg" aria-label="Close">${svg(ICON.x)}</button></div>
+    <div class="dlg-b">
+      <label class="field"><span>Task</span><input data-tk="name" value="${esc(t.name)}"></label>
+      <div class="row2">
+        <label class="field"><span>PIC</span><select data-tk="who">${PEOPLE.map(([p, d]) => `<option value="${p}" ${t.who === p ? 'selected' : ''}>${p} · ${d}</option>`).join('')}</select></label>
+        <label class="field"><span>Due</span><select data-tk="off">${[14, 10, 7, 5, 4, 3, 2, 1, 0].map(o => `<option value="${o}" ${t.off === o ? 'selected' : ''}>${dm(dueOf(o))} · ${o ? 'H-' + o : 'Opening day'}</option>`).join('')}</select></label>
+      </div>
+    </div>
+    <div class="dlg-f"><button class="btn primary" data-do="saveTask" ${t.name.trim() ? '' : 'disabled'}>Add</button></div>`;
+}
+function newProjectDlg() {
+  const n = S.np;
+  return `
+    <div class="dlg-h"><h2>New project</h2><button class="x" data-do="closeDlg" aria-label="Close">${svg(ICON.x)}</button></div>
+    <div class="dlg-b">
+      <div class="field"><span>Kind</span><div class="tiles" style="grid-template-columns:1fr 1fr">
+        ${[['Store opening', '<path d="M4 10v9h16v-9M3 6l1.5-3h15L21 6v2a3 3 0 0 1-6 0 3 3 0 0 1-6 0 3 3 0 0 1-6 0z"/>'], ['Renovation', '<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/>']]
+          .map(([k, i]) => `<button class="tile ${n.kind === k ? 'on' : ''}" data-npkind="${k}">${svg(i)}${k}</button>`).join('')}
+      </div></div>
+      <label class="field"><span>Name</span><input data-np="name" value="${esc(n.name)}"></label>
+      <div class="row2">
+        <label class="field"><span>Site</span><select data-np="site">${['Brebes', 'Pasuruan', 'Sipin', 'Wonosobo'].map(x => `<option ${n.site === x ? 'selected' : ''}>${x}</option>`).join('')}</select></label>
+        <label class="field"><span>${n.kind === 'Store opening' ? 'Opens' : 'Ready by'}</span><input data-np="opens" value="${esc(n.opens)}"></label>
+      </div>
+      <div class="sum"><div><span>Tasks from the ${n.kind.toLowerCase()} template</span><b>${n.kind === 'Store opening' ? STORE_OPENING.length : 6}</b></div></div>
+    </div>
+    <div class="dlg-f"><button class="btn primary" data-do="saveProject" ${n.name.trim() ? '' : 'disabled'}>Create</button></div>`;
+}
+
+/* ── GA closes; adding work ───────────────────────────────────────────── */
+const WORK_KINDS = [
+  ['Contract', 'Supplier', 'Draft', '<path d="M7 3h7l5 5v13H7zM14 3v5h5M10 13h6M10 17h6"/>'],
+  ['Repair', 'Done by', 'Reported', '<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/>'],
+  ['Supply request', 'From', 'Asked', '<path d="M6 2l-3 4v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4zM3 6h18M16 10a4 4 0 0 1-8 0"/>'],
+  ['Claim', 'Claimed by', 'Submitted', '<path d="M3 7h18v10H3zM7 12h.01M17 12h.01"/><circle cx="12" cy="12" r="2"/>'],
+];
+function workDlg() {
+  const w = S.wk, k = WORK_KINDS.find(x => x[0] === w.kind);
+  return `
+    <div class="dlg-h"><h2>Add work</h2><button class="x" data-do="closeDlg" aria-label="Close">${svg(ICON.x)}</button></div>
+    <div class="dlg-b">
+      <label class="field"><span>Project</span><input value="${P.name}" disabled></label>
+      <div class="field"><span>Kind</span><div class="tiles" style="grid-template-columns:1fr 1fr">
+        ${WORK_KINDS.map(x => `<button class="tile ${w.kind === x[0] ? 'on' : ''}" data-wkind="${x[0]}">${svg(x[3])}${x[0]}</button>`).join('')}
+      </div></div>
+      <div class="row2">
+        <label class="field"><span>What</span><input data-wk="name" value="${esc(w.name)}"></label>
+        <label class="field"><span>${k[1]}</span><input data-wk="who" value="${esc(w.who)}"></label>
+      </div>
+    </div>
+    <div class="dlg-f"><button class="btn primary" data-do="saveWork" ${w.name.trim() ? '' : 'disabled'}>Add</button></div>`;
+}
+function gaCloseDlg() {
+  const busy = [...S.records.filter(r => ['Draft', 'Reported', 'Asked', 'Submitted'].includes(r.state)).map(r => r.name), ...tasksLeft().map(t => t.name)];
+  return `
+    <div class="dlg-h"><h2>Close ${P.name}</h2><button class="x" data-do="closeDlg" aria-label="Close">${svg(ICON.x)}</button></div>
+    <div class="dlg-b">
+      <div class="sum">
+        <div><span>Assets</span><b>${S.assets.length}</b></div>
+        <div><span>Work</span><b>${S.records.length}</b></div>
+        <div><span>Tasks done</span><b>${S.tasks.length - tasksLeft().length} of ${S.tasks.length}</b></div>
+        ${busy.length ? `<div><span>Not done</span><b style="color:var(--warn);text-align:right">${busy.map(esc).join('<br>')}</b></div>` : ''}
+      </div>
+      <label class="field"><span>Ready on</span><input value="14 Nov 2026"></label>
+    </div>
+    <div class="dlg-f"><button class="btn primary" data-do="handOver">Close project</button></div>`;
+}
+
+/* ── a record over the project: asset, work, file, bill ──────────────── */
+function recordSheet() {
+  const [kind, id] = S.rec.split(':');
+  const fin = S.role === 'fin';
+  const facts = rows => `<dl class="facts" style="margin:0">${rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl>`;
+  let crumb, title, badge = '', inner, foot = '';
+  if (kind === 'asset') {
+    const a = S.assets.find(x => x.id === id);
+    crumb = `${P.name} / ${a.no}`; title = a.name; badge = st(assetState());
+    inner = `<div class="hero"><span class="ph ${a.photo ? 'on' : ''}">${svg(typeOf(a.type)[2])}</span>${a.photo ? '' : `<button class="act">${svg(ICON.cam)}Add photo</button>`}</div>
+      ${facts([['Type', typeOf(a.type)[1]], ['Quantity', a.qty], ['Site', P.site], ['Project', P.name], ['Registered', a.on + ' 2026'], ['Registered by', 'Nina Oktaviani'], ...(fin ? [['Cost', rp(costBy(t => t === a.id))]] : [])])}`;
+  } else if (kind === 'work') {
+    const r = S.records.find(x => x.id === id);
+    crumb = `${P.name} / ${r.kind}`; title = r.name; badge = `<span class="st faint">${r.state}</span>`;
+    inner = facts([['Kind', r.kind], ...r.facts, ['Project', P.name]]);
+  } else if (kind === 'task') {
+    const t = S.tasks.find(x => x.id === id);
+    const due = dueOf(t.off), late = !t.done && due < TODAY;
+    const where = { Stores: 'Stores › Wonosobo', HR: 'HR › Employees', Merchandise: 'Merchandise › Allotments', Marketing: 'Marketing › Promotions' }[deptOf(t.who)];
+    crumb = `${P.name} / Tasks`; title = t.name;
+    badge = t.done ? '<span class="st ok">Done</span>' : late ? '<span class="st bad">Late</span>' : '<span class="st info">To do</span>';
+    inner = facts([['PIC', t.who], ['Department', deptOf(t.who)], ['Due', `${dm(due)} 2026 · ${t.off ? 'H-' + t.off : 'opening day'}`], ['Done', t.done ? t.done + ' 2026' : '—'],
+      ['From', t.from === 'template' ? 'Store opening template' : 'Added by Nina Oktaviani'], ...(t.ms ? [['Milestone', 'Yes']] : []),
+      ...(where ? [['Done in', `<button class="act">${where}</button>`]] : [])]);
+    foot = S.role === 'fin' || S.status !== 'OPEN' ? '' : `<div class="sh-f"><button class="btn primary" data-ck="${t.id}">${t.done ? 'Not done' : 'Mark done'}</button></div>`;
+  } else if (kind === 'file') {
+    const f = S.files.find(x => x.id === id);
+    crumb = `${P.name} / Files`; title = f.name;
+    inner = `<div class="doc">${svg(f.type === 'Image' ? imgIcon : fileIcon)}</div>${facts([['Type', f.type], ['Size', f.size], ['Added', f.on + ' 2026'], ['Added by', f.by]])}`;
+  } else {
+    const c = S.costs.find(x => x.id === id);
+    const to = c.to === 'PRE' ? 'Pre-opening' : c.to === 'EXP' ? 'Expense' : S.assets.find(a => a.id === c.to)?.name ?? 'Not split';
+    crumb = `${P.name} / ${c.from}`; title = c.what;
+    inner = facts([['From', c.from], ['Supplier', c.who], ['Date', c.on + ' 2026'], ['Amount', rp(c.amt)], ['Goes to', to], ['Project', P.name]]);
+  }
+  return `
+    <div class="sh-h"><div>
+      <div class="crumb">${esc(crumb)}</div>
+      <div class="head"><h1>${esc(title)} ${badge}</h1></div></div>
+      <button class="x" data-do="closeRec" aria-label="Close">${svg(ICON.x)}</button></div>
+    <div class="sh-b">${inner}</div>${foot}`;
+}
+
+/* ── render ───────────────────────────────────────────────────────────── */
+// The chrome wraps on a narrow window; the sheets start under it.
+const chromeHeight = () => document.documentElement.style.setProperty('--ch', document.querySelector('.chrome').offsetHeight + 'px');
+addEventListener('resize', chromeHeight);
+function render() {
+  chromeHeight();
+  const v = S.view;
+  document.querySelectorAll('.chrome [data-view]').forEach(b => b.setAttribute('aria-pressed', b.dataset.view === v && S.dlg !== 'register'));
+  document.querySelectorAll('.chrome [data-press]').forEach(b => b.setAttribute('aria-pressed', S.dlg === 'register'));
+  document.querySelectorAll('.chrome [data-opt]').forEach(b => b.setAttribute('aria-pressed', b.dataset.opt === S.opt && (v === 'project' || v === 'ga-project')));
+  document.querySelectorAll('.chrome [data-role]').forEach(b => b.setAttribute('aria-pressed', b.dataset.role === S.role));
+  $('#app').innerHTML = v === 'fin-project' ? finPage() : v === 'fin-pre' ? prePage() : v === 'project' ? projectPage() : gaList();
+
+  const sheetOpen = v === 'ga-project';
+  if (sheetOpen) $('#sheet').innerHTML = gaSheet();
+  $('#sheet').classList.toggle('open', sheetOpen);
+  $('#dim').classList.toggle('open', sheetOpen);
+
+  if (S.rec) $('#sheet2').innerHTML = recordSheet();
+  $('#sheet2').classList.toggle('open', !!S.rec);
+  $('#sheet2').classList.toggle('over', sheetOpen);
+  $('#dim2').classList.toggle('open', !!S.rec);
+
+  const dlg = S.dlg === 'register' ? registerDlg() : S.dlg === 'close' ? closeDlg() : S.dlg === 'work' ? workDlg() : S.dlg === 'gaclose' ? gaCloseDlg() : S.dlg === 'task' ? taskDlg() : S.dlg === 'newproject' ? newProjectDlg() : '';
+  if (dlg) $('#dlg').innerHTML = dlg;
+  $('#scrim').classList.toggle('open', !!dlg);
+}
+function go(view) { S.view = view; S.dlg = null; S.rec = null; render(); }
+function openProject() { go(S.opt === 'sheet' ? 'ga-project' : 'project'); }
+function back() {
+  if (S.dlg) S.dlg = null;
+  else if (S.rec) S.rec = null;
+  else if (S.view === 'ga-project') S.view = 'ga-list';
+  render();
+}
+
+document.addEventListener('click', e => {
+  if (e.target.id === 'scrim') { S.dlg = null; render(); return; }
+  if (e.target.id === 'dim2') { S.rec = null; render(); return; }
+  if (e.target.id === 'dim') { go('ga-list'); return; }
+  const el = e.target.closest('[data-view],[data-do],[data-tab],[data-ptab],[data-type],[data-wkind],[data-npkind],[data-ck],[data-tf],[data-opt],[data-role],[data-rec],#reset');
+  if (!el) return;
+  if (el.id === 'reset') { S = fresh(); render(); return; }
+  if (el.dataset.view) return go(el.dataset.view);
+  if (el.dataset.opt) { S.opt = el.dataset.opt; return openProject(); }
+  if (el.dataset.role) {
+    S.role = el.dataset.role; S.ptab = '';
+    if (S.view !== 'project') S.view = 'project';
+    if (S.opt === 'sheet') S.opt = 'A';
+    S.rec = null; render(); return;
+  }
+  if (el.dataset.ck) {
+    const t = S.tasks.find(x => x.id === el.dataset.ck);
+    t.done = t.done ? '' : dm(TODAY);
+    render(); toast(t.done ? `Done · ${t.name}` : `Not done · ${t.name}`); return;
+  }
+  if (el.dataset.tf) { S.tf = el.dataset.tf; render(); return; }
+  if (el.dataset.npkind) { S.np.kind = el.dataset.npkind; render(); return; }
+  if (el.dataset.rec) { e.stopPropagation(); S.rec = el.dataset.rec; render(); return; }
+  if (el.dataset.tab) { S.tab = el.dataset.tab; render(); return; }
+  if (el.dataset.ptab) { S.ptab = el.dataset.ptab; render(); return; }
+  if (el.dataset.type) { S.reg.type = el.dataset.type; render(); return; }
+  if (el.dataset.wkind) { S.wk.kind = el.dataset.wkind; render(); return; }
+  const d = el.dataset.do;
+  if (d === 'openProject') { S.role = 'ga'; openProject(); }
+  if (d === 'closeSheet') go('ga-list');
+  if (d === 'closeRec') { S.rec = null; render(); }
+  if (d === 'register') { S.dlg = 'register'; render(); }
+  if (d === 'chromeRegister') { S.role = 'ga'; if (S.view !== 'project' && S.view !== 'ga-project') S.view = S.opt === 'sheet' ? 'ga-project' : 'project'; S.dlg = 'register'; render(); }
+  if (d === 'newProject') { S.dlg = 'newproject'; render(); }
+  if (d === 'saveProject') {
+    const n = S.np, count = n.kind === 'Store opening' ? STORE_OPENING.length : 6;
+    S.made.unshift({ id: 'p' + (9 + S.made.length), no: 'PRJ-000' + (4 + S.made.length), name: n.name.trim(), site: n.site, kind: n.kind, opens: n.opens, assets: 0, status: 'OPEN' });
+    S.dlg = null; S.tab = 'open'; render(); toast(`${n.name.trim()} created · ${count} tasks`);
+  }
+  if (d === 'newTask') { S.tk = { name: '', who: 'Nina Oktaviani', off: 4 }; S.dlg = 'task'; render(); }
+  if (d === 'saveTask') {
+    S.tasks.push({ id: 't' + (S.tasks.length + 1), name: S.tk.name.trim(), who: S.tk.who, off: Number(S.tk.off), ms: false, done: '', from: 'added' });
+    S.dlg = null; S.tf = 'open'; render(); toast('Task added');
+  }
+  if (d === 'addFile') { S.files.push({ id: 'f' + (S.files.length + 1), name: 'Foto serah terima', type: 'Image', size: '1,6 MB', on: '14 Nov', by: 'Nina Oktaviani' }); render(); toast('File added'); }
+  if (d === 'closeDlg') { S.dlg = null; render(); }
+  if (d === 'saveAsset') {
+    const n = 47 + S.assets.length;
+    S.assets.push({ id: 'a' + (S.assets.length + 1), on: '12 Nov', no: 'AST-0000' + n, name: S.reg.name.trim(), type: S.reg.type, qty: Number(S.reg.qty) || 1, photo: false });
+    S.reg = { ...S.reg, name: '', qty: 1 };
+    S.dlg = null; S.ptab = 'assets'; render(); toast('Asset registered · In project');
+  }
+  if (d === 'gaClose') { S.dlg = 'gaclose'; render(); }
+  if (d === 'handOver') { S.status = 'CLOSED'; S.handedBy = 'Nina Oktaviani'; S.dlg = null; render(); toast('Project closed'); }
+  if (d === 'newWork') { S.wk = { kind: el.dataset.kind || 'Contract', name: '', who: '' }; S.dlg = 'work'; render(); }
+  if (d === 'saveWork') {
+    const k = WORK_KINDS.find(x => x[0] === S.wk.kind);
+    S.records.push({ id: 'w' + (S.records.length + 1), kind: k[0], name: S.wk.name.trim(), who: S.wk.who.trim() || '—', state: k[2], icon: k[3],
+      facts: [[k[1], S.wk.who.trim() || '—'], ['Added', '12 Nov 2026'], ['Added by', 'Nina Oktaviani']] });
+    S.dlg = null; render(); toast(`${k[0]} added to ${P.name}`);
+  }
+  if (d === 'closeProject') { S.dlg = 'close'; render(); }
+  if (d === 'confirmClose') { S.status = 'CAPITALISED'; S.closedBy = 'Rina Kusuma'; S.dlg = null; render(); toast(`Capitalised · ${S.assets.length} assets in use`); }
+});
+document.addEventListener('change', e => {
+  const t = e.target;
+  if (t.dataset.goes) { S.costs.find(c => c.id === t.dataset.goes).to = t.value; render(); }
+  if (t.hasAttribute('data-ptabsel')) { S.ptab = t.value; render(); }
+  if (t.dataset.reg) { S.reg[t.dataset.reg] = t.value; render(); }
+  if (t.hasAttribute('data-months')) S.months = Number(t.value);
+});
+document.addEventListener('input', e => {
+  const t = e.target;
+  if (t.dataset.tk) {
+    S.tk[t.dataset.tk] = t.dataset.tk === 'off' ? Number(t.value) : t.value;
+    const b = document.querySelector('[data-do="saveTask"]');
+    if (b) b.disabled = !S.tk.name.trim();
+  }
+  if (t.dataset.np) {
+    S.np[t.dataset.np] = t.value;
+    const b = document.querySelector('[data-do="saveProject"]');
+    if (b) b.disabled = !S.np.name.trim();
+  }
+  if (t.dataset.wk) {
+    S.wk[t.dataset.wk] = t.value;
+    const b = document.querySelector('[data-do="saveWork"]');
+    if (b) b.disabled = !S.wk.name.trim();
+  }
+  if (t.dataset.reg === 'name' || t.dataset.reg === 'qty') {
+    S.reg[t.dataset.reg] = t.value;
+    const b = document.querySelector('[data-do="saveAsset"]');
+    if (b) b.disabled = !S.reg.name.trim();
+  }
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') back(); });
+render();
+</script>
+</body>
+</html>

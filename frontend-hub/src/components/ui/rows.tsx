@@ -201,7 +201,9 @@ export function MiniTable({
                 // and an actions column) is two headers, not one key twice.
                 key={index}
                 className={cn(
-                  "pb-2.5 text-[0.9375rem] font-medium text-body",
+                  // Inset at both ends and centred in its band, so the
+                  // heading never touches the band's rounded edge.
+                  "py-2.5 text-[0.9375rem] font-medium text-body first:pl-3 last:pr-3",
                   align === "right"
                     ? "pl-3 text-right"
                     : "pr-2 text-left [&:not(:first-child)]:pl-3"
@@ -248,7 +250,8 @@ export function MiniCell({
     <td
       colSpan={colSpan}
       className={cn(
-        "py-3 text-[0.9375rem] text-text",
+        // The same inset as the heading, so a column reads straight down.
+        "py-3 text-[0.9375rem] text-text first:pl-3 last:pr-3",
         // The gap belongs on the left of a right-aligned cell: padding on the
         // right would move the edge every figure in the column lines up on,
         // and two right-aligned cells with no gap at all run their contents

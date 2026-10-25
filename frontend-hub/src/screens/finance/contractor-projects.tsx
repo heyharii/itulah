@@ -5,6 +5,7 @@ import {
   useSuspenseQuery,
 } from "@tanstack/react-query"
 import { ArrowLeft } from "lucide-react"
+import { useNavigate } from "@tanstack/react-router"
 import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -44,6 +45,7 @@ import {
 } from "@/screens/finance/hooks"
 import { AccountPicker, UnitSelect } from "@/screens/finance/parts"
 import { ScreenPending } from "@/screens/finance/pending"
+import { financeProjectPath } from "@/screens/projects/shared"
 
 /// Assets › Contractor projects (owner, 2026-10-01).
 ///
@@ -121,6 +123,14 @@ function ProjectList({ onOpen }: { onOpen: (id: string) => void }) {
 
 function ProjectListScreen({ onOpen }: { onOpen: (id: string) => void }) {
   const phone = useLayout() === "phone"
+  const navigate = useNavigate()
+  // A store opening or a renovation (0997) opens on the project's own page,
+  // the one GA works on, with Costs in front; a contractor's project keeps
+  // its page here.
+  const open = (row: Project) =>
+    row.kind === "CONTRACTOR"
+      ? onOpen(row.project_id)
+      : void navigate({ to: financeProjectPath(row.project_id) })
   const unitName = useUnitName()
   const supplierName = useSupplierName()
   const [creating, setCreating] = useState(false)
@@ -163,7 +173,7 @@ function ProjectListScreen({ onOpen }: { onOpen: (id: string) => void }) {
               lead={money(row.advanced_minor)}
               caption="paid in advance"
               foot={<StatusLine project={row} />}
-              onOpen={() => onOpen(row.project_id)}
+              onOpen={() => open(row)}
             />
           ))}
         </PhoneList>
@@ -186,7 +196,7 @@ function ProjectListScreen({ onOpen }: { onOpen: (id: string) => void }) {
             {projects.data.map((row) => (
               <tr
                 key={row.project_id}
-                onClick={() => onOpen(row.project_id)}
+                onClick={() => open(row)}
                 className="cursor-pointer"
               >
                 <Td className="max-w-0">
@@ -234,8 +244,12 @@ function ProjectListScreen({ onOpen }: { onOpen: (id: string) => void }) {
 /// One phrase for where a project stands, and a dot in its colour.
 function StatusLine({ project }: { project: Project }) {
   const [tone, text] =
-    project.status === "CLOSED"
-      ? ["bg-faint", `Closed ${day(project.closed_on)}`]
+    project.status === "CAPITALISED"
+      ? ["bg-faint", `Capitalised ${day(project.closed_on)}`]
+      : project.status === "READY"
+        ? ["bg-warn-fg", "Closed by GA · to capitalise"]
+      : project.kind !== "CONTRACTOR"
+        ? ["bg-info-fg", `Running · opens ${day(project.opens_on)}`]
       : project.invoiced_minor === 0
         ? ["bg-info-fg", "Running · no invoice yet"]
         : project.advance_left_minor > 0
@@ -498,7 +512,7 @@ function ProjectPage({ id, onBack }: { id: string; onBack: () => void }) {
             )}
           </Section>
 
-          {project.status === "CLOSED" && (
+          {project.status === "CAPITALISED" && (
             <Section
               title={`Split on ${day(project.closed_on)}`}
               note="Moved out of Contract in Progress"

@@ -164,11 +164,23 @@ export function NameCell({
     </>
   )
   if (Glyph === undefined) return text
+  // One line sits level with its tile; more lines hang from the tile's top.
+  const single =
+    (quiet === undefined || quiet === null || quiet === "") &&
+    children === undefined
   return (
-    <span className="flex min-w-0 items-start gap-3">
+    <span
+      className={cn(
+        "flex min-w-0 gap-3",
+        single ? "items-center" : "items-start"
+      )}
+    >
       <span
         aria-hidden
-        className="mt-px grid size-[1.875rem] shrink-0 place-items-center rounded-inner bg-soft-2 text-body"
+        className={cn(
+          "grid size-[1.875rem] shrink-0 place-items-center rounded-inner bg-soft-2 text-body",
+          !single && "mt-px"
+        )}
       >
         <Glyph className="size-4 stroke-[1.7]" />
       </span>

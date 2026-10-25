@@ -351,6 +351,12 @@ export const SHEET_PARAMS = {
     "server",
     "status",
   ] as const),
+  /// Which tab a project's page stands on (0997): GA's Tasks, Finance's
+  /// Costs, and the Assets, Work and Files both read. In the URL so a reload
+  /// stays where it was and a link can land on Costs.
+  "project-tab": oneOf(["tasks", "costs", "assets", "work", "files"] as const),
+  /// One task of a project, over its Tasks tab.
+  "project-task": id,
   /// One person of a store's team, over the store's People tab, by their
   /// login's user id (not the employee id: a login with no employee behind it
   /// is on the team too). Its own key rather than `user`, which opens the

@@ -28,12 +28,19 @@ pub struct ContractorProject {
     pub project_id: Uuid,
     pub project_number: String,
     pub name: String,
-    pub supplier_id: String,
+    /// `CONTRACTOR` (one contractor paid ahead), `STORE_OPENING` or
+    /// `RENOVATION` (0997).
+    pub kind: String,
+    /// The contractor. A store opening or a renovation need not name one.
+    pub supplier_id: Option<String>,
     pub supplier_name: Option<String>,
     pub unit_id: String,
+    pub site_id: Option<String>,
+    pub opens_on: Option<NaiveDate>,
     pub note: Option<String>,
-    /// `OPEN` or `CLOSED`.
+    /// `OPEN`, `READY` (GA closed it) or `CAPITALISED` (0997).
     pub status: String,
+    pub ready_on: Option<NaiveDate>,
     pub opened_at: DateTime<Utc>,
     pub closed_on: Option<NaiveDate>,
     /// Paid to the contractor ahead of the work.
@@ -164,8 +171,9 @@ pub struct CloseProjectRequest {
 }
 
 const PROJECTS: &str = "
-    SELECT p.project_id, p.project_number, p.name, p.supplier_id, s.name AS supplier_name,
-           p.unit_id, p.note, p.status, p.opened_at, p.closed_on,
+    SELECT p.project_id, p.project_number, p.name, p.kind, p.supplier_id,
+           s.name AS supplier_name, p.unit_id, p.site_id, p.opens_on, p.note, p.status,
+           p.ready_on, p.opened_at, p.closed_on,
            COALESCE(a.advanced, 0)::bigint AS advanced_minor,
            COALESCE(i.invoiced, 0)::bigint AS invoiced_minor,
            COALESCE(i.applied, 0)::bigint AS applied_minor,
@@ -197,11 +205,15 @@ fn to_project(row: &sqlx::postgres::PgRow) -> Result<ContractorProject, AppError
         project_id: row.try_get("project_id")?,
         project_number: row.try_get("project_number")?,
         name: row.try_get("name")?,
+        kind: row.try_get("kind")?,
         supplier_id: row.try_get("supplier_id")?,
         supplier_name: row.try_get("supplier_name")?,
         unit_id: row.try_get("unit_id")?,
+        site_id: row.try_get("site_id")?,
+        opens_on: row.try_get("opens_on")?,
         note: row.try_get("note")?,
         status: row.try_get("status")?,
+        ready_on: row.try_get("ready_on")?,
         opened_at: row.try_get("opened_at")?,
         closed_on: row.try_get("closed_on")?,
         advanced_minor: advanced,
@@ -233,14 +245,26 @@ async fn project(pool: &PgPool, project_id: Uuid) -> Result<ContractorProject, A
     to_project(&row)
 }
 
+/// Cost may still arrive after GA closed the project; only capitalising ends
+/// it.
 fn open_only(project: &ContractorProject) -> Result<(), AppError> {
-    if project.status != "OPEN" {
+    if project.status == "CAPITALISED" {
         return Err(AppError::Conflict(format!(
-            "{} is closed; its cost has already been split",
+            "{} is capitalised; its cost has already been placed",
             project.project_number
         )));
     }
     Ok(())
+}
+
+/// The contractor a contractor's step is for.
+fn contractor_of(project: &ContractorProject) -> Result<String, AppError> {
+    project.supplier_id.clone().ok_or_else(|| {
+        AppError::Validation(format!(
+            "{} names no contractor; an advance or a contractor's invoice needs one",
+            project.project_number
+        ))
+    })
 }
 
 pub async fn contractor_project(
@@ -351,12 +375,9 @@ pub async fn open_contractor_project(
     }
     let project_id = Uuid::new_v4();
     let year = Utc::now().year();
-    let serial: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) + 1 FROM contractor_project WHERE project_number LIKE $1",
-    )
-    .bind(format!("PRJ-{year}-%"))
-    .fetch_one(pool)
-    .await?;
+    let serial: i64 = sqlx::query_scalar("SELECT nextval('contractor_project_serial')")
+        .fetch_one(pool)
+        .await?;
     sqlx::query(
         "INSERT INTO contractor_project (project_id, project_number, name, supplier_id, unit_id,
                                          note, opened_by)
@@ -394,6 +415,7 @@ pub async fn pay_project_advance(
     }
     let head = project(pool, project_id).await?;
     open_only(&head)?;
+    let contractor = contractor_of(&head)?;
     let advance_id = Uuid::new_v4();
     let intent = PostingIntent {
         posting_date: request.paid_on,
@@ -408,7 +430,7 @@ pub async fn pay_project_advance(
         lines: vec![
             PostingLine::debit("advance", &head.unit_id, request.amount_minor)
                 .with_qualifier("CONTRACTOR")
-                .for_supplier(&head.supplier_id),
+                .for_supplier(&contractor),
             PostingLine::credit(
                 request.account_key.as_str(),
                 &head.unit_id,
@@ -479,6 +501,7 @@ pub async fn add_project_invoice(
     }
     let head = project(pool, project_id).await?;
     open_only(&head)?;
+    let contractor = contractor_of(&head)?;
     let cip = cip_account(pool, &head.unit_id).await?;
     let site: String =
         sqlx::query_scalar("SELECT id FROM site WHERE unit_id = $1 ORDER BY id LIMIT 1")
@@ -495,7 +518,7 @@ pub async fn add_project_invoice(
     // The ordinary bill: Dr CIP / Cr payable, posted on recording.
     let bill_request: super::RecordBillRequest = serde_json::from_value(json!({
         "invoice_number": request.invoice_number.trim(),
-        "supplier_id": head.supplier_id,
+        "supplier_id": contractor,
         "supplier_name": null,
         "site_id": site,
         "invoice_date": request.invoice_date,
@@ -535,10 +558,10 @@ pub async fn add_project_invoice(
             )),
             lines: vec![
                 PostingLine::debit("non_merchandise_payable", &head_office, applied)
-                    .for_supplier(&head.supplier_id),
+                    .for_supplier(&contractor),
                 PostingLine::credit("advance", &head.unit_id, applied)
                     .with_qualifier("CONTRACTOR")
-                    .for_supplier(&head.supplier_id),
+                    .for_supplier(&contractor),
             ],
         };
         let entry_id = post(&mut tx, &intent, Some("APPLIED"), actor)
@@ -550,7 +573,7 @@ pub async fn add_project_invoice(
             &mut tx,
             "non_merchandise_payable",
             &head_office,
-            &head.supplier_id,
+            &contractor,
             bill.invoice_id,
             "ADVANCE",
             project_id,
@@ -562,6 +585,11 @@ pub async fn add_project_invoice(
         .await?;
         applied_entry = Some(entry_id);
     }
+    sqlx::query("UPDATE supplier_invoice_expense_line SET project_id = $2 WHERE invoice_id = $1")
+        .bind(bill.invoice_id)
+        .bind(project_id)
+        .execute(&mut *tx)
+        .await?;
     sqlx::query(
         "INSERT INTO contractor_project_invoice (invoice_id, project_id, applied_minor, applied_entry_id)
          VALUES ($1, $2, $3, $4)",
@@ -587,7 +615,7 @@ pub async fn close_contractor_project(
     // A close whose journal posted but whose register step failed part-way is
     // finished by closing again: the split stands, and only the assets that
     // are not in the register yet are put there.
-    if head.status == "CLOSED" {
+    if head.status == "CAPITALISED" {
         register_split_assets(pool, project_id, actor).await?;
         return contractor_project(pool, project_id).await;
     }
@@ -687,7 +715,7 @@ pub async fn close_contractor_project(
     let posted = post(&mut tx, &intent, None, actor).await?;
     sqlx::query(
         "UPDATE contractor_project
-            SET status = 'CLOSED', closed_on = $2, closed_entry_id = $3, closed_by = $4
+            SET status = 'CAPITALISED', closed_on = $2, closed_entry_id = $3, closed_by = $4
           WHERE project_id = $1",
     )
     .bind(project_id)

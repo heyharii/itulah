@@ -751,6 +751,28 @@ def seed_supplies(cloud):
             row = moved
 
 
+def seed_projects(cloud):
+    """A store opening (0997): its template tasks, the first ones ticked."""
+    print("projects")
+    name = "Opening Wonosobo"
+    have = {r["name"]: r for r in rows(get(cloud, "/api/v1/ga/projects"))}
+    if name in have:
+        print(f"  = {name}")
+        return
+    page = do(cloud, name, "POST", "/api/v1/ga/projects", {
+        "name": name, "kind": "STORE_OPENING", "site_id": "store-13",
+        "opens_on": D(21), "pic": None, "note": None})
+    if page is None:
+        return
+    project_id = page["project"]["project_id"]
+    # What is due before today is done; the rest is still to do.
+    for task in page["tasks"]:
+        if task["due_on"] < D(0):
+            do(cloud, f"  done · {task['name']}", "PATCH",
+               f"/api/v1/ga/projects/{project_id}/tasks/{task['task_id']}",
+               {"name": None, "pic": None, "due_on": None, "done": True})
+
+
 def seed_letters(cloud):
     print("letters")
     title_line = "Pemberitahuan jadwal servis AC toko 01"
@@ -936,6 +958,7 @@ def run(cloud, dc, store, ctx):
     contracts = seed_contracts(cloud, suppliers)
     seed_upkeep(cloud, assets, contracts, suppliers)
     seed_supplies(cloud)
+    seed_projects(cloud)
     seed_letters(cloud)
     seed_papers(cloud, assets, contracts)
     seed_report(cloud)
