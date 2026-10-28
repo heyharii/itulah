@@ -1,12 +1,16 @@
-import { useSuspenseQuery } from "@tanstack/react-query"
+import { useQuery, useSuspenseQuery } from "@tanstack/react-query"
 import { Suspense, useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
 import { ExportButton } from "@/components/ui/export-button"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
+import { Fact, Facts, Sheet } from "@/components/ui/sheet"
+import { Pill } from "@/components/ui/pill"
 import { CellMoney } from "@/components/ui/rows-switch"
 import { Banner, EmptyState } from "@/components/ui/states"
+import { SheetFooter } from "@/components/ui/sheet-footer"
 import { monthStamp, type ExportSheet } from "@/lib/export-xlsx"
 import { count, day, money } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
@@ -16,7 +20,7 @@ import { queryState } from "@/lib/query-state"
 import { button } from "@/components/ui/button-style"
 import { cn } from "@/lib/utils"
 import { Code, Grid, Td, Th, TotalRow } from "@/screens/finance-final/parts"
-import { yearToDate } from "@/screens/finance/chart"
+import { todayIso, yearToDate } from "@/screens/finance/chart"
 import type { DateWindow } from "@/screens/finance/hooks"
 import { PhoneCard, PhoneList } from "@/components/ui/phone-cards"
 import { SiteSelect, WindowControl } from "@/screens/finance/parts"
@@ -414,4 +418,180 @@ function methodLabel(method: string | null): string {
   if (method === "SOLD") return "Sold"
   if (method === "WRITTEN_OFF") return "Written off"
   return method ?? "—"
+}
+
+/// The Disposals tab of Assets: what left the books this year, as the register
+/// states it. A row opens the disposal — its figures, and the journal that took
+/// the asset out.
+export function DisposalsTab() {
+  const year = `${todayIso().slice(0, 4)}`
+  const siteName = useSiteLabel()
+  const register = useQuery(assetsAllQuery(null, "DISPOSED"))
+  const [shown, setShown] = useState<AssetRow | null>(null)
+  const rows = useMemo(
+    () =>
+      (register.data?.rows ?? [])
+        .filter((row) => row.disposed_on !== null)
+        .sort((a, b) =>
+          (b.disposed_on ?? "").localeCompare(a.disposed_on ?? "")
+        )
+        .map(figuresOf),
+    [register.data]
+  )
+  const total = rows.reduce(
+    (sum, row) => ({
+      cost: sum.cost + row.cost,
+      book: sum.book + row.book,
+      proceeds: sum.proceeds + row.proceeds,
+      result: sum.result + row.result,
+    }),
+    { cost: 0, book: 0, proceeds: 0, result: 0 }
+  )
+  const one = shown === null ? null : figuresOf(shown)
+
+  return (
+    <>
+      <KpiStrip className="grid-cols-2 md:grid-cols-4 xl:grid-cols-4">
+        <Kpi label={`Disposed in ${year}`} value={count(rows.length)} />
+        <Kpi label="Cost out" value={money(total.cost)} />
+        <Kpi label="Book value out" value={money(total.book)} />
+        <Kpi
+          label="Gain or loss"
+          value={`${total.result > 0 ? "+" : ""}${money(total.result)}`}
+        />
+      </KpiStrip>
+      {queryState(register, {
+        loading: "Reading the disposed assets…",
+        render: () =>
+          rows.length === 0 ? (
+            <EmptyState>No asset has been sold or written off.</EmptyState>
+          ) : (
+            <Grid followRows>
+              <thead>
+                <tr>
+                  <Th>Asset</Th>
+                  <Th width="10rem">Place</Th>
+                  <Th width="7rem">Disposed</Th>
+                  <Th width="9rem">How</Th>
+                  <Th align="right" width="10rem">
+                    Book value
+                  </Th>
+                  <Th align="right" width="10rem">
+                    Proceeds
+                  </Th>
+                  <Th align="right" width="10rem">
+                    Gain or loss
+                  </Th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(({ asset, book, proceeds, result }) => (
+                  <tr
+                    key={asset.asset_id}
+                    className="cursor-pointer hover:bg-soft"
+                    onClick={() => setShown(asset)}
+                  >
+                    <Td className="max-w-0 text-ink">
+                      <span className="block truncate" title={asset.name}>
+                        {asset.name}{" "}
+                        <span className="text-mute">{asset.asset_number}</span>
+                      </span>
+                    </Td>
+                    <Td>{siteName(asset.site_id)}</Td>
+                    <Td>{day(asset.disposed_on)}</Td>
+                    <Td>{methodLabel(asset.disposal_method)}</Td>
+                    <Td align="right">{money(book)}</Td>
+                    <Td align="right">
+                      {proceeds === 0 ? (
+                        <span className="text-faint">—</span>
+                      ) : (
+                        money(proceeds)
+                      )}
+                    </Td>
+                    <Td align="right">
+                      {result > 0 ? "+" : ""}
+                      {money(result)}
+                    </Td>
+                  </tr>
+                ))}
+                <TotalRow>
+                  <Td>{count(rows.length)} assets</Td>
+                  <Td />
+                  <Td />
+                  <Td />
+                  <Td align="right">{money(total.book)}</Td>
+                  <Td align="right">{money(total.proceeds)}</Td>
+                  <Td align="right">
+                    {total.result > 0 ? "+" : ""}
+                    {money(total.result)}
+                  </Td>
+                </TotalRow>
+              </tbody>
+            </Grid>
+          ),
+      })}
+      <Sheet
+        open={shown !== null}
+        onOpenChange={(open) => {
+          if (!open) setShown(null)
+        }}
+        context="Assets / Disposals"
+        title={shown?.name ?? ""}
+        badge={
+          shown === null ? undefined : (
+            <Pill tone="neutral">{methodLabel(shown.disposal_method)}</Pill>
+          )
+        }
+        size="wide"
+        footer={
+          <SheetFooter
+            onCancel={() => setShown(null)}
+            cancelLabel="Close"
+            primary={undefined}
+          />
+        }
+      >
+        {shown !== null && one !== null && (
+          <div className="flex flex-col gap-6">
+            <KpiStrip className="grid-cols-2 md:grid-cols-5 xl:grid-cols-5">
+              <Kpi label="Cost" value={money(one.cost)} />
+              <Kpi label="Accumulated" value={money(one.accumulated)} />
+              <Kpi label="Book value" value={money(one.book)} />
+              <Kpi label="Proceeds" value={money(one.proceeds)} />
+              <Kpi
+                label="Gain or loss"
+                value={`${one.result > 0 ? "+" : ""}${money(one.result)}`}
+              />
+            </KpiStrip>
+            <Facts>
+              <Fact term="Kode">
+                <Code>{shown.asset_number}</Code>
+              </Fact>
+              <Fact term="Category">{shown.category_name}</Fact>
+              <Fact term="Place">{siteName(shown.site_id)}</Fact>
+              <Fact term="Acquired">{day(shown.acquired_on)}</Fact>
+              <Fact term="Disposed">{day(shown.disposed_on)}</Fact>
+              <Fact term="How">{methodLabel(shown.disposal_method)}</Fact>
+              <Fact term="Journal">
+                {shown.disposal_journal_entry_id === null ? (
+                  "—"
+                ) : (
+                  <AppLink
+                    to="/finance/accounting/journal-entries"
+                    sheet={{
+                      key: "entry",
+                      value: shown.disposal_journal_entry_id,
+                    }}
+                    className={button({ variant: "primary" })}
+                  >
+                    Open journal
+                  </AppLink>
+                )}
+              </Fact>
+            </Facts>
+          </div>
+        )}
+      </Sheet>
+    </>
+  )
 }

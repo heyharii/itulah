@@ -43,6 +43,9 @@ export interface DraftLine {
   unit_id: string
   debit: string
   credit: string
+  /// 7Soft's Uraian: what this one line is about. Left out by the template
+  /// editor, whose lines carry none.
+  memo?: string
 }
 
 export function blankLine(): DraftLine {
@@ -107,6 +110,44 @@ export function draftTotals(lines: readonly DraftLine[]) {
       debits > 0 &&
       uncategorised.length === 0,
   }
+}
+
+// ---------------------------------------------------------------------------
+// 7Soft's header: No Referensi, Keterangan and Periode Acc
+// ---------------------------------------------------------------------------
+
+/// 7Soft's Periode Acc: the year and month of the date, `200708`.
+export function periodOf(date: string): string {
+  return `${date.slice(0, 4)}${date.slice(5, 7)}`
+}
+
+/// A manual entry's reference travels at the head of its memo as `[ref] note`
+/// — the books have no reference column and the manual-entry endpoint takes
+/// none — and is read back from it on manual entries only.
+const REF_MARK = /^\[([^\]]*)\]\s?/
+
+export function memoParts(entry: {
+  source_kind: string
+  memo: string | null
+}): {
+  ref: string
+  note: string
+} {
+  const memo = entry.memo ?? ""
+  if (entry.source_kind !== "MANUAL") return { ref: "", note: memo }
+  const found = REF_MARK.exec(memo)
+  return found === null
+    ? { ref: "", note: memo }
+    : { ref: found[1], note: memo.slice(found[0].length) }
+}
+
+/// The memo a manual entry is written with: the reference first, then
+/// Keterangan. Empty is `null`, which is what the endpoint means by none.
+export function memoOf(ref: string, note: string): string | null {
+  const reference = ref.trim().replace(/[[\]]/g, "")
+  const text = note.trim()
+  if (reference === "") return text === "" ? null : text
+  return text === "" ? `[${reference}]` : `[${reference}] ${text}`
 }
 
 // ---------------------------------------------------------------------------

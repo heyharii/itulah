@@ -56,6 +56,7 @@ import {
 import { FilterCheck, ReportFilters } from "@/screens/finance/report"
 import { AgeingBar } from "@/screens/finance/workspace"
 import { ScreenPending } from "@/screens/finance/pending"
+import { PurchasingReports } from "@/screens/finance/purchasing-reports"
 import type {
   AgingBuckets,
   PaymentLedgerEntry,
@@ -275,106 +276,12 @@ function AccountsPayableScreen() {
   )
 }
 
-/// ERPNext's Accounts Payable Summary (`accounts_payable_summary`): the same
-/// ageing, one row per supplier, under Financial Reports › Registers. The
-/// table is the one Accounts Payable draws with Group By Supplier ticked.
+/// 7Soft's Laporan Pembelian (4.6) stands at this address: the list of its
+/// purchasing reports, with the ERPNext Accounts Payable Summary — the ageing,
+/// one row per supplier — as its Umur Hutang (no. 32). The same ageing with its
+/// bar is Group By Supplier on Accounts Payable (Due dates › Aging).
 export function AccountsPayableSummary() {
-  return (
-    <Suspense
-      fallback={
-        <ScreenPending
-          className="max-md:hidden"
-          crumb="Finance · Payables"
-          title="Supplier Bills"
-        >
-          Adding up what each supplier is owed…
-        </ScreenPending>
-      }
-    >
-      <AccountsPayableSummaryScreen />
-    </Suspense>
-  )
-}
-
-function AccountsPayableSummaryScreen() {
-  const asOf = useAsOf()
-  const [unit, setUnit] = useState("")
-  const unitName = useUnitName()
-  const exporter: Exporter = useRef(null)
-
-  // The boxes answer at once; the ageing trails them, and the figures in hand
-  // stay on screen (dimmed) until the next are read.
-  const askedUnit = useDeferredValue(unit)
-  const askedAsOf = useDeferredValue(asOf.value)
-  const stale = askedUnit !== unit || askedAsOf !== asOf.value
-  const aging = useSuspenseQuery(
-    payablesAgingQuery(askedAsOf, askedUnit || null)
-  )
-
-  return (
-    <PageContent>
-      <PageHeader
-        className="max-md:hidden"
-        crumb="Finance · Payables"
-        title="Supplier Bills"
-        actions={<ExportButton build={() => exporter.current?.() ?? null} />}
-      />
-
-      <ReportFilters
-        exportAction={
-          <ExportButton
-            variant="ghost"
-            build={() => exporter.current?.() ?? null}
-          />
-        }
-        note={
-          <>
-            {asOf.chip}
-            {unit === "" ? (
-              " · all units"
-            ) : (
-              <>
-                {" · "}
-                <UnitName id={unit} />
-              </>
-            )}
-          </>
-        }
-      >
-        <UnitSelect
-          value={unit}
-          onChange={setUnit}
-          className="h-control w-44"
-          aria-label="Unit"
-        />
-        <AsOfControl asOf={asOf} />
-      </ReportFilters>
-
-      <div className="list-swap" aria-busy={stale || undefined}>
-        {queryState(aging, {
-          render: (data) => (
-            <>
-              <Card className="mb-3 px-4 py-4">
-                <AgeingBar buckets={data.total} />
-              </Card>
-              {data.suppliers.length === 0 ? (
-                <NothingOwed unit={askedUnit} asOf={askedAsOf} />
-              ) : (
-                <SupplierTable
-                  rows={data.suppliers}
-                  total={data.total}
-                  exporter={exporter}
-                  title="Supplier Bills"
-                  filename={`Supplier-Bills-${askedAsOf}`}
-                  subtitle={`${asOf.chip} · ${askedUnit === "" ? "all units" : unitName(askedUnit)}`}
-                />
-              )}
-            </>
-          ),
-        })}
-      </div>
-    </PageContent>
-  )
+  return <PurchasingReports />
 }
 
 /// The bucket fields alone, so a column is indexed with a key the compiler has

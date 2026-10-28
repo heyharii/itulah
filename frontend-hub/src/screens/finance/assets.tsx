@@ -28,6 +28,7 @@ import { Fab } from "@/components/ui/fab"
 import { Field, Input, Money, Select, Textarea } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { BarSpacer, ColumnsMenu } from "@/components/ui/list-chrome"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill, Status } from "@/components/ui/pill"
 import {
@@ -40,10 +41,12 @@ import {
 import { CellMoney } from "@/components/ui/rows-switch"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState, NoMatch } from "@/components/ui/states"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import { useFilters } from "@/lib/filters"
 import { count, day, label, money } from "@/lib/format"
 import {
   assessAsset,
+  assetDepreciationStatus,
   assetPagesQuery,
   assetSchedule,
   billDetail,
@@ -67,6 +70,7 @@ import {
   CHARGE_KINDS,
   DEPRECIATION_METHODS,
   impliedChargeKind,
+  monthLabel,
   monthOf,
   parseMinor,
   todayIso,
@@ -77,6 +81,14 @@ import {
   useMeaningLabel,
   useMoneyAccounts,
 } from "@/screens/finance/hooks"
+import {
+  isIntangible,
+  Penyusutan,
+  useAssetAccount,
+  type AccountSide,
+} from "@/screens/finance/asset-penyusutan"
+import { DisposalsTab } from "@/screens/finance/asset-disposals"
+import { ProjectsTab } from "@/screens/finance/asset-projects"
 import { SiteName, SiteSelect } from "@/screens/finance/parts"
 import { ScreenPending } from "@/screens/finance/pending"
 import type { AssetRow, SupplierBillLine } from "@itulah/contract"
@@ -176,11 +188,38 @@ function Treatment({ asset }: { asset: AssetRow }) {
   return <Status tone="neutral">Expensed</Status>
 }
 
+/// Whole years where it is whole, one decimal otherwise: 7Soft keeps Umur Asset
+/// in years, the hub in months.
+function yearsOf(months: number): string {
+  const years = months / 12
+  return Number.isInteger(years) ? String(years) : years.toFixed(1)
+}
+
+/// 7Soft's Rate Depresiasi: the share of cost charged each year. Only a
+/// straight line has one number for it; a declining balance charges a share of
+/// what is left, so it has none to print here.
+function rateOf(asset: AssetRow): string | null {
+  if (asset.method !== "STRAIGHT_LINE") return null
+  if (asset.useful_life_months === null || asset.useful_life_months <= 0)
+    return null
+  return `${(1200 / asset.useful_life_months).toFixed(2)}%`
+}
+
+function AssetAccount({ asset, side }: { asset: AssetRow; side: AccountSide }) {
+  const link = useAssetAccount(asset, side)
+  if (link === null) return <span className="text-faint">—</span>
+  return (
+    <span className="text-body" title={link.account_code}>
+      {link.account_name}
+    </span>
+  )
+}
+
 const columns: ColumnDef<TableSetup, AssetRow>[] = [
   {
     accessorKey: "asset_number",
-    header: "Asset",
-    size: 120,
+    header: "Kode Asset",
+    size: 130,
     meta: { card: "hide" },
     cell: ({ row }) => (
       <span className="font-mono text-id text-body">
@@ -190,23 +229,18 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
   },
   {
     accessorKey: "name",
-    header: "Name",
-    size: 280,
+    header: "Nama Asset",
+    size: 260,
     meta: { card: "hide" },
-    // The asset's number sits under its name: one answer, "which asset",
-    // instead of two columns that both say it.
+    // The number has its own column since the register took 7Soft's: Kode
+    // Asset, Nama Asset.
     cell: ({ row }) => (
-      <span className="block py-1">
-        <span className="block font-medium text-ink">{row.original.name}</span>
-        <span className="block font-mono text-[0.9375rem] text-mute">
-          {row.original.asset_number}
-        </span>
-      </span>
+      <span className="block font-medium text-ink">{row.original.name}</span>
     ),
   },
   {
     accessorKey: "category_name",
-    header: "Category",
+    header: "Tipe Asset",
     size: 170,
     // The first column this table gives up when the card is narrow, and the
     // one it can most afford to: the family is on the chart above, and it is
@@ -218,6 +252,33 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
     // The server orders by number, name, treatment, cost and book; see
     // `SORTS`.
     enableSorting: false,
+  },
+  {
+    accessorKey: "quantity",
+    header: "Jumlah",
+    size: 100,
+    enableSorting: false,
+    meta: { align: "right", card: "hide" },
+    cell: ({ row }) => (
+      <span className="text-body tabular-nums">{row.original.quantity}</span>
+    ),
+  },
+  {
+    id: "method",
+    accessorFn: (row) => row.method ?? "",
+    header: "Metode Depresiasi",
+    size: 170,
+    enableSorting: false,
+    meta: { card: "hide" },
+    cell: ({ row }) =>
+      row.original.method === null ? (
+        <span className="text-faint">—</span>
+      ) : (
+        <span className="text-body">
+          {DEPRECIATION_METHODS.find((one) => one.value === row.original.method)
+            ?.label ?? label(row.original.method)}
+        </span>
+      ),
   },
   {
     accessorKey: "site_id",
@@ -315,9 +376,127 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
         </span>
       ),
   },
+  // 7Soft's remaining register fields. Out of sight until somebody switches
+  // them on in the Columns menu; each is also in the asset's sheet.
+  {
+    accessorKey: "acquired_on",
+    header: "Tanggal Beli",
+    size: 140,
+    enableSorting: false,
+    meta: { card: "hide" },
+    cell: ({ row }) => (
+      <span className="text-body">{day(row.original.acquired_on)}</span>
+    ),
+  },
+  {
+    accessorKey: "in_service_on",
+    header: "Tanggal Pemakaian",
+    size: 170,
+    enableSorting: false,
+    meta: { card: "hide" },
+    cell: ({ row }) =>
+      row.original.in_service_on === null ? (
+        <span className="text-faint">—</span>
+      ) : (
+        <span className="text-body">{day(row.original.in_service_on)}</span>
+      ),
+  },
+  {
+    id: "life",
+    accessorFn: (row) => row.useful_life_months ?? 0,
+    header: "Umur Asset (TH)",
+    size: 150,
+    enableSorting: false,
+    meta: { align: "right", card: "hide" },
+    cell: ({ row }) =>
+      row.original.useful_life_months === null ? (
+        <span className="text-faint">—</span>
+      ) : (
+        <span className="text-body tabular-nums">
+          {yearsOf(row.original.useful_life_months)}
+        </span>
+      ),
+  },
+  {
+    id: "rate",
+    accessorFn: (row) => rateOf(row) ?? "",
+    header: "Rate Depresiasi",
+    size: 150,
+    enableSorting: false,
+    meta: { align: "right", card: "hide" },
+    cell: ({ row }) => {
+      const rate = rateOf(row.original)
+      return rate === null ? (
+        <span className="text-faint">—</span>
+      ) : (
+        <span className="text-body tabular-nums">{rate}</span>
+      )
+    },
+  },
+  {
+    id: "active",
+    // Aktif: not yet disposed of.
+    accessorFn: (row) => (row.disposed_on === null ? "Yes" : ""),
+    header: "Aktif",
+    size: 100,
+    enableSorting: false,
+    meta: { align: "center", card: "hide" },
+    cell: ({ row }) =>
+      row.original.disposed_on === null ? (
+        <span className="text-ink">Yes</span>
+      ) : (
+        <span className="text-faint">—</span>
+      ),
+  },
+  {
+    id: "account_asset",
+    header: "Account Asset",
+    size: 220,
+    enableSorting: false,
+    meta: { card: "hide" },
+    cell: ({ row }) => <AssetAccount asset={row.original} side="asset" />,
+  },
+  {
+    id: "account_debit",
+    header: "Account Debet",
+    size: 240,
+    enableSorting: false,
+    meta: { card: "hide" },
+    cell: ({ row }) => <AssetAccount asset={row.original} side="debit" />,
+  },
+  {
+    id: "account_credit",
+    header: "Account Kredit",
+    size: 240,
+    enableSorting: false,
+    meta: { card: "hide" },
+    cell: ({ row }) => <AssetAccount asset={row.original} side="credit" />,
+  },
+  {
+    id: "intangible",
+    accessorFn: (row) => (isIntangible(row) ? "Yes" : ""),
+    header: "Intangible",
+    size: 120,
+    enableSorting: false,
+    meta: { align: "center", card: "hide" },
+    cell: ({ row }) =>
+      isIntangible(row.original) ? (
+        <span className="text-ink">Yes</span>
+      ) : (
+        <span className="text-faint">—</span>
+      ),
+  },
+  {
+    id: "keterangan",
+    header: "Keterangan",
+    size: 200,
+    enableSorting: false,
+    meta: { card: "hide" },
+    cell: () => <span className="text-faint">—</span>,
+  },
   {
     accessorKey: "capitalized_cost_minor",
-    header: "Cost",
+    header: "Nilai Asset",
     size: 130,
     meta: { align: "right", card: "hide" },
     cell: ({ row }) =>
@@ -329,8 +508,8 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
   },
   {
     accessorKey: "accumulated_minor",
-    header: "Accumulated",
-    size: 130,
+    header: "Nilai Penyusutan",
+    size: 150,
     enableSorting: false,
     // Given up before anything else: it is cost less book value, and both of
     // those are still on the row.
@@ -453,6 +632,7 @@ function AssetRegisterScreen() {
   const [query, setQuery] = useState("")
   const [site, setSite] = useState("")
   const [registering, setRegistering] = useState(false)
+  const [tab, setTab] = useState("register")
   const asset = useSheet("asset")
   const [sorting, setSorting] = useState<SortingState>([
     { id: "treatment", desc: false },
@@ -520,10 +700,21 @@ function AssetRegisterScreen() {
           // register opens on what an asset is, where it is and what it is
           // worth (owner, 2026-10-01: "terlalu banyak, harus spacious").
           columnVisibility: {
-            asset_number: false,
+            site_id: false,
             acquired_via: false,
             last_depreciated_month: false,
-            accumulated_minor: false,
+            acquired_on: false,
+            in_service_on: false,
+            life: false,
+            rate: false,
+            active: false,
+            // 7Soft's ACCOUNT block, the Intangible tick and Keterangan: in the
+            // Columns menu, and in the asset's sheet.
+            account_asset: false,
+            account_debit: false,
+            account_credit: false,
+            intangible: false,
+            keterangan: false,
             // What somebody switched on in the Columns menu.
             ...visibility,
             // The card's own columns are drawn on a phone and never on a
@@ -576,15 +767,26 @@ function AssetRegisterScreen() {
 
   const booked = byCategory.reduce((sum, family) => sum + family.value, 0)
 
+  /// This month's charge, as the register states it (what the run has posted).
+  const [chargeYear, chargeMonth] = [
+    Number(todayIso().slice(0, 4)),
+    Number(todayIso().slice(5, 7)),
+  ]
+  const charged = useQuery({
+    queryKey: financeKeys.depreciationStatus(chargeYear, chargeMonth),
+    queryFn: ({ signal }) =>
+      assetDepreciationStatus(chargeYear, chargeMonth, signal),
+  })
+
   return (
     <PageContent>
       <PageHeader
         crumb="Finance · Assets"
-        title="Asset"
+        title="Assets"
         // Search, the site, the filters, the order and "Register asset" are the
         // dock's on a phone.
         actions={
-          phone ? undefined : (
+          phone || tab !== "register" ? undefined : (
             <Button variant="primary" onClick={() => setRegistering(true)}>
               Register asset
             </Button>
@@ -592,125 +794,162 @@ function AssetRegisterScreen() {
         }
       />
 
-      {phone && (
-        <>
-          <Fab label="Register asset" onClick={() => setRegistering(true)} />
-          <DockTools
-            search={{
-              value: query,
-              onChange: setQuery,
-              label: "Search assets",
-            }}
-            filter={{
-              count: filters.filters.length,
-              panel: { model: filters, table },
-            }}
-            sort={dockSortOf(table)}
-            status={{
-              value: site,
-              options: [
-                { value: "", label: "All sites" },
-                ...siteChoices(units.data ?? []).map((one) => ({
-                  value: one.siteId,
-                  label: one.label,
-                })),
-              ],
-              onChange: setSite,
-            }}
-          />
-          <p className="mb-3 text-[0.9375rem] text-mute">
-            {count(held)} registered ·{" "}
-            <span className="font-medium text-ink tabular-nums">
-              {money(booked)}
-            </span>{" "}
-            at book value
-          </p>
-        </>
-      )}
+      <SubTabs
+        tabs={[
+          { value: "register", label: "Register" },
+          { value: "projects", label: "Projects" },
+          { value: "penyusutan", label: "Depreciation" },
+          { value: "disposals", label: "Disposals" },
+        ]}
+        value={tab}
+        onChange={setTab}
+      />
 
-      {!phone && (
-        <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2">
-          <SiteSelect
-            value={site}
-            onChange={setSite}
-            className="h-control w-44"
-            aria-label="Site"
-          />
-          {/* Location is not among the questions inside: the select beside this
+      {tab === "penyusutan" ? (
+        <Penyusutan />
+      ) : tab === "projects" ? (
+        <ProjectsTab />
+      ) : tab === "disposals" ? (
+        <DisposalsTab />
+      ) : (
+        <>
+          <KpiStrip className="grid-cols-2 md:grid-cols-4 xl:grid-cols-4">
+            <Kpi label="Cost" value={money(head?.total_cost_minor ?? 0)} />
+            <Kpi
+              label="Book value"
+              value={money(head?.total_book_minor ?? 0)}
+            />
+            <Kpi
+              label={`${monthLabel(chargeYear, chargeMonth)} charge`}
+              value={money(charged.data?.posted_total_minor ?? 0)}
+              onClick={() => setTab("penyusutan")}
+            />
+            <Kpi label="Assets" value={count(held)} />
+          </KpiStrip>
+          {phone && (
+            <>
+              <Fab
+                label="Register asset"
+                onClick={() => setRegistering(true)}
+              />
+              <DockTools
+                search={{
+                  value: query,
+                  onChange: setQuery,
+                  label: "Search assets",
+                }}
+                filter={{
+                  count: filters.filters.length,
+                  panel: { model: filters, table },
+                }}
+                sort={dockSortOf(table)}
+                status={{
+                  value: site,
+                  options: [
+                    { value: "", label: "All sites" },
+                    ...siteChoices(units.data ?? []).map((one) => ({
+                      value: one.siteId,
+                      label: one.label,
+                    })),
+                  ],
+                  onChange: setSite,
+                }}
+              />
+              <p className="mb-3 text-[0.9375rem] text-mute">
+                {count(held)} registered ·{" "}
+                <span className="font-medium text-ink tabular-nums">
+                  {money(booked)}
+                </span>{" "}
+                at book value
+              </p>
+            </>
+          )}
+
+          {!phone && (
+            <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2">
+              <SiteSelect
+                value={site}
+                onChange={setSite}
+                className="h-control w-44"
+                aria-label="Site"
+              />
+              {/* Location is not among the questions inside: the select beside this
             asks it on the wire, and the figure to the right is the answer for
             whatever it asked. */}
-          <FilterPanel
-            model={filters}
-            table={table}
-            search={{
-              value: query,
-              onChange: setQuery,
-              label: "Search assets",
-            }}
-          />
-          <BarSpacer />
-          {/* The effective answer, in words. Which location, how many assets
+              <FilterPanel
+                model={filters}
+                table={table}
+                search={{
+                  value: query,
+                  onChange: setQuery,
+                  label: "Search assets",
+                }}
+              />
+              <BarSpacer />
+              {/* The effective answer, in words. Which location, how many assets
             the server found, and what they are worth — the same figure the
             chart below totals, so the two cannot disagree. */}
-          <span className="text-[0.9375rem] text-mute">
-            {site === "" ? "All sites" : <SiteName id={site} />}
-            {" · "}
-            {count(held)} registered ·{" "}
-            <span className="font-medium text-ink tabular-nums">
-              {money(booked)}
-            </span>{" "}
-            at book value
-          </span>
-          <ColumnsMenu table={table} />
-        </div>
-      )}
+              <span className="text-[0.9375rem] text-mute">
+                {site === "" ? "All sites" : <SiteName id={site} />}
+                {" · "}
+                {count(held)} registered ·{" "}
+                <span className="font-medium text-ink tabular-nums">
+                  {money(booked)}
+                </span>{" "}
+                at book value
+              </span>
+              <ColumnsMenu table={table} />
+            </div>
+          )}
 
-      {/* The control gap, stated once and only when there is one. It used to be
+          {/* The control gap, stated once and only when there is one. It used to be
           a second tab; a tab that is empty most days is a tab that gets clicked
           most days for nothing, and the rows it would have held are already the
           first ones on this list. Counted by the server for this location —
           the register pages now, so the rows on screen are not all of it. */}
-      {gap > 0 && (
-        <Banner tone="warn" className="mb-3">
-          {count(gap)} assets have never been assessed — nobody has decided
-          whether to capitalise or expense them. They sort to the top.
-        </Banner>
-      )}
+          {gap > 0 && (
+            <Banner tone="warn" className="mb-3">
+              {count(gap)} assets have never been assessed — nobody has decided
+              whether to capitalise or expense them. They sort to the top.
+            </Banner>
+          )}
 
-      <Card
-        aria-busy={stale || undefined}
-        className="list-swap overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none"
-      >
-        {queryState(assets, {
-          render: () =>
-            rows.length === 0 && narrowed ? (
-              <NoMatch what="assets" onClear={clearNarrowing} />
-            ) : rows.length === 0 ? (
-              <EmptyState>
-                {site === ""
-                  ? "Nothing has been registered yet."
-                  : "Nothing has been registered at this location. Widen the location filter to see the rest."}
-              </EmptyState>
-            ) : (
-              <DataTable<AssetRow>
-                refresh={[assets]}
-                table={table}
-                onRowClick={(row) => asset.open(row.asset_id)}
-                isSelected={(row) => row.asset_id === asset.value}
-                // What the column clauses leave of the pages in hand. The
-                // table keeps asking for pages while this shows, so it is only
-                // final once the register has been read to its end.
-                empty={<NoMatch what="assets" onClear={clearNarrowing} />}
-                more={assets}
-                className="[&_tbody_tr]:h-[4.25rem]"
-                pageScroll
-                cardsApart
-                cardLead
-                cardSort={false}
-              />
-            ),
-        })}
-      </Card>
+          <Card
+            aria-busy={stale || undefined}
+            className="list-swap overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none"
+          >
+            {queryState(assets, {
+              render: () =>
+                rows.length === 0 && narrowed ? (
+                  <NoMatch what="assets" onClear={clearNarrowing} />
+                ) : rows.length === 0 ? (
+                  <EmptyState>
+                    {site === ""
+                      ? "Nothing has been registered yet."
+                      : "Nothing has been registered at this location. Widen the location filter to see the rest."}
+                  </EmptyState>
+                ) : (
+                  <DataTable<AssetRow>
+                    refresh={[assets]}
+                    table={table}
+                    onRowClick={(row) => asset.open(row.asset_id)}
+                    isSelected={(row) => row.asset_id === asset.value}
+                    // What the column clauses leave of the pages in hand. The
+                    // table keeps asking for pages while this shows, so it is only
+                    // final once the register has been read to its end.
+                    empty={<NoMatch what="assets" onClear={clearNarrowing} />}
+                    more={assets}
+                    className="[&_tbody_tr]:h-[4.25rem]"
+                    pageScroll
+                    cardsApart
+                    cardLead
+                    cardSort={false}
+                  />
+                ),
+            })}
+          </Card>
+        </>
+      )}
 
       <AssetSheet id={asset.value ?? null} onClose={asset.close} />
       <RegisterSheet open={registering} onClose={() => setRegistering(false)} />
@@ -1257,6 +1496,19 @@ function AssetSheet({
               <Facts>
                 <Fact term="Category">{asset.category_name}</Fact>
                 <Fact term="Category code">{asset.category_code}</Fact>
+                <Fact term="Intangible">
+                  {isIntangible(asset) ? "Yes" : "No"}
+                </Fact>
+                <Fact term="Account Asset">
+                  <AssetAccount asset={asset} side="asset" />
+                </Fact>
+                <Fact term="Account Debet">
+                  <AssetAccount asset={asset} side="debit" />
+                </Fact>
+                <Fact term="Account Kredit">
+                  <AssetAccount asset={asset} side="credit" />
+                </Fact>
+                <Fact term="Keterangan">—</Fact>
                 <Fact term="Site">
                   <SiteName id={asset.site_id} />
                 </Fact>

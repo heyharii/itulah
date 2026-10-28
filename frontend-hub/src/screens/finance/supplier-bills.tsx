@@ -2,6 +2,7 @@ import { useForm } from "@tanstack/react-form"
 import {
   useInfiniteQuery,
   useMutation,
+  useQueries,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
@@ -16,7 +17,7 @@ import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
-import { Field, Input, Money, Textarea } from "@/components/ui/field"
+import { Field, Input, Money, Select, Textarea } from "@/components/ui/field"
 import { Switch } from "@/components/ui/form"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import {
@@ -41,10 +42,13 @@ import {
   Problem,
 } from "@/components/ui/states"
 import { useFilters, type Filter } from "@/lib/filters"
-import { count, day, label, money, toneFor } from "@/lib/format"
+import { count, day, label, money } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
+  applySupplierAdvance,
   billDetail,
+  billItemLines,
+  billSettlements,
   billWarnings,
   financeKeys,
   holdBill,
@@ -54,8 +58,10 @@ import {
   recordBill,
   releaseBill,
   returnBill,
+  supplierAdvance,
   unbilledReceipts,
 } from "@/lib/queries/finance"
+import { openAdvances } from "@/lib/queries/cash-documents"
 import { useSiteLabel, useUnits } from "@/lib/queries/organisation"
 import { queryState } from "@/lib/query-state"
 import { useSheet, type SheetKey } from "@/lib/sheets"
@@ -68,6 +74,12 @@ import {
   todayIso,
 } from "@/screens/finance/chart"
 import { useSupplierName } from "@/screens/finance/hooks"
+import {
+  billStatus,
+  ppnCode,
+  SERVER_STATUS_OF_WORD,
+  termOf,
+} from "@/screens/finance/purchasing"
 import {
   AccountAndCategory,
   accountChoiceReady,
@@ -140,7 +152,9 @@ function BillDue({ bill }: { bill: SupplierBill }) {
 const deskBillColumns: ColumnDef<TableSetup, SupplierBill>[] = [
   {
     accessorKey: "invoice_number",
-    header: "Invoice",
+    // 7Soft's column words (Faktur Pembelian, Info Pembelian): No Faktur,
+    // Gudang, Tanggal, JTempo, Jangka, PPN, Bayar, Sisa.
+    header: "No faktur",
     size: 150,
     // The server orders by date, due, supplier, total and outstanding; see
     // `BILL_SORTS`. The number is searched, not sorted.
@@ -181,7 +195,8 @@ const deskBillColumns: ColumnDef<TableSetup, SupplierBill>[] = [
   },
   {
     accessorKey: "site_id",
-    header: "Site",
+    // The site the goods came in at is 7Soft's Gudang.
+    header: "Gudang",
     size: 130,
     // The client's own name for it. The id stays in `title`, because that is
     // what the account codes carry and what a support call will be about.
@@ -191,33 +206,54 @@ const deskBillColumns: ColumnDef<TableSetup, SupplierBill>[] = [
     cell: ({ row }) => <BillSite id={row.original.site_id} />,
   },
   {
-    accessorKey: "status",
+    // 7Soft's own words once a bill is in the books — New, Part paid, Lunas —
+    // and the hub's for the two states the paper never had (Draft, Matched).
+    // See `billStatus`.
+    id: "status",
+    accessorFn: (row) => billStatus(row).word,
     header: "Status",
     size: 130,
     enableSorting: false,
-    meta: { filter: { kind: "option", format: label } },
-    cell: ({ row }) => (
-      <Status tone={toneFor(row.original.status)}>
-        {label(row.original.status)}
-      </Status>
-    ),
+    meta: { filter: { kind: "option" } },
+    cell: ({ row }) => {
+      const state = billStatus(row.original)
+      return <Status tone={state.tone}>{state.word}</Status>
+    },
   },
   {
     accessorKey: "invoice_date",
-    header: "Posting Date",
+    header: "Tanggal",
     size: 120,
     meta: { filter: { kind: "date" }, priority: 2 },
     cell: ({ row }) => day(row.original.invoice_date),
   },
   {
     accessorKey: "due_date",
-    header: "Due",
+    header: "JTempo",
     size: 120,
     // "Due before the end of the month" is how a payment run is planned, and
     // the as-of box above answers a different question — it dates the ageing
     // report, not the list.
     meta: { filter: { kind: "date" } },
     cell: ({ row }) => <BillDue bill={row.original} />,
+  },
+  {
+    // The payment term, as 7Soft names it: T21 is twenty-one days. Read off
+    // the invoice and due dates — the bill carries no term of its own.
+    id: "term",
+    accessorFn: (row) => termOf(row),
+    header: "Jangka",
+    size: 90,
+    enableSorting: false,
+    meta: { priority: 3 },
+    cell: ({ row }) => {
+      const term = termOf(row.original)
+      return term === null ? (
+        <span className="text-faint">—</span>
+      ) : (
+        <span className="text-body tabular-nums">{term}</span>
+      )
+    },
   },
   {
     accessorKey: "total_minor",
@@ -231,8 +267,20 @@ const deskBillColumns: ColumnDef<TableSetup, SupplierBill>[] = [
     ),
   },
   {
+    // PPN as 7Soft's list prints it: the tax code the rate implies.
+    id: "ppn",
+    accessorFn: (row) => ppnCode(row),
+    header: "PPN",
+    size: 90,
+    enableSorting: false,
+    meta: { priority: 3 },
+    cell: ({ row }) => (
+      <span className="text-body tabular-nums">{ppnCode(row.original)}</span>
+    ),
+  },
+  {
     accessorKey: "paid_minor",
-    header: "Paid",
+    header: "Bayar",
     size: 140,
     enableSorting: false,
     meta: { align: "right" },
@@ -250,7 +298,7 @@ const deskBillColumns: ColumnDef<TableSetup, SupplierBill>[] = [
   },
   {
     accessorKey: "outstanding_minor",
-    header: "Outstanding",
+    header: "Sisa",
     size: 150,
     // The figure this screen is about, so the only money column offered:
     // Total and Paid are the two halves of it and a panel with all three is
@@ -584,11 +632,10 @@ const billCardColumns: ColumnDef<TableSetup, SupplierBill>[] = [
     enableHiding: false,
     enableSorting: false,
     meta: { card: "status" },
-    cell: ({ row }) => (
-      <Status tone={toneFor(row.original.status)}>
-        {label(row.original.status)}
-      </Status>
-    ),
+    cell: ({ row }) => {
+      const state = billStatus(row.original)
+      return <Status tone={state.tone}>{state.word}</Status>
+    },
   },
 ]
 
@@ -614,6 +661,8 @@ const billVisibility = (
     ? {
         paid_minor: false,
         days_overdue: false,
+        term: false,
+        ppn: false,
         ...Object.fromEntries(givenUp.map((id) => [id, false])),
       }
     : {}),
@@ -833,10 +882,21 @@ function billScope(
       filter.operator === "isAnyOf" &&
       filter.values.length > 0
   )
+  // The column says 7Soft's words (New, Part paid, Lunas); the server knows
+  // three of them as one status, POSTED, and the table narrows the rest.
+  const asked = status
+    ? [
+        ...new Set(
+          status.values.map(
+            (value) => SERVER_STATUS_OF_WORD[value] ?? value.toUpperCase()
+          )
+        ),
+      ].join(",")
+    : undefined
   return {
     sort: known?.sort,
     dir: known !== undefined && desc ? "desc" : undefined,
-    status: status?.values.join(","),
+    status: asked,
     q: needle === "" ? undefined : needle,
   }
 }
@@ -1153,7 +1213,7 @@ export function SupplierBills() {
           round + over the bottom bar. */}
       <PageHeader
         crumb="Finance · Payables"
-        title="Purchase Invoice"
+        title="Faktur Pembelian"
         actions={
           phone ? undefined : (
             <Button variant="primary" onClick={() => setRecording(true)}>
@@ -1597,8 +1657,8 @@ function BillSheet({
               )}
 
               <div className="flex flex-wrap items-center gap-1.5">
-                <Status tone={toneFor(bill.status)}>
-                  {label(bill.status)}
+                <Status tone={billStatus(bill).tone}>
+                  {billStatus(bill).word}
                 </Status>
                 {/* Which kind, always — it decides what the posting debits,
                     and a bill that says nothing about it reads as merchandise
@@ -1717,21 +1777,36 @@ function BillSheet({
                 </div>
               )}
 
+              {/* The header 7Soft's Faktur Pembelian opens with, in its order and
+                  its words: No Faktur is the sheet's own title, then Tanggal,
+                  Supplier, Jangka waktu, Jatuh tempo, Tipe invoice, Gudang,
+                  Total diskon (in the totals below), PPN and Keterangan. The
+                  client's own name for the supplier, with its code beside it —
+                  the code is what 7Soft shows and what the ledgers are keyed
+                  by. */}
               <Facts>
-                {/* The client's own name for them, with the id in `title`.
-                    A uuid was here, which is the id the URL and a support
-                    call are about and not a thing anybody reads. */}
+                <Fact term="Tanggal">{day(bill.invoice_date)}</Fact>
                 <Fact term="Supplier">
                   <SupplierName
                     id={bill.supplier_id}
                     name={bill.supplier_name}
                   />
+                  <span className="text-mute"> · {bill.supplier_id}</span>
                 </Fact>
-                <Fact term="Site">
+                <Fact term="Jangka waktu">{termOf(bill) ?? "—"}</Fact>
+                <Fact term="Jatuh tempo">{day(bill.due_date)}</Fact>
+                {/* Matching when the bill was tied to the deliveries it
+                    answers (three-way), Standard when it was not. 7Soft's third
+                    type, Uang Muka, is an advance here — its own document,
+                    set against a bill below. */}
+                <Fact term="Tipe invoice">
+                  {bill.matched_at !== null ? "Matching" : "Standard"}
+                </Fact>
+                <Fact term="Gudang">
                   <SiteName id={bill.site_id} />
                 </Fact>
-                <Fact term="Invoice date">{day(bill.invoice_date)}</Fact>
-                <Fact term="Due">{day(bill.due_date)}</Fact>
+                <Fact term="PPN">{ppnCode(bill)}</Fact>
+                {bill.note && <Fact term="Keterangan">{bill.note}</Fact>}
                 <Fact term="Currency">{bill.currency}</Fact>
                 <Fact term="Recorded by">{bill.recorded_by}</Fact>
                 {bill.posted_by && (
@@ -1750,14 +1825,13 @@ function BillSheet({
                 )}
               </Facts>
 
-              {bill.note && (
-                <p className="text-[0.9375rem] text-body">{bill.note}</p>
-              )}
+              {/* Detail: what the paper lists, read from the bill. Typing the
+                  lines is receiving's job in Procurement, not Finance's. */}
+              <BillItems bill={bill} />
 
               <TotalsLadder
                 rows={[
-                  { label: "Subtotal", value: money(bill.subtotal_minor) },
-                  { label: "Tax", value: money(bill.tax_minor) },
+                  { label: "Total", value: money(bill.subtotal_minor) },
                   // `-0` is a real JavaScript value and `Intl` renders it as
                   // "-Rp 0", so a bill with no discount and nothing paid drew
                   // two negative zeroes. Negated only when there is something
@@ -1770,27 +1844,33 @@ function BillSheet({
                     ? []
                     : [
                         {
-                          label: "Discount",
+                          label: "Total diskon",
                           value: money(
                             bill.discount_minor === 0 ? 0 : -bill.discount_minor
                           ),
                         },
                       ]),
-                  { label: "Total", value: money(bill.total_minor) },
+                  { label: "PPN", value: money(bill.tax_minor) },
+                  { label: "Grand total", value: money(bill.total_minor) },
                   {
-                    label: "Paid",
+                    label: "Total bayar",
                     value: money(bill.paid_minor === 0 ? 0 : -bill.paid_minor),
                   },
                 ]}
                 total={{
-                  label: "Outstanding",
+                  label: "Sisa",
                   value: money(bill.outstanding_minor),
                 }}
               />
 
-              {/* No dead ends: what has been paid against this bill is one
-                  click away. Drawn only when there is something — a heading
-                  over an empty table says "no payments" twice. */}
+              {/* Uang Muka: the advances paid to this supplier before the bill
+                  came, those already set against it, and the act of setting
+                  one. */}
+              <BillAdvances bill={bill} />
+
+              {/* Pelunasan: what has been paid against this bill, one click
+                  from each payment. Drawn only when there is something — a
+                  heading over an empty table says "no payments" twice. */}
               {against.length > 0 && (
                 <div>
                   <SubHead
@@ -1800,9 +1880,11 @@ function BillSheet({
                         : undefined
                     }
                   >
-                    Paid by
+                    Pelunasan
                   </SubHead>
-                  <MiniTable head={["Payment", "Status", "Amount"]}>
+                  <MiniTable
+                    head={["Voucher", "Kas/Bank", "Bayar", "Potongan"]}
+                  >
                     {against.map(({ payment, allocation }) => (
                       <MiniRow key={payment.payment_id}>
                         <MiniCell>
@@ -1825,12 +1907,34 @@ function BillSheet({
                           </span>
                         </MiniCell>
                         <MiniCell>
-                          <Status tone={toneFor(payment.status)}>
-                            {label(payment.status)}
-                          </Status>
+                          <span className="block text-ink">
+                            {payment.account_name ?? label(payment.method)}
+                          </span>
+                          {payment.reference && (
+                            <span className="text-[0.9375rem] text-mute">
+                              No reff {payment.reference}
+                            </span>
+                          )}
                         </MiniCell>
                         <MiniCell align="right">
-                          {money(allocation.amount_minor)}
+                          <span className="block text-ink">
+                            {money(
+                              allocation.amount_minor -
+                                allocation.discount_minor
+                            )}
+                          </span>
+                          {payment.status.toUpperCase() !== "POSTED" && (
+                            <span className="text-[0.9375rem] text-warn-fg">
+                              {label(payment.status)}
+                            </span>
+                          )}
+                        </MiniCell>
+                        <MiniCell align="right">
+                          {allocation.discount_minor === 0 ? (
+                            <span className="text-faint">—</span>
+                          ) : (
+                            money(allocation.discount_minor)
+                          )}
                         </MiniCell>
                       </MiniRow>
                     ))}
@@ -1848,6 +1952,260 @@ function BillSheet({
           ),
       })}
     </Sheet>
+  )
+}
+
+/// 7Soft's Detail tab: the item lines the paper lists — name, quantity, price,
+/// total. Read from `GET /finance/bills/{id}/lines`; they were written by
+/// receiving and matching, so nothing here edits them. An expense bill's own
+/// lines are "What it was for" above.
+function BillItems({ bill }: { bill: SupplierBill }) {
+  const expense = bill.kind === "EXPENSE"
+  const lines = useQuery({
+    queryKey: financeKeys.billLines(bill.invoice_id),
+    queryFn: ({ signal }) => billItemLines(bill.invoice_id, signal),
+    enabled: !expense,
+    retry: false,
+    staleTime: 60_000,
+  })
+  const rows = lines.data ?? []
+  if (expense || rows.length === 0) return null
+  return (
+    <div>
+      <SubHead
+        aside={`${count(rows.length)} ${rows.length === 1 ? "line" : "lines"}`}
+      >
+        Detail
+      </SubHead>
+      <MiniTable head={["Nama item", "Jml", "Harga", "Total"]}>
+        {rows.map((line) => (
+          <MiniRow key={line.line_number}>
+            <MiniCell>
+              <span className="block break-words text-ink">
+                {line.description}
+              </span>
+            </MiniCell>
+            <MiniCell align="right">{count(line.quantity)}</MiniCell>
+            <MiniCell align="right">{money(line.unit_price_minor)}</MiniCell>
+            <MiniCell align="right">{money(line.line_amount_minor)}</MiniCell>
+          </MiniRow>
+        ))}
+      </MiniTable>
+    </div>
+  )
+}
+
+/// 7Soft's Uang Muka tab and its Apply Uang Muka button, and the "Sisa uang
+/// muka" line under the bill.
+///
+/// An advance is money paid to the supplier against an order before there was
+/// a bill (`supplier-advances`); applying one sets it against this bill, on its
+/// own date, and the server refuses another supplier's, another unit's or one
+/// of another currency. Which advances have already been set against THIS bill
+/// is read from the payment ledger — the bill's settlements — and each one is
+/// then asked for by id; the list of advances that can still be applied is the
+/// supplier's open ones. Nothing is drawn for a bill with neither.
+function BillAdvances({ bill }: { bill: SupplierBill }) {
+  const client = useQueryClient()
+  const posted = bill.status.toUpperCase() === "POSTED"
+  const settled = useQuery({
+    queryKey: financeKeys.billSettlements(bill.invoice_id),
+    queryFn: ({ signal }) => billSettlements(bill.invoice_id, signal),
+    enabled: posted,
+    retry: false,
+    staleTime: 30_000,
+  })
+  /// One row per advance, however many times it was set against the bill.
+  const applied = [
+    ...(settled.data?.settlements ?? [])
+      .filter(
+        (row) =>
+          !row.delinked &&
+          row.against_voucher_kind.toUpperCase().includes("ADVANCE")
+      )
+      .reduce(
+        (by, row) =>
+          by.set(
+            row.against_voucher_id,
+            (by.get(row.against_voucher_id) ?? 0) + row.amount_minor
+          ),
+        new Map<string, number>()
+      ),
+  ]
+  const details = useQueries({
+    queries: applied.map(([advanceId]) => ({
+      queryKey: financeKeys.advance(advanceId),
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        supplierAdvance(advanceId, signal),
+      staleTime: 60_000,
+      retry: false,
+    })),
+  })
+  /// The supplier's advances with money still in them — the same read and key
+  /// as a BKK's Offset tab.
+  const open = useQuery({
+    queryKey: [...financeKeys.all, "supplier-advances", bill.supplier_id],
+    queryFn: ({ signal }) =>
+      openAdvances(bill.supplier_id, signal).then((rows) =>
+        rows.filter(
+          (row) => row.status === "POSTED" && row.outstanding_minor > 0
+        )
+      ),
+    enabled: posted,
+    staleTime: 60_000,
+  })
+  const advances = open.data ?? []
+  const left = advances.reduce((sum, row) => sum + row.outstanding_minor, 0)
+  if (applied.length === 0 && advances.length === 0) return null
+  return (
+    <div className="flex flex-col gap-3">
+      <div>
+        <SubHead aside={`Sisa uang muka ${money(left)}`}>Uang muka</SubHead>
+        {applied.length > 0 && (
+          <MiniTable head={["No faktur", "Total", "Uang muka diapply", "Sisa"]}>
+            {applied.map(([advanceId, amount], index) => {
+              const advance = details[index]?.data
+              return (
+                <MiniRow key={advanceId}>
+                  <MiniCell>
+                    <span className="block font-mono text-[0.9375rem] text-ink">
+                      {advance?.advance_number ?? "—"}
+                    </span>
+                    {advance && (
+                      <span className="text-[0.9375rem] text-mute">
+                        {day(advance.advance_date)}
+                        {advance.reference ? ` · ${advance.reference}` : ""}
+                      </span>
+                    )}
+                  </MiniCell>
+                  <MiniCell align="right">
+                    {advance ? money(advance.amount_minor) : "—"}
+                  </MiniCell>
+                  <MiniCell align="right">{money(amount)}</MiniCell>
+                  <MiniCell align="right">
+                    {advance ? money(advance.outstanding_minor) : "—"}
+                  </MiniCell>
+                </MiniRow>
+              )
+            })}
+          </MiniTable>
+        )}
+      </div>
+      {posted && bill.outstanding_minor > 0 && advances.length > 0 && (
+        <ApplyAdvance
+          bill={bill}
+          advances={advances}
+          onDone={() => client.invalidateQueries({ queryKey: financeKeys.all })}
+        />
+      )}
+    </div>
+  )
+}
+
+/// Apply Uang Muka: pick one of the supplier's open advances and how much of
+/// it goes against this bill. The amount starts at the most that can: the
+/// advance's balance or what is still owed, whichever is smaller.
+function ApplyAdvance({
+  bill,
+  advances,
+  onDone,
+}: {
+  bill: SupplierBill
+  advances: Awaited<ReturnType<typeof openAdvances>>
+  onDone: () => void
+}) {
+  const [asking, setAsking] = useState(false)
+  const [advanceId, setAdvanceId] = useState("")
+  const [amount, setAmount] = useState("")
+  const minor = parseMinor(amount)
+  const advance = advances.find((row) => row.advance_id === advanceId)
+  const most =
+    advance === undefined
+      ? 0
+      : Math.min(advance.outstanding_minor, bill.outstanding_minor)
+
+  const apply = useMutation({
+    mutationFn: () =>
+      applySupplierAdvance(advanceId, {
+        invoice_id: bill.invoice_id,
+        amount_minor: minor ?? 0,
+      }),
+    onSuccess: () => {
+      setAsking(false)
+      setAdvanceId("")
+      setAmount("")
+      onDone()
+    },
+  })
+
+  if (!asking) {
+    return (
+      <div className="flex justify-end">
+        <Button variant="ghost" onClick={() => setAsking(true)}>
+          Apply Uang Muka
+        </Button>
+      </div>
+    )
+  }
+  return (
+    <div className="flex flex-col gap-3 rounded-inner border border-hairline p-3.5">
+      <Problem error={apply.error} />
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Uang muka" required>
+          <Select
+            value={advanceId}
+            onChange={(next) => {
+              setAdvanceId(next)
+              const picked = advances.find((row) => row.advance_id === next)
+              setAmount(
+                picked === undefined
+                  ? ""
+                  : String(
+                      Math.min(picked.outstanding_minor, bill.outstanding_minor)
+                    )
+              )
+            }}
+          >
+            <option value="">Choose an advance</option>
+            {advances.map((row) => (
+              <option key={row.advance_id} value={row.advance_id}>
+                {row.advance_number} · {row.po_number} ·{" "}
+                {money(row.outstanding_minor)}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field
+          label="Uang muka diapply"
+          required
+          problem={
+            minor !== null && minor > most && advance !== undefined
+              ? `At most ${money(most)}.`
+              : undefined
+          }
+        >
+          <Money value={amount} onChange={setAmount} prefix="Rp" />
+        </Field>
+      </div>
+      <div className="flex items-center justify-end gap-3">
+        <Button data-cancel variant="quiet" onClick={() => setAsking(false)}>
+          Cancel
+        </Button>
+        <Button
+          variant="primary"
+          pending={apply.isPending}
+          disabled={
+            advance === undefined ||
+            minor === null ||
+            minor <= 0 ||
+            minor > most
+          }
+          onClick={() => apply.mutate()}
+        >
+          {apply.isPending ? "Applying…" : "Apply"}
+        </Button>
+      </div>
+    </div>
   )
 }
 
@@ -2219,7 +2577,7 @@ function billTotals(draft: BillDraft) {
 /// toolbar, and the reader would have to know which kind of thing they were
 /// holding before they could start typing it. The kind is a switch at the top,
 /// where it belongs: it is the first decision, and everything below it follows.
-function RecordSheet({
+export function RecordSheet({
   open,
   onClose,
 }: {

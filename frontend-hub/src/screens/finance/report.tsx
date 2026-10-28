@@ -11,6 +11,7 @@ import {
 } from "recharts"
 
 import { Card } from "@/components/ui/card"
+import { Grid, Td, Th, TotalRow } from "@/screens/finance-final/parts"
 import { Checkbox, Select } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { Toolbar } from "@/components/ui/segmented"
@@ -436,5 +437,119 @@ export function ReportChart({
         ))}
       </div>
     </Card>
+  )
+}
+
+// ── the statement table the Reports and Setup sheets share ───────────────
+
+/// One column of a `ModelTable`.
+export interface ModelCol {
+  readonly l: string
+  readonly num?: boolean
+  readonly w?: string
+}
+
+/// A row: a band that names a group, or a line with one cell per column.
+/// `strong` is a subtotal; `on` makes the whole row a press.
+export type ModelRow =
+  | { readonly group: string }
+  | {
+      readonly cells: readonly React.ReactNode[]
+      readonly strong?: boolean
+      readonly dim?: boolean
+      readonly on?: () => void
+    }
+
+export interface ModelFoot {
+  readonly cells: readonly React.ReactNode[]
+}
+
+/// The prototype's `table()`: tinted heading, group bands, subtotals, rows
+/// that open something, and a closing line. Figures right-aligned.
+export function ModelTable({
+  cols,
+  rows,
+  foot,
+  empty,
+}: {
+  cols: readonly ModelCol[]
+  rows: readonly ModelRow[]
+  foot?: ModelFoot
+  empty?: string
+}) {
+  const align = (i: number) => (cols[i]?.num ? ("right" as const) : undefined)
+  return (
+    <Grid>
+      <thead>
+        <tr>
+          {cols.map((col) => (
+            <Th
+              key={col.l || "act"}
+              align={col.num ? "right" : undefined}
+              width={col.w}
+            >
+              {col.l}
+            </Th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.length === 0 && (
+          <tr>
+            <Td colSpan={cols.length} className="text-mute">
+              {empty ?? "Nothing to show."}
+            </Td>
+          </tr>
+        )}
+        {rows.map((row, index) =>
+          "group" in row ? (
+            <tr key={`g${index}`} className="bg-soft">
+              <Td colSpan={cols.length} className="font-semibold text-ink">
+                {row.group}
+              </Td>
+            </tr>
+          ) : (
+            <tr
+              key={index}
+              tabIndex={row.on ? 0 : undefined}
+              onClick={row.on}
+              onKeyDown={
+                row.on
+                  ? (event) => {
+                      if (event.key === "Enter") row.on?.()
+                    }
+                  : undefined
+              }
+              className={cn(
+                row.on && "cursor-pointer",
+                row.dim && "opacity-60"
+              )}
+            >
+              {row.cells.map((cell, i) => (
+                <Td
+                  key={i}
+                  align={align(i)}
+                  className={cn(
+                    row.strong && "font-medium text-ink",
+                    cols[i]?.num && "tabular-nums"
+                  )}
+                >
+                  {cell}
+                </Td>
+              ))}
+            </tr>
+          )
+        )}
+        {foot && (
+          <TotalRow>
+            {foot.cells.map((cell, i) => (
+              <Td key={i} align={align(i)}>
+                {cell}
+              </Td>
+            ))}
+          </TotalRow>
+        )}
+      </tbody>
+    </Grid>
   )
 }

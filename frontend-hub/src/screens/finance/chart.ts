@@ -26,6 +26,31 @@ export const ROOT_CLASSES: Readonly<Record<string, string>> = {
   "8": "BEBAN  NON OPERASIONAL",
 }
 
+/// 7Soft's Tipe Account for an account, read from where the client's chart
+/// files it: cash and bank, the rest of current assets, investments in
+/// affiliates, fixed assets with their accumulated depreciation, intangibles
+/// and other assets. 7Soft types only the asset side, so every other account
+/// answers `null` and the screen says its class instead.
+///
+/// Read from the code and not from the ledger's account type, because the list
+/// read carries no type; the client's codes (10110 cash, 10214 affiliates,
+/// 10215 fixed, 10217 intangible, 103 other) are the same on every row, and
+/// the twelve-digit per-unit accounts keep their base's prefix.
+export function tipeAccount7Soft(
+  code: string,
+  rootClass: string
+): string | null {
+  if (rootClass !== "1") return null
+  if (code.startsWith("10110")) return "Kas/Bank"
+  if (code.startsWith("10214")) return "Investasi Jangka Panjang"
+  if (code.startsWith("10215") || code.startsWith("10216"))
+    return "Aktiva Tetap"
+  if (code.startsWith("10217")) return "Aktiva Tak Berwujud"
+  if (code.startsWith("103")) return "Aktiva Lain - Lain"
+  if (code.startsWith("101")) return "Aktiva Lancar"
+  return null
+}
+
 /// The same eight, short enough to sit under a bar.
 ///
 /// The client's own words, abbreviated rather than translated: "BIAYA / BEBAN

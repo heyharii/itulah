@@ -7,7 +7,6 @@ import {
 } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { Plus, Trash2 } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -16,9 +15,8 @@ import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
-import { Field, Input, Money, Textarea } from "@/components/ui/field"
+import { Field, Input, Textarea } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
-import { MiniTable, TotalsLadder } from "@/components/ui/rows"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Toolbar } from "@/components/ui/segmented"
@@ -44,15 +42,19 @@ import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { useDebounced } from "@/lib/use-debounced"
 import { useWindow } from "@/screens/finance/hooks"
+import { UnitName, UnitSelect, WindowControl } from "@/screens/finance/parts"
+import { todayIso } from "@/screens/finance/chart"
+import { Grid, Td, Th, TotalRow } from "@/screens/finance-final/parts"
+import { JournalLinesGrid } from "@/screens/finance/journal-lines-grid"
 import {
-  AccountAndCategory,
-  accountChoiceReady,
-  UnitName,
-  UnitSelect,
-  WindowControl,
-  type AccountChoice,
-} from "@/screens/finance/parts"
-import { parseMinor, todayIso } from "@/screens/finance/chart"
+  blankLine,
+  draftTotals,
+  memoOf,
+  memoParts,
+  periodOf,
+  type DraftLine,
+} from "@/screens/finance/journal-lines"
+import { cn } from "@/lib/utils"
 import { idempotencyKey } from "@itulah/contract/client"
 import type { JournalEntryRow } from "@itulah/contract"
 
@@ -100,7 +102,7 @@ const SOURCE_KINDS: readonly { value: string; label: string }[] = [
 const columns: ColumnDef<TableSetup, JournalEntryRow>[] = [
   {
     accessorKey: "entry_number",
-    header: "Entry",
+    header: "No Jurnal",
     size: 150,
     cell: ({ row }) => (
       <span className="font-mono text-id text-body">
@@ -110,9 +112,20 @@ const columns: ColumnDef<TableSetup, JournalEntryRow>[] = [
   },
   {
     accessorKey: "posting_date",
-    header: "Posted",
+    header: "Tanggal",
     size: 120,
     cell: ({ row }) => day(row.original.posting_date),
+  },
+  {
+    id: "reference",
+    accessorFn: (row) => memoParts(row).ref,
+    header: "No Referensi",
+    size: 150,
+    enableSorting: false,
+    cell: ({ row }) => {
+      const { ref } = memoParts(row.original)
+      return ref === "" ? <span className="text-faint">—</span> : ref
+    },
   },
   {
     accessorKey: "source_kind",
@@ -136,13 +149,54 @@ const columns: ColumnDef<TableSetup, JournalEntryRow>[] = [
     ),
   },
   {
-    accessorKey: "memo",
-    header: "Memo",
+    id: "memo",
+    accessorFn: (row) => memoParts(row).note,
+    header: "Keterangan",
     size: 300,
     enableSorting: false,
     cell: ({ row }) => (
-      <span className="text-text">{row.original.memo ?? "—"}</span>
+      <span className="text-text">{memoParts(row.original).note || "—"}</span>
     ),
+  },
+  {
+    id: "period",
+    accessorFn: (row) => periodOf(row.posting_date),
+    header: "Periode Acc",
+    size: 130,
+    enableSorting: false,
+    cell: ({ row }) => (
+      <span className="tabular-nums">
+        {periodOf(row.original.posting_date)}
+      </span>
+    ),
+  },
+  {
+    id: "status",
+    accessorFn: (row) => (row.reversed_by !== null ? "Delete" : "New"),
+    header: "Status",
+    size: 110,
+    enableSorting: false,
+    cell: ({ row }) => (
+      <Pill tone={row.original.reversed_by !== null ? "bad" : "new"}>
+        {row.original.reversed_by !== null ? "Delete" : "New"}
+      </Pill>
+    ),
+  },
+  {
+    id: "automatic",
+    accessorFn: (row) => (row.source_kind === "MANUAL" ? "N" : "Y"),
+    header: "Otomatis",
+    size: 110,
+    enableSorting: false,
+    meta: { align: "center" },
+    cell: ({ row }) =>
+      row.original.source_kind === "MANUAL" ? (
+        <span className="text-faint">—</span>
+      ) : (
+        <span aria-label="Otomatis" className="text-ink">
+          ✓
+        </span>
+      ),
   },
   {
     id: "answered",
@@ -179,7 +233,7 @@ const columns: ColumnDef<TableSetup, JournalEntryRow>[] = [
   },
   {
     accessorKey: "line_count",
-    header: "Lines",
+    header: "Baris",
     size: 90,
     enableSorting: false,
     meta: { align: "right" },
@@ -306,11 +360,10 @@ export function Journal() {
     <PageContent>
       <PageHeader
         crumb="Finance"
-        title="Journal"
-        sub="Append-only. A wrong entry is answered by its mirror, never edited away."
+        title="Transaksi Jurnal"
         actions={
           <Button variant="primary" onClick={() => setComposing(true)}>
-            New entry
+            New
           </Button>
         }
       />
@@ -329,7 +382,11 @@ export function Journal() {
         <FilterPanel
           model={filters}
           table={table}
-          search={{ value: query, onChange: setQuery, label: "Search entries" }}
+          search={{
+            value: query,
+            onChange: setQuery,
+            label: "Search journals",
+          }}
         />
         <Toolbar.Spacer />
         {/* The window is stated rather than implied, and so is everything else
@@ -392,8 +449,10 @@ export function Journal() {
   )
 }
 
-/// One entry, its lines, and the two things an auditor asks it by name: who
-/// posted it and what answered it.
+/// One entry as 7Soft's Transaksi Jurnal shows a saved one: the header (No
+/// Jurnal, Tanggal, No Referensi, Keterangan, Status Otomatis, Periode Acc),
+/// the grid and its Total and Selisih, under a READ ONLY mark — the journal is
+/// append-only, so a posted entry is never edited, only answered by its mirror.
 function EntrySheet({
   id,
   onClose,
@@ -432,7 +491,8 @@ function EntrySheet({
       subject={id === null ? undefined : { kind: "journal", id }}
       onOpenChange={(open) => !open && onClose()}
       id={detail.data?.entry.entry_number}
-      title={detail.data?.entry.memo ?? "Journal entry"}
+      title="Transaksi Jurnal"
+      size="wide"
       footer={
         detail.data && !answered ? (
           <div className="flex flex-col gap-2">
@@ -460,222 +520,201 @@ function EntrySheet({
     >
       {queryState(detail, {
         loading: "Loading the entry…",
-        render: ({ entry, lines }) => (
-          <div className="flex flex-col gap-5">
-            {receipt && (
-              <Banner tone="ok" onDismiss={() => setReceipt(null)}>
-                Reversed by {receipt}. Both entries stay in the books.
-              </Banner>
-            )}
-            {reverse.isError && (
-              <Banner tone="bad">
-                {reverse.error instanceof Error
-                  ? reverse.error.message
-                  : "The reversal was refused."}
-              </Banner>
-            )}
-
-            <div className="flex flex-wrap gap-1.5">
-              <Pill tone={entry.source_kind === "MANUAL" ? "warn" : "neutral"}>
-                {label(entry.source_kind)}
-              </Pill>
-              {entry.reversal_of !== null && <Pill tone="info">Reversal</Pill>}
-              {entry.reversed_by !== null && <Pill tone="bad">Reversed</Pill>}
-            </div>
-
-            <Facts>
-              <Fact term="Posting date">{day(entry.posting_date)}</Fact>
-              <Fact term="Currency">{entry.currency}</Fact>
-              <Fact term="Posted by">{entry.posted_by}</Fact>
-              <Fact term="Posted at">{moment(entry.posted_at)}</Fact>
-              {entry.source_id && (
-                <Fact term="Source record">
-                  <span className="font-mono text-id">{entry.source_id}</span>
-                </Fact>
+        render: ({ entry, lines }) => {
+          const { ref, note } = memoParts(entry)
+          const debits = lines.reduce((sum, line) => sum + line.debit_minor, 0)
+          const credits = lines.reduce(
+            (sum, line) => sum + line.credit_minor,
+            0
+          )
+          const selisih = debits - credits
+          return (
+            <div className="flex flex-col gap-5">
+              {receipt && (
+                <Banner tone="ok" onDismiss={() => setReceipt(null)}>
+                  Reversed by {receipt}. Both entries stay in the books.
+                </Banner>
               )}
-              {entry.reversal_of && (
-                <Fact term="Reverses">
-                  <span className="font-mono text-id">{entry.reversal_of}</span>
-                </Fact>
+              {reverse.isError && (
+                <Banner tone="bad">
+                  {reverse.error instanceof Error
+                    ? reverse.error.message
+                    : "The reversal was refused."}
+                </Banner>
               )}
-              {entry.reversed_by && (
-                <Fact term="Reversed by">
-                  <span className="font-mono text-id">{entry.reversed_by}</span>
-                </Fact>
-              )}
-            </Facts>
 
-            <div>
-              <h4 className="mb-2 text-card-title font-semibold text-ink">
-                Lines
-              </h4>
-              <MiniTable head={["Account", "Unit", "Debit", "Credit"]}>
-                {lines.map((line) => (
-                  <tr
-                    key={line.line_number}
-                    className="border-t border-hairline"
-                  >
-                    <td className="py-2 pr-2">
-                      <span className="block text-[0.9375rem] text-ink">
-                        {line.account_name}
-                        {/* The category is what the account code used to say
-                            on its own. Without it an expense entry is eight
-                            lines all reading "Beban umum & administrasi". */}
-                        {line.category_name !== null && (
-                          <span
-                            className="text-mute"
-                            title={line.category_code ?? undefined}
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Pill tone="neutral">READ ONLY</Pill>
+                <Pill
+                  tone={entry.source_kind === "MANUAL" ? "warn" : "neutral"}
+                >
+                  {label(entry.source_kind)}
+                </Pill>
+                {entry.reversal_of !== null && (
+                  <Pill tone="info">Reversal</Pill>
+                )}
+                {entry.reversed_by !== null && <Pill tone="bad">Reversed</Pill>}
+                <span className="grow" />
+                <Button variant="ghost" onClick={() => window.print()}>
+                  Print
+                </Button>
+              </div>
+
+              <Facts>
+                <Fact term="No Jurnal">
+                  <span className="font-mono text-id">
+                    {entry.entry_number}
+                  </span>
+                </Fact>
+                <Fact term="Tanggal">
+                  {day(entry.posting_date)}
+                  <span className="text-mute"> {moment(entry.posted_at)}</span>
+                </Fact>
+                <Fact term="No Referensi">{ref === "" ? "—" : ref}</Fact>
+                <Fact term="Keterangan">{note === "" ? "—" : note}</Fact>
+                <Fact term="Status Otomatis">
+                  {entry.source_kind === "MANUAL" ? "—" : "✓"}
+                </Fact>
+                <Fact term="Periode Acc">{periodOf(entry.posting_date)}</Fact>
+                <Fact term="Currency">{entry.currency}</Fact>
+                <Fact term="Posted by">{entry.posted_by}</Fact>
+                {entry.source_id && (
+                  <Fact term="Source record">
+                    <span className="font-mono text-id">{entry.source_id}</span>
+                  </Fact>
+                )}
+                {entry.reversal_of && (
+                  <Fact term="Reverses">
+                    <span className="font-mono text-id">
+                      {entry.reversal_of}
+                    </span>
+                  </Fact>
+                )}
+                {entry.reversed_by && (
+                  <Fact term="Reversed by">
+                    <span className="font-mono text-id">
+                      {entry.reversed_by}
+                    </span>
+                  </Fact>
+                )}
+              </Facts>
+
+              <div>
+                <h4 className="mb-2 text-card-title font-semibold text-ink">
+                  Detail
+                </h4>
+                <Grid>
+                  <thead>
+                    <tr>
+                      <Th>Deskripsi Account</Th>
+                      <Th width="8rem">Kode Account</Th>
+                      <Th>Uraian</Th>
+                      <Th width="10rem">Unit</Th>
+                      <Th align="right" width="9rem">
+                        Debet
+                      </Th>
+                      <Th align="right" width="9rem">
+                        Kredit
+                      </Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lines.map((line) => (
+                      <tr key={line.line_number}>
+                        <Td>
+                          {line.account_name}
+                          {/* The category is what the account code used to
+                              say on its own. Without it an expense entry is
+                              eight lines all reading "Beban umum &
+                              administrasi". */}
+                          {line.category_name !== null && (
+                            <span
+                              className="text-mute"
+                              title={line.category_code ?? undefined}
+                            >
+                              {" · "}
+                              {line.category_name}
+                            </span>
+                          )}
+                        </Td>
+                        <Td>
+                          {/* No dead ends: the question a line raises is
+                              "what else is in that account", and the ledger
+                              is the answer. */}
+                          <AppLink
+                            to="/finance/ledger"
+                            sheet={{ key: "account", value: line.account_code }}
+                            className="font-mono text-mute hover:text-accent hover:underline"
                           >
-                            {" · "}
-                            {line.category_name}
-                          </span>
-                        )}
-                      </span>
-                      {/* No dead ends: the question a line raises is "what else
-                          is in that account", and the ledger is the answer. The
-                          same `account` key every other finance screen opens
-                          with, so the link works from either direction. */}
-                      <AppLink
-                        to="/finance/ledger"
-                        sheet={{ key: "account", value: line.account_code }}
-                        className="font-mono text-[0.9375rem] text-mute hover:text-accent hover:underline"
+                            {line.account_code}
+                          </AppLink>
+                        </Td>
+                        <Td className="text-body">{line.memo ?? "—"}</Td>
+                        <Td>
+                          <UnitName id={line.unit_id} />
+                        </Td>
+                        <Td align="right">
+                          {line.debit_minor === 0 ? (
+                            <span className="text-faint">—</span>
+                          ) : (
+                            money(line.debit_minor)
+                          )}
+                        </Td>
+                        <Td align="right">
+                          {line.credit_minor === 0 ? (
+                            <span className="text-faint">—</span>
+                          ) : (
+                            money(line.credit_minor)
+                          )}
+                        </Td>
+                      </tr>
+                    ))}
+                    {/* The two sides summed from this entry's own lines — a
+                        restatement of one document and not of the books, so
+                        it is safe here in a way a page-level total never is. */}
+                    <TotalRow>
+                      <Td>Total</Td>
+                      <Td />
+                      <Td />
+                      <Td />
+                      <Td align="right">{money(debits)}</Td>
+                      <Td align="right">{money(credits)}</Td>
+                    </TotalRow>
+                    <TotalRow>
+                      <Td>Selisih</Td>
+                      <Td />
+                      <Td />
+                      <Td />
+                      <Td
+                        align="right"
+                        className={cn(selisih !== 0 && "text-bad-fg!")}
                       >
-                        {line.account_code}
-                      </AppLink>
-                      {line.memo && (
-                        <span className="block text-[0.9375rem] text-mute">
-                          {line.memo}
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-2 text-right text-[0.9375rem] text-body">
-                      <UnitName id={line.unit_id} />
-                    </td>
-                    <td className="py-2 text-right tabular-nums">
-                      {line.debit_minor === 0 ? (
-                        <span className="text-faint">—</span>
-                      ) : (
-                        money(line.debit_minor)
-                      )}
-                    </td>
-                    <td className="py-2 text-right tabular-nums">
-                      {line.credit_minor === 0 ? (
-                        <span className="text-faint">—</span>
-                      ) : (
-                        money(line.credit_minor)
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </MiniTable>
-
-              {/* The two sides summed from this entry's own lines — which is a
-                  restatement of one document and not of the books, so it is
-                  safe here in a way a page-level total never is. The final row
-                  is the server's own figure. */}
-              <TotalsLadder
-                className="mt-3"
-                rows={[
-                  {
-                    label: "Debits",
-                    value: money(
-                      lines.reduce((sum, line) => sum + line.debit_minor, 0)
-                    ),
-                  },
-                  {
-                    label: "Credits",
-                    value: money(
-                      lines.reduce((sum, line) => sum + line.credit_minor, 0)
-                    ),
-                  },
-                ]}
-                total={{
-                  label: "Entry total",
-                  value: money(entry.total_minor),
-                }}
-              />
+                        {money(selisih)}
+                      </Td>
+                      <Td />
+                    </TotalRow>
+                  </tbody>
+                </Grid>
+              </div>
             </div>
-          </div>
-        ),
+          )
+        },
       })}
     </Sheet>
   )
 }
 
-/// A line being written, before it is anything the server would accept.
-///
-/// There is no per-line memo here, and the payload sends `null` for it. The
-/// server accepts one — an existing entry's lines display theirs — but this
-/// composer has never had a box for it, and a field on the draft that nothing
-/// can fill is not a feature, it is a `null` with extra steps.
-/// `account` is a pair — the code and the category its family asks for — and
-/// not a code on its own. Since the chart collapsed to forty accounts, 6301 is
-/// one line of the profit and loss and has not yet said what the money went
-/// on; the category is what two account codes used to say between them, and
-/// the database refuses a line that carries only half of it.
-interface DraftLine {
-  account: AccountChoice | null
-  /// Whose books the line is in: a unit id.
-  unit_id: string
-  debit: string
-  credit: string
-}
-
-function blankLine(): DraftLine {
-  return {
-    account: null,
-    unit_id: "",
-    debit: "",
-    credit: "",
-  }
-}
-
 interface EntryDraft {
   postingDate: string
+  /// 7Soft's No Referensi; travels at the head of the memo (`memoOf`).
+  reference: string
+  /// 7Soft's Keterangan.
   memo: string
   lines: DraftLine[]
 }
 
-/// What the draft adds up to, and whether it is postable.
-///
-/// A line with no account, no unit, or nothing but zeros is one somebody
-/// started and has not finished; it is not an error and it is not a line.
-function entryTotals(draft: EntryDraft) {
-  const usable = draft.lines
-    .map((line) => ({
-      line,
-      debit: line.debit.trim() === "" ? 0 : parseMinor(line.debit),
-      credit: line.credit.trim() === "" ? 0 : parseMinor(line.credit),
-    }))
-    .filter(
-      (row) =>
-        row.line.account !== null &&
-        row.line.unit_id.trim() !== "" &&
-        row.debit !== null &&
-        row.credit !== null &&
-        (row.debit > 0 || row.credit > 0)
-    )
-  const debits = usable.reduce((sum, row) => sum + (row.debit ?? 0), 0)
-  const credits = usable.reduce((sum, row) => sum + (row.credit ?? 0), 0)
-  /// Otherwise-finished rows whose account declares a family and whose
-  /// category is still empty. The one refusal this form can see coming.
-  const uncategorised = usable.filter(
-    (row) => !accountChoiceReady(row.line.account)
-  )
-  return {
-    usable,
-    debits,
-    credits,
-    uncategorised,
-    balanced:
-      usable.length >= 2 &&
-      debits === credits &&
-      debits > 0 &&
-      uncategorised.length === 0,
-  }
-}
-
-/// Writing an entry by hand.
+/// Writing an entry by hand, in 7Soft's Transaksi Jurnal: header, grid, Total
+/// and Selisih, under a NEW mark.
 ///
 /// # Why the composer is not in the URL
 ///
@@ -712,8 +751,8 @@ function ComposerSheet({
       postManualEntry(
         {
           posting_date: draft.postingDate,
-          memo: draft.memo.trim() === "" ? null : draft.memo.trim(),
-          lines: entryTotals(draft).usable.map((row): ManualLine => ({
+          memo: memoOf(draft.reference, draft.memo),
+          lines: draftTotals(draft.lines).usable.map((row): ManualLine => ({
             account: {
               kind: "account",
               account_code: row.line.account!.account_code,
@@ -722,10 +761,13 @@ function ComposerSheet({
               category_code: row.line.account!.category_code,
             },
             unit_id: row.line.unit_id.trim(),
-            debit_minor: row.debit ?? 0,
-            credit_minor: row.credit ?? 0,
-            // No box writes one. See `DraftLine`.
-            memo: null,
+            debit_minor: row.debit,
+            credit_minor: row.credit,
+            // 7Soft's Uraian.
+            memo:
+              (row.line.memo ?? "").trim() === ""
+                ? null
+                : row.line.memo!.trim(),
           })),
         },
         key
@@ -736,6 +778,7 @@ function ComposerSheet({
       // the same date.
       form.setFieldValue("lines", [blankLine(), blankLine()])
       form.setFieldValue("memo", "")
+      form.setFieldValue("reference", "")
       setKey(idempotencyKey())
       // A posting moves the register, every balance, both statements and the
       // trial balance. There is no narrower honest answer.
@@ -746,6 +789,7 @@ function ComposerSheet({
   const form = useForm({
     defaultValues: {
       postingDate: todayIso(),
+      reference: "",
       memo: "",
       lines: [blankLine(), blankLine()],
     } as EntryDraft,
@@ -756,22 +800,16 @@ function ComposerSheet({
     <Sheet
       open={open}
       onOpenChange={(next) => !next && onClose()}
-      title="New journal entry"
-      className="w-[34rem]"
+      title="Transaksi Jurnal"
+      size="wide"
       footer={
-        /* The second `dark` button in this file, and the one exception the
-           rule allows: a composer is a modal surface on the white veil, so its
-           submit and the header's "New entry" are never on screen together.
-           Two black CTAs a reader can see at once is what the rule forbids. */
-        <form.Subscribe selector={(state) => entryTotals(state.values)}>
+        <form.Subscribe selector={(state) => draftTotals(state.values.lines)}>
           {(totals) => (
             <div className="flex items-center justify-between gap-3">
               <span className="text-[0.9375rem] text-mute tabular-nums">
-                {totals.balanced
-                  ? `Balanced at ${money(totals.debits)}`
-                  : totals.usable.length === 0
-                    ? "No usable line yet"
-                    : `Debits ${money(totals.debits)} · credits ${money(totals.credits)}`}
+                {totals.usable.length === 0
+                  ? "No usable line yet"
+                  : `Selisih ${money(totals.debits - totals.credits)}`}
               </span>
               <Button
                 variant="primary"
@@ -792,7 +830,10 @@ function ComposerSheet({
         // entry must never reach the deferred constraint.
         onSubmit={(event) => {
           event.preventDefault()
-          if (entryTotals(form.state.values).balanced && !post.isPending) {
+          if (
+            draftTotals(form.state.values.lines).balanced &&
+            !post.isPending
+          ) {
             form.handleSubmit()
           }
         }}
@@ -811,10 +852,17 @@ function ComposerSheet({
           </Banner>
         )}
 
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Pill tone="new">NEW</Pill>
+        </div>
+
         <div className="grid grid-cols-2 gap-3">
+          <Field label="No Jurnal">
+            <Input readOnly value="Otomatis" />
+          </Field>
           <form.Field name="postingDate">
             {(field) => (
-              <Field label="Posting date" required>
+              <Field label="Tanggal" required>
                 <Day
                   value={field.state.value}
                   onBlur={field.handleBlur}
@@ -823,9 +871,9 @@ function ComposerSheet({
               </Field>
             )}
           </form.Field>
-          <form.Field name="memo">
+          <form.Field name="reference">
             {(field) => (
-              <Field label="Memo" hint="What this entry is for.">
+              <Field label="No Referensi">
                 <Input
                   value={field.state.value}
                   onBlur={field.handleBlur}
@@ -834,88 +882,36 @@ function ComposerSheet({
               </Field>
             )}
           </form.Field>
+          <form.Field name="memo">
+            {(field) => (
+              <Field label="Keterangan">
+                <Input
+                  value={field.state.value}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => field.handleChange(event.target.value)}
+                />
+              </Field>
+            )}
+          </form.Field>
+          <Field label="Status Otomatis">
+            <Input readOnly value="—" />
+          </Field>
+          <form.Subscribe selector={(state) => state.values.postingDate}>
+            {(date) => (
+              <Field label="Periode Acc">
+                <Input readOnly value={periodOf(date)} />
+              </Field>
+            )}
+          </form.Subscribe>
         </div>
 
         <form.Field name="lines" mode="array">
           {(lines) => (
-            <div className="flex flex-col gap-3">
-              {lines.state.value.map((line, index) => (
-                <div
-                  key={index}
-                  className="rounded-inner border border-hairline p-3"
-                >
-                  <div className="mb-2 flex items-start gap-2">
-                    <span className="min-w-0 flex-1">
-                      <AccountAndCategory
-                        value={line.account}
-                        onChange={(next) =>
-                          form.setFieldValue(`lines[${index}].account`, next)
-                        }
-                        categoryLabel={`Category on line ${index + 1}`}
-                        explain
-                      />
-                    </span>
-                    {lines.state.value.length > 2 && (
-                      <Button
-                        size="sm"
-                        variant="quiet"
-                        aria-label="Remove line"
-                        onClick={() => lines.removeValue(index)}
-                      >
-                        <Trash2 />
-                      </Button>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-2">
-                    <form.Field name={`lines[${index}].unit_id`}>
-                      {(field) => (
-                        <Field label="Unit">
-                          {/* A pick from the units, never typed: a line posted
-                              to a unit that does not exist is refused by the
-                              server, which is the right refusal to never have
-                              to see. */}
-                          <UnitSelect
-                            value={field.state.value}
-                            onChange={(next) => field.handleChange(next)}
-                            emptyLabel="Choose a unit"
-                          />
-                        </Field>
-                      )}
-                    </form.Field>
-                    <form.Field name={`lines[${index}].debit`}>
-                      {(field) => (
-                        <Field label="Debit">
-                          <Money
-                            value={field.state.value}
-                            onChange={field.handleChange}
-                          />
-                        </Field>
-                      )}
-                    </form.Field>
-                    <form.Field name={`lines[${index}].credit`}>
-                      {(field) => (
-                        <Field label="Credit">
-                          <Money
-                            value={field.state.value}
-                            onChange={field.handleChange}
-                          />
-                        </Field>
-                      )}
-                    </form.Field>
-                  </div>
-                </div>
-              ))}
-
-              <Button
-                variant="soft"
-                className="self-start"
-                onClick={() => lines.pushValue(blankLine())}
-              >
-                <Plus />
-                Add line
-              </Button>
-            </div>
+            <JournalLinesGrid
+              entry
+              lines={lines.state.value}
+              onChange={(next) => form.setFieldValue("lines", next)}
+            />
           )}
         </form.Field>
       </form>

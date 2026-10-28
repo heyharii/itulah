@@ -65,8 +65,11 @@ export function listCashDocuments(
   } = {},
   signal?: AbortSignal
 ): Promise<CashDocumentRow[]> {
+  // The server reads `unit_id`; a `unit` it does not know is ignored, which
+  // left the register's Unit box narrowing nothing.
+  const { unit, ...rest } = options
   return node.get<CashDocumentRow[]>(
-    `/api/v1/finance/cash-documents${search(options)}`,
+    `/api/v1/finance/cash-documents${search({ ...rest, unit_id: unit })}`,
     { signal }
   )
 }

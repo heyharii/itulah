@@ -96,6 +96,16 @@ export const screens: ScreenMap = {
     () => import("@/screens/finance-final/transactions"),
     (m) => m.Transactions
   ),
+  "/finance/cash-bank/kas-bank": lazyScreen(
+    "finance/cash-info",
+    () => import("@/screens/finance/cash-info"),
+    (m) => m.KasBank
+  ),
+  "/finance/cash-bank/kartu": lazyScreen(
+    "finance/cash-info",
+    () => import("@/screens/finance/cash-info"),
+    (m) => m.KartuKasBank
+  ),
   "/finance/cash-bank/bkk": lazyScreen(
     "finance/cash-documents",
     () => import("@/screens/finance/cash-documents"),
@@ -183,6 +193,11 @@ export const screens: ScreenMap = {
     (m) => m.SalesPostings
   ),
 
+  "/finance/payables/purchase-invoice": lazyScreen(
+    "finance/purchase-invoice",
+    () => import("@/screens/finance/purchase-invoice"),
+    (m) => m.PurchaseInvoices
+  ),
   "/finance/payables/bills": lazyScreen(
     "finance/supplier-bills",
     () => import("@/screens/finance/supplier-bills"),
@@ -338,6 +353,11 @@ export const screens: ScreenMap = {
     () => import("@/screens/finance-final/journals"),
     (m) => m.Journals
   ),
+  "/finance/accounting/all-journals": lazyScreen(
+    "finance-final/journals",
+    () => import("@/screens/finance-final/journals"),
+    (m) => m.AllJournals
+  ),
   "/finance/accounting/general-ledger": lazyScreen(
     "finance-final/reports/general-ledger",
     () => import("@/screens/finance-final/reports/general-ledger"),
@@ -352,6 +372,21 @@ export const screens: ScreenMap = {
     "finance/setup-index",
     () => import("@/screens/finance/setup-index"),
     (m) => m.FinanceSetup
+  ),
+  "/finance/7soft-parity": lazyScreen(
+    "finance/parity",
+    () => import("@/screens/finance/parity"),
+    (m) => m.FinanceSevenSoftParity
+  ),
+  "/finance/opening/balances": lazyScreen(
+    "finance/opening-balances",
+    () => import("@/screens/finance/opening-balances"),
+    (m) => m.OpeningBalances
+  ),
+  "/finance/history": lazyScreen(
+    "finance/finance-history",
+    () => import("@/screens/finance/finance-history"),
+    (m) => m.FinanceHistory
   ),
   "/finance/accounting/chart-of-accounts": lazyScreen(
     "finance/chart-of-accounts",
@@ -409,6 +444,11 @@ export const screens: ScreenMap = {
     "finance/dimension-results",
     () => import("@/screens/finance/dimension-results"),
     (m) => m.DimensionResults
+  ),
+  "/finance/reports/laporan-accounting": lazyScreen(
+    "finance-final/reports/laporan-accounting",
+    () => import("@/screens/finance-final/reports/laporan-accounting"),
+    (m) => m.LaporanAccounting
   ),
   "/finance/reports/sales-by-division": lazyScreen(
     "finance/sales-by-division",
@@ -543,5 +583,46 @@ export const screens: ScreenMap = {
     "finance/permissions",
     () => import("@/screens/finance/permissions"),
     (m) => m.Permissions
+  ),
+  // 7Soft menus with no hub screen before 28 Oct 2026.
+  "/finance/accounting/info-accounting": lazyScreen(
+    "finance/info-accounting",
+    () => import("@/screens/finance/info-accounting"),
+    (m) => m.InfoAccounting
+  ),
+  "/finance/reports/kas-bank": lazyScreen(
+    "finance/kas-bank-reports",
+    () => import("@/screens/finance/kas-bank-reports"),
+    (m) => m.LaporanKasBank
+  ),
+  "/finance/sales/info": lazyScreen(
+    "finance/sales-info",
+    () => import("@/screens/finance/sales-info"),
+    (m) => m.InfoPenjualan
+  ),
+  "/finance/sales/returns": lazyScreen(
+    "finance/sales-returns",
+    () => import("@/screens/finance/sales-returns"),
+    (m) => m.ReturPenjualan
+  ),
+  "/finance/reports/penjualan": lazyScreen(
+    "finance/sales-reports",
+    () => import("@/screens/finance/sales-reports"),
+    (m) => m.LaporanPenjualan
+  ),
+  "/finance/reports/laporan-keuangan": lazyScreen(
+    "finance-final/reports/laporan-accounting",
+    () => import("@/screens/finance-final/reports/laporan-accounting"),
+    (m) => m.LaporanKeuangan
+  ),
+  "/finance/reports/laporan-manajerial": lazyScreen(
+    "finance-final/reports/laporan-accounting",
+    () => import("@/screens/finance-final/reports/laporan-accounting"),
+    (m) => m.LaporanManajerial
+  ),
+  "/finance/setup/setting-menu": lazyScreen(
+    "finance/setting-menu",
+    () => import("@/screens/finance/setting-menu"),
+    (m) => m.SettingMenu
   ),
 }

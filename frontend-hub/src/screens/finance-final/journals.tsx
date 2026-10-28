@@ -1,11 +1,14 @@
 import {
   useInfiniteQuery,
   useMutation,
+  useQueries,
   useQuery,
   useQueryClient,
+  type UseQueryResult,
 } from "@tanstack/react-query"
 import type { ColumnDef } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
+import { Plus, Trash2 } from "lucide-react"
 import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -14,12 +17,13 @@ import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Day } from "@/components/ui/day"
 import { Fab } from "@/components/ui/fab"
-import { Field, Input, Textarea } from "@/components/ui/field"
+import { Field, Input, Money, Textarea } from "@/components/ui/field"
+import { FilterChips } from "@/components/ui/filter-chips"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import { ExpandingSearch } from "@/components/ui/list-chrome"
-import { ListFilters } from "@/components/ui/list-filters"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill, Status } from "@/components/ui/pill"
-import { SubHead } from "@/components/ui/rows"
+import { MiniTable, SubHead } from "@/components/ui/rows"
 import { CellMoney } from "@/components/ui/rows-switch"
 import { Toolbar } from "@/components/ui/segmented"
 import { SheetFooter } from "@/components/ui/sheet-footer"
@@ -30,16 +34,18 @@ import {
   NoAccessState,
   NoMatch,
 } from "@/components/ui/states"
-import { useFilterState, type FilterField } from "@/lib/filters"
-import { count, day, label, money, moment } from "@/lib/format"
+import { count, day, label, money, moment, monthYear } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
   financeKeys,
   journalEntry,
+  journalRepeatsQuery,
   listJournal,
   listJournalTemplates,
   postManualEntry,
+  previewDepreciation,
   reverseEntry,
+  runDepreciation,
   type ManualLine,
 } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
@@ -55,12 +61,12 @@ import {
   Th,
   TotalRow,
 } from "@/screens/finance-final/parts"
+import { AppLink } from "@/components/ui/app-link"
 import { todayIso } from "@/screens/finance/chart"
 import {
   useCategoriesByFamily,
   useSettledWindow,
 } from "@/screens/finance/hooks"
-import { JournalLinesGrid } from "@/screens/finance/journal-lines-grid"
 import {
   blankLine,
   byUnit,
@@ -68,24 +74,46 @@ import {
   draftTotals,
   type DraftLine,
 } from "@/screens/finance/journal-lines"
-import { UnitName, UnitSelect, WindowControl } from "@/screens/finance/parts"
+import {
+  AccountPicker,
+  CategoryPicker,
+  UnitName,
+  UnitSelect,
+  WindowControl,
+  type AccountChoice,
+} from "@/screens/finance/parts"
 import { idempotencyKey } from "@itulah/contract/client"
 import { ScreenPending } from "@/screens/finance/pending"
-import type { JournalEntryRow, JournalLineView } from "@itulah/contract"
+import type {
+  DepreciationRun,
+  JournalEntryDetail,
+  JournalEntryRow,
+  JournalLineView,
+} from "@itulah/contract"
 
-/// The book every other screen in this module writes into.
+/// The book every other screen in this module writes into, in 7Soft's words.
 ///
-/// ERPNext's Journal Entry, list and form, with our one dimension on the line.
+/// Two of 7Soft's screens meet here. "Info Accounting" has the tabs Jurnal
+/// (the journals made by hand in Transaksi Jurnal) and All Jurnal (every
+/// journal, with the document that made it), and "Transaksi Jurnal" is the
+/// form that opens from a row and from Jurnal Baru. The content is 7Soft's —
+/// its columns, its header fields, its detail grid and its Selisih — and the
+/// design is the hub's. Every figure and every write goes through the finance
+/// endpoints; nothing here posts locally.
 ///
-/// # Why the register does not have an Account column
+/// # What 7Soft has that the books do not
 ///
-/// Because ERPNext's does not either, and for the same reason: the accounts are
-/// a child table. A Journal Entry list view carries the document — type, date,
-/// total, status — and the rows it is made of live in the form. Our register
-/// answers the same way: `JournalEntryRow` has an entry number, a total and a
-/// line count, and no account and no unit anywhere on it. Filling those two
-/// columns would mean one `GET /journal/{id}` per row, which is how a list gets
-/// slow without anybody being able to point at the reason. So a row opens.
+///   * **No Referensi.** `journal_entry` has no reference column, and the
+///     manual-entry endpoint takes none. The reference is therefore carried at
+///     the head of the memo as `[ref] note` and read back from it on manual
+///     entries only (`memoParts`) — the books stay the one record, and a
+///     reference typed in the form is found by the register's own search.
+///   * **Status New / Delete.** The journal is append-only: nothing is
+///     deleted. An entry that has been answered by its mirror reads Delete,
+///     which is what 7Soft's operator means by it, and the sheet still says
+///     which entry answered it.
+///   * **Periode.** 7Soft's accounting period is the year and month of the
+///     date (200708), which is all the books' own periods are.
 ///
 /// # Why the unit is a column on the LINE and not on the entry
 ///
@@ -94,52 +122,115 @@ import type { JournalEntryRow, JournalLineView } from "@itulah/contract"
 /// 14×14 grid of accounts for the entries that move money between two units.
 /// Here `journal_line.unit_id` is a dimension on the posting, so one account
 /// serves all fourteen and an entry that touches two units is simply an entry
-/// whose lines carry two different units. That is a fact about the lines, and
-/// there is no honest way to print it as one value on the header: an entry
-/// settling Bandung's and Cikupa's bills belongs to both.
-///
-/// # Why "who posted this" is on the face of the list
-///
-/// Most of this book is not hand-written. Depreciation runs write it, supplier
-/// invoices write it, the bank reconciliation writes it — 44, 24 and 1 of the
-/// first hundred entries here against 30 by a person. "Who can I ask about
-/// this entry" is therefore the first question anybody has, and the answer is
-/// not the username: it is whether a human chose those accounts at all.
-/// ERPNext folds that into `voucher_type` and does not separate the types a
-/// person picks from the ones the system stamps — which confuses its own users.
-/// This list splits them.
+/// whose lines carry two different units. 7Soft's grid has no such column; the
+/// books refuse a line without one, so it stands beside Uraian.
 ///
 /// # Reverse, and the absence of Cancel
 ///
-/// ERPNext gives an accountant both: Cancel voids a voucher, Reverse posts a
-/// new opposite one and leaves the original standing. We have only the second,
-/// deliberately — `journal_entry` is append-only and there is no cancel
-/// endpoint at all. The sheet says so where somebody is about to press it,
-/// because "this never should have existed" and "this was right then and is
-/// wrong now" are different intents and only one of them is available.
+/// `journal_entry` is append-only and there is no cancel endpoint at all.
+/// Reverse posts a new opposite entry and leaves the original standing; the
+/// sheet says so where somebody is about to press it, because "this never
+/// should have existed" and "this was right then and is wrong now" are
+/// different intents and only one of them is available.
 
-/// One page of the register. The list scrolls on — this is the size of a
+/// One page of the Jurnal tab. The list scrolls on — this is the size of a
 /// step, not a ceiling.
 const PAGE = 100
 
-/// The register's columns. The server orders it, so none of them sorts; on a
-/// card the number leads, the type names it, the memo follows when there is
-/// one, and the total stands at the right with the status in the foot.
+/// One page of All Jurnal. Smaller, because every entry on it is a second
+/// read for its lines — the register answers headers, and 7Soft's All Jurnal
+/// is a list of lines.
+const PAGE_ALL = 50
+
+/// Info Accounting's two tabs. The door draws them (Jurnal and All Jurnal are
+/// two paths of the Journal door, beside Templates), so the screen is told
+/// which one it is.
+type Tab = "jurnal" | "all" | "recurring"
+
+/// What wrote an entry, as 7Soft's All Jurnal names the document in its
+/// Keterangan column. An adapter, not a vocabulary: the schema's own values on
+/// the left, the operator's words on the right.
+const SOURCE_WORDS: Readonly<Record<string, string>> = {
+  MANUAL: "Jurnal Manual",
+  SUPPLIER_INVOICE: "Faktur Pembelian",
+  PAYMENT: "Pembayaran",
+  DEPRECIATION: "Penyusutan",
+  REVERSAL: "Pembalik Jurnal",
+  SALE_DAY: "Penjualan Cash",
+  STOCK_COUNT: "Stock Opname",
+  TRANSFER: "Transfer",
+}
+
+function sourceWord(kind: string): string {
+  return SOURCE_WORDS[kind] ?? label(kind)
+}
+
+/// 7Soft's Periode: the year and month of the date, `200708`.
+function periodOf(date: string): string {
+  return `${date.slice(0, 4)}${date.slice(5, 7)}`
+}
+
+/// A manual entry's reference, read back out of the memo it travels in.
+const REF_MARK = /^\[([^\]]*)\]\s?/
+
+function memoParts(entry: Pick<JournalEntryRow, "source_kind" | "memo">): {
+  ref: string
+  note: string
+} {
+  const memo = entry.memo ?? ""
+  if (entry.source_kind !== "MANUAL") return { ref: "", note: memo }
+  const found = REF_MARK.exec(memo)
+  return found === null
+    ? { ref: "", note: memo }
+    : { ref: found[1], note: memo.slice(found[0].length) }
+}
+
+/// The memo a manual entry is written with: the reference first, then
+/// Keterangan. Empty is `null`, which is what the endpoint means by none.
+function memoOf(ref: string, note: string): string | null {
+  const reference = ref.trim().replace(/[[\]]/g, "")
+  const text = note.trim()
+  if (reference === "") return text === "" ? null : text
+  return text === "" ? `[${reference}]` : `[${reference}] ${text}`
+}
+
+/// A person chose these accounts, or a posting rule did.
+///
+/// `MANUAL` is the only kind a human writes directly; `REVERSAL` is written by
+/// the server when somebody presses Reverse, which is a person's decision
+/// carried out by a rule — so it reads as neither and gets its own tone.
+function byHand(entry: JournalEntryRow): boolean {
+  return entry.source_kind === "MANUAL"
+}
+
+function toneOf(entry: JournalEntryRow): "warn" | "info" | "neutral" {
+  if (entry.source_kind === "MANUAL") return "warn"
+  if (entry.source_kind === "REVERSAL") return "info"
+  return "neutral"
+}
+
+/// The prototype's Status: Posted; Reversed once the entry has been answered
+/// by its mirror; Reversal for the mirror itself.
+function statusOf(entry: JournalEntryRow): "Posted" | "Reversed" | "Reversal" {
+  if (entry.reversed_by !== null) return "Reversed"
+  return entry.source_kind === "REVERSAL" ? "Reversal" : "Posted"
+}
+
+function statusTone(entry: JournalEntryRow): "ok" | "neutral" | "info" {
+  const word = statusOf(entry)
+  return word === "Posted" ? "ok" : word === "Reversal" ? "info" : "neutral"
+}
+
+/// The Jurnal tab's columns: the document, as 7Soft lists it. The server
+/// orders it, so none of them sorts; on a card the number leads, the
+/// Keterangan names it and the total stands at the right with the status in
+/// the foot.
 const columns: ColumnDef<TableSetup, JournalEntryRow>[] = [
-  {
-    id: "date",
-    accessorFn: (row) => row.posting_date,
-    header: "Date",
-    size: 120,
-    enableSorting: false,
-    meta: { card: "foot" },
-    cell: ({ row }) => day(row.original.posting_date),
-  },
   {
     id: "entry",
     accessorFn: (row) => row.entry_number,
-    header: "Entry",
-    size: 140,
+    header: "No Jurnal",
+    size: 180,
     enableSorting: false,
     meta: { card: "id" },
     cell: ({ row }) => (
@@ -149,109 +240,201 @@ const columns: ColumnDef<TableSetup, JournalEntryRow>[] = [
     ),
   },
   {
+    id: "date",
+    accessorFn: (row) => row.posting_date,
+    header: "Tanggal",
+    size: 100,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) => day(row.original.posting_date),
+  },
+  {
+    id: "ref",
+    accessorFn: (row) => memoParts(row).ref,
+    header: "No Referensi",
+    size: 190,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) => {
+      const { ref } = memoParts(row.original)
+      return ref === "" ? <span className="text-faint">—</span> : ref
+    },
+  },
+  {
     id: "memo",
-    accessorFn: (row) => row.memo,
-    header: "Memo",
-    size: 220,
+    accessorFn: (row) => memoParts(row).note,
+    header: "Keterangan",
+    size: 240,
     enableSorting: false,
-    meta: { card: "meta", grow: 200 },
-    cell: ({ row }) => (
-      <span
-        className={cn(
-          "block truncate",
-          row.original.memo === null ? "text-faint" : "text-body"
-        )}
-        title={row.original.memo ?? undefined}
-      >
-        {row.original.memo ?? "—"}
-      </span>
-    ),
-  },
-  {
-    id: "type",
-    accessorFn: (row) => row.source_kind,
-    header: "Type",
-    size: 170,
-    enableSorting: false,
-    meta: { card: "title" },
-    cell: ({ row }) => (
-      <>
-        {label(row.original.source_kind)}
-        {byHand(row.original) && <span className="text-mute"> · by hand</span>}
-      </>
-    ),
-  },
-  {
-    id: "posted_by",
-    accessorFn: (row) => row.posted_by,
-    header: "Posted by",
-    size: 140,
-    enableSorting: false,
-    meta: { card: "foot", priority: 3 },
-    cell: ({ row }) => (
-      <span
-        className="block truncate"
-        title={`${row.original.posted_by} · ${moment(row.original.posted_at)}`}
-      >
-        {row.original.posted_by}
-      </span>
-    ),
+    meta: { card: "title", grow: 200 },
+    cell: ({ row }) => {
+      const { note } = memoParts(row.original)
+      return (
+        <span
+          className={cn(
+            "block truncate",
+            note === "" ? "text-faint" : "text-body"
+          )}
+          title={note === "" ? undefined : note}
+        >
+          {note === "" ? "—" : note}
+        </span>
+      )
+    },
   },
   {
     id: "total",
     accessorFn: (row) => row.total_minor,
-    header: "Total debit",
-    size: 150,
+    header: "Total",
+    size: 160,
     enableSorting: false,
     meta: { align: "right", card: "lead" },
     cell: ({ row }) => <CellMoney minor={row.original.total_minor} />,
   },
   {
     id: "status",
-    accessorFn: (row) => (row.reversed_by !== null ? "Reversed" : "Posted"),
+    accessorFn: (row) => statusOf(row),
     header: "Status",
-    size: 110,
+    size: 140,
     enableSorting: false,
-    // ERPNext's docstatus column. A reversal already says so under Type, so
-    // only the entry it undid carries a word of its own here.
     meta: { card: "status" },
-    cell: ({ row }) =>
-      row.original.reversed_by !== null ? (
-        <Status tone="bad">Reversed</Status>
-      ) : (
-        <Status tone="ok">Posted</Status>
-      ),
+    cell: ({ row }) => (
+      <Status tone={statusTone(row.original)}>{statusOf(row.original)}</Status>
+    ),
   },
 ]
 
+/// One line of one journal: a row of All Jurnal.
+interface FlatLine {
+  readonly id: string
+  readonly entry: JournalEntryRow
+  readonly line: JournalLineView
+}
+
+function figure(minor: number) {
+  return minor === 0 ? (
+    <span className="text-hairline-strong">·</span>
+  ) : (
+    <CellMoney minor={minor} />
+  )
+}
+
+/// All Jurnal's columns, in 7Soft's order. A journal's own fields repeat on
+/// each of its lines, as they do there.
+const lineColumns: ColumnDef<TableSetup, FlatLine>[] = [
+  {
+    id: "date",
+    accessorFn: (row) => row.entry.posting_date,
+    header: "Date",
+    size: 90,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) => day(row.original.entry.posting_date),
+  },
+  {
+    id: "source",
+    accessorFn: (row) => sourceWord(row.entry.source_kind),
+    header: "Source",
+    size: 150,
+    enableSorting: false,
+    meta: { card: "meta", priority: 2 },
+    cell: ({ row }) => sourceWord(row.original.entry.source_kind),
+  },
+  {
+    id: "entry",
+    accessorFn: (row) => row.entry.entry_number,
+    header: "No",
+    size: 190,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) => (
+      <span className="font-mono text-[0.9375rem] text-ink">
+        {row.original.entry.entry_number}
+      </span>
+    ),
+  },
+  {
+    id: "name",
+    accessorFn: (row) => `${row.line.account_code} ${row.line.account_name}`,
+    header: "Account",
+    size: 320,
+    enableSorting: false,
+    meta: { card: "title", grow: 200 },
+    cell: ({ row }) => (
+      <span className="block truncate" title={row.original.line.account_name}>
+        <Code>{row.original.line.account_code}</Code>{" "}
+        <span className="text-mute">{row.original.line.account_name}</span>
+      </span>
+    ),
+  },
+  {
+    id: "debet",
+    accessorFn: (row) => row.line.debit_minor,
+    header: "Debet",
+    size: 160,
+    enableSorting: false,
+    meta: { align: "right", card: "lead" },
+    cell: ({ row }) => figure(row.original.line.debit_minor),
+  },
+  {
+    id: "kredit",
+    accessorFn: (row) => row.line.credit_minor,
+    header: "Kredit",
+    size: 160,
+    enableSorting: false,
+    meta: { align: "right", card: "metric" },
+    cell: ({ row }) => figure(row.original.line.credit_minor),
+  },
+]
+
+/// The lines of the journals in hand, read one journal at a time — the
+/// register answers headers and there is no endpoint that answers lines across
+/// journals. Kept in the same cache as the sheet, so opening a row reads
+/// nothing again.
+function combineLines(results: UseQueryResult<JournalEntryDetail>[]) {
+  return {
+    details: results.map((one) => one.data),
+    waiting: results.filter((one) => one.isPending).length,
+    failed: results.filter((one) => one.isError).length,
+  }
+}
+
+/// The Jurnal tab: the journals written by hand.
 export function Journals() {
+  return <JournalsFrame tab="jurnal" />
+}
+
+/// The Recurring tab opened on its own.
+export function RecurringJournals() {
+  return <JournalsFrame tab="recurring" />
+}
+
+/// The All Jurnal tab: every journal's lines, whoever wrote them.
+export function AllJournals() {
+  return <JournalsFrame tab="all" />
+}
+
+function JournalsFrame({ tab }: { tab: Tab }) {
   return (
     <Suspense
       fallback={
-        <ScreenPending crumb="Finance · Payments" title="Journal Entry">
+        <ScreenPending crumb="Finance · Accounting" title="Journal">
           Reading the calendar…
         </ScreenPending>
       }
     >
-      <JournalsScreen />
+      <JournalsScreen first={tab} />
     </Suspense>
   )
 }
 
-/// The type of an entry, asked of the list the way every list is asked: its
-/// answers (and their counts) are the server's, so they are filled in below,
-/// once the first page is in.
-const KIND_FIELD: FilterField = {
-  column: "kind",
-  label: "Entry type",
-  spec: { kind: "option", single: true, format: (value) => label(value) },
-}
-
-function JournalsScreen() {
+function JournalsScreen({ first }: { first: Tab }) {
+  const [tab, setTab] = useState<Tab>(first)
   const range = useSettledWindow()
-  const filterState = useFilterState([KIND_FIELD])
-  const kind =
-    filterState.filters.find((one) => one.column === "kind")?.values[0] ?? ""
+  const all = tab === "all"
+  const recurring = tab === "recurring"
+  // The entry type is the server's: its own counts, over the window.
+  const [kind, setKind] = useState<string | null>(null)
   const [unit, setUnit] = useState("")
   const [needle, setNeedle] = useState("")
   // In the URL rather than in state, so a link from a bill, a deposit or a
@@ -288,25 +471,28 @@ function JournalsScreen() {
   }, [template, categories.isPending, categories.families])
 
   // Window, type, unit and the search all go on the wire, and the key carries
-  // all four — a register narrowed in the browser is a slice of whatever pages
-  // it happens to hold, which answers a different question and looks
+  // all of them — a register narrowed in the browser is a slice of whatever
+  // pages it happens to hold, which answers a different question and looks
   // identical.
   const q = useDebounced(needle.trim(), 300)
+  const from = range.from
+  const to = range.to
   const entries = useInfiniteQuery({
     queryKey: [
-      ...financeKeys.journal(range.from, range.to, kind || null, unit || null),
+      ...financeKeys.journal(from, to, kind, unit || null),
       "pages",
       q,
+      all ? PAGE_ALL : PAGE,
     ],
     queryFn: ({ pageParam, signal }) =>
       listJournal(
         {
-          from: range.from,
-          to: range.to,
-          kind: kind || undefined,
+          from,
+          to,
+          kind: kind ?? undefined,
           unit: unit || undefined,
           q: q || undefined,
-          limit: PAGE,
+          limit: all ? PAGE_ALL : PAGE,
           cursor: pageParam,
         },
         signal
@@ -314,6 +500,7 @@ function JournalsScreen() {
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.next_cursor ?? undefined,
     placeholderData: (previous) => previous,
+    enabled: !recurring,
   })
 
   const rows = useMemo(
@@ -325,24 +512,32 @@ function JournalsScreen() {
   const matched = head?.total ?? rows.length
   // The server's own counts per type, over the window. They deliberately
   // ignore the unit filter — the node counts each facet against the window
-  // alone — so the strip is labelled as a fact about the window and not about
-  // the list below it.
+  // alone.
   const kinds = head?.facets.kinds ?? []
-  const kindModel: typeof filterState = {
-    ...filterState,
-    fields: [
-      {
-        ...KIND_FIELD,
-        spec: {
-          ...KIND_FIELD.spec,
-          counted: kinds.map((facet) => ({
-            value: facet.value,
-            count: facet.count,
-          })),
-        },
-      },
-    ],
-  }
+  const kindTotal = kinds.reduce((sum, facet) => sum + facet.count, 0)
+
+  // All jurnal: the lines of every journal in hand.
+  const lines = useQueries({
+    queries: all
+      ? rows.map((row) => ({
+          queryKey: financeKeys.entry(row.entry_id),
+          queryFn: ({ signal }: { signal: AbortSignal }) =>
+            journalEntry(row.entry_id, signal),
+          staleTime: 60_000,
+        }))
+      : [],
+    combine: combineLines,
+  })
+  const flat = useMemo(() => {
+    const out: FlatLine[] = []
+    rows.forEach((entry, at) => {
+      const detail = lines.details[at]
+      if (detail === undefined) return
+      for (const line of detail.lines)
+        out.push({ id: `${entry.entry_id}:${line.line_number}`, entry, line })
+    })
+    return out
+  }, [rows, lines.details])
 
   const table = useTable(
     useMemo(
@@ -355,92 +550,183 @@ function JournalsScreen() {
       [rows]
     )
   )
+  const lineTable = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: flat,
+        columns: lineColumns,
+        getRowId: (row: FlatLine) => row.id,
+      }),
+      [flat]
+    )
+  )
+
+  // The next journals are asked for only once the lines of those in hand have
+  // arrived: with the rows still empty the foot of the table is in view, and
+  // the table would pull every page in one after another.
+  const more = {
+    hasNextPage: entries.hasNextPage && (!all || lines.waiting === 0),
+    isFetchingNextPage: entries.isFetchingNextPage,
+    isFetchNextPageError: entries.isFetchNextPageError,
+    error: entries.error,
+    fetchNextPage: entries.fetchNextPage,
+  }
+
+  const clearNeedle = () => setNeedle("")
+  const jurnalBaru = () => setComposing(true)
 
   return (
     <PageContent>
       {/* The one action stands in the head; a phone has the + at the thumb. */}
       <PageHeader
-        crumb="Finance · Payments"
-        title="Journal Entry"
+        crumb="Finance · Accounting"
+        title="Journal"
         actions={
           phone ? undefined : (
-            <Button variant="primary" onClick={() => setComposing(true)}>
-              New entry
+            <Button variant="primary" onClick={jurnalBaru}>
+              New jurnal
             </Button>
           )
         }
       />
-      <Fab label="New entry" onClick={() => setComposing(true)} />
+      <Fab label="New jurnal" onClick={jurnalBaru} />
 
-      <Toolbar className="group/bar">
-        <ExpandingSearch
-          value={needle}
-          onChange={setNeedle}
-          label="Search entries"
-        />
-        <WindowControl range={range} />
-        <ListFilters model={kindModel} />
-        <UnitSelect
-          value={unit}
-          onChange={setUnit}
-          className="h-control w-44"
-          aria-label="Unit"
-        />
-        <Toolbar.Spacer />
-        <span className="text-[0.9375rem] text-mute">
-          {range.chip}
-          {kind !== "" && ` · ${label(kind)}`}
-          {unit !== "" && " · "}
-          {unit !== "" && <UnitName id={unit} />}
-          {` · ${count(matched)} ${matched === 1 ? "entry" : "entries"}`}
-        </span>
+      <Toolbar
+        className="group/bar"
+        lead={
+          <SubTabs
+            value={tab}
+            onChange={(next) => setTab(next as Tab)}
+            tabs={[
+              { value: "jurnal", label: "Jurnal" },
+              { value: "all", label: "All jurnal" },
+              { value: "recurring", label: "Recurring" },
+            ]}
+          />
+        }
+      >
+        {!recurring && (
+          <>
+            <FilterChips
+              label="Source"
+              value={kind}
+              onChange={setKind}
+              options={[
+                { value: null, label: "All", count: kindTotal },
+                ...kinds.map((facet) => ({
+                  value: facet.value,
+                  label: sourceWord(facet.value),
+                  count: facet.count,
+                })),
+              ]}
+            />
+            <ExpandingSearch
+              value={needle}
+              onChange={setNeedle}
+              label="Search journals"
+            />
+            <WindowControl range={range} />
+            <UnitSelect
+              value={unit}
+              onChange={setUnit}
+              className="h-control w-44"
+              aria-label="Unit"
+            />
+            <Toolbar.Spacer />
+            <span className="text-[0.9375rem] text-mute">
+              {range.chip}
+              {unit !== "" && " · "}
+              {unit !== "" && <UnitName id={unit} />}
+              {` · ${count(matched)} ${matched === 1 ? "journal" : "journals"}`}
+              {all &&
+                lines.waiting > 0 &&
+                ` · reading ${count(lines.waiting)} more`}
+            </span>
+          </>
+        )}
       </Toolbar>
 
-      <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-        {queryState(entries, {
-          loading: "Reading the register…",
-          // Every GET under /finance is behind a supervisor's sign-in, and a
-          // refusal served as an empty register is the one failure a reader
-          // cannot tell from an empty month.
-          refused: (
-            <NoAccessState
-              what="the journal"
-              reach="Reading the books takes a supervisor's sign-in; posting to them, head office's."
-            />
-          ),
-          render: () =>
-            rows.length === 0 && q === "" ? (
-              <EmptyState>
-                Nothing posted between {day(range.from)} and {day(range.to)}
-                {kind === "" ? "" : ` by ${label(kind).toLowerCase()}`}. The
-                window is always set, so this is not a statement about the books
-                — widen it to tell the two apart.
-              </EmptyState>
-            ) : rows.length === 0 ? (
-              <NoMatch what="entries" onClear={() => setNeedle("")} />
-            ) : (
-              <DataTable<JournalEntryRow>
-                refresh={[entries]}
-                table={table}
-                onRowClick={(entry) => reading.open(entry.entry_id)}
-                isSelected={(entry) => entry.entry_id === reading.value}
-                more={entries}
-                // The server's figure over everything the window and the
-                // filters match, not a sum of the rows above — which would
-                // grow as somebody scrolled and shrink as they searched.
-                summary={{
-                  date: "Total",
-                  memo: `${count(matched)} ${matched === 1 ? "entry" : "entries"}`,
-                  total: money(head?.total_minor ?? null),
-                }}
-                pageScroll
-                cardSort={false}
-                cardsApart
-                cardLead
-              />
-            ),
-        })}
-      </Card>
+      {recurring ? (
+        <RecurringTab onMake={(templateId) => fromTemplate.open(templateId)} />
+      ) : (
+        <>
+          {all && lines.failed > 0 && (
+            <Banner tone="bad">
+              The lines of {count(lines.failed)}{" "}
+              {lines.failed === 1 ? "journal" : "journals"} could not be read,
+              so they are missing from the list below.
+            </Banner>
+          )}
+
+          <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+            {queryState(entries, {
+              loading: "Reading the register…",
+              // Every GET under /finance is behind a supervisor's sign-in, and a
+              // refusal served as an empty register is the one failure a reader
+              // cannot tell from an empty month.
+              refused: (
+                <NoAccessState
+                  what="the journal"
+                  reach="Reading the books takes a supervisor's sign-in; posting to them, head office's."
+                />
+              ),
+              render: () =>
+                rows.length === 0 && q === "" ? (
+                  <EmptyState>
+                    Nothing posted between {day(range.from)} and {day(range.to)}
+                    {kind === null
+                      ? ""
+                      : ` by ${sourceWord(kind).toLowerCase()}`}
+                    .
+                  </EmptyState>
+                ) : rows.length === 0 ? (
+                  <NoMatch what="journals" onClear={clearNeedle} />
+                ) : all ? (
+                  flat.length === 0 && lines.waiting > 0 ? (
+                    <EmptyState art={null}>Reading the lines…</EmptyState>
+                  ) : (
+                    <DataTable<FlatLine>
+                      refresh={[entries]}
+                      table={lineTable}
+                      onRowClick={(row) => reading.open(row.entry.entry_id)}
+                      isSelected={(row) => row.entry.entry_id === reading.value}
+                      more={more}
+                      // The server's figure over everything the window and the
+                      // filters match, not a sum of the rows above. Debits equal
+                      // credits in every entry, so one figure is both.
+                      summary={{
+                        source: `${count(matched)} ${matched === 1 ? "journal" : "journals"}`,
+                        debet: money(head?.total_minor ?? null),
+                        kredit: money(head?.total_minor ?? null),
+                      }}
+                      pageScroll
+                      cardSort={false}
+                      cardsApart
+                      cardLead
+                    />
+                  )
+                ) : (
+                  <DataTable<JournalEntryRow>
+                    refresh={[entries]}
+                    table={table}
+                    onRowClick={(entry) => reading.open(entry.entry_id)}
+                    isSelected={(entry) => entry.entry_id === reading.value}
+                    more={more}
+                    summary={{
+                      entry: `${count(matched)} jurnal`,
+                      total: money(head?.total_minor ?? null),
+                    }}
+                    pageScroll
+                    cardSort={false}
+                    cardsApart
+                    cardLead
+                  />
+                ),
+            })}
+          </Card>
+        </>
+      )}
 
       <EntryPanel
         id={reading.value ?? null}
@@ -461,27 +747,70 @@ function JournalsScreen() {
   )
 }
 
-/// A person chose these accounts, or a posting rule did.
-///
-/// `MANUAL` is the only kind a human writes directly; `REVERSAL` is written by
-/// the server when somebody presses Reverse, which is a person's decision
-/// carried out by a rule — so it reads as neither and gets its own tone.
-function byHand(entry: JournalEntryRow): boolean {
-  return entry.source_kind === "MANUAL"
-}
-
-function toneOf(entry: JournalEntryRow): "warn" | "info" | "neutral" {
-  if (entry.source_kind === "MANUAL") return "warn"
-  if (entry.source_kind === "REVERSAL") return "info"
-  return "neutral"
+/// The templates that repeat: Template, Every, Amount, Next, Last jurnal. The
+/// action opens the composer filled from the template, as the sweep would.
+function RecurringTab({ onMake }: { onMake: (templateId: string) => void }) {
+  const repeats = useQuery(journalRepeatsQuery())
+  return queryState(repeats, {
+    loading: "Reading the schedules…",
+    render: (list) =>
+      list.length === 0 ? (
+        <EmptyState>No journal repeats yet.</EmptyState>
+      ) : (
+        <Grid followRows>
+          <thead>
+            <tr>
+              <Th>Template</Th>
+              <Th width="12rem">Every</Th>
+              <Th align="right" width="11rem">
+                Amount
+              </Th>
+              <Th width="8rem">Next</Th>
+              <Th width="12rem">Last jurnal</Th>
+              <Th width="13rem" />
+            </tr>
+          </thead>
+          <tbody>
+            {list.map((repeat) => (
+              <tr key={repeat.repeat_id}>
+                <Td className="max-w-0 text-ink">
+                  <span className="block truncate">{repeat.template_name}</span>
+                </Td>
+                <Td>{label(repeat.frequency)}</Td>
+                {/* The schedule carries no amount; the template's lines do. */}
+                <Td align="right">
+                  <span className="text-faint">—</span>
+                </Td>
+                <Td>{day(repeat.next_date)}</Td>
+                <Td>
+                  {repeat.last_run_on === null ? (
+                    <span className="text-faint">—</span>
+                  ) : (
+                    day(repeat.last_run_on)
+                  )}
+                </Td>
+                <Td align="right">
+                  <Button
+                    variant="primary"
+                    onClick={() => onMake(repeat.template_id)}
+                  >
+                    Make jurnal now
+                  </Button>
+                </Td>
+              </tr>
+            ))}
+          </tbody>
+        </Grid>
+      ),
+  })
 }
 
 // ---------------------------------------------------------------------------
-// One entry
+// One journal
 // ---------------------------------------------------------------------------
 
-/// The form behind a register row: its lines, their units, and the one action
-/// this book allows against a posted entry.
+/// Transaksi Jurnal, read: the header, its detail lines with Total and
+/// Selisih, and the one action this book allows against a posted entry.
 function EntryPanel({
   id,
   onClose,
@@ -536,16 +865,14 @@ function EntryPanel({
           onClose()
         }
       }}
-      // The number is the crumb's second half, the memo the title; the status
-      // and the count of lines stand on the caption line under it.
-      id={entry?.entry_number}
-      title={
-        entry?.memo ?? (entry ? label(entry.source_kind) : "Journal entry")
-      }
-      caption={
-        entry === undefined
-          ? undefined
-          : `${answered ? "Reversed" : "Posted"} · ${count(detail.data?.lines.length ?? 0)} ${detail.data?.lines.length === 1 ? "line" : "lines"}`
+      // The number is the crumb's second half; the status and the count of
+      // lines stand on the caption line under the title.
+      context="Journal"
+      title={entry?.entry_number ?? "Transaksi Jurnal"}
+      badge={
+        entry === undefined ? undefined : (
+          <Pill tone={statusTone(entry)}>{statusOf(entry)}</Pill>
+        )
       }
       size="wide"
       footer={
@@ -582,6 +909,7 @@ function EntryPanel({
             (sum, line) => sum + line.credit_minor,
             0
           )
+          const { ref, note } = memoParts(header)
 
           return (
             <div className="flex flex-col gap-5">
@@ -599,22 +927,27 @@ function EntryPanel({
                 </Banner>
               )}
 
-              <div className="flex flex-wrap gap-1.5">
-                <Pill tone={toneOf(header)}>{label(header.source_kind)}</Pill>
-                <Pill tone={byHand(header) ? "warn" : "neutral"}>
-                  {byHand(header) ? "Written by hand" : "Posted by the system"}
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Pill tone="neutral">READ ONLY</Pill>
+                <Pill tone={toneOf(header)}>
+                  {sourceWord(header.source_kind)}
                 </Pill>
-                {header.reversal_of !== null && (
-                  <Pill tone="info">Reversal</Pill>
-                )}
-                {header.reversed_by !== null && (
-                  <Pill tone="bad">Reversed</Pill>
-                )}
                 {interUnit && <Pill tone="accent">Inter-unit</Pill>}
+                <span className="grow" />
+                <Button variant="ghost" onClick={() => window.print()}>
+                  Print
+                </Button>
               </div>
 
               <Facts>
-                <Fact term="Posting date">{day(header.posting_date)}</Fact>
+                <Fact term="Tanggal">
+                  {day(header.posting_date)}
+                  <span className="text-mute"> {moment(header.posted_at)}</span>
+                </Fact>
+                <Fact term="No Referensi">{ref === "" ? "—" : ref}</Fact>
+                <Fact term="Keterangan">{note === "" ? "—" : note}</Fact>
+                <Fact term="Status Otomatis">{byHand(header) ? "N" : "Y"}</Fact>
+                <Fact term="Periode Acc">{periodOf(header.posting_date)}</Fact>
                 <Fact term="Currency">{header.currency}</Fact>
                 <Fact term="Posted by">{header.posted_by}</Fact>
                 <Fact term="Posted at">{moment(header.posted_at)}</Fact>
@@ -650,37 +983,34 @@ function EntryPanel({
               </Facts>
 
               <div>
-                <SubHead aside={`${count(lines.length)} lines`}>
-                  Accounting entries
-                </SubHead>
+                <SubHead aside={`${count(lines.length)} lines`}>Detail</SubHead>
                 <Grid>
                   <thead>
                     <tr>
-                      <Th width="3rem">#</Th>
-                      <Th>Account</Th>
+                      <Th>Deskripsi Account</Th>
+                      <Th width="9rem">Kode Account</Th>
+                      <Th>Uraian</Th>
                       <Th width="9rem">Unit</Th>
                       <Th align="right" width="9rem">
-                        Debit
+                        Debet
                       </Th>
                       <Th align="right" width="9rem">
-                        Credit
+                        Kredit
                       </Th>
                     </tr>
                   </thead>
                   <tbody>
                     {lines.map((line: JournalLineView) => (
                       <tr key={line.line_number}>
-                        <Td className="text-mute">{line.line_number}</Td>
                         <Td>
                           <span className="block text-ink">
                             {line.account_name}
                             {/* What the line WAS. With forty accounts in the
                                 chart the name above is a row of the statement
                                 and this is the thing the reader came for, so
-                                it sits on the same line rather than under the
-                                code — an entry whose eight lines all read
-                                "Beban umum & administrasi" is an entry nobody
-                                can check. */}
+                                it sits on the same line — an entry whose eight
+                                lines all read "Beban umum & administrasi" is
+                                an entry nobody can check. */}
                             {line.category_name !== null && (
                               <span
                                 className="text-mute"
@@ -691,13 +1021,20 @@ function EntryPanel({
                               </span>
                             )}
                           </span>
-                          <Code>{line.account_code}</Code>
-                          {line.memo !== null && (
-                            <span className="block text-[0.9375rem] text-mute">
-                              {line.memo}
-                            </span>
-                          )}
                         </Td>
+                        <Td>
+                          {/* No dead ends: the question a line raises is
+                              "what else is in that account", and the ledger
+                              is the answer. */}
+                          <AppLink
+                            to="/finance/ledger"
+                            sheet={{ key: "account", value: line.account_code }}
+                            className="font-mono text-[0.9375rem] text-mute hover:text-accent hover:underline"
+                          >
+                            {line.account_code}
+                          </AppLink>
+                        </Td>
+                        <Td className="text-body">{line.memo ?? ""}</Td>
                         <Td>
                           {/* One account, named once; the unit beside it. Never
                               "Cash on Hand — Store 04", which is the shape of
@@ -717,11 +1054,20 @@ function EntryPanel({
                       </tr>
                     ))}
                     <TotalRow>
-                      <Td />
                       <Td>Total</Td>
+                      <Td />
+                      <Td />
                       <Td />
                       <Td align="right">{money(debits)}</Td>
                       <Td align="right">{money(credits)}</Td>
+                    </TotalRow>
+                    <TotalRow>
+                      <Td>Selisih</Td>
+                      <Td />
+                      <Td />
+                      <Td />
+                      <Td align="right">{money(debits - credits)}</Td>
+                      <Td />
                     </TotalRow>
                   </tbody>
                 </Grid>
@@ -752,12 +1098,11 @@ function EntryPanel({
               ) : (
                 <div className="flex flex-col gap-2 border-t border-hairline pt-4">
                   <SubHead aside="posts a new entry">Reverse</SubHead>
-                  {/* ERPNext offers Cancel as well, and it means something
-                      different: Cancel voids the voucher, Reverse writes the
-                      opposite one and leaves the original standing. There is no
-                      cancel endpoint on this ledger at all, so the only thing
-                      this button can do is the second — and it says so, because
-                      somebody reaching for it may have wanted the first. */}
+                  {/* There is no cancel endpoint on this ledger at all, so the
+                      only thing this button can do is write the opposite entry
+                      and leave the original standing — and it says so,
+                      because somebody reaching for it may have wanted the
+                      other. */}
                   <p className="text-[0.9375rem] text-body">
                     This posts a <b>new entry</b> with the debits and credits
                     exchanged and leaves {header.entry_number} exactly as it is.
@@ -790,24 +1135,24 @@ function EntryPanel({
 // Writing one
 // ---------------------------------------------------------------------------
 
-/// Writing an entry by hand — ERPNext's Journal Entry form, with the unit on
+/// Transaksi Jurnal, written: 7Soft's header and detail grid with the unit on
 /// every row.
 ///
 /// # Why the balance is checked here as well as in the database
 ///
 /// So the button does not offer to do something that will be refused. The check
 /// that holds is a deferred constraint trigger at COMMIT; this one exists only
-/// to be polite about it, and the same is true of a closed month, whose refusal
-/// arrives as the trigger's own sentence and is quoted verbatim.
+/// to be polite about it — Selisih must be 0 — and the same is true of a closed
+/// month, whose refusal arrives as the trigger's own sentence and is quoted
+/// verbatim.
 ///
 /// # Why the per-unit figure is a warning and not a refusal
 ///
 /// Because the server allows it. `journal_entry_balances` checks the entry, not
 /// the unit, so an entry may debit head office and credit Store 04 and be
-/// perfectly postable while neither unit's own books foot. ERPNext's answer is
-/// an offsetting account posted automatically per dimension; a hand-written
-/// entry gets no such leg here, so the honest thing is to show the reader
-/// what they are about to leave behind and let them decide.
+/// perfectly postable while neither unit's own books foot. A hand-written entry
+/// gets no offsetting leg here, so the honest thing is to show the reader what
+/// they are about to leave behind and let them decide.
 function ComposerPanel({
   open,
   onClose,
@@ -826,6 +1171,7 @@ function ComposerPanel({
 }) {
   const client = useQueryClient()
   const [postingDate, setPostingDate] = useState(todayIso)
+  const [ref, setRef] = useState("")
   const [memo, setMemo] = useState(initial?.memo ?? "")
   const [lines, setLines] = useState<DraftLine[]>(() =>
     initial ? initial.lines : [blankLine(), blankLine()]
@@ -837,13 +1183,14 @@ function ComposerPanel({
   const [key, setKey] = useState(idempotencyKey)
 
   const totals = draftTotals(lines)
+  const selisih = totals.debits - totals.credits
 
   const post = useMutation({
     mutationFn: () =>
       postManualEntry(
         {
           posting_date: postingDate,
-          memo: memo.trim() === "" ? null : memo.trim(),
+          memo: memoOf(ref, memo),
           lines: totals.usable.map((row): ManualLine => ({
             account: {
               kind: "account",
@@ -856,7 +1203,10 @@ function ComposerPanel({
             unit_id: row.line.unit_id,
             debit_minor: row.debit,
             credit_minor: row.credit,
-            memo: null,
+            memo:
+              row.line.memo === undefined || row.line.memo.trim() === ""
+                ? null
+                : row.line.memo.trim(),
           })),
         },
         key
@@ -864,6 +1214,7 @@ function ComposerPanel({
     onSuccess: (posted) => {
       setReceipt(posted.entry_number)
       setLines([blankLine(), blankLine()])
+      setRef("")
       setMemo("")
       setKey(idempotencyKey())
       // A posting moves the register, every balance, both statements and the
@@ -881,7 +1232,7 @@ function ComposerPanel({
           onClose()
         }
       }}
-      title="New journal entry"
+      title="Transaksi Jurnal"
       caption={initial ? `From the template “${initial.name}”` : undefined}
       size="wide"
       footer={
@@ -897,7 +1248,9 @@ function ComposerPanel({
                 ? "No usable row yet — a row needs an account, a unit and a figure"
                 : totals.uncategorised.length > 0
                   ? `${count(totals.uncategorised.length)} ${totals.uncategorised.length === 1 ? "row needs" : "rows need"} a category — the account is one line of the statement, the category is what it was for`
-                  : `Debits ${money(totals.debits)} · credits ${money(totals.credits)}`
+                  : selisih !== 0
+                    ? `Selisih ${money(Math.abs(selisih))} — it must be 0 before posting`
+                    : "Two usable rows are needed before posting"
           }
           primary={{
             label: "Post entry",
@@ -920,6 +1273,9 @@ function ComposerPanel({
             {initial.skipped === 1 ? "it" : "them"} by hand.
           </Banner>
         )}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Pill tone="new">NEW</Pill>
+        </div>
         {receipt !== null && (
           <Banner tone="ok" onDismiss={() => setReceipt(null)}>
             Posted as {receipt}.
@@ -933,19 +1289,44 @@ function ComposerPanel({
           </Banner>
         )}
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Posting date" required hint="The month this lands in.">
+        <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
+          <Field label="No Jurnal">
+            <Input readOnly value="Otomatis" aria-label="No Jurnal" />
+          </Field>
+          <Field label="Tanggal" required>
             <Day value={postingDate} onChange={setPostingDate} />
           </Field>
-          <Field label="Memo" hint="What this entry is for.">
+          <Field label="No Referensi">
+            <Input
+              value={ref}
+              onChange={(event) => setRef(event.target.value)}
+            />
+          </Field>
+          <Field label="Periode Acc">
+            <Input
+              readOnly
+              value={periodOf(postingDate)}
+              aria-label="Periode Acc"
+            />
+          </Field>
+          <Field label="Keterangan" className="sm:col-span-2 xl:col-span-3">
             <Input
               value={memo}
               onChange={(event) => setMemo(event.target.value)}
             />
           </Field>
+          <Field label="Status Otomatis">
+            <Input readOnly value="N" aria-label="Status Otomatis" />
+          </Field>
         </div>
 
-        <JournalLinesGrid lines={lines} onChange={setLines} />
+        <DetailGrid
+          lines={lines}
+          onChange={setLines}
+          postingDate={postingDate}
+          debits={totals.debits}
+          credits={totals.credits}
+        />
 
         {totals.adrift.length > 0 && (
           <p className="text-[0.9375rem] text-body">
@@ -964,5 +1345,338 @@ function ComposerPanel({
         )}
       </div>
     </Sheet>
+  )
+}
+
+/// The account of a row: its name, with the category the account's family asks
+/// for beneath it. Choosing it fills Kode Account.
+function AccountCell({
+  value,
+  onChange,
+  row,
+}: {
+  value: AccountChoice | null
+  onChange: (next: AccountChoice | null) => void
+  row: number
+}) {
+  if (value === null || value.account_code === "")
+    return (
+      <AccountPicker
+        onPick={(account) =>
+          onChange({
+            account_code: account.account_code,
+            name: account.name,
+            category_family: account.category_family,
+            // Never carried across from whatever was chosen before: a
+            // category belongs to a family, and a new account may not be in
+            // the same one.
+            category_code: null,
+          })
+        }
+      />
+    )
+  return (
+    <div className="flex min-w-0 flex-col gap-1.5">
+      <span className="flex min-w-0 items-center gap-2">
+        <span className="min-w-0 flex-1 truncate text-[0.9375rem] text-ink">
+          {value.name === "" ? value.account_code : value.name}
+        </span>
+        <Button size="sm" variant="quiet" onClick={() => onChange(null)}>
+          Change
+        </Button>
+      </span>
+      {value.category_family !== null && (
+        <CategoryPicker
+          family={value.category_family}
+          value={value.category_code ?? ""}
+          label={`Category on row ${row}`}
+          onPick={(code) => onChange({ ...value, category_code: code })}
+        />
+      )}
+    </div>
+  )
+}
+
+/// 7Soft's detail: Deskripsi Account, Kode Account, Uraian, Debet and Kredit
+/// (and the unit, which the books need), with Total and Selisih under it and
+/// the Penyusutan button over it.
+function DetailGrid({
+  lines,
+  onChange,
+  postingDate,
+  debits,
+  credits,
+}: {
+  lines: readonly DraftLine[]
+  onChange: (next: DraftLine[]) => void
+  postingDate: string
+  debits: number
+  credits: number
+}) {
+  const setLine = (index: number, patch: Partial<DraftLine>) =>
+    onChange(
+      lines.map((line, at) => (at === index ? { ...line, ...patch } : line))
+    )
+  const selisih = debits - credits
+
+  return (
+    <div>
+      <SubHead aside={`${count(lines.length)} rows`}>Detail</SubHead>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <Button
+          variant="primary"
+          onClick={() => onChange([...lines, blankLine()])}
+        >
+          <Plus />
+          Add row
+        </Button>
+        <Button
+          variant="destructive"
+          onClick={() => onChange([blankLine(), blankLine()])}
+        >
+          Del All
+        </Button>
+        <Penyusutan postingDate={postingDate} />
+      </div>
+      <Grid>
+        <thead>
+          <tr>
+            <Th>Deskripsi Account</Th>
+            <Th width="8rem">Kode Account</Th>
+            <Th>Uraian</Th>
+            <Th width="10rem">Unit</Th>
+            <Th align="right" width="8.5rem">
+              Debet
+            </Th>
+            <Th align="right" width="8.5rem">
+              Kredit
+            </Th>
+            <Th width="2.5rem" />
+          </tr>
+        </thead>
+        <tbody>
+          {lines.map((line, index) => (
+            <tr key={index}>
+              <Td>
+                <AccountCell
+                  value={line.account}
+                  row={index + 1}
+                  onChange={(next) => setLine(index, { account: next })}
+                />
+              </Td>
+              <Td>
+                {line.account === null ? (
+                  <span className="text-faint">—</span>
+                ) : (
+                  <Code>{line.account.account_code}</Code>
+                )}
+              </Td>
+              <Td>
+                <Input
+                  value={line.memo ?? ""}
+                  onChange={(event) =>
+                    setLine(index, { memo: event.target.value })
+                  }
+                  aria-label={`Uraian on row ${index + 1}`}
+                  className="h-8"
+                />
+              </Td>
+              <Td>
+                <UnitSelect
+                  value={line.unit_id}
+                  onChange={(next) => setLine(index, { unit_id: next })}
+                  emptyLabel="Choose a unit"
+                  className="h-8"
+                  aria-label="Unit"
+                />
+              </Td>
+              <Td align="right">
+                <Money
+                  label={`Debet on row ${index + 1}`}
+                  value={line.debit}
+                  onChange={(next) => setLine(index, { debit: next })}
+                  className="h-8"
+                />
+              </Td>
+              <Td align="right">
+                <Money
+                  label={`Kredit on row ${index + 1}`}
+                  value={line.credit}
+                  onChange={(next) => setLine(index, { credit: next })}
+                  className="h-8"
+                />
+              </Td>
+              <Td>
+                {lines.length > 2 && (
+                  <Button
+                    size="sm"
+                    variant="quiet"
+                    aria-label={`Remove row ${index + 1}`}
+                    onClick={() =>
+                      onChange(lines.filter((_, at) => at !== index))
+                    }
+                  >
+                    <Trash2 />
+                  </Button>
+                )}
+              </Td>
+            </tr>
+          ))}
+          <TotalRow>
+            <Td>Total</Td>
+            <Td />
+            <Td />
+            <Td />
+            <Td align="right">{money(debits)}</Td>
+            <Td align="right">{money(credits)}</Td>
+            <Td />
+          </TotalRow>
+          <TotalRow>
+            <Td>Selisih</Td>
+            <Td />
+            <Td />
+            <Td />
+            <Td align="right" className={cn(selisih !== 0 && "text-bad-fg!")}>
+              {money(selisih)}
+            </Td>
+            <Td />
+            <Td />
+          </TotalRow>
+        </tbody>
+      </Grid>
+    </div>
+  )
+}
+
+/// 7Soft's PENYUSUTAN: the month's depreciation, formed from what the asset
+/// register holds.
+///
+/// 7Soft fills the grid. The depreciation endpoint's preview answers asset by
+/// asset and carries no accounts — the accounts are the asset classes' own,
+/// resolved by the posting engine — so the grid cannot be filled from it
+/// without keeping a second copy of those rules here. The button therefore
+/// shows what the month would charge and, once it is read, posts the month's
+/// depreciation through the same endpoint the asset register uses. Running it
+/// twice is safe: the server refuses the second charge of an asset in a month.
+function Penyusutan({ postingDate }: { postingDate: string }) {
+  const client = useQueryClient()
+  const year = Number(postingDate.slice(0, 4))
+  const month = Number(postingDate.slice(5, 7))
+  const valid = Number.isInteger(year) && month >= 1 && month <= 12
+  const [run, setRun] = useState<DepreciationRun | null>(null)
+  const [posted, setPosted] = useState<DepreciationRun | null>(null)
+
+  const preview = useMutation({
+    mutationFn: () => previewDepreciation(year, month),
+    onSuccess: (result) => {
+      setRun(result)
+      setPosted(null)
+    },
+  })
+  const charge = useMutation({
+    mutationFn: () => runDepreciation(year, month),
+    onSuccess: (result) => {
+      setPosted(result)
+      setRun(null)
+      // The journal, the register, balances and the close checklist all moved.
+      void client.invalidateQueries({ queryKey: financeKeys.all })
+    },
+  })
+
+  return (
+    <>
+      <Button
+        variant="primary"
+        pending={preview.isPending}
+        disabled={!valid}
+        onClick={() => preview.mutate()}
+      >
+        {preview.isPending ? "Reading…" : "Penyusutan"}
+      </Button>
+      {(run !== null ||
+        posted !== null ||
+        preview.isError ||
+        charge.isError) && (
+        <div className="flex w-full flex-col gap-3 rounded-inner border border-hairline p-3">
+          {preview.isError && (
+            <Banner tone="bad">
+              {preview.error instanceof Error
+                ? preview.error.message
+                : "The depreciation could not be read."}
+            </Banner>
+          )}
+          {charge.isError && (
+            <Banner tone="bad">
+              {charge.error instanceof Error
+                ? charge.error.message
+                : "The depreciation was refused."}
+            </Banner>
+          )}
+          {posted !== null && (
+            <Banner tone="ok" onDismiss={() => setPosted(null)}>
+              Penyusutan {monthYear(postingDate)} posted:{" "}
+              {count(posted.posted_count)}{" "}
+              {posted.posted_count === 1 ? "asset" : "assets"},{" "}
+              {money(posted.posted_total_minor)}.
+            </Banner>
+          )}
+          {run !== null && (
+            <>
+              <p className="text-[0.9375rem] text-body">
+                <b className="text-ink">Penyusutan {monthYear(postingDate)}</b>
+                {" · "}
+                {count(run.posted_count)}{" "}
+                {run.posted_count === 1 ? "asset" : "assets"},{" "}
+                {money(run.posted_total_minor)}
+                {run.skipped_count > 0 &&
+                  `, ${count(run.skipped_count)} skipped`}
+              </p>
+              {run.blocked_count > 0 && (
+                <Banner tone="warn">
+                  {count(run.blocked_count)}{" "}
+                  {run.blocked_count === 1 ? "asset has" : "assets have"} a
+                  charge that cannot post under the current account mappings.
+                </Banner>
+              )}
+              <div className="max-h-64 overflow-y-auto">
+                <MiniTable head={["Asset", "Penyusutan"]}>
+                  {run.lines.map((line) => (
+                    <tr
+                      key={line.asset_id}
+                      className="border-t border-hairline"
+                    >
+                      <td className="py-2 pr-2 text-[0.9375rem] text-ink">
+                        {line.name}{" "}
+                        <span className="font-mono text-mute">
+                          {line.asset_number}
+                        </span>
+                      </td>
+                      <td className="py-2 text-right text-[0.9375rem] tabular-nums">
+                        {line.blocked_because ??
+                          line.skipped_because ??
+                          money(line.amount_minor)}
+                      </td>
+                    </tr>
+                  ))}
+                </MiniTable>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="destructive" onClick={() => setRun(null)}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="primary"
+                  pending={charge.isPending}
+                  disabled={run.posted_count === 0 || run.blocked_count > 0}
+                  onClick={() => charge.mutate()}
+                >
+                  {charge.isPending ? "Posting…" : "Post penyusutan"}
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </>
   )
 }

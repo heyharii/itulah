@@ -28,6 +28,7 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState, LoadMore, Problem } from "@/components/ui/states"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import { Tag } from "@/components/ui/tag"
 import { count, label, moment } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
@@ -62,6 +63,8 @@ import {
   type AccountChoice,
 } from "@/screens/finance/parts"
 import { ScreenPending } from "@/screens/finance/pending"
+import { slotsOfRole } from "@/screens/finance/coa-slots"
+import { ItemAccounts, SettingCoa } from "@/screens/finance/setting-coa"
 import { ApiError } from "@itulah/contract/client"
 import type {
   AccountLink,
@@ -299,7 +302,7 @@ export function AccountLinks() {
   return (
     <Suspense
       fallback={
-        <ScreenPending crumb="Finance" title="Account Links">
+        <ScreenPending crumb="Finance · Master" title="Setting COA">
           Loading the links…
         </ScreenPending>
       }
@@ -316,6 +319,9 @@ function AccountLinksScreen() {
   const mapping = useSheet("mapping")
   const linkSource = useSheet("linkSource")
   const preset = decodeLinkSource(linkSource.value)
+  // 7Soft's 23 slots first; the hub's own list of posting roles beside it. A
+  // master's "Link accounts" arrives with a source, which is a roles question.
+  const [tab, setTab] = useState(preset === null ? "slots" : "roles")
   const [sorting, setSorting] = useState<SortingState>([
     { id: "gaps", desc: true },
   ])
@@ -391,117 +397,151 @@ function AccountLinksScreen() {
 
   return (
     <PageContent>
-      <PageHeader crumb="Finance" title="Account Links" />
+      <PageHeader crumb="Finance · Master" title="Setting COA" />
 
-      {page.data && (
-        <KpiStrip className="md:grid-cols-4 xl:grid-cols-4">
-          <Kpi label="Roles" value={count(rows.length)} />
-          <Kpi label="Links" value={count(page.data.total)} />
-          <Kpi label="Units" value={count(page.data.locations.length)} />
-          <Kpi label="Gaps" value={count(gaps)} />
-        </KpiStrip>
-      )}
+      <SubTabs
+        tabs={[
+          { value: "slots", label: "Setting COA" },
+          { value: "items", label: "Item · Account" },
+          { value: "roles", label: "Posting roles" },
+        ]}
+        value={tab}
+        onChange={setTab}
+      />
 
-      {preset !== null && presetRoles !== null && (
-        <Banner tone="info" className="mb-3" onDismiss={linkSource.close}>
-          {presetRoles.size === 0 ? (
-            <>
-              {sourceWords(preset)} has no link yet, so every role is listed.
-              Open the role it should answer — the source is filled in on the
-              add form.
-            </>
-          ) : (
-            <>
-              Showing the {count(presetRoles.size)}{" "}
-              {presetRoles.size === 1 ? "role" : "roles"} linked from{" "}
-              <span className="font-medium">{sourceWords(preset)}</span>.
-            </>
-          )}
-        </Banner>
-      )}
-
-      {page.data && gaps > 0 && (
-        <Banner tone="warn" className="mb-3">
-          {count(gaps)} role-and-unit combinations reach no account. Every
-          posting that needs one is refused, and the refusal names the role.{" "}
-          <AppLink
-            to="/finance/setup/posting-readiness"
-            className="underline underline-offset-2"
-          >
-            See them on Posting readiness
-          </AppLink>
-        </Banner>
-      )}
-
-      {/* Search, the status, the filters and the order are the dock's on a
-          phone. */}
-      {phone ? (
-        <DockTools
-          search={{
-            value: query,
-            onChange: setQuery,
-            label: "Search roles",
-          }}
-          filter={{
-            count: filters.filters.length,
-            panel: { model: filters, table },
-          }}
-          sort={dockSortOf(table)}
-          status={{
-            value: onlyGaps ? "gaps" : "all",
-            options: [
-              { value: "all", label: "All roles" },
-              { value: "gaps", label: "With gaps" },
-            ],
-            onChange: (next) => setOnlyGaps(next === "gaps"),
-          }}
+      {tab === "slots" && (
+        <SettingCoa
+          page={page.data}
+          readiness={readiness.data}
+          onOpenRole={(role) => mapping.open(role)}
         />
-      ) : (
-        <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2">
-          <FilterPanel
-            model={filters}
-            table={table}
-            search={{ value: query, onChange: setQuery, label: "Search roles" }}
-          />
-          <SwitchPill
-            on={onlyGaps}
-            label="Only roles with gaps"
-            onToggle={() => setOnlyGaps(!onlyGaps)}
-          />
-          <BarSpacer />
-          <span className="text-[0.9375rem] text-mute">
-            {count(page.data?.total ?? 0)} links · {count(gaps)} role-and-unit
-            gaps
-            {onlyGaps ? " · showing only what is left" : ""}
-          </span>
-          <ColumnsMenu table={table} />
-        </div>
       )}
 
-      <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-        {queryState(page, {
-          render: () =>
-            rows.length === 0 ? (
-              <EmptyState>
-                {onlyGaps
-                  ? "Every role reaches an account in every unit. Nothing is left to do here."
-                  : "The posting rules ask for no roles at all, which means none of them is loaded."}
-              </EmptyState>
-            ) : (
-              <DataTable<RoleRow>
-                refresh={[page, readiness]}
+      {tab === "items" && (
+        <ItemAccounts
+          page={page.data}
+          readiness={readiness.data}
+          onOpenRole={(role) => mapping.open(role)}
+        />
+      )}
+
+      {tab === "roles" && (
+        <>
+          {page.data && (
+            <KpiStrip className="md:grid-cols-4 xl:grid-cols-4">
+              <Kpi label="Roles" value={count(rows.length)} />
+              <Kpi label="Links" value={count(page.data.total)} />
+              <Kpi label="Units" value={count(page.data.locations.length)} />
+              <Kpi label="Gaps" value={count(gaps)} />
+            </KpiStrip>
+          )}
+
+          {preset !== null && presetRoles !== null && (
+            <Banner tone="info" className="mb-3" onDismiss={linkSource.close}>
+              {presetRoles.size === 0 ? (
+                <>
+                  {sourceWords(preset)} has no link yet, so every role is
+                  listed. Open the role it should answer — the source is filled
+                  in on the add form.
+                </>
+              ) : (
+                <>
+                  Showing the {count(presetRoles.size)}{" "}
+                  {presetRoles.size === 1 ? "role" : "roles"} linked from{" "}
+                  <span className="font-medium">{sourceWords(preset)}</span>.
+                </>
+              )}
+            </Banner>
+          )}
+
+          {page.data && gaps > 0 && (
+            <Banner tone="warn" className="mb-3">
+              {count(gaps)} role-and-unit combinations reach no account. Every
+              posting that needs one is refused, and the refusal names the role.{" "}
+              <AppLink
+                to="/finance/setup/posting-readiness"
+                className="underline underline-offset-2"
+              >
+                See them on Posting readiness
+              </AppLink>
+            </Banner>
+          )}
+
+          {/* Search, the status, the filters and the order are the dock's on a
+          phone. */}
+          {phone ? (
+            <DockTools
+              search={{
+                value: query,
+                onChange: setQuery,
+                label: "Search roles",
+              }}
+              filter={{
+                count: filters.filters.length,
+                panel: { model: filters, table },
+              }}
+              sort={dockSortOf(table)}
+              status={{
+                value: onlyGaps ? "gaps" : "all",
+                options: [
+                  { value: "all", label: "All roles" },
+                  { value: "gaps", label: "With gaps" },
+                ],
+                onChange: (next) => setOnlyGaps(next === "gaps"),
+              }}
+            />
+          ) : (
+            <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2">
+              <FilterPanel
+                model={filters}
                 table={table}
-                onRowClick={(row) => mapping.open(row.key)}
-                isSelected={(row) => row.key === mapping.value}
-                empty="No role matches the search and filters in force."
-                pageScroll
-                cardsApart
-                cardLead
-                cardSort={false}
+                search={{
+                  value: query,
+                  onChange: setQuery,
+                  label: "Search roles",
+                }}
               />
-            ),
-        })}
-      </Card>
+              <SwitchPill
+                on={onlyGaps}
+                label="Only roles with gaps"
+                onToggle={() => setOnlyGaps(!onlyGaps)}
+              />
+              <BarSpacer />
+              <span className="text-[0.9375rem] text-mute">
+                {count(page.data?.total ?? 0)} links · {count(gaps)}{" "}
+                role-and-unit gaps
+                {onlyGaps ? " · showing only what is left" : ""}
+              </span>
+              <ColumnsMenu table={table} />
+            </div>
+          )}
+
+          <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+            {queryState(page, {
+              render: () =>
+                rows.length === 0 ? (
+                  <EmptyState>
+                    {onlyGaps
+                      ? "Every role reaches an account in every unit. Nothing is left to do here."
+                      : "The posting rules ask for no roles at all, which means none of them is loaded."}
+                  </EmptyState>
+                ) : (
+                  <DataTable<RoleRow>
+                    refresh={[page, readiness]}
+                    table={table}
+                    onRowClick={(row) => mapping.open(row.key)}
+                    isSelected={(row) => row.key === mapping.value}
+                    empty="No role matches the search and filters in force."
+                    pageScroll
+                    cardsApart
+                    cardLead
+                    cardSort={false}
+                  />
+                ),
+            })}
+          </Card>
+        </>
+      )}
 
       <RoleSheet
         role={mapping.value ?? null}
@@ -601,6 +641,14 @@ function RoleSheet({
           <div className="flex flex-col gap-5">
             {doc !== undefined ? (
               <div className="flex flex-col gap-2">
+                {role !== null && slotsOfRole(role).length > 0 && (
+                  <p className="text-[0.9375rem] text-body">
+                    Setting COA:{" "}
+                    <span className="font-medium text-ink">
+                      {slotsOfRole(role).join(" · ")}
+                    </span>
+                  </p>
+                )}
                 <p className="text-[0.9375rem] text-body">
                   Without this, {doc.needed_for.toLowerCase()} stops working —
                   the posting is refused and names the role.

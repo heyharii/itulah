@@ -61,7 +61,7 @@ import {
   Wrench,
 } from "lucide-react"
 
-import type { AppModule, NavItem, NavTab } from "@/lib/navigation"
+import type { AppModule, NavItem, NavSection, NavTab } from "@/lib/navigation"
 import {
   useMonthNotOpenCount,
   useOverdueBillCount,
@@ -87,7 +87,7 @@ import { useUnagreedLineCount } from "@/screens/finance-lab-2/hooks"
 /// | Stores | Sales · Settlement · Deposits · Cash · Cash counts |
 /// | Payables | Bills · Due dates · Suppliers · Credit notes · Loans |
 /// | Cash & Bank | BKK · BKM · Giro · Bank · Advances |
-/// | Journal | Entries · Templates |
+/// | Journal | Jurnal · All Jurnal · Templates |
 /// | Assets | Register · Projects · Disposals |
 /// | Month End | Checklist · Periods · Accruals · Inventory · Tax |
 /// | Reports | Profit and Loss · Balance Sheet · Cash Flow · Ledger · Sales by Division |
@@ -170,7 +170,9 @@ export const financeNav: AppModule = {
   id: "finance",
   label: "Finance",
   icon: Landmark,
-  home: "/finance/dashboard",
+  // No Overview row (owner, 28 Oct 2026): the module lands on the first 7Soft
+  // menu, Info Kas Bank. The dashboard stays reachable at its URL and in ⌘K.
+  home: "/finance/stores/sales",
   base: "/finance",
   moved: [
     // The modules the frozen tree replaced on 2026-09-26.
@@ -274,12 +276,19 @@ export const financeNav: AppModule = {
             },
             {
               label: "Suppliers",
+              // 7Soft's Info Pembelian (Supplier, Pembelian & Retur,
+              // Pelunasan Hutang, Summary Hutang, Kartu Hutang) and its
+              // Laporan Pembelian: the same two screens, under the names
+              // 7Soft gives them. Paths unchanged.
               views: [
                 {
-                  label: "Summary",
+                  label: "Info Pembelian",
+                  path: "/finance/payables/supplier-ledger",
+                },
+                {
+                  label: "Laporan Pembelian",
                   path: "/finance/reports/accounts-payable-summary",
                 },
-                { label: "Ledger", path: "/finance/payables/supplier-ledger" },
               ],
             },
             one("Credit notes", "/finance/payables/credit-notes"),
@@ -294,8 +303,10 @@ export const financeNav: AppModule = {
           useCount: useUnagreedLineCount,
           moved: ["/finance/cash-bank/cash-documents"],
           tabs: [
-            one("BKK", "/finance/cash-bank/bkk"),
+            one("Kas/Bank", "/finance/cash-bank/kas-bank"),
+            one("Kartu Kas/Bank", "/finance/cash-bank/kartu"),
             one("BKM", "/finance/cash-bank/bkm"),
+            one("BKK", "/finance/cash-bank/bkk"),
             one("Giro", "/finance/cash-bank/giro"),
             {
               label: "Bank",
@@ -342,7 +353,8 @@ export const financeNav: AppModule = {
             "/finance/interunit/reconciliation",
           ],
           tabs: [
-            one("Entries", "/finance/accounting/journal-entries"),
+            one("Jurnal", "/finance/accounting/journal-entries"),
+            one("All Jurnal", "/finance/accounting/all-journals"),
             one("Templates", "/finance/setup/journal-templates"),
           ],
         }),
@@ -465,6 +477,10 @@ export const financeNav: AppModule = {
                   label: "By dimension",
                   path: "/finance/reports/dimension-results",
                 },
+                {
+                  label: "Laporan Accounting",
+                  path: "/finance/reports/laporan-accounting",
+                },
               ],
             },
             {
@@ -515,6 +531,28 @@ export const financeNav: AppModule = {
           badge: "bad",
           useCount: useUnmappedMeaningCount,
           alsoLights: financeSetupGroups.flatMap((group) => group.paths),
+        },
+        // 7Soft's 25 menus mapped onto these screens, in 7Soft's order
+        // (owner, 27 Oct 2026: 7Soft is the primary menu, ERP+ is additive).
+        // A page rather than rows: a second set of rows would double every
+        // route, and the router builds one route per path.
+        {
+          path: "/finance/7soft-parity",
+          label: "7Soft parity",
+          icon: ListTree,
+        },
+        // 7Soft's two Master menus that had no screen: the opening balance of
+        // every account (2.17) and the audit trail (9.12). Their rows sit in
+        // Master, in 7Soft's order, below.
+        {
+          path: "/finance/opening/balances",
+          label: "Saldo Awal COA",
+          icon: Scale,
+        },
+        {
+          path: "/finance/history",
+          label: "History",
+          icon: FileClock,
         },
       ],
     },
@@ -622,6 +660,12 @@ export const financeNav: AppModule = {
           hidden: true,
         },
         {
+          path: "/finance/payables/purchase-invoice",
+          label: "Purchase Invoices",
+          icon: Receipt,
+          hidden: true,
+        },
+        {
           path: "/finance/payables/supplier-ledger",
           label: "Supplier Ledger",
           icon: BookOpenCheck,
@@ -640,6 +684,12 @@ export const financeNav: AppModule = {
           ],
         },
         // Cash & Bank
+        {
+          path: "/finance/cash-bank/kartu",
+          label: "Kartu Kas/Bank",
+          icon: FileSpreadsheet,
+          hidden: true,
+        },
         {
           path: "/finance/cash-bank/bkm",
           label: "BKM",
@@ -736,6 +786,12 @@ export const financeNav: AppModule = {
           ],
         },
         // Journal
+        {
+          path: "/finance/accounting/all-journals",
+          label: "All Jurnal",
+          icon: BookOpenCheck,
+          hidden: true,
+        },
         {
           path: "/finance/setup/journal-templates",
           label: "Recurring Journal",
@@ -851,6 +907,12 @@ export const financeNav: AppModule = {
           hidden: true,
         },
         // Reports
+        {
+          path: "/finance/reports/laporan-accounting",
+          label: "Laporan Accounting",
+          icon: FileSpreadsheet,
+          hidden: true,
+        },
         {
           path: "/finance/reports/profit-and-loss-by-unit",
           label: "Profit and Loss by Unit",
@@ -1037,7 +1099,172 @@ export const financeNav: AppModule = {
           icon: ChartColumn,
           hidden: true,
         },
+        // 7Soft menus (owner, 28 Oct 2026: "samakan dlu semua menu dan
+        // informasi dengan 7soft"). Their rows are drawn by the 7Soft menu
+        // below; declared here so each path is routed once.
+        //
+        // The BKK register lost its route when Kas/Bank became the Cash & Bank
+        // door's first tab: a door routes only its first view.
+        {
+          path: "/finance/cash-bank/bkk",
+          label: "BKK",
+          icon: ArrowRightFromLine,
+          hidden: true,
+        },
+        {
+          path: "/finance/reports/kas-bank",
+          label: "Laporan Kas/Bank",
+          icon: Printer,
+          hidden: true,
+        },
+        {
+          path: "/finance/accounting/info-accounting",
+          label: "Info Accounting",
+          icon: ScanSearch,
+          hidden: true,
+        },
+        {
+          path: "/finance/sales/info",
+          label: "Info Penjualan",
+          icon: ScanSearch,
+          hidden: true,
+        },
+        {
+          path: "/finance/sales/returns",
+          label: "Retur Penjualan",
+          icon: FileMinus,
+          hidden: true,
+        },
+        {
+          path: "/finance/reports/penjualan",
+          label: "Laporan Penjualan",
+          icon: Printer,
+          hidden: true,
+        },
+        {
+          path: "/finance/reports/laporan-keuangan",
+          label: "Laporan Keuangan",
+          icon: PieChart,
+          hidden: true,
+        },
+        {
+          path: "/finance/reports/laporan-manajerial",
+          label: "Laporan Manajerial",
+          icon: TrendingUp,
+          hidden: true,
+        },
+        {
+          path: "/finance/setup/setting-menu",
+          label: "Setting Menu",
+          icon: SlidersHorizontal,
+          hidden: true,
+        },
       ],
     },
   ],
+}
+
+/// 7Soft menu (owner, 27 Oct 2026; every finance menu a row, 28 Oct 2026).
+///
+/// The sidebar is 7Soft's menu tree: its groups, its names, its order. Every
+/// finance menu of the manual's table of contents is a row, also where the
+/// same screen is a tab of another page (BKM, BKK and Pencairan BG are tabs of
+/// Info Kas Bank too). Rows outside 7Soft sit under "Di luar 7Soft".
+///
+/// The dashboard keeps its route and its ⌘K entry but not a row: the module
+/// lands on the first 7Soft menu instead (owner, 28 Oct 2026).
+///
+/// This is a reORDERING of the declaration above, not a second copy of it.
+/// Each path still appears exactly once — `routes.tsx` builds one route per
+/// item, so a duplicated path would fail when the router is created. Faktur
+/// Penjualan (credit sales; the chart has no customer receivable) and History
+/// Report (report opens are not logged) have no screen and no row.
+const SEVEN_SOFT_MENU: readonly (readonly [string, string])[] = [
+  ["/finance/stores/sales", "Daily close"],
+  ["/finance/stores", "Store cash"],
+  ["/finance/cash-bank/kas-bank", "Cash & Bank"],
+  ["/finance/cash-bank/bkk", "BKK"],
+  ["/finance/cash-bank/bkm", "BKM"],
+  ["/finance/cash-bank/giro", "Giro"],
+  ["/finance/cash-bank/bank-reconciliation", "Bank reconciliation"],
+  ["/finance/payables/bills", "Bills"],
+  ["/finance/payables/supplier-ledger", "Suppliers"],
+  ["/finance/accounting/journal-entries", "Journal"],
+  ["/finance/accounting/info-accounting", "Ledger"],
+  ["/finance/assets/capitalization", "Assets"],
+  ["/finance/period-close", "Month end"],
+  ["/finance/reports/laporan-accounting", "Reports"],
+  ["/finance/accounts-setup", "Setup"],
+]
+
+/// The final menu (owner, 28 Oct 2026): 15 rows in 6 groups, as drawn in
+/// `finance-menu-final-prototype.html`. Reports and Setup are rows with no
+/// heading. Every other screen keeps its route and its ⌘K entry, hidden.
+/// Daily close lands on the till sales screen until its own screen is built.
+const SEVEN_SOFT_GROUP: readonly (readonly [string, readonly string[]])[] = [
+  ["Stores", ["/finance/stores/sales", "/finance/stores"]],
+  [
+    "Cash & Bank",
+    [
+      "/finance/cash-bank/kas-bank",
+      "/finance/cash-bank/bkk",
+      "/finance/cash-bank/bkm",
+      "/finance/cash-bank/giro",
+      "/finance/cash-bank/bank-reconciliation",
+    ],
+  ],
+  [
+    "Payables",
+    ["/finance/payables/bills", "/finance/payables/supplier-ledger"],
+  ],
+  [
+    "Accounting",
+    [
+      "/finance/accounting/journal-entries",
+      "/finance/accounting/info-accounting",
+      "/finance/assets/capitalization",
+      "/finance/period-close",
+    ],
+  ],
+  ["", ["/finance/reports/laporan-accounting"]],
+  ["", ["/finance/accounts-setup"]],
+]
+
+{
+  const every = financeNav.sections.flatMap((section) => section.items)
+  const byPath = new Map(every.map((item) => [item.path, item]))
+  const label = new Map(SEVEN_SOFT_MENU)
+  const shown = new Set<string>()
+
+  const sections: NavSection[] = [
+    ...SEVEN_SOFT_GROUP.map(([group, paths]) => ({
+      ...(group === "" ? {} : { label: group, chip: true }),
+      items: paths.flatMap((path) => {
+        const item = byPath.get(path)
+        if (!item) return []
+        shown.add(path)
+        return [
+          { ...item, label: label.get(path) ?? item.label, hidden: false },
+        ]
+      }),
+    })),
+    {
+      // The dashboard keeps its route and its ⌘K entry; it is only off the
+      // menu, so a bookmark still lands and nothing 404s.
+      items: [
+        ...every
+          .filter((item) => item.path === "/finance/dashboard")
+          .map((item) => ({ ...item, hidden: true })),
+        ...every
+          .filter(
+            (item) =>
+              !shown.has(item.path) && item.path !== "/finance/dashboard"
+          )
+          .map((item) => ({ ...item, hidden: true })),
+      ],
+    },
+  ]
+
+  const mutable = financeNav as unknown as { sections: readonly NavSection[] }
+  mutable.sections = sections
 }

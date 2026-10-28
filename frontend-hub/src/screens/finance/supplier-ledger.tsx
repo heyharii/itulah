@@ -3,8 +3,13 @@ import { useNavigate } from "@tanstack/react-router"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { Button } from "@/components/ui/button"
+import { Day } from "@/components/ui/day"
+import { DayRange } from "@/components/ui/day-range"
 import { ExportButton } from "@/components/ui/export-button"
 import { PageHeader } from "@/components/ui/page-header"
+import { Toolbar } from "@/components/ui/segmented"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import { CellMoney } from "@/components/ui/rows-switch"
 import { EmptyState } from "@/components/ui/states"
 import { count, day, label, money } from "@/lib/format"
@@ -20,16 +25,25 @@ import {
   useSupplierName,
   useSuppliers,
   useUnitName,
+  useWindow,
   type DateWindow,
 } from "@/screens/finance/hooks"
 import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
+import { CreditNoteDetail } from "@/screens/finance/credit-notes"
+import { SupplierPicker, UnitSelect } from "@/screens/finance/parts"
 import {
-  SupplierPicker,
-  UnitSelect,
-  WindowControl,
-} from "@/screens/finance/parts"
-import { ReportFilters, ReportSummary } from "@/screens/finance/report"
-import type { PartyMovementRow, PartyMovements } from "@itulah/contract"
+  BalancesTab,
+  PurchasesTab,
+  SettlementsTab,
+  SuppliersTab,
+} from "@/screens/finance/purchasing-info"
+import { useInfoOpeners } from "@/screens/finance/purchasing"
+import { ReportSummary } from "@/screens/finance/report"
+import type {
+  CreditNote,
+  PartyMovementRow,
+  PartyMovements,
+} from "@itulah/contract"
 
 /// Supplier Ledger — 7Soft's Kartu Hutang, ERPNext's party General Ledger.
 ///
@@ -79,35 +93,65 @@ function useYearToDate(): DateWindow {
   }
 }
 
+/// 7Soft's Info Pembelian (4.1): SUPPLIER, PEMBELIAN & RETUR, PELUNASAN HUTANG,
+/// SUMMARY HUTANG and KARTU HUTANG, as the tabs of one screen. The supplier a
+/// reader picks is the page's — `?supplier=`, so Accounts Payable Summary and
+/// the Supplier tab can link here — and narrows every tab but the two that are
+/// across all suppliers. 7Soft's PO tab is Procurement's.
+type InfoTab = "supplier" | "pembelian" | "pelunasan" | "summary" | "kartu"
+
 export function SupplierLedger() {
   const linked = useSheet("supplier")
   const suppliers = useSuppliers()
   const supplierName = useSupplierName()
   const unitName = useUnitName()
-  const range = useYearToDate()
+  const open = useInfoOpeners()
+  const [tab, setTab] = useState<InfoTab>(
+    linked.value !== undefined && linked.value !== "" ? "kartu" : "supplier"
+  )
+  const month = useWindow()
+  const year = useYearToDate()
   const [unit, setUnit] = useState("")
+  const [noted, setNoted] = useState<CreditNote | null>(null)
 
   const code = linked.value ?? ""
   const chosen = (suppliers.data ?? []).find(
     (one) => one.supplier_code === code
   )
 
+  /// The window the lists are read over. A ledger is read over the year so far;
+  /// the lists over the month the books are open in, as 7Soft's Periode is.
+  /// An open end of the box (it can be cleared) is the earliest day the books
+  /// can have, or today.
+  const range = tab === "kartu" ? year : month
+  /// 7Soft's Summary Hutang reads from the start of Periode up to its own
+  /// Sampai tanggal, which can stop short of the period's end.
+  const [until, setUntil] = useState("")
+  const from = range.from === "" ? "2000-01-01" : range.from
+  const to =
+    tab === "summary" && until !== ""
+      ? until
+      : range.to === ""
+        ? todayIso()
+        : range.to
+  const client = useQueryClient()
+
   const ledger = useQuery({
     queryKey: financeKeys.partyMovements(
       "SUPPLIER",
       code,
-      range.from,
-      range.to,
+      from,
+      to,
       unit || null
     ),
     queryFn: ({ signal }) =>
       partyMovements(
         "SUPPLIER",
         code,
-        { from: range.from, to: range.to, unit: unit || undefined },
+        { from, to, unit: unit || undefined },
         signal
       ),
-    enabled: code !== "" && range.from <= range.to,
+    enabled: tab === "kartu" && code !== "" && from <= to,
   })
 
   const build = (): ExportSheet | null => {
@@ -115,27 +159,27 @@ export function SupplierLedger() {
     if (data === undefined) return null
     const name = supplierName(code)
     return {
-      filename: `Supplier-Ledger-${fileSafe(name)}-${data.from}`,
-      sheet: "Supplier Ledger",
-      title: `Supplier Ledger · ${name}`,
+      filename: `Kartu-Hutang-${fileSafe(name)}-${data.from}`,
+      sheet: "Kartu Hutang",
+      title: `Kartu Hutang · ${name}`,
       subtitle: `${day(data.from)} → ${day(data.to)} · ${
         unit === "" ? "all units" : unitName(unit)
       }`,
       columns: [
-        { header: "Date", kind: "date", width: 13 },
-        { header: "Entry", kind: "text", width: 16 },
-        { header: "Type", kind: "text", width: 20 },
+        { header: "Tanggal", kind: "date", width: 13 },
+        { header: "No transaksi", kind: "text", width: 16 },
+        { header: "Transaksi", kind: "text", width: 20 },
         { header: "Account", kind: "text", width: 36 },
-        { header: "Memo", kind: "text", width: 44 },
-        { header: "Debit", kind: "money" },
-        { header: "Credit", kind: "money" },
-        { header: "Balance", kind: "money" },
+        { header: "Keterangan", kind: "text", width: 44 },
+        { header: "Debet", kind: "money" },
+        { header: "Kredit", kind: "money" },
+        { header: "Saldo akhir", kind: "money" },
       ],
       rows: [
         [
           data.from,
           null,
-          "Opening balance",
+          "Saldo awal",
           null,
           null,
           null,
@@ -167,61 +211,197 @@ export function SupplierLedger() {
     }
   }
 
+  const lead = (
+    <SubTabs
+      value={tab}
+      onChange={(next) => setTab(next as InfoTab)}
+      tabs={[
+        { value: "supplier", label: "Supplier" },
+        { value: "pembelian", label: "Pembelian & retur" },
+        { value: "pelunasan", label: "Pelunasan hutang" },
+        { value: "summary", label: "Summary hutang" },
+        { value: "kartu", label: "Kartu hutang" },
+      ]}
+    />
+  )
+  /// 7Soft's Supplier tick: a supplier picked narrows the tab, none shows all.
+  const picker = (
+    <SupplierPicker
+      value={chosen?.supplier_id ?? ""}
+      onPick={(supplier) =>
+        supplier === null
+          ? linked.close()
+          : linked.replace(supplier.supplier_code)
+      }
+      label="Supplier"
+      className="h-control w-72"
+    />
+  )
+  const periode = (
+    <DayRange
+      label="Periode"
+      placeholder="Periode"
+      value={{ from: range.from, to: range.to }}
+      onChange={(next) => {
+        range.setFrom(next.from)
+        range.setTo(next.to)
+      }}
+      className="h-control min-h-0 w-52 shrink-0 py-0"
+    />
+  )
+  const unitBox = (
+    <UnitSelect
+      value={unit}
+      onChange={setUnit}
+      className="h-control w-44"
+      aria-label="Unit"
+    />
+  )
+  /// 7Soft's Sampai tanggal and Refresh, beside Periode on Summary Hutang.
+  const sampai = (
+    <>
+      <label className="flex items-center gap-1.5 text-[0.9375rem] text-mute">
+        Sampai tanggal
+        <Day
+          value={to}
+          onChange={setUntil}
+          className="h-8 w-40"
+          label="Sampai tanggal"
+        />
+      </label>
+      <Button
+        variant="primary"
+        onClick={() => {
+          void client.invalidateQueries({ queryKey: financeKeys.all })
+        }}
+      >
+        Refresh
+      </Button>
+    </>
+  )
+  const openKartu = (supplier: string) => {
+    linked.replace(supplier)
+    setTab("kartu")
+  }
+
   return (
     <PageContent>
       <PageHeader
         className="max-md:hidden"
         crumb="Finance · Payables"
-        title="Supplier Ledger"
+        title="Info Pembelian"
         actions={
-          <ExportButton build={build} disabled={ledger.data === undefined} />
+          tab === "kartu" ? (
+            <ExportButton build={build} disabled={ledger.data === undefined} />
+          ) : tab === "supplier" ? (
+            <Button variant="primary" onClick={() => void open.newSupplier()}>
+              Supplier baru
+            </Button>
+          ) : tab === "pelunasan" ? (
+            <Button variant="primary" onClick={() => void open.giro()}>
+              Pencairan giro
+            </Button>
+          ) : tab === "pembelian" ? (
+            <>
+              <Button variant="primary" onClick={() => void open.newInvoice()}>
+                Nota pembelian baru
+              </Button>
+              <Button variant="primary" onClick={() => void open.newReturn()}>
+                Retur pembelian baru
+              </Button>
+            </>
+          ) : undefined
         }
       />
 
-      <ReportFilters
-        exportAction={
-          <ExportButton
-            variant="ghost"
-            build={build}
-            disabled={ledger.data === undefined}
-          />
-        }
-        note={
-          code !== "" && (
+      {tab === "supplier" ? (
+        <SuppliersTab lead={lead} controls={null} onOpen={openKartu} />
+      ) : tab === "pembelian" ? (
+        <PurchasesTab
+          lead={lead}
+          controls={
             <>
-              {supplierName(code)} · {range.chip}
+              {picker}
+              {periode}
             </>
-          )
-        }
-      >
-        <SupplierPicker
-          value={chosen?.supplier_id ?? ""}
-          onPick={(supplier) =>
-            supplier === null
-              ? linked.close()
-              : linked.replace(supplier.supplier_code)
           }
-          label="Supplier"
-          className="h-control w-72"
+          supplier={code}
+          from={from}
+          to={to}
+          onOpenBill={(id) => void open.bill(id)}
+          onOpenNote={setNoted}
         />
-        <WindowControl range={range} />
-        <UnitSelect
-          value={unit}
-          onChange={setUnit}
-          className="h-control w-44"
-          aria-label="Unit"
+      ) : tab === "pelunasan" ? (
+        <SettlementsTab
+          lead={lead}
+          controls={
+            <>
+              {picker}
+              {periode}
+            </>
+          }
+          supplier={code}
+          from={from}
+          to={to}
+          onOpenPayment={(id) => void open.payment(id)}
         />
-      </ReportFilters>
-
-      {code === "" ? (
-        <EmptyState>Choose a supplier to read its ledger.</EmptyState>
-      ) : range.from > range.to ? (
-        <EmptyState>The window ends before it starts.</EmptyState>
+      ) : tab === "summary" ? (
+        <BalancesTab
+          lead={lead}
+          controls={
+            <>
+              {periode}
+              {sampai}
+              {unitBox}
+            </>
+          }
+          from={from}
+          to={to}
+          unit={unit}
+          onOpen={openKartu}
+        />
       ) : (
-        queryState(ledger, {
-          loading: "Reading the supplier's ledger…",
-          render: (data) => <Ledger data={data} />,
-        })
+        <>
+          <Toolbar className="group/bar" lead={lead}>
+            {picker}
+            {periode}
+            {unitBox}
+            {code !== "" && (
+              <>
+                <Toolbar.Spacer />
+                <span className="text-[0.9375rem] text-mute">
+                  {supplierName(code)} · {range.chip}
+                </span>
+              </>
+            )}
+            <div className="md:hidden [&>button]:w-full">
+              <ExportButton
+                variant="ghost"
+                build={build}
+                disabled={ledger.data === undefined}
+              />
+            </div>
+          </Toolbar>
+
+          {code === "" ? (
+            <EmptyState>Choose a supplier to read its ledger.</EmptyState>
+          ) : from > to ? (
+            <EmptyState>The window ends before it starts.</EmptyState>
+          ) : (
+            queryState(ledger, {
+              loading: "Reading the supplier's ledger…",
+              render: (data) => <Ledger data={data} />,
+            })
+          )}
+        </>
+      )}
+
+      {noted !== null && (
+        <CreditNoteDetail
+          key={noted.credit_note_id}
+          note={noted}
+          onClose={() => setNoted(null)}
+        />
       )}
     </PageContent>
   )
@@ -235,10 +415,10 @@ function Ledger({ data }: { data: PartyMovements }) {
     <>
       <ReportSummary
         items={[
-          { label: "Opening balance", value: data.opening_minor },
-          { label: "Debit (paid)", value: data.debit_minor },
-          { label: "Credit (billed)", value: data.credit_minor },
-          { label: "Closing balance", value: data.closing_minor },
+          { label: "Awal", value: data.opening_minor },
+          { label: "Debet (paid)", value: data.debit_minor },
+          { label: "Kredit (billed)", value: data.credit_minor },
+          { label: "Akhir", value: data.closing_minor },
         ]}
       />
       {phone ? (
@@ -274,18 +454,18 @@ function Ledger({ data }: { data: PartyMovements }) {
         <Grid followRows>
           <thead>
             <tr>
-              <Th width="7.5rem">Date</Th>
-              <Th width="8.5rem">Entry</Th>
-              <Th width="10rem">Type</Th>
-              <Th width="100%">Memo</Th>
+              <Th width="7.5rem">Tanggal</Th>
+              <Th width="8.5rem">No transaksi</Th>
+              <Th width="10rem">Transaksi</Th>
+              <Th width="100%">Keterangan</Th>
               <Th align="right" width="8.5rem">
-                Debit
+                Debet
               </Th>
               <Th align="right" width="8.5rem">
-                Credit
+                Kredit
               </Th>
               <Th align="right" width="9.5rem">
-                Balance
+                Saldo akhir
               </Th>
             </tr>
           </thead>
@@ -295,7 +475,7 @@ function Ledger({ data }: { data: PartyMovements }) {
               <Td>
                 <span className="text-faint">—</span>
               </Td>
-              <Td className="font-medium text-ink">Opening balance</Td>
+              <Td className="font-medium text-ink">Saldo awal</Td>
               <Td />
               <Td />
               <Td />

@@ -15,15 +15,24 @@ import { Fab } from "@/components/ui/fab"
 import { ConfirmButton } from "@/components/ui/dialog"
 import { Field, Input, Money, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
+import {
+  MiniCell,
+  MiniRow,
+  MiniTable,
+  SubHead,
+  TotalsLadder,
+} from "@/components/ui/rows"
 import { CellMoney } from "@/components/ui/rows-switch"
 import { Sheet } from "@/components/ui/sheet"
 import { SheetFooter } from "@/components/ui/sheet-footer"
 import { Status } from "@/components/ui/pill"
 import { EmptyState, Problem, Truncated } from "@/components/ui/states"
-import { day, money } from "@/lib/format"
+import { count, day, money } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
   accountDetail,
+  billDetail,
+  billItemLines,
   createCreditNote,
   creditNotesQuery,
   financeKeys,
@@ -35,6 +44,7 @@ import { useUnits } from "@/lib/queries/organisation"
 import {
   recordSettlement,
   supplierReturnKeys,
+  supplierReturns,
 } from "@/lib/queries/supplier-returns"
 import { ReturnPicker } from "@/screens/finance/return-picker"
 import { queryState } from "@/lib/query-state"
@@ -62,6 +72,13 @@ import {
   SupplierPicker,
   type AccountChoice,
 } from "@/screens/finance/parts"
+import {
+  invoiceType,
+  noteStatus,
+  ppnCode,
+  termOf,
+} from "@/screens/finance/purchasing"
+import { useSheet } from "@/lib/sheets"
 import { ScreenPending } from "@/screens/finance/pending"
 
 import type { CreditNote, SupplierBill } from "@itulah/contract"
@@ -94,17 +111,9 @@ const REASONS: Readonly<Record<string, string>> = {
 
 const reasonLabel = (reason: string) => REASONS[reason] ?? reason
 
-/// Draft needs somebody to post it, Posted is in the books, Refunded is
-/// finished.
 function NoteStatus({ status }: { status: string }) {
-  const key = status.toUpperCase()
-  return (
-    <Status
-      tone={key === "DRAFT" ? "warn" : key === "REFUNDED" ? "done" : "ok"}
-    >
-      {key === "DRAFT" ? "Draft" : key === "REFUNDED" ? "Refunded" : "Posted"}
-    </Status>
-  )
+  const state = noteStatus(status)
+  return <Status tone={state.tone}>{state.word}</Status>
 }
 
 /// The most the server answers: it clamps `limit` to this.
@@ -116,7 +125,7 @@ export function CreditNotes() {
       fallback={
         <ScreenPending
           crumb="Finance · Payables"
-          title="Credit Note"
+          title="Invoice Retur Beli"
           className="max-md:hidden"
         >
           Reading the credit notes…
@@ -130,7 +139,10 @@ export function CreditNotes() {
 
 function CreditNotesScreen() {
   const [status, setStatus] = useState("")
-  const [opened, setOpened] = useState<string | "new" | null>(null)
+  const link = useSheet("bill")
+  const [opened, setOpened] = useState<string | "new" | null>(
+    link.value === "new" ? "new" : null
+  )
   const phone = useLayout() === "phone"
 
   // The select answers at once; the list trails it, and the notes in hand stay
@@ -148,10 +160,10 @@ function CreditNotesScreen() {
       <PageHeader
         className="max-md:hidden"
         crumb="Finance · Payables"
-        title="Credit Note"
+        title="Invoice Retur Beli"
         actions={
           <Button variant="primary" onClick={() => setOpened("new")}>
-            New credit note
+            Retur pembelian baru
           </Button>
         }
       />
@@ -164,11 +176,11 @@ function CreditNotesScreen() {
         options={[
           { value: "", label: "All statuses", short: "All statuses" },
           { value: "DRAFT", label: "Draft" },
-          { value: "POSTED", label: "Posted" },
-          { value: "REFUNDED", label: "Refunded" },
+          { value: "POSTED", label: "New" },
+          { value: "REFUNDED", label: "Lunas" },
         ]}
       />
-      <Fab label="New credit note" onClick={() => setOpened("new")} />
+      <Fab label="Retur pembelian baru" onClick={() => setOpened("new")} />
 
       <div className="mb-3.5 flex flex-wrap items-center gap-[0.4375rem] max-md:hidden">
         <span className="inline-flex w-40 shrink-0">
@@ -180,8 +192,8 @@ function CreditNotesScreen() {
           >
             <option value="">All statuses</option>
             <option value="DRAFT">Draft</option>
-            <option value="POSTED">Posted</option>
-            <option value="REFUNDED">Refunded</option>
+            <option value="POSTED">New</option>
+            <option value="REFUNDED">Lunas</option>
           </Select>
         </span>
       </div>
@@ -213,7 +225,7 @@ function CreditNotesScreen() {
                       <span>
                         {day(row.credit_date)} · {reasonLabel(row.reason)}
                       </span>
-                      <span>Against {row.invoice_number}</span>
+                      <span>Faktur diretur {row.invoice_number}</span>
                       {row.refund_date !== null && (
                         <span>Refunded {day(row.refund_date)}</span>
                       )}
@@ -227,10 +239,12 @@ function CreditNotesScreen() {
               <Grid followRows>
                 <thead>
                   <tr>
-                    <Th>Credit No</Th>
-                    <Th>Date</Th>
+                    <Th>No faktur</Th>
+                    <Th>Tanggal</Th>
                     <Th>Supplier</Th>
-                    <Th>Against invoice</Th>
+                    <Th>Faktur diretur</Th>
+                    <Th>Gudang</Th>
+                    <Th>No ref</Th>
                     <Th>Reason</Th>
                     <Th align="right">Total</Th>
                     <Th>Status</Th>
@@ -252,6 +266,10 @@ function CreditNotesScreen() {
                         <SupplierName id={row.supplier_id} />
                       </Td>
                       <Td>{row.invoice_number}</Td>
+                      <Td>
+                        <SiteName id={row.site_id} />
+                      </Td>
+                      <Td className="text-mute">{row.their_number ?? "—"}</Td>
                       <Td>{reasonLabel(row.reason)}</Td>
                       <Td align="right">
                         <CellMoney minor={row.total_minor} />
@@ -270,7 +288,10 @@ function CreditNotesScreen() {
 
       {opened === "new" && (
         <NewCreditNote
-          onClose={() => setOpened(null)}
+          onClose={() => {
+            setOpened(null)
+            if (link.value !== undefined) link.close()
+          }}
           onSaved={(id) => setOpened(id)}
         />
       )}
@@ -326,7 +347,7 @@ function EntryLink({
 
 /// The note read as facts, with the one act that is next: post a draft, or —
 /// once it is posted — record that the supplier sent the money back.
-function CreditNoteDetail({
+export function CreditNoteDetail({
   note,
   onClose,
 }: {
@@ -337,6 +358,41 @@ function CreditNoteDetail({
   const categoryName = useCategoryName()
   const state = note.status.toUpperCase()
 
+  // The invoice the note returns, for the header 7Soft carries on a return:
+  // its terms and the order and delivery it answered.
+  const invoice = useQuery({
+    queryKey: financeKeys.bill(note.invoice_id),
+    queryFn: ({ signal }) => billDetail(note.invoice_id, signal),
+    staleTime: 60_000,
+  })
+  const invoiceLines = useQuery({
+    queryKey: [...financeKeys.bill(note.invoice_id), "lines"],
+    queryFn: ({ signal }) => billItemLines(note.invoice_id, signal),
+    staleTime: 60_000,
+  })
+  const joined = (pick: "po_number" | "receipt_number") => {
+    const numbers = [
+      ...new Set(
+        (invoiceLines.data ?? []).flatMap((line) =>
+          line[pick] === null ? [] : [line[pick]]
+        )
+      ),
+    ]
+    return numbers.length === 0 ? "—" : numbers.join(", ")
+  }
+  // The items that went back: a return this note settles carries its lines.
+  // A note written as an amount alone has none.
+  const returns = useQuery({
+    queryKey: supplierReturnKeys.list(),
+    queryFn: ({ signal }) => supplierReturns(signal),
+    retry: false,
+    staleTime: 60_000,
+  })
+  const items =
+    (returns.data ?? []).find((one) =>
+      one.settlements.some((paid) => paid.reference === note.credit_number)
+    )?.lines ?? []
+
   // The books move: the note's own list, the invoice's outstanding and the
   // payables ageing all read differently now.
   const refresh = () => client.invalidateQueries({ queryKey: financeKeys.all })
@@ -346,12 +402,37 @@ function CreditNoteDetail({
     onSuccess: refresh,
   })
 
+  // 7Soft's Invoice Retur Beli header, in its order and words: No Faktur is the
+  // sheet's title, then Tanggal, Supplier, the faktur being returned, Gudang,
+  // No Ref and Keterangan; the totals stand under them as TOTAL, PPN and
+  // GRAND TOTAL.
   const facts: (readonly [string, React.ReactNode])[] = [
+    ["Tanggal", day(note.credit_date)],
     ["Supplier", <SupplierName key="s" id={note.supplier_id} />],
-    ["Against invoice", note.invoice_number],
-    ["Supplier's credit note no", note.their_number ?? "—"],
-    ["Unit", <SiteName key="u" id={note.site_id} />],
-    ["Credit date", day(note.credit_date)],
+    ["Lokasi", "—"],
+    ["Faktur diretur", note.invoice_number],
+    [
+      "Tipe invoice",
+      invoice.data === undefined ? "—" : invoiceType(invoice.data),
+    ],
+    ["No PO", joined("po_number")],
+    ["No terima", joined("receipt_number")],
+    ["Gudang", <SiteName key="u" id={note.site_id} />],
+    ["No ref", note.their_number ?? "—"],
+    [
+      "Jangka",
+      invoice.data === undefined ? "—" : (termOf(invoice.data) ?? "—"),
+    ],
+    ["J.tempo", invoice.data === undefined ? "—" : day(invoice.data.due_date)],
+    ["Total diskon", "—"],
+    [
+      "PPN",
+      ppnCode({
+        subtotal_minor: note.subtotal_minor,
+        discount_minor: 0,
+        tax_minor: note.tax_minor,
+      }),
+    ],
     ["Reason", reasonLabel(note.reason)],
     [
       "Credit goes to",
@@ -369,13 +450,9 @@ function CreditNoteDetail({
         </span>
       ),
     ],
-    ["Amount", money(note.subtotal_minor)],
+    ["Keterangan", note.note ?? "—"],
   ]
-  // Only a note that carries tax says so: the client has none to show.
-  if (note.tax_minor > 0) facts.push(["Tax", money(note.tax_minor)])
   facts.push(
-    ["Total", money(note.total_minor)],
-    ["Note", note.note ?? "—"],
     ["Recorded by", note.recorded_by],
     [
       "Journal entry",
@@ -390,20 +467,6 @@ function CreditNoteDetail({
       ),
     ]
   )
-  if (note.refund_entry_id !== null) {
-    facts.push(
-      ["Refunded on", day(note.refund_date)],
-      [
-        "Refund entry",
-        <EntryLink
-          key="r"
-          entryId={note.refund_entry_id}
-          number={note.refund_entry_number}
-        />,
-      ]
-    )
-  }
-
   return (
     <Sheet
       open
@@ -412,7 +475,7 @@ function CreditNoteDetail({
       }}
       title={note.credit_number}
       badge={<NoteStatus status={note.status} />}
-      size="rail"
+      size="wide"
       footer={
         <SheetFooter
           onCancel={onClose}
@@ -440,6 +503,14 @@ function CreditNoteDetail({
     >
       <div className="flex flex-col gap-4">
         <Problem error={post.error} />
+        {state === "REFUNDED" && (
+          <p className="text-[0.9375rem] font-medium text-mute">READ ONLY</p>
+        )}
+        <div className="flex justify-end">
+          <Button variant="primary" onClick={() => window.print()}>
+            Print
+          </Button>
+        </div>
         <dl className="grid grid-cols-[12rem_minmax(0,1fr)] gap-x-4 gap-y-2.5 text-[0.9375rem]">
           {facts.map(([term, value]) => (
             <div key={term} className="contents">
@@ -448,6 +519,119 @@ function CreditNoteDetail({
             </div>
           ))}
         </dl>
+
+        <div>
+          <SubHead>Detail</SubHead>
+          <MiniTable
+            head={[
+              "Kode acc",
+              "Nama account",
+              "Nama item",
+              "Kode item",
+              { label: "Jml", align: "right" },
+              "Satuan",
+              { label: "Harga", align: "right" },
+              { label: "Diskon Rp", align: "right" },
+              { label: "Diskon %", align: "right" },
+              { label: "Subtotal", align: "right" },
+              "Keterangan",
+            ]}
+          >
+            {items.length === 0 ? (
+              <MiniRow>
+                <MiniCell>{note.credit_account_code ?? "—"}</MiniCell>
+                <MiniCell>—</MiniCell>
+                <MiniCell>—</MiniCell>
+                <MiniCell>—</MiniCell>
+                <MiniCell align="right">—</MiniCell>
+                <MiniCell>—</MiniCell>
+                <MiniCell align="right">—</MiniCell>
+                <MiniCell align="right">—</MiniCell>
+                <MiniCell align="right">—</MiniCell>
+                <MiniCell align="right">{money(note.subtotal_minor)}</MiniCell>
+                <MiniCell>{reasonLabel(note.reason)}</MiniCell>
+              </MiniRow>
+            ) : (
+              items.map((line) => (
+                <MiniRow key={line.sku_code}>
+                  <MiniCell>{note.credit_account_code ?? "—"}</MiniCell>
+                  <MiniCell>—</MiniCell>
+                  <MiniCell>{line.article_name ?? line.article_code}</MiniCell>
+                  <MiniCell>{line.article_code}</MiniCell>
+                  <MiniCell align="right">{count(line.quantity)}</MiniCell>
+                  <MiniCell>—</MiniCell>
+                  <MiniCell align="right">
+                    {money(line.unit_cost_minor)}
+                  </MiniCell>
+                  <MiniCell align="right">—</MiniCell>
+                  <MiniCell align="right">—</MiniCell>
+                  <MiniCell align="right">
+                    {money(line.quantity * line.unit_cost_minor)}
+                  </MiniCell>
+                  <MiniCell>—</MiniCell>
+                </MiniRow>
+              ))
+            )}
+          </MiniTable>
+        </div>
+
+        <TotalsLadder
+          rows={[
+            { label: "Total", value: money(note.subtotal_minor) },
+            { label: "PPN", value: money(note.tax_minor) },
+          ]}
+          total={{ label: "Grand total", value: money(note.total_minor) }}
+        />
+
+        {/* Pelunasan: the money coming back, as 7Soft's return shows it —
+            what is owed back to us is negative, and so is what was received. */}
+        {state === "REFUNDED" && (
+          <div>
+            <SubHead>Pelunasan</SubHead>
+            <MiniTable
+              head={[
+                "Voucher",
+                "No reff",
+                "Tanggal",
+                "Kas/Bank",
+                "No cek/BG",
+                { label: "Hutang", align: "right" },
+                { label: "Bayar", align: "right" },
+                { label: "Potongan", align: "right" },
+                { label: "Sisa", align: "right" },
+                "Jatuh tempo",
+                "Keterangan",
+              ]}
+            >
+              <MiniRow>
+                <MiniCell>
+                  {note.refund_entry_id === null ? (
+                    "—"
+                  ) : (
+                    <EntryLink
+                      entryId={note.refund_entry_id}
+                      number={note.refund_entry_number}
+                    />
+                  )}
+                </MiniCell>
+                <MiniCell>—</MiniCell>
+                <MiniCell>{day(note.refund_date)}</MiniCell>
+                <MiniCell>—</MiniCell>
+                <MiniCell>—</MiniCell>
+                <MiniCell align="right">{money(-note.total_minor)}</MiniCell>
+                <MiniCell align="right">{money(-note.total_minor)}</MiniCell>
+                <MiniCell align="right">—</MiniCell>
+                <MiniCell align="right">{money(0)}</MiniCell>
+                <MiniCell>
+                  {invoice.data === undefined
+                    ? "—"
+                    : day(invoice.data.due_date)}
+                </MiniCell>
+                <MiniCell>—</MiniCell>
+              </MiniRow>
+            </MiniTable>
+          </div>
+        )}
 
         {state === "POSTED" && <Refund note={note} onDone={refresh} />}
       </div>
@@ -651,7 +835,7 @@ function NewCreditNote({
       onOpenChange={(next) => {
         if (!next) onClose()
       }}
-      title="New credit note"
+      title="Retur pembelian baru"
       size="wide"
       footer={
         <SheetFooter
@@ -679,7 +863,7 @@ function NewCreditNote({
             />
           </Field>
           <Field
-            label="Against invoice"
+            label="Faktur diretur"
             required
             hint={
               invoice === null
@@ -704,7 +888,7 @@ function NewCreditNote({
               ))}
             </Select>
           </Field>
-          <Field label="Credit date" required>
+          <Field label="Tanggal" required>
             <Day value={date} onChange={setDate} clearable={false} />
           </Field>
           <Field label="Reason" required>
@@ -724,7 +908,7 @@ function NewCreditNote({
           >
             <Money value={amount} onChange={setAmount} prefix="Rp" />
           </Field>
-          <Field label="Supplier's credit note no">
+          <Field label="No ref">
             <Input
               value={theirNumber}
               onChange={(event) => setTheirNumber(event.target.value)}
@@ -756,7 +940,7 @@ function NewCreditNote({
               />
             </Field>
           )}
-          <Field label="Note" className="sm:col-span-2">
+          <Field label="Keterangan" className="sm:col-span-2">
             <Input
               value={note}
               onChange={(event) => setNote(event.target.value)}

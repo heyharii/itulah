@@ -1,9 +1,11 @@
 import { useSuspenseQueries } from "@tanstack/react-query"
+import { useRouterState } from "@tanstack/react-router"
 import { Suspense, useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { ExportButton } from "@/components/ui/export-button"
 import { PageHeader } from "@/components/ui/page-header"
+import { Segmented } from "@/components/ui/segmented"
 import { CellMoney } from "@/components/ui/rows-switch"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { monthStamp, type ExportSheet } from "@/lib/export-xlsx"
@@ -22,6 +24,10 @@ import {
 import { isoDay, ladderLevel } from "@/screens/finance/chart"
 import { useSettledWindow, useUnitName } from "@/screens/finance/hooks"
 import { UnitName, UnitSelect, WindowControl } from "@/screens/finance/parts"
+import {
+  BukuBesarPembantu,
+  NeracaSaldo,
+} from "@/screens/finance-final/reports/trial-balance-7soft"
 import { ScreenPending } from "@/screens/finance/pending"
 import {
   PhoneStatement,
@@ -70,7 +76,37 @@ import type { TrialBalanceRow } from "@itulah/contract"
 /// over every account at the date — never over these lines, never narrowed by
 /// anything on this screen. Both must agree, and drawing only the first would
 /// mean a report that balances because of what it left out.
+///
+/// # Three readings of it
+///
+/// 7Soft's Info Accounting has Neraca Saldo and Buku Besar Pembantu as two
+/// tabs; the hub's Ledger tab has one trial balance, so the three readings are
+/// a switch at the head of the report. **Neraca Saldo** (the first, because it
+/// is the report's name) is 7Soft's: as of one day, Debet and Kredit, with
+/// Selisih. **Buku Besar Pembantu** is 7Soft's per-account Awal, Debet, Kredit
+/// and Saldo over a period, each line opening its transactions. **Opening and
+/// closing** is this screen as it was: both sides of all three pairs, split by
+/// unit if asked. Same endpoint behind all three (`trial-balance.tsx`,
+/// `trial-balance-7soft.tsx`).
+type Reading = "neraca" | "bbp" | "all"
+
 export function TrialBalance() {
+  // The list of reports opens Buku Besar Pembantu with `#bbp`.
+  const hash = useRouterState({ select: (state) => state.location.hash })
+  const [reading, setReading] = useState<Reading>(
+    hash === "bbp" ? "bbp" : "neraca"
+  )
+  const switcher = (
+    <Segmented<Reading>
+      options={[
+        { value: "neraca", label: "Neraca Saldo" },
+        { value: "bbp", label: "Buku Besar Pembantu" },
+        { value: "all", label: "Opening and closing" },
+      ]}
+      value={reading}
+      onChange={setReading}
+    />
+  )
   return (
     <Suspense
       fallback={
@@ -82,12 +118,18 @@ export function TrialBalance() {
         </ScreenPending>
       }
     >
-      <TrialBalanceScreen />
+      {reading === "neraca" ? (
+        <NeracaSaldo switcher={switcher} />
+      ) : reading === "bbp" ? (
+        <BukuBesarPembantu switcher={switcher} />
+      ) : (
+        <TrialBalanceScreen switcher={switcher} />
+      )}
     </Suspense>
   )
 }
 
-function TrialBalanceScreen() {
+function TrialBalanceScreen({ switcher }: { switcher: React.ReactNode }) {
   const phone = useLayout() === "phone"
   const range = useSettledWindow()
   const [unit, setUnit] = useState("")
@@ -244,6 +286,7 @@ function TrialBalanceScreen() {
           </>
         }
       >
+        {switcher}
         <UnitSelect
           value={unit}
           onChange={setUnit}

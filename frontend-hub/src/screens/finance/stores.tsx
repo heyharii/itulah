@@ -1,8 +1,4 @@
-import {
-  useQuery,
-  useSuspenseQueries,
-  useSuspenseQuery,
-} from "@tanstack/react-query"
+import { useQuery, useSuspenseQuery } from "@tanstack/react-query"
 import type { ColumnDef } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { Suspense, useMemo, useState } from "react"
@@ -13,11 +9,17 @@ import { DataTable } from "@/components/ui/data-table"
 import { Select } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
+import { DayRange, type DayWindow } from "@/components/ui/day-range"
+import { TotalsLadder } from "@/components/ui/rows"
 import { Toolbar } from "@/components/ui/segmented"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states"
 import { node } from "@/lib/api"
-import { count, dateText, money, moneyCompact } from "@/lib/format"
-import { dailyReportQuery, type SaleTenderTotal } from "@/lib/queries/analytics"
+import { count, dateText, dayTime, money, moneyCompact } from "@/lib/format"
+import {
+  type SaleTenderTotal,
+  type WindowTransaction,
+} from "@/lib/queries/analytics"
 import { storeCashCountsQuery } from "@/lib/queries/finance"
 import { type UnitView } from "@/lib/queries/organisation"
 import { useLayout } from "@/lib/layout"
@@ -28,7 +30,7 @@ import { Grid, Td, Th } from "@/screens/finance-final/parts"
 import { isoDay, todayIso } from "@/screens/finance/chart"
 import { PhoneList } from "@/components/ui/phone-cards"
 import { CellMoney } from "@/components/ui/rows-switch"
-import { PhoneChoice, PhoneFigures } from "@/screens/finance/parts"
+import { PhoneChoice, PhoneFigures, SiteName } from "@/screens/finance/parts"
 import { FactsSheet } from "@/screens/finance/phone-parts"
 import {
   chosenStoreOf,
@@ -37,6 +39,12 @@ import {
   remember,
   useRemembered,
 } from "@/screens/finance/store-units"
+import {
+  customerCode,
+  useReadOn,
+  useReceipts,
+} from "@/screens/finance/sales-data"
+import { NotaSheet } from "@/screens/finance/sales-info"
 import { StoreFrame, useOpenStores } from "@/screens/finance/stores-frame"
 import type { CashCountRow } from "@itulah/contract"
 
@@ -52,7 +60,7 @@ import type { CashCountRow } from "@itulah/contract"
 
 export function StoresSales() {
   return (
-    <StoreFrame title="Sales by day">
+    <StoreFrame title="Penjualan Cash · POS">
       {(unit, picker) => (
         <SalesByDay key={unit.id} unit={unit} picker={picker} />
       )}
@@ -260,81 +268,220 @@ function SalesDays({
   siteId: string
   picker: React.ReactNode
 }) {
-  const days = useMemo(() => lastDays(14), [])
-  const [picked, setPicked] = useState(days[days.length - 1])
-  const reports = useSuspenseQueries({
-    queries: days.map((date) => dailyReportQuery(siteId, date)),
-  })
-  const index = days.indexOf(picked)
-  const report = reports[index]?.data
+  // A free window, a week back by default: the 14 fixed days are gone.
+  const fallback = useMemo(() => ({ from: lastDays(7)[0], to: todayIso() }), [])
+  const [range, setRange] = useState<DayWindow>(fallback)
+  const [tab, setTab] = useState<"cash" | "pos">("pos")
+  const [opened, setOpened] = useState<WindowTransaction | null>(null)
+  const from = range.from === "" ? fallback.from : range.from
+  const to = range.to === "" ? fallback.to : range.to
 
-  const rail = (
-    <DateRail
-      title="Day"
-      value={picked}
-      onChange={setPicked}
-      stops={days.map((date, i) => {
-        const at = new Date(`${date}T00:00:00`)
-        return {
-          key: date,
-          top:
-            date === todayIso() ? "Today" : dateText(at, { weekday: "short" }),
-          bottom: dateText(at, { day: "numeric", month: "short" }),
-          figure: reports[i]?.data?.sales.gross_minor,
-        }
-      })}
-    />
+  const receipts = useReceipts(siteId, from, to)
+  useReadOn(receipts)
+  const takings = receipts.data?.pages[0]
+  const sold = useMemo(
+    () => (receipts.data?.pages ?? []).flatMap((page) => page.transactions),
+    [receipts.data]
   )
-  const bar = <Toolbar>{picker}</Toolbar>
+  // 7Soft's Penjualan Cash is the sale keyed in at the centre; Penjualan
+  // Barcode (POS) is the receipt a till rang and sent.
+  const cash = sold.filter((sale) => sale.source === "CENTRE")
+  const pos = sold.filter((sale) => sale.source === "EDGE")
+  const rows = tab === "cash" ? cash : pos
 
-  if (report === undefined)
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: rows,
+        columns: NOTA_COLUMNS,
+        getRowId: (row: WindowTransaction) => row.id,
+      }),
+      [rows]
+    )
+  )
+
+  const bar = (
+    <Toolbar
+      className="group/bar"
+      lead={
+        <SubTabs
+          value={tab}
+          onChange={(next) => setTab(next as "cash" | "pos")}
+          tabs={[
+            { value: "cash", label: "Penjualan Cash" },
+            { value: "pos", label: "Penjualan Barcode (POS)" },
+          ]}
+        />
+      }
+    >
+      {picker}
+      <DayRange
+        label="Tanggal"
+        placeholder="Tanggal"
+        value={range}
+        onChange={setRange}
+        className="h-control min-h-0 w-52 shrink-0 py-0"
+      />
+    </Toolbar>
+  )
+
+  if (takings === undefined)
     return (
       <>
-        {rail}
         {bar}
-        <EmptyState>This day could not be read.</EmptyState>
+        {receipts.isError ? (
+          <EmptyState>This window could not be read.</EmptyState>
+        ) : (
+          <LoadingState>Reading the receipts…</LoadingState>
+        )}
       </>
     )
-  if (report.sales.count === 0)
-    return (
-      <>
-        {rail}
-        {bar}
-        <EmptyState>Nothing was sold on this day.</EmptyState>
-      </>
-    )
+  const ppn = rows.reduce((sum, sale) => sum + sale.tax_minor, 0)
+  const total = rows.reduce((sum, sale) => sum + sale.total_minor, 0)
   return (
     <>
-      {/* The day's four figures lead the page. */}
+      {/* The window's four figures lead the page. */}
       <KpiStrip className="grid-cols-2 md:grid-cols-4 xl:grid-cols-4">
         <Kpi
           label="Sales"
-          value={money(report.sales.gross_minor)}
-          delta={`${count(report.sales.count)} receipts`}
+          value={money(takings.sales.gross_minor)}
+          delta={`${count(takings.sales.count)} receipts`}
           tone="flat"
         />
         <Kpi
           label="Returns"
-          value={money(report.returns.refund_total_minor)}
-          delta={`${count(report.returns.count)} returns`}
+          value={money(takings.returns.refund_total_minor)}
+          delta={`${count(takings.returns.count)} returns`}
           tone="flat"
         />
         <div title="Cash taken less change and refunds">
           <Kpi
             label="Cash in drawer"
-            value={money(report.cash.cash_expected_minor)}
+            value={money(takings.cash.cash_expected_minor)}
           />
         </div>
         <div title="Receipts cancelled">
-          <Kpi label="Voided" value={count(report.sales.voided_count)} />
+          <Kpi label="Voided" value={count(takings.sales.voided_count)} />
         </div>
       </KpiStrip>
-      {rail}
       {bar}
-      <TenderTable tenders={report.tenders} />
+      {takings.sales.count === 0 ? (
+        <EmptyState>Nothing was sold in this window.</EmptyState>
+      ) : (
+        <div className="flex flex-col gap-6">
+          {rows.length === 0 ? (
+            <Card>
+              <EmptyState>No nota in this tab.</EmptyState>
+            </Card>
+          ) : (
+            <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+              <DataTable<WindowTransaction>
+                table={table}
+                onRowClick={setOpened}
+                pageScroll
+                cardSort={false}
+                cardsApart
+                cardLead
+              />
+            </Card>
+          )}
+          <TotalsLadder
+            className="ml-auto w-full max-w-sm"
+            rows={[
+              { label: "PPN", value: money(ppn) },
+              { label: "Total diskon", value: "—" },
+            ]}
+            total={{ label: "Total", value: money(total) }}
+          />
+          <TenderTable tenders={takings.tenders} />
+        </div>
+      )}
+      <NotaSheet sale={opened} onClose={() => setOpened(null)} />
     </>
   )
 }
+
+const NOTA_COLUMNS: ColumnDef<TableSetup, WindowTransaction>[] = [
+  {
+    id: "number",
+    accessorFn: (row) => row.sale_number,
+    header: "No Faktur",
+    size: 180,
+    enableSorting: false,
+    meta: { card: "title", grow: 160 },
+    cell: ({ row }) => (
+      <span className="text-ink">{row.original.sale_number}</span>
+    ),
+  },
+  {
+    id: "date",
+    accessorFn: (row) => row.completed_at,
+    header: "Tanggal",
+    size: 190,
+    enableSorting: false,
+    meta: { card: "meta" },
+    cell: ({ row }) => dayTime(row.original.completed_at),
+  },
+  {
+    id: "customer",
+    accessorFn: (row) => customerCode(row),
+    header: "Customer",
+    size: 150,
+    enableSorting: false,
+    meta: { priority: 2 },
+    cell: ({ row }) => customerCode(row.original),
+  },
+  {
+    id: "place",
+    accessorFn: () => "",
+    header: "Lokasi",
+    size: 120,
+    enableSorting: false,
+    meta: { priority: 3 },
+    cell: () => <span className="text-faint">—</span>,
+  },
+  {
+    id: "warehouse",
+    accessorFn: (row) => row.site_id,
+    header: "Gudang",
+    size: 180,
+    enableSorting: false,
+    meta: { priority: 1 },
+    cell: ({ row }) => <SiteName id={row.original.site_id} />,
+  },
+  {
+    id: "ref",
+    accessorFn: () => "",
+    header: "No Ref",
+    size: 120,
+    enableSorting: false,
+    meta: { priority: 3 },
+    cell: () => <span className="text-faint">—</span>,
+  },
+  {
+    id: "note",
+    accessorFn: () => "",
+    header: "Keterangan",
+    size: 140,
+    enableSorting: false,
+    meta: { priority: 3 },
+    cell: () => <span className="text-faint">—</span>,
+  },
+  {
+    id: "total",
+    accessorFn: (row) => row.total_minor,
+    header: "Total",
+    size: 150,
+    enableSorting: false,
+    meta: { align: "right", card: "lead" },
+    cell: ({ row }) => (
+      <span className="font-medium text-ink">
+        <CellMoney minor={row.original.total_minor} />
+      </span>
+    ),
+  },
+]
 
 /// What each tender took at the till on the day. On a card the tender names it
 /// and what it took and how many receipts follow.

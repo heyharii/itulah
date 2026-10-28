@@ -6,7 +6,7 @@ import {
   useSuspenseInfiniteQuery,
   useSuspenseQuery,
 } from "@tanstack/react-query"
-import { ChevronDown, ChevronRight, Plus } from "lucide-react"
+import { Check, ChevronDown, ChevronRight, Plus } from "lucide-react"
 import { Suspense, useDeferredValue, useEffect, useRef, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -43,7 +43,7 @@ import {
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { cn } from "@/lib/utils"
-import { ROOT_CLASSES } from "@/screens/finance/chart"
+import { ROOT_CLASSES, tipeAccount7Soft } from "@/screens/finance/chart"
 import { FilterSheet } from "@/components/ui/filter-sheet"
 import { AccountPicker, SiteName, UnitSelect } from "@/screens/finance/parts"
 import type {
@@ -110,8 +110,8 @@ export function ChartOfAccounts() {
   return (
     <PageContent>
       <PageHeader
-        crumb="Finance · Accounting Masters"
-        title="Chart of Accounts"
+        crumb="Finance · Master"
+        title="Account"
         // The one action stands in the head; the search is the bar's, under
         // the tabs. On a phone the search, the filters and the new account are
         // in the dock.
@@ -251,8 +251,24 @@ export function ChartOfAccounts() {
             {/* The heading row every table in the app has, so the figures on
             the right are named. */}
             <div className="sticky top-0 z-10 flex h-10 items-center border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
-              <span className="flex-1">Account</span>
-              {!searching && <span>Balance</span>}
+              {/* 7Soft's four columns — Kode, Nama, Tipe Account, Aktif — with
+                  the balance after them, which only this chart has. The first
+                  gap is the expander's. */}
+              <span className="flex min-w-0 flex-1 items-center gap-2.5 pl-7">
+                <span className="w-28 shrink-0 max-md:w-auto">Kode</span>
+                <span>Nama</span>
+              </span>
+              <span className="ml-2.5 w-44 shrink-0 max-md:hidden">
+                Tipe Account
+              </span>
+              <span className="ml-2.5 w-16 shrink-0 text-center max-md:hidden">
+                Aktif
+              </span>
+              {!searching && (
+                <span className="ml-2.5 w-48 shrink-0 text-right max-md:w-auto">
+                  Balance
+                </span>
+              )}
             </div>
             {searching ? (
               <Suspense
@@ -493,7 +509,7 @@ function AccountRow({
       >
         {/* On a phone the name stands over its code, and wraps. */}
         <span className="flex min-w-0 flex-1 items-center gap-2.5 max-md:flex-col-reverse max-md:items-start max-md:gap-0.5">
-          <span className="w-16 shrink-0 font-mono text-[0.9375rem] text-mute max-md:w-auto">
+          <span className="w-28 shrink-0 font-mono text-[0.9375rem] text-mute max-md:w-auto">
             {account.account_code}
           </span>
           <span
@@ -521,6 +537,26 @@ function AccountRow({
             <SiteName id={account.site_id} />
           </span>
         )}
+        {/* Tipe Account: the class the chart files it under. The type the
+            ledger keeps (cash, bank, receivable…) is not on the list read, so
+            the class is what can be named here for every row. */}
+        <span className="w-44 shrink-0 truncate text-[0.9375rem] text-body max-md:hidden">
+          {tipeAccount7Soft(account.account_code, account.root_class) ??
+            ROOT_CLASSES[account.root_class] ??
+            "—"}
+        </span>
+        <span
+          className="grid w-16 shrink-0 place-items-center max-md:hidden"
+          title={account.is_active ? "Aktif" : "Not active"}
+        >
+          {account.is_active ? (
+            <Check className="size-4 text-ok-fg" aria-label="Aktif" />
+          ) : (
+            <span className="text-faint" aria-label="Not active">
+              —
+            </span>
+          )}
+        </span>
         {balance !== undefined && (
           <span
             className={cn(
@@ -632,7 +668,14 @@ function AccountSheet({
             </div>
 
             <Facts>
-              <Fact term="Class">
+              <Fact term="Kode">
+                <span className="font-mono">{account.account_code}</span>
+              </Fact>
+              <Fact term="Tipe Account">
+                {tipeAccount7Soft(account.account_code, account.root_class) ??
+                  "—"}
+              </Fact>
+              <Fact term="Kelas">
                 {account.root_class} · {ROOT_CLASSES[account.root_class] ?? "—"}
               </Fact>
               <Fact term="Kind">
@@ -649,9 +692,7 @@ function AccountSheet({
                   <SiteName id={account.site_id} />
                 )}
               </Fact>
-              <Fact term="State">
-                {account.is_active ? "Active" : "Inactive"}
-              </Fact>
+              <Fact term="Aktif">{account.is_active ? "Yes" : "No"}</Fact>
             </Facts>
 
             <div>
@@ -923,14 +964,14 @@ function NewAccountSheet({
     >
       <div className="flex flex-col gap-3">
         <Problem error={save.error} />
-        <Field label="Code" required>
+        <Field label="Kode" required>
           <Input
             value={code}
             onChange={(event) => setCode(event.target.value)}
             className="font-mono"
           />
         </Field>
-        <Field label="Name" required aside="The client's own words">
+        <Field label="Nama" required aside="The client's own words">
           <Input
             value={name}
             onChange={(event) => setName(event.target.value)}
@@ -946,7 +987,7 @@ function NewAccountSheet({
         />
         {!isGroup && (
           <Field
-            label="Account type"
+            label="Tipe Account"
             aside={root === null ? undefined : label(root)}
           >
             <Select value={accountType} onChange={setAccountType}>
@@ -1063,7 +1104,7 @@ function EditAccount({
     <div className="flex flex-col gap-3 rounded-inner border border-hairline p-3">
       <h4 className="text-card-title font-semibold text-ink">Edit account</h4>
       <Problem error={save.error} />
-      <Field label="Name">
+      <Field label="Nama">
         <Input value={name} onChange={(event) => setName(event.target.value)} />
       </Field>
       <Field
@@ -1075,7 +1116,7 @@ function EditAccount({
         <HeadingPicker value={parent} onChange={setParent} />
       </Field>
       {!account.is_group && (
-        <Field label="Account type">
+        <Field label="Tipe Account">
           <Select value={accountType} onChange={setAccountType}>
             <option value="">Leave as it is</option>
             {typesFor(root).map((type) => (

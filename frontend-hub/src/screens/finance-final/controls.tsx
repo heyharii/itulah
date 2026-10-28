@@ -24,7 +24,8 @@ import {
   softCloseMonth,
 } from "@/lib/queries/finance-domains"
 import { Grid, Td, Th } from "@/screens/finance-final/parts"
-import { monthLabel } from "@/screens/finance/chart"
+import { BookCheck } from "@/screens/finance/book-check"
+import { isoDay, monthLabel } from "@/screens/finance/chart"
 import { PhoneCard, PhoneList } from "@/components/ui/phone-cards"
 import { ScreenPending } from "@/screens/finance/pending"
 
@@ -211,6 +212,11 @@ function FinanceControlsScreen() {
         ))}
       </Card>
 
+      <h2 className="mb-3 text-[1rem] font-medium text-ink">Cek pembukuan</h2>
+      <div className="mb-8">
+        <BookCheck asOf={checkDay(askedMonth, now)} />
+      </div>
+
       <h2 className="mb-1 text-[1rem] font-medium text-ink">
         Ledger against subledgers
       </h2>
@@ -318,6 +324,13 @@ function FinanceControlsScreen() {
       )}
     </PageContent>
   )
+}
+
+/// The day the books are asked about: the last day of the month, or today when
+/// the month is not over yet.
+function checkDay(month: { year: number; month: number }, now: Date): string {
+  const last = new Date(month.year, month.month, 0)
+  return isoDay(last > now ? now : last)
 }
 
 /// The twelve months up to and including this one, newest first: the ones a

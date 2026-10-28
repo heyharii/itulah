@@ -20,8 +20,8 @@ import {
   ExpandingSearch,
 } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
-import { Pill } from "@/components/ui/pill"
-import { EmptyState, Problem } from "@/components/ui/states"
+import { EmptyState, LoadingState, Problem } from "@/components/ui/states"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import { Tag } from "@/components/ui/tag"
 import { count, label, percentBps } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
@@ -43,6 +43,12 @@ import {
   MasterLayout,
   YesNo,
 } from "@/screens/finance/master-parts"
+import {
+  CustomerTab,
+  PaymentTermsTab,
+  PpnTab,
+  SupplierTab,
+} from "@/screens/finance/parties-tabs"
 import { ScreenPending } from "@/screens/finance/pending"
 import type { TaxTemplate, TaxType } from "@itulah/contract"
 
@@ -69,30 +75,35 @@ function bpsOf(text: string): number | null {
 /// the Link accounts button at the right.
 const templateColumns: ColumnDef<TableSetup, TaxTemplate>[] = [
   {
+    accessorKey: "code",
+    header: "Kode Pajak",
+    size: 220,
+    meta: { card: "meta" },
+    cell: ({ row }) => <Code>{row.original.code}</Code>,
+  },
+  {
     accessorKey: "name",
     header: "Name",
     size: 300,
     meta: { card: "title", grow: 200 },
     cell: ({ row }) => (
-      <span className="flex items-center gap-2 whitespace-normal">
-        <span className="text-ink">{row.original.name}</span>
-        {!row.original.is_active && <Pill tone="neutral">Inactive</Pill>}
-      </span>
+      <span className="whitespace-normal text-ink">{row.original.name}</span>
     ),
   },
   {
-    accessorKey: "code",
-    header: "Code",
-    size: 180,
-    meta: { card: "meta" },
-    cell: ({ row }) => <Code>{row.original.code}</Code>,
-  },
-  {
     accessorKey: "rate_bps",
-    header: "Rate",
+    header: "Persen",
     size: 110,
     meta: { align: "right", card: "metric" },
     cell: ({ row }) => rateOf(row.original.rate_bps),
+  },
+  {
+    id: "default",
+    accessorFn: () => "",
+    header: "Default",
+    size: 110,
+    meta: { align: "center", card: "hide" },
+    cell: () => <span className="text-faint">—</span>,
   },
   {
     id: "is_final",
@@ -101,6 +112,14 @@ const templateColumns: ColumnDef<TableSetup, TaxTemplate>[] = [
     size: 110,
     meta: { align: "center", card: "metric" },
     cell: ({ row }) => <YesNo on={row.original.is_final} />,
+  },
+  {
+    id: "is_active",
+    accessorFn: (row) => (row.is_active ? "Yes" : ""),
+    header: "Aktif",
+    size: 110,
+    meta: { align: "center", card: "metric" },
+    cell: ({ row }) => <YesNo on={row.original.is_active} />,
   },
   {
     accessorKey: "note",
@@ -146,7 +165,7 @@ export function TaxWithholding() {
   )
 }
 
-function TaxWithholdingScreen() {
+function TaxWithholdingScreen({ head }: { head?: ScreenHead }) {
   const phone = useLayout() === "phone"
   const list = useSuspenseQuery(taxTemplatesQuery())
   const [editing, setEditing] = useState<TaxTemplate | "new" | null>(null)
@@ -180,8 +199,8 @@ function TaxWithholdingScreen() {
   return (
     <PageContent>
       <PageHeader
-        crumb="Finance · Tax Masters"
-        title="Tax Withholding Category"
+        crumb={head?.crumb ?? "Finance · Tax Masters"}
+        title={head?.title ?? "Tax Withholding Category"}
         // The new category is the dock's + on a phone.
         actions={
           phone ? undefined : (
@@ -191,6 +210,7 @@ function TaxWithholdingScreen() {
           )
         }
       />
+      {head?.tabs}
 
       <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
         <ExpandingSearch
@@ -376,23 +396,28 @@ function TemplateForm({
 /// its code, what it is under them, and the Link accounts button at the right.
 const typeColumns: ColumnDef<TableSetup, TaxType>[] = [
   {
+    accessorKey: "code",
+    header: "Kode Pajak",
+    size: 160,
+    meta: { card: "meta" },
+    cell: ({ row }) => <Code>{row.original.code}</Code>,
+  },
+  {
     accessorKey: "name",
     header: "Name",
     size: 300,
     meta: { card: "title", grow: 200 },
     cell: ({ row }) => (
-      <span className="flex items-center gap-2 whitespace-normal">
-        <span className="text-ink">{row.original.name}</span>
-        {!row.original.active && <Pill tone="neutral">Inactive</Pill>}
-      </span>
+      <span className="whitespace-normal text-ink">{row.original.name}</span>
     ),
   },
   {
-    accessorKey: "code",
-    header: "Code",
-    size: 160,
-    meta: { card: "meta" },
-    cell: ({ row }) => <Code>{row.original.code}</Code>,
+    id: "active",
+    accessorFn: (row) => (row.active ? "Yes" : ""),
+    header: "Aktif",
+    size: 110,
+    meta: { align: "center", card: "metric" },
+    cell: ({ row }) => <YesNo on={row.original.active} />,
   },
   {
     accessorKey: "nature",
@@ -432,24 +457,73 @@ const typeColumns: ColumnDef<TableSetup, TaxType>[] = [
   },
 ]
 
-/// The taxes the company owes or claims per period — PPh 21, 23, 25, 29, PPN,
-/// PBB — each named by the role its account answers to. Adding one used to
-/// take a migration.
+/// 7Soft's Customer · Supplier · Pajak menu, one page and six tabs. Pajak
+/// is the withholding categories — the only taxes the hub gives a rate, and the
+/// code a supplier bill or payment is entered under — PPN is the PPN codes the
+/// posted bills were written under, and Tax types are the
+/// taxes the company owes or claims per period, each named by the role its
+/// account answers to (PPh 21, 23, 25, 29, PPN, PBB). Jangka Waktu Kredit,
+/// Supplier and Customer are read from the masters that own them.
+const TABS = [
+  { value: "pajak", label: "Pajak" },
+  { value: "ppn", label: "PPN" },
+  { value: "types", label: "Tax types" },
+  { value: "kredit", label: "Jangka Waktu Kredit" },
+  { value: "supplier", label: "Supplier" },
+  { value: "customer", label: "Customer" },
+] as const
+
+interface ScreenHead {
+  readonly crumb: string
+  readonly title: string
+  readonly tabs: React.ReactNode
+}
+
 export function TaxTypes() {
+  const [tab, setTab] = useState<string>("pajak")
+  const head: ScreenHead = {
+    crumb: "Finance · Master",
+    title: "Customer · Supplier · Pajak",
+    tabs: <SubTabs tabs={TABS} value={tab} onChange={setTab} />,
+  }
+  const waiting = (what: string) => (
+    <PageContent>
+      <PageHeader crumb={head.crumb} title={head.title} />
+      {head.tabs}
+      <LoadingState>{what}</LoadingState>
+    </PageContent>
+  )
+
+  if (tab === "pajak")
+    return (
+      <Suspense fallback={waiting("Reading the taxes…")}>
+        <TaxWithholdingScreen head={head} />
+      </Suspense>
+    )
+  if (tab === "types")
+    return (
+      <Suspense fallback={waiting("Reading the tax types…")}>
+        <TaxTypesScreen head={head} />
+      </Suspense>
+    )
   return (
-    <Suspense
-      fallback={
-        <ScreenPending crumb="Finance · Tax Masters" title="Tax Types">
-          Reading the tax types…
-        </ScreenPending>
-      }
-    >
-      <TaxTypesScreen />
-    </Suspense>
+    <PageContent>
+      <PageHeader crumb={head.crumb} title={head.title} />
+      {head.tabs}
+      {tab === "kredit" ? (
+        <PaymentTermsTab />
+      ) : tab === "ppn" ? (
+        <PpnTab />
+      ) : tab === "supplier" ? (
+        <SupplierTab />
+      ) : (
+        <CustomerTab />
+      )}
+    </PageContent>
   )
 }
 
-function TaxTypesScreen() {
+function TaxTypesScreen({ head }: { head?: ScreenHead }) {
   const list = useSuspenseQuery(taxTypesQuery())
   const [editing, setEditing] = useState<TaxType | "new" | null>(null)
   const phone = useLayout() === "phone"
@@ -483,8 +557,8 @@ function TaxTypesScreen() {
   return (
     <PageContent>
       <PageHeader
-        crumb="Finance · Tax Masters"
-        title="Tax Types"
+        crumb={head?.crumb ?? "Finance · Tax Masters"}
+        title={head?.title ?? "Tax Types"}
         // The new tax type is the dock's + on a phone.
         actions={
           phone ? undefined : (
@@ -494,6 +568,7 @@ function TaxTypesScreen() {
           )
         }
       />
+      {head?.tabs}
 
       <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
         <ExpandingSearch

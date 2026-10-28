@@ -81,6 +81,8 @@ import type {
   StoreDeposit,
   SetAccountLinkRequest,
   Statement,
+  SupplierAdvance,
+  SupplierAdvanceApplyRequest,
   SupplierBill,
   SupplierPayment,
   TransferAssetRequest,
@@ -330,6 +332,14 @@ export const financeKeys = {
   /// it is asked for on demand, one bill at a time, and never appears in any
   /// list read.
   billWarnings: (id: string) => ["finance", "bills", "warnings", id] as const,
+  /// A bill's item lines, and what has settled it. Under `bills` so posting,
+  /// paying or applying an advance — all of which invalidate `finance` — read
+  /// them again.
+  billLines: (id: string) => ["finance", "bills", "lines", id] as const,
+  billSettlements: (id: string) =>
+    ["finance", "bills", "settlements", id] as const,
+  advance: (id: string) =>
+    ["finance", "supplier-advances", "detail", id] as const,
   unbilled: () => ["finance", "unbilled"] as const,
 
   /// What is owed, to whom, and how late — the server's own ageing rather than
@@ -1927,6 +1937,113 @@ export function postPayment(
 /// `ManualLine` is spelled out above: a screen assembling a request should be
 /// able to name the shape it is assembling without reaching past this file.
 export type { AllocateToBill }
+
+// ---------------------------------------------------------------------------
+// A bill's own pages: its item lines, and the advances set against it
+// ---------------------------------------------------------------------------
+
+/// One item line of a supplier invoice, as the paper states it. What
+/// 7Soft's Faktur Pembelian prints in its Detail tab: name, quantity, price,
+/// total. Read-only here — the lines are written by receiving and matching in
+/// Procurement, never keyed in Finance.
+export interface BillItemLine {
+  readonly line_number: number
+  /// The article the delivery line was for, joined from the purchase order.
+  readonly article_code: string | null
+  readonly description: string
+  readonly quantity: number
+  readonly unit_price_minor: number
+  readonly line_amount_minor: number
+  readonly tax_minor: number
+  /// The two documents the line came from: the order and the delivery.
+  readonly po_number: string | null
+  readonly receipt_number: string | null
+}
+
+export function billItemLines(
+  invoiceId: string,
+  signal?: AbortSignal
+): Promise<BillItemLine[]> {
+  return node.get<BillItemLine[]>(
+    `/api/v1/finance/bills/${encodeURIComponent(invoiceId)}/lines`,
+    { signal }
+  )
+}
+
+/// What the payment ledger holds against one bill: the bill's own open item
+/// and, under `settlements`, every document that has answered part of it —
+/// payments, advances and credit notes alike. The settler is the row's
+/// `against_voucher_kind` / `against_voucher_id`.
+export function billSettlements(
+  invoiceId: string,
+  signal?: AbortSignal
+): Promise<PaymentLedgerView> {
+  return node.get<PaymentLedgerView>(
+    `/api/v1/finance/payment-ledger${search({
+      party_type: "SUPPLIER",
+      voucher_kind: "SUPPLIER_INVOICE",
+      voucher: invoiceId,
+      open_only: false,
+      limit: 50,
+    })}`,
+    { signal }
+  )
+}
+
+/// What is open against every supplier, as at a day: the bills and the
+/// deliveries the payables ageing is made of, one row each, with the due date
+/// each was given. The server's own reading, wound back to `as_of`, so a report
+/// of "what was owed on the 15th" is not a guess from today's bill list.
+export function openPayables(
+  options: { as_of?: string; unit?: string } = {},
+  signal?: AbortSignal
+): Promise<PaymentLedgerView> {
+  return node.get<PaymentLedgerView>(
+    `/api/v1/finance/payment-ledger${search({
+      side: "PAYABLE",
+      party_type: "SUPPLIER",
+      open_only: true,
+      limit: 1000,
+      ...options,
+    })}`,
+    { signal }
+  )
+}
+
+/// Every advance with money still in it, of every supplier.
+export function listOpenAdvances(
+  signal?: AbortSignal
+): Promise<SupplierAdvance[]> {
+  return node.get<SupplierAdvance[]>(
+    `/api/v1/finance/supplier-advances${search({ limit: 500 })}`,
+    { signal }
+  )
+}
+
+export function supplierAdvance(
+  advanceId: string,
+  signal?: AbortSignal
+): Promise<SupplierAdvance> {
+  return node.get<SupplierAdvance>(
+    `/api/v1/finance/supplier-advances/${encodeURIComponent(advanceId)}`,
+    { signal }
+  )
+}
+
+/// Set money already paid to a supplier against one of its bills. Its own act
+/// on its own date; the server refuses an advance of another supplier, unit
+/// or currency, and says which.
+export function applySupplierAdvance(
+  advanceId: string,
+  request: SupplierAdvanceApplyRequest,
+  signal?: AbortSignal
+): Promise<SupplierAdvance> {
+  return node.post<SupplierAdvance>(
+    `/api/v1/finance/supplier-advances/${encodeURIComponent(advanceId)}/apply`,
+    request,
+    { signal }
+  )
+}
 
 // ---------------------------------------------------------------------------
 // Fixed assets

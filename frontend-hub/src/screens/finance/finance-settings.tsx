@@ -19,6 +19,7 @@ import {
   ExpandingSearch,
 } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
+import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
 import { EmptyState, Problem } from "@/components/ui/states"
 import { count } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
@@ -278,5 +279,32 @@ function SettingControl({ setting }: { setting: FinanceSetting }) {
       </div>
       <Problem error={save.error} className="mt-1.5" />
     </>
+  )
+}
+
+/// The same settings as rows of the Set Up page's Transaksi section: the
+/// name, and the control that changes it.
+export function SettingRows() {
+  const list = useSuspenseQuery(financeSettingsQuery())
+  if (list.data.length === 0)
+    return <EmptyState>No setting is kept on this node.</EmptyState>
+  return (
+    <Card className="overflow-clip">
+      <MiniTable
+        head={[
+          { label: "Setting", align: "left" },
+          { label: "Value", align: "left" },
+        ]}
+      >
+        {list.data.map((setting) => (
+          <MiniRow key={setting.setting_key}>
+            <MiniCell className="text-ink">{nameOf(setting)}</MiniCell>
+            <MiniCell>
+              <SettingControl setting={setting} />
+            </MiniCell>
+          </MiniRow>
+        ))}
+      </MiniTable>
+    </Card>
   )
 }

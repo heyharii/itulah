@@ -51,6 +51,7 @@ import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { usePostingReadiness } from "@/screens/finance/badges"
+import { BookCheck } from "@/screens/finance/book-check"
 import { isoDay, monthLabel, monthOf } from "@/screens/finance/chart"
 import { ScreenPending } from "@/screens/finance/pending"
 import type { DepreciationRun, FiscalPeriod } from "@itulah/contract"
@@ -84,6 +85,44 @@ function periodId(period: { year: number; month: number }): string {
   return `${period.year}-${String(period.month).padStart(2, "0")}`
 }
 
+/// A month as one number, so "earlier" and "later" are a comparison.
+function ordinal(period: { year: number; month: number }): number {
+  return period.year * 12 + period.month
+}
+
+/// The first and last day of a month, `YYYY-MM-DD`: 7Soft's Tanggal Mulai and
+/// Tanggal Akhir.
+function firstDay(period: { year: number; month: number }): string {
+  return `${period.year}-${String(period.month).padStart(2, "0")}-01`
+}
+function lastDay(period: { year: number; month: number }): string {
+  return isoDay(new Date(period.year, period.month, 0))
+}
+
+/// The day the books are asked about when this month is closed: its last day,
+/// or today while the month is not over.
+function checkDay(period: { year: number; month: number }): string {
+  const last = lastDay(period)
+  const today = isoDay(new Date())
+  return last > today ? today : last
+}
+
+const isOpenPeriod = (period: FiscalPeriod) =>
+  period.status.toUpperCase() === "OPEN"
+
+/// The month Create Period offers: the one after the newest opened, or this
+/// calendar month when nothing has been opened yet.
+function nextAfterNewest(rows: readonly FiscalPeriod[], now: Date) {
+  if (rows.length === 0)
+    return { year: now.getFullYear(), month: now.getMonth() + 1 }
+  const newest = Math.max(...rows.map(ordinal))
+  const year = Math.floor((newest - 1) / 12)
+  const month = newest - year * 12
+  return month === 12
+    ? { year: year + 1, month: 1 }
+    : { year, month: month + 1 }
+}
+
 const columns: ColumnDef<TableSetup, FiscalPeriod>[] = [
   {
     id: "period",
@@ -91,14 +130,60 @@ const columns: ColumnDef<TableSetup, FiscalPeriod>[] = [
     // to act on is almost always the most recent one, so the sort is on the
     // month itself rather than on a derived metric.
     accessorFn: (row) => row.year * 12 + row.month,
-    header: "Month",
-    size: 200,
+    header: "Periode",
+    size: 180,
     meta: { card: "hide" },
     cell: ({ row }) => (
       <span className="font-medium text-ink">
         {monthLabel(row.original.year, row.original.month)}
       </span>
     ),
+  },
+  // 7Soft's grid, in its order: Periode, Tanggal (the day the period was made
+  // — the cloud does not record it), Tahun, Bulan, Tanggal Mulai and Akhir,
+  // then Status.
+  {
+    id: "created",
+    accessorFn: () => "",
+    header: "Tanggal",
+    size: 130,
+    enableSorting: false,
+    meta: { card: "hide" },
+    cell: () => <span className="text-faint">—</span>,
+  },
+  {
+    accessorKey: "year",
+    header: "Tahun",
+    size: 90,
+    meta: { card: "hide", align: "right" },
+    cell: ({ row }) => (
+      <span className="tabular-nums">{row.original.year}</span>
+    ),
+  },
+  {
+    accessorKey: "month",
+    header: "Bulan",
+    size: 90,
+    meta: { card: "hide", align: "right" },
+    cell: ({ row }) => (
+      <span className="tabular-nums">{row.original.month}</span>
+    ),
+  },
+  {
+    id: "from",
+    accessorFn: (row) => firstDay(row),
+    header: "Mulai",
+    size: 130,
+    meta: { card: "hide" },
+    cell: ({ row }) => day(firstDay(row.original)),
+  },
+  {
+    id: "to",
+    accessorFn: (row) => lastDay(row),
+    header: "Akhir",
+    size: 130,
+    meta: { card: "hide" },
+    cell: ({ row }) => day(lastDay(row.original)),
   },
   {
     accessorKey: "status",
@@ -240,15 +325,37 @@ function PeriodsScreen() {
   const client = useQueryClient()
   const period = useSheet("period")
   const now = new Date()
-  const [year, setYear] = useState(now.getFullYear())
-  const [month, setMonth] = useState(now.getMonth() + 1)
+  const periods = useSuspenseQuery(periodsQuery())
+  // Create Period offers the month after the newest one opened — 7Soft's "open
+  // the new period after closing the old" — and the selects still let a
+  // different month be chosen.
+  const [offered] = useState(() => nextAfterNewest(periods.data, now))
+  const [year, setYear] = useState(offered.year)
+  const [month, setMonth] = useState(offered.month)
   const [receipt, setReceipt] = useState<string | null>(null)
   const [sorting, setSorting] = useState<SortingState>([
     { id: "period", desc: true },
   ])
   const [visibility, setVisibility] = useState<VisibilityState>({})
 
-  const periods = useSuspenseQuery(periodsQuery())
+  // 7Soft's Closing and Undo Closing act on "the period" the cursor is on.
+  // Here they act on the one they can only ever be: closing goes in order, so
+  // it is the oldest month still open; undoing goes newest first, so it is the
+  // newest month closed.
+  const nextToClose = useMemo(
+    () =>
+      periods.data
+        .filter(isOpenPeriod)
+        .sort((a, b) => ordinal(a) - ordinal(b))[0],
+    [periods.data]
+  )
+  const lastClosed = useMemo(
+    () =>
+      periods.data
+        .filter((row) => !isOpenPeriod(row))
+        .sort((a, b) => ordinal(b) - ordinal(a))[0],
+    [periods.data]
+  )
 
   const rows = useMemo(() => {
     const all = periods.data
@@ -318,25 +425,57 @@ function PeriodsScreen() {
         // On a phone opening a month is the dock's + and the sheet it opens.
         actions={
           phone ? undefined : (
-            <Button
-              variant="primary"
-              pending={open.isPending}
-              disabled={already}
-              onClick={() => open.mutate()}
-            >
-              {already
-                ? `${monthLabel(year, month)} is open`
-                : open.isPending
-                  ? "Opening…"
-                  : `Open ${monthLabel(year, month)}`}
-            </Button>
+            <>
+              <Button
+                variant="primary"
+                pending={open.isPending}
+                disabled={already}
+                title={
+                  already
+                    ? `${monthLabel(year, month)} is already created`
+                    : `Creates ${monthLabel(year, month)}`
+                }
+                onClick={() => open.mutate()}
+              >
+                Create Period
+              </Button>
+              <Button
+                variant="primary"
+                disabled={nextToClose === undefined}
+                title={
+                  nextToClose === undefined
+                    ? "Every period is closed"
+                    : `Closes ${monthLabel(nextToClose.year, nextToClose.month)}, the oldest period still open`
+                }
+                onClick={() =>
+                  nextToClose !== undefined &&
+                  period.open(periodId(nextToClose))
+                }
+              >
+                Closing
+              </Button>
+              <Button
+                variant="danger"
+                disabled={lastClosed === undefined}
+                title={
+                  lastClosed === undefined
+                    ? "No period is closed"
+                    : `Undoes the closing of ${monthLabel(lastClosed.year, lastClosed.month)}, the latest closed`
+                }
+                onClick={() =>
+                  lastClosed !== undefined && period.open(periodId(lastClosed))
+                }
+              >
+                Undo Closing
+              </Button>
+            </>
           )
         }
       />
 
       {phone && (
         <>
-          <Fab label="Open a month" onClick={() => setOpening(true)} />
+          <Fab label="Create Period" onClick={() => setOpening(true)} />
           <DockTools
             search={{
               value: needle,
@@ -352,7 +491,7 @@ function PeriodsScreen() {
           <BottomSheet
             open={opening}
             onOpenChange={setOpening}
-            title="Open a month"
+            title="Create Period"
           >
             <div className="flex flex-col gap-3 px-4 pb-4">
               <Select
@@ -388,11 +527,7 @@ function PeriodsScreen() {
                 disabled={already}
                 onClick={() => open.mutate()}
               >
-                {already
-                  ? `${monthLabel(year, month)} is open`
-                  : open.isPending
-                    ? "Opening…"
-                    : `Open ${monthLabel(year, month)}`}
+                Create Period
               </Button>
             </div>
           </BottomSheet>
@@ -522,6 +657,7 @@ function PeriodSheet({
   const [undoing, setUndoing] = useState(false)
   const [reason, setReason] = useState("")
   const [reopened, setReopened] = useState<string | null>(null)
+  const [problems, setProblems] = useState(false)
 
   const periods = useSuspenseQuery(periodsQuery())
 
@@ -567,8 +703,26 @@ function PeriodSheet({
   })
 
   const isOpen = period?.status?.toUpperCase() === "OPEN"
-  const mayClose = isOpen && closeChecks.data?.may_close === true
-  const mayUndo = !isOpen && reason.trim() !== ""
+  // Closing goes in order, as in 7Soft: a month cannot be closed while an
+  // older one is still open, because the newer one's opening figures carry the
+  // older one's closing ones. The cloud only refuses the reverse (undoing a
+  // month under a closed later one), so the forward rule is held here.
+  const olderOpen =
+    period === undefined || !isOpen
+      ? undefined
+      : periods.data
+          .filter((row) => isOpenPeriod(row) && ordinal(row) < ordinal(period))
+          .sort((a, b) => ordinal(a) - ordinal(b))[0]
+  // And undoing goes newest first.
+  const laterClosed =
+    period === undefined || isOpen
+      ? undefined
+      : periods.data
+          .filter((row) => !isOpenPeriod(row) && ordinal(row) > ordinal(period))
+          .sort((a, b) => ordinal(b) - ordinal(a))[0]
+  const mayClose =
+    isOpen && olderOpen === undefined && closeChecks.data?.may_close === true
+  const mayUndo = !isOpen && laterClosed === undefined && reason.trim() !== ""
 
   function leaveUndo() {
     setUndoing(false)
@@ -595,9 +749,10 @@ function PeriodSheet({
           confirming ? (
             <div className="flex items-center justify-between gap-3">
               <span className="text-[0.9375rem] text-body">
-                Seal {count(period.entry_count)}{" "}
+                Close {monthLabel(period.year, period.month)} and seal{" "}
+                {count(period.entry_count)}{" "}
                 {period.entry_count === 1 ? "entry" : "entries"}? Nothing can be
-                posted into this month again.
+                posted into it again.
               </span>
               <div className="flex shrink-0 gap-1.5">
                 <Button
@@ -613,7 +768,7 @@ function PeriodSheet({
                   disabled={!mayClose}
                   onClick={() => close.mutate()}
                 >
-                  {close.isPending ? "Sealing…" : "Seal"}
+                  {close.isPending ? "Closing…" : "Closing"}
                 </Button>
               </div>
             </div>
@@ -623,7 +778,7 @@ function PeriodSheet({
               disabled={!mayClose}
               onClick={() => setConfirming(true)}
             >
-              Close this month
+              Closing
             </Button>
           )
         ) : period ? (
@@ -646,13 +801,17 @@ function PeriodSheet({
                   disabled={!mayUndo}
                   onClick={() => reopen.mutate()}
                 >
-                  {reopen.isPending ? "Reopening…" : "Undo closing"}
+                  {reopen.isPending ? "Reopening…" : "Undo Closing"}
                 </Button>
               </div>
             </div>
           ) : (
-            <Button variant="danger" onClick={() => setUndoing(true)}>
-              Undo closing
+            <Button
+              variant="danger"
+              disabled={laterClosed !== undefined}
+              onClick={() => setUndoing(true)}
+            >
+              Undo Closing
             </Button>
           )
         ) : undefined
@@ -725,14 +884,56 @@ function PeriodSheet({
                 </div>
               )}
 
+              {olderOpen !== undefined && (
+                <Banner tone="warn">
+                  Closing goes in order: close{" "}
+                  {monthLabel(olderOpen.year, olderOpen.month)} first.
+                </Banner>
+              )}
+              {laterClosed !== undefined && (
+                <Banner tone="warn">
+                  Undo the closing of{" "}
+                  {monthLabel(laterClosed.year, laterClosed.month)} first —
+                  closings are undone newest first.
+                </Banner>
+              )}
               {isOpen &&
                 closeChecks.data !== undefined &&
                 !closeChecks.data.may_close && (
-                  <Banner tone="warn">
-                    Sealing is blocked by:{" "}
-                    {closeChecks.data.blocked_by.join(", ")}.
-                  </Banner>
+                  <div className="flex flex-col gap-2">
+                    <Banner tone="warn">
+                      Sealing is blocked by{" "}
+                      {count(closeChecks.data.blocked_by.length)}{" "}
+                      {closeChecks.data.blocked_by.length === 1
+                        ? "problem"
+                        : "problems"}
+                      .
+                    </Banner>
+                    <Button
+                      variant="primary"
+                      className="self-start"
+                      onClick={() => setProblems((was) => !was)}
+                    >
+                      View Problem
+                    </Button>
+                    {problems && (
+                      <ul className="list-disc pl-5 text-[0.9375rem] text-body">
+                        {closeChecks.data.blocked_by.map((one) => (
+                          <li key={one}>{one}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
                 )}
+
+              {isOpen && (
+                <div>
+                  <h4 className="mb-2 text-card-title font-semibold text-ink">
+                    Cek pembukuan
+                  </h4>
+                  <BookCheck asOf={checkDay(period)} />
+                </div>
+              )}
 
               <Checklist key={periodId(period)} period={period} />
 
