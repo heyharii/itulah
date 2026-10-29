@@ -126,8 +126,11 @@ jobs:
           Start-Sleep 3
           Shot 'windows-asks'
           try { Click (Find 'msedge' 'Open' 30) } catch { Write-Host 'No protocol prompt' }
-          Find 'msedge' 'Check this PC' 180 | Out-Null
-          Start-Sleep 3
+          # The real check step, not the sidebar's "Check this PC" label: its
+          # Continue button, under rows that read this PC afresh.
+          Find 'msedge' 'Continue' 180 | Out-Null
+          Find 'msedge' 'Off while plugged in' 60 | Out-Null
+          Start-Sleep 2
           Shot 'check-this-pc-again'
           Get-ChildItem "$env:ProgramData\itulah" | Select-Object Name | Out-String | Write-Host
           if (-not (Get-ChildItem "$env:ProgramData\itulah" -Filter 'store.old-*')) { throw 'The old data was not kept' }
