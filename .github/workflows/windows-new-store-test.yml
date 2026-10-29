@@ -91,7 +91,11 @@ jobs:
           Shot 'server-check-this-pc'
           if ($ui) {
             Click (Find 'msedge' 'Continue' 90)
-            TypeInto (Find 'msedge' 'Install code' 30) $env:ENROLL_CODE
+            # The page puts the cursor in the code box itself; a click by name
+            # would land on the sidebar's "Install code" step instead.
+            Find 'msedge' 'Connect this PC to Central' 30 | Out-Null
+            Start-Sleep 2
+            [System.Windows.Forms.SendKeys]::SendWait($env:ENROLL_CODE)
             Shot 'server-install-code'
             # Enter submits the code: "Install" is also the sidebar step's name.
             [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
