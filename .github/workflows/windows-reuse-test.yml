@@ -105,6 +105,8 @@ jobs:
           Find 'msedge' 'Connect this PC to Central' 30 | Out-Null
           Start-Sleep 2
           [System.Windows.Forms.SendKeys]::SendWait($env:ENROLL_CODE)
+          Start-Sleep 1
+          Shot 'install-code'
           [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
           Find 'msedge' '*server is ready' 300 | Out-Null
           Shot 'ready'
