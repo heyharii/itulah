@@ -88,7 +88,9 @@ jobs:
           $box = Find '*' '*Port 8082 is in use by*' 180
           Shot 'port-taken-message'
           "  - message: $($box.Current.Name)" >> $env:GITHUB_STEP_SUMMARY
-          Click (Find '*' 'OK' 20)
+          # Its own OK: focus the message itself, then Enter.
+          Click $box
+          [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
           $msi.WaitForExit()
           "  - msiexec exit code $($msi.ExitCode); service: $([bool](Get-Service ItulahStore -ErrorAction SilentlyContinue))" >> $env:GITHUB_STEP_SUMMARY
           if ($msi.ExitCode -eq 0) { throw 'The install went ahead on a taken port' }
