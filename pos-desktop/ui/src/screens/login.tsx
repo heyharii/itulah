@@ -31,7 +31,7 @@
 import { useEffect, useId, useRef, useState, type CSSProperties, type FormEvent } from "react"
 
 import { authMethods, me, pairTerminal, tillPeople, type StepUp, type TillPerson } from "@/api"
-import { isWeb } from "@/edition"
+import { isGudang, isWeb } from "@/edition"
 import { Icon } from "@/icons"
 import { siteTitle } from "@/joining"
 import { lastSignInProblem, NO_FINGER, useNodeConfig, useSession } from "@/session"
@@ -54,7 +54,8 @@ import { kasirLabel, Topbar } from "@/till"
 /// session already has somebody in it who is not the one who will sell.
 ///
 /// Two more doors open from her list, both with her session held: "Daftarkan
-/// sidik jari" (`fingers`, any Kepala toko — she records, head office approves)
+/// sidik jari" (`fingers`, any Kepala toko — she records and approves, her own
+/// finger too; head office can withdraw one)
 /// and "Perangkat kasir" (`devices`, an Admin's alone). The store only opens
 /// and closes its day (owner, 24 Oct 2026); head office does the rest.
 type Door = "touch" | "head" | "headpw" | "behalf" | "welcome" | "fingers" | "devices"
@@ -147,7 +148,7 @@ export function LoginScreen({
   const scanner = useScanner()
   const realScanner = !isWeb && scanner === true
   const byFinger = realScanner || SIMULATED
-  const till = config === null ? "Kasir" : kasirLabel(config.terminal_id)
+  const till = config === null ? (isGudang ? "Gudang" : "Kasir") : kasirLabel(config.terminal_id)
   const site = config?.joined != null ? siteTitle(config.joined) : null
   const where = site !== null ? `${till} · ${site}` : till
   const clock = `${two(now.getHours())}:${two(now.getMinutes())}`
@@ -166,7 +167,9 @@ export function LoginScreen({
     window.setTimeout(() => {
       onHold(false)
       onSignedIn(by)
-    }, 2050)
+      // Long enough for the name to rise in (pd-rise, ~800 ms); the welcome
+      // held for two seconds made the door feel slow (client, 28 Oct 2026).
+    }, 900)
   }
 
   /// Whoever is signed in now: a cashier goes in; a Kepala toko is asked
@@ -217,7 +220,7 @@ export function LoginScreen({
     }
     setRead("done")
     sound.ok()
-    await pause(760)
+    await pause(350)
     await landed(fromHeadDoor)
   }
 
@@ -297,10 +300,10 @@ export function LoginScreen({
       simulated = fromHeadDoor ? SIM_HEAD : SIM_FINGERS[0]
     }
     if (simulated === UNKNOWN) {
-      await pause(980)
+      await pause(450)
       refusal = "Jari tidak dikenali"
     } else if (simulated !== undefined) {
-      await pause(980)
+      await pause(450)
       if (await signIn(simulated, SIM_SECRET)) refusal = null
       else {
         // The node's own sentence when it is the day's rule ("… sudah tutup
@@ -309,7 +312,7 @@ export function LoginScreen({
         refusal = said !== null && /sudah tutup kasir|sedang dipakai/.test(said) ? said : "Jari tidak dikenali"
       }
     } else {
-      await pause(980)
+      await pause(450)
       refusal = isWeb ? NO_SCANNER_WEB : NO_SCANNER
     }
     await settle(fromHeadDoor, refusal)

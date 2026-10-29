@@ -137,10 +137,12 @@ export function StoppedScreen({
   // sign anybody in.
   const closeHere = !removed && store !== null && shift !== null
 
-  // What the store server has not taken, refused sales included. "All sent" is
-  // news once something was waiting, and where it unlocks the uninstall.
+  // What head office is not known to hold: not taken by the store server,
+  // refused by it, or taken and not at head office yet — the count the
+  // installer is told (`outbox.ts`). "All sent" is news once something was
+  // waiting, and where it unlocks the uninstall.
   const outbox = useOutbox()
-  const owed = outbox.unsent + outbox.refused
+  const owed = outbox.unsent + outbox.refused + outbox.waiting + outbox.needsHeadOffice
   const [waited, setWaited] = useState(false)
   useEffect(() => {
     if (owed > 0) setWaited(true)
@@ -196,6 +198,14 @@ export function StoppedScreen({
                 )}
                 {outbox.refused > 0 && (
                   <p className="d-err">{outbox.refused} penjualan ditolak server toko</p>
+                )}
+                {outbox.waiting > 0 && (
+                  <p>{outbox.waiting} penjualan belum sampai kantor pusat</p>
+                )}
+                {outbox.needsHeadOffice > 0 && (
+                  <p className="d-err">
+                    {outbox.needsHeadOffice} penjualan perlu dicek kantor pusat
+                  </p>
                 )}
               </>
             ) : (

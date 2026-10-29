@@ -1,8 +1,7 @@
 /* ── Pay, look A · Chip of pos-classic-prototype.html (owner 23 Oct 2026:
    "ini pay kenapa belum berubah"). Every method a row — the machines as chips
    in the row, the amount on its right — the bill on top, what is paid and
-   what is short at the bottom; the F1–F4 amounts, the keypad and Bayar on the
-   right. Then the change dialog. Ported rule for rule from the prototype's
+   what is short at the bottom; the ⇧1–4 amounts and Bayar on the right. Then the change dialog. Ported rule for rule from the prototype's
    `.pay.p2` and `.chg`, scoped under .payd with the prototype's own tokens,
    the way till-d.css scopes the counter under .tilld. ── */
 
@@ -24,8 +23,8 @@
   color:var(--ink);font-family:var(--font-sans);font-size:15px;line-height:1.45;letter-spacing:normal;
   -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
 .payd.top{z-index:60}
-/* A pointer gets the fade and the pop; F12 and Enter get the dialog at once. */
-/* Bayar and Kembalian: a tap pops them in (pos.css posPop); F12 and Enter show them at once. */
+/* A pointer gets the fade and the pop; Enter gets the dialog at once. */
+/* Bayar and the change dialog: a tap pops them in (pos.css posPop); Enter shows them at once. */
 .payd.enter{animation:posFade var(--t-panel) var(--ease-out)}
 .payd.enter>.pay,.payd.enter>.chg{animation:posPop var(--t-panel) var(--ease-out)}
 @media (prefers-reduced-motion:reduce){
@@ -48,9 +47,6 @@
 .payd button:disabled{cursor:default!important;background:transparent!important;border-color:transparent!important;color:inherit!important;box-shadow:none!important}
 .payd .ds-btn--primary:disabled{background:var(--cta)!important;color:var(--cta-fg)!important}
 .payd .ds-btn--tint:disabled{background:var(--accent-bg)!important;color:var(--accent)!important}
-.payd .q2b:disabled{background:var(--accent-bg)!important;color:var(--accent)!important;opacity:.5}
-.payd .key:disabled{background:#fff!important;box-shadow:inset 0 0 0 1px var(--hairline-2)!important}
-.payd .key.fn:disabled{color:var(--body)!important}
 .payd .mchip:disabled{background:#fff!important;box-shadow:inset 0 0 0 1px var(--hairline-2)!important;opacity:.5}
 .payd .mchip.on:disabled{background:var(--accent)!important;color:#fff!important;box-shadow:none!important}
 .payd .x-btn:disabled,.payd .mx:disabled{opacity:.4}
@@ -92,10 +88,10 @@
 .payd .ds-seg-item.is-on{border-radius:7px;background:var(--canvas);color:var(--ink);box-shadow:var(--shadow-segment)}
 
 /* ── Pay ──────────────────────────────────────────────────────────────── */
-.payd .pay{position:relative;width:1240px;max-width:100%;max-height:100%;border-radius:16px;background:#fff;box-shadow:var(--shadow-sheet);display:grid;grid-template-columns:minmax(0,1fr) 500px;grid-template-rows:auto minmax(0,1fr);overflow:hidden;outline:none}
+.payd .pay{position:relative;width:min(1400px,100%);height:min(900px,100%);max-height:100%;border-radius:16px;background:#fff;box-shadow:var(--shadow-sheet);display:grid;grid-template-columns:minmax(0,1fr) 460px;grid-template-rows:auto minmax(0,1fr);overflow:hidden;outline:none}
 .payd .pay-head{grid-column:1/-1;display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:20px 24px 14px 28px;border-bottom:1px solid var(--hairline)}
-.payd .pay-l{display:flex;flex-direction:column;padding:16px 28px 22px;min-width:0;min-height:0;overflow-y:auto}
-.payd .pay-r{display:flex;flex-direction:column;gap:10px;min-height:560px;padding:16px 22px 22px;background:#fff;border-left:1px solid var(--hairline)}
+.payd .pay-l{display:flex;flex-direction:column;padding:16px 32px 0;min-width:0;min-height:0;overflow:hidden}
+.payd .pay-r{display:flex;flex-direction:column;gap:12px;min-height:0;padding:16px 28px 24px;background:#fff;border-left:1px solid var(--hairline)}
 
 .payd .bill{display:grid;grid-template-columns:1fr auto;align-items:baseline;row-gap:4px}
 .payd .bill .k{color:var(--body)}
@@ -104,7 +100,14 @@
 .payd .bill .gv{font-size:30px;line-height:38px;font-weight:600;letter-spacing:-.035em;text-align:right;font-variant-numeric:tabular-nums}
 
 .payd .methods{margin-top:12px;padding-top:6px;border-top:1px solid var(--hairline)}
-.payd .mrow{display:grid;grid-template-columns:76px minmax(0,1fr) 164px;align-items:center;column-gap:10px;row-gap:8px;min-height:52px;padding:6px 8px;margin:0 -8px;border-radius:var(--r-inner);cursor:pointer}
+.payd .methods.rows{flex:0 1 auto;min-height:0;overflow-y:auto}
+/* The scroller is the rows' own width plus the bleed of the lit row, so the
+   blue of Tunai is never cut flush against its word and its box (29 Oct 2026).
+   The rule above the rows moves to the bill so it keeps the column's width. */
+.payd .pay-l .methods.rows{margin:6px -12px 0;padding:6px 12px 0;border-top:0}
+.payd .pay-l .bill{border-bottom:1px solid var(--hairline)}
+.payd .pay-l .methods.rows .mrow{margin:0 -12px;padding:8px 12px;border-radius:10px}
+.payd .mrow{display:grid;grid-template-columns:120px minmax(0,1fr) 170px;align-items:center;column-gap:10px;row-gap:8px;min-height:54px;padding:6px 8px;margin:0 -8px;border-radius:var(--r-inner);cursor:pointer}
 .payd .mrow.on{background:var(--accent-bg)}
 .payd .mrow .ml{font-weight:500;line-height:18px}
 .payd .mrow.on .ml{color:var(--accent);font-weight:600}
@@ -127,7 +130,7 @@
 .payd .mx{display:grid;place-items:center;flex:none;width:32px;height:32px;border-radius:var(--r-inner);color:var(--body);transition:background-color var(--t-press) ease,color var(--t-press) ease,scale var(--t-press) var(--ease-out)}
 .payd .mx .icon{width:16px;height:16px}
 @media (hover:hover) and (pointer:fine){.payd .mx:not(:disabled):hover{background:var(--soft-2);color:var(--ink)}}
-.payd .amt{display:flex;align-items:center;justify-content:flex-end;height:44px;padding:0 12px;border:1px solid var(--hairline-2);border-radius:8px;background:#fff;font-size:17px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.payd .amt{display:flex;align-items:center;justify-content:flex-end;height:48px;padding:0 12px;border:1px solid var(--hairline-2);border-radius:8px;background:#fff;font-size:17px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
 .payd .amt.zero{color:var(--faint);font-weight:500}
 .payd .amt.auto{color:var(--accent)}
 .payd .amt.on{border-color:var(--accent);box-shadow:var(--shadow-focus)}
@@ -153,43 +156,20 @@
 .payd .paybox{margin-top:auto;padding-top:12px;border-top:1px solid var(--hairline);display:grid;grid-template-columns:1fr auto;align-items:baseline;row-gap:4px}
 .payd .paybox .k{color:var(--body)}
 .payd .paybox .v{text-align:right;font-variant-numeric:tabular-nums}
-.payd .paybox .ck{font-size:17px;font-weight:600}
-.payd .paybox .cv{font-size:30px;line-height:38px;font-weight:600;letter-spacing:-.035em;text-align:right;font-variant-numeric:tabular-nums}
-.payd .paybox .cv.due{color:var(--body)}
 .payd .pay-err{grid-column:1/-1;margin-top:4px;color:var(--bad-fg)}
 .payd .pay-note{grid-column:1/-1;margin-top:4px;color:var(--body)}
 
-/* F1–F4: the amounts a cashier is most likely handed */
-.payd .q2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
-.payd .q2b{display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto auto;column-gap:10px;row-gap:0;align-items:center;min-width:0;height:70px;padding:8px 14px;border-radius:var(--r-inner);background:var(--accent-bg);color:var(--accent);text-align:left;overflow:hidden;transition:scale 120ms var(--ease-out),background-color 150ms ease}
-.payd .q2b:active:not(:disabled){scale:.97}
-.payd .q2b b,.payd .q2b .q2s{max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.payd .q2b b{font-size:22px;line-height:26px;letter-spacing:-.02em;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
-.payd .q2b .q2s{font-size:15px;line-height:18px;font-variant-numeric:tabular-nums}
-.payd .q2b .k7-k{grid-row:1/3;min-width:30px;height:24px;font-size:15px}
-@media (hover:hover) and (pointer:fine){.payd .q2b:not(:disabled):hover{background:color-mix(in srgb,var(--accent) 15%,transparent)}}
 
-.payd .keys{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
-.payd .key{position:relative;height:56px;border-radius:var(--r-inner);background:#fff;box-shadow:inset 0 0 0 1px var(--hairline-2);font-size:22px;font-weight:500;font-variant-numeric:tabular-nums;display:grid;place-items:center;transition:scale 120ms var(--ease-out),background-color 150ms ease}
 /* The keyboard's "." types 000; the key says so in its corner. */
-.payd .key .kh{position:absolute;right:8px;bottom:4px;font-size:15px;line-height:1;font-weight:500;color:var(--line-ico)}
 /* 7Soft's Ribuan: +500 … +1 add whole thousands to the amount. */
-.payd .rib{display:grid;grid-template-columns:auto repeat(6,minmax(0,1fr));gap:6px;align-items:center}
-.payd .rib-l{color:var(--body);padding-right:4px}
-.payd .key.rib-k{height:40px;font-size:15px;font-weight:600;color:var(--accent);background:var(--accent-bg);box-shadow:none}
-.payd .key.rib-k:disabled{background:var(--accent-bg)!important;box-shadow:none!important;opacity:.5}
-@media (hover:hover) and (pointer:fine){.payd .key.rib-k:not(:disabled):hover{background:color-mix(in srgb,var(--accent) 15%,transparent)}}
-.payd .key:active:not(:disabled){scale:.95}
-.payd .key.fn{font-size:17px;font-weight:600;color:var(--body)}
-.payd .key .icon{width:22px;height:22px}
-.payd .key:disabled{opacity:.35}
-@media (hover:hover) and (pointer:fine){.payd .key:not(:disabled):hover{background:var(--soft-2)}}
-.payd .pay-go{margin-top:auto;height:56px;border-radius:var(--r-inner);justify-content:space-between;padding:0 14px 0 20px;font-size:17px}
+.payd .pay-go{flex:1;min-width:0;height:64px;border-radius:var(--r-inner);justify-content:space-between;padding:0 14px 0 20px;font-size:17px}
+/* Not ready yet: grey, as the prototype's .btn.go.off — not a pale blue. */
+.payd .pay-go:disabled{background:var(--soft-2)!important;color:var(--body)!important;opacity:1}
 
-/* A narrower counter screen keeps the keypad, a little slimmer. */
+/* A narrower counter screen keeps the same dialog, a little slimmer. */
 @media (max-width:1099px){
   .payd .pay{grid-template-columns:minmax(0,1fr) 400px}
-  .payd .pay-l{padding:16px 20px 20px}
+  .payd .pay-l{padding:16px 20px 0}
 }
 
 /* ── Change ───────────────────────────────────────────────────────────── */
@@ -257,9 +237,9 @@
 .payd .stp-done span:last-child{color:var(--body)}
 .payd .stp-ok{display:grid;place-items:center;width:52px;height:52px;border-radius:50%;background:var(--ok-bg);color:var(--ok-fg)}
 .payd .stp-ok .icon{width:24px;height:24px}
-.payd .pay-acts{display:flex;gap:8px;margin-top:auto}
-.payd .pay-acts .pay-go{flex:1;margin-top:0}
-.payd .ds-btn.hold-red{height:40px;padding:0 12px;align-self:center;background:var(--red,#d70015)!important;color:#fff!important;font-weight:600;box-shadow:none}
+.payd .pay-acts{display:flex;flex-direction:column;gap:8px;margin-top:auto}
+.payd .act-row{display:flex;align-items:stretch;gap:8px}
+.payd .ds-btn.hold-red{height:64px;padding:0 14px;align-self:stretch;background:var(--red,#d70015)!important;color:#fff!important;font-weight:600;box-shadow:none}
 .payd .ds-btn.hold-red:active{scale:.97}
 .payd .ds-btn.hold-red .kbd{background:rgba(255,255,255,.18);box-shadow:inset 0 0 0 1px rgba(255,255,255,.35);color:#fff}
 .payd .ds-btn--sm{height:28px;padding:0 8px}
@@ -320,10 +300,14 @@
    voucher's code, the employee's finger, the member app's code. Ported from the
    prototype's .mrow.edc, .edc-*, .amt-*, .amt.fixed and .pad-tog. ── */
 .payd .mrow.edc{height:auto;min-height:56px;padding-top:8px;padding-bottom:8px;align-items:center}
-.payd .mrow.edc .ml{align-self:start;padding-top:8px}
-.payd .mrow.edc .amt{align-self:start}
+.payd .mrow.edc .ml{align-self:center;padding-top:0}
+.payd .mrow.edc .amt{align-self:center}
 .payd .edc-grid{display:grid;grid-template-columns:52px auto;align-items:center;column-gap:10px;row-gap:8px;min-width:0}
+/* One line: answers, then the open question beside them (29 Oct 2026). */
+.payd .edc-line{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0}
+.payd .edc-line .edc-k{margin:0 2px 0 6px}
 .payd .edc-k{color:var(--body)}
+.payd .edc-grid .mchips.wide{grid-column:1/-1}
 .payd .edc-k.need{color:var(--warn-fg);font-weight:600}
 .payd .edc-k.bad{color:var(--bad-fg);font-weight:600}
 .payd .edc-grid .mchip .kbd{margin-left:4px}
@@ -353,7 +337,6 @@
 .payd .pwait{grid-column:2/-1;display:flex;align-items:baseline;justify-content:space-between;gap:12px;color:var(--body)}
 .payd .pwait span{min-width:0}
 .payd .pwait .num{flex:none;color:var(--ink);font-weight:600}
-.payd .pad-tog{align-self:stretch;justify-content:space-between;height:40px}
 
 /* Diskon karyawan: Verifikasi fills the column the voucher code field fills. */
 .payd .mverify{flex:1 1 140px;display:inline-flex;align-items:center;justify-content:center;gap:8px;height:40px;padding:0 14px;border:0;border-radius:8px;background:var(--accent);color:#fff;font-weight:600;transition:scale 120ms cubic-bezier(.23,1,.32,1),opacity 150ms ease}
@@ -367,3 +350,88 @@
 .payd .vcancel{height:32px;padding:0 12px;border-radius:8px;background:var(--bad,#d70015);color:#fff;font-weight:600;white-space:nowrap;transition:scale 120ms cubic-bezier(.23,1,.32,1)}
 .payd .vcancel:active{scale:.97}
 .payd .vcancel:disabled{opacity:.5}
+
+
+/* ── Bayar R1 "Rapi" (client, 28 Oct 2026; pos-bayar-prototype.html). The
+   dialog is most of the till's screen so nothing scrolls on 1366×768: the rows
+   give way, the blue band stays. No keypad, no Kembalian. ── */
+.payd .pay-l .bill{padding-bottom:12px}
+.payd .paybox{margin-top:8px;padding-top:0;border-top:0;display:block}
+.payd .mwrap{display:flex;align-items:center;gap:8px;min-width:0}
+.payd .mwrap>:first-child{flex:1 1 auto;min-width:0}
+.payd .mdrop{display:inline-flex;align-items:center;gap:6px;flex:none;height:32px;padding:0 8px;border-radius:8px;background:var(--soft-2);color:var(--body);transition:background-color var(--t-press) ease,color var(--t-press) ease,scale var(--t-press) var(--ease-out)}
+.payd .mdrop:active:not(:disabled){scale:.95}
+.payd .mdrop .icon{width:16px;height:16px}
+.payd .mdrop .kbd{height:20px}
+@media (hover:hover) and (pointer:fine){.payd .mdrop:not(:disabled):hover{background:var(--bad-bg);color:var(--bad)}}
+.payd .mrow .ml{font-size:17px;white-space:nowrap}
+.payd .adds{display:flex;flex-wrap:wrap;gap:6px;padding:10px 0 4px}
+.payd .more{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 12px;border-radius:8px;background:var(--accent-bg);color:var(--accent);font-weight:600;transition:scale var(--t-press) var(--ease-out),background-color 150ms ease}
+.payd .more:active:not(:disabled){scale:.97}
+.payd .more:disabled{background:var(--soft-2)!important;color:var(--body)!important}
+@media (hover:hover) and (pointer:fine){.payd .more:not(:disabled):hover{background:color-mix(in srgb,var(--accent) 15%,transparent)}}
+.payd .ok-t{color:var(--ok-fg);font-weight:600}
+.payd .vinfo.wait{color:var(--warn-fg)}
+
+/* Quick amounts: one clean row each, the key at the end. */
+.payd .qk{display:flex;flex-direction:column;gap:6px}
+.payd .qrow{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:12px;height:62px;padding:0 18px;border-radius:10px;background:#fff;box-shadow:inset 0 0 0 1px var(--hairline-2);text-align:left;transition:scale 120ms var(--ease-out),background-color 150ms ease}
+.payd .qrow:active:not(:disabled){scale:.98}
+.payd .qrow:disabled{background:#fff!important;box-shadow:inset 0 0 0 1px var(--hairline-2)!important;opacity:.5}
+.payd .qrow b{font-size:24px;font-weight:600;letter-spacing:-.01em}
+.payd .qrow .l{color:var(--accent);font-weight:500}
+@media (hover:hover) and (pointer:fine){.payd .qrow:not(:disabled):hover{background:var(--soft)}}
+/* Uang pas / Sisa: the amount most often taken, a light blue tint like the lit
+   Tunai row — calm, never a second solid blue (Hari, 29 Oct 2026). */
+.payd .qrow.lead{background:var(--accent-bg);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 22%,transparent)}
+@media (hover:hover) and (pointer:fine){.payd .qrow.lead:not(:disabled):hover{background:color-mix(in srgb,var(--accent) 14%,#fff)}}
+
+/* What came in, by way: EDC per machine, cash … — a line at Rp 0 is not shown. */
+.payd .sums{display:flex;flex-direction:column;gap:2px;padding-top:4px}
+.payd .sums .fig{display:flex;justify-content:space-between;align-items:baseline;gap:16px}
+.payd .sums .k{color:var(--body)}
+.payd .sums .v{font-weight:600}
+
+/* Kurang bayar: a red box above the button, only while money is short. */
+.payd .due-box{display:flex;justify-content:space-between;align-items:center;height:50px;padding:0 16px;border-radius:10px;box-shadow:inset 0 0 0 1.5px var(--bad);background:var(--bad-bg);color:var(--bad);font-size:17px;font-weight:600}
+.payd .due-box b{font-size:22px;line-height:28px;font-weight:700}
+
+/* The foot: the blue band never leaves the dialog and always sits at its very
+   bottom, however few rows are above it (29 Oct 2026); the white card in it is
+   what the cashier reads to the shopper. */
+.payd .foot{flex:none;margin:auto -32px 0;padding-top:16px}
+.payd .band{display:grid;grid-template-columns:auto 1fr;align-items:baseline;column-gap:20px;padding:18px 32px 22px;background:var(--accent);color:#fff}
+.payd .band .k{font-size:22px;line-height:30px;font-weight:600;white-space:nowrap}
+.payd .band .v{font-size:44px;line-height:52px;font-weight:700;letter-spacing:-.035em;text-align:right;font-variant-numeric:tabular-nums}
+.payd .band .tell{grid-column:1/-1;display:flex;flex-direction:column;gap:6px;margin:0 0 12px;padding:12px 16px;border-radius:10px;background:#fff;font-size:17px;font-weight:600}
+/* Each thing said is its own white card, stacked (29 Oct 2026). */
+.payd .band .tells{grid-column:1/-1;display:flex;flex-direction:column;gap:8px;margin:0 0 12px}
+.payd .band .tells .tell{margin:0}
+.payd .band .ln{margin:0;display:flex;flex-wrap:wrap;column-gap:10px}
+.payd .band .ln.bad{color:var(--bad)}
+.payd .band .ln.ok{color:var(--ok-fg)}
+.payd .band .ln.info{color:var(--accent)}
+.payd .band .tk-s{font-weight:500;opacity:.85}
+
+/* EDC answers: picked many times a day, often by key, so the motion is barely
+   there — only the chip just picked and the next question come in; nothing
+   leaves. State indication, not decoration. */
+@keyframes pdChipIn{from{opacity:0;transform:translateX(-6px)}}
+.payd .edc-in{animation:pdChipIn 160ms cubic-bezier(0.23,1,0.32,1) both}
+/* The open question's choices arrive one after another, as the prototype's
+   .chip.ask.in does: 30 ms apart, quick, ease-out (Emil Kowalski). */
+.payd .edc-line .mchips .mchip.edc-in:nth-child(2){animation-delay:30ms}
+.payd .edc-line .mchips .mchip.edc-in:nth-child(3){animation-delay:60ms}
+.payd .edc-line .mchips .mchip.edc-in:nth-child(4){animation-delay:90ms}
+.payd .edc-line .edc-tok:active:not(:disabled),.payd .edc-line .mchip:active:not(:disabled){scale:.96}
+@media (hover:hover) and (pointer:fine){.payd .edc-line .mchip:not(.on):not(:disabled):hover{background:#fff;box-shadow:inset 0 0 0 1.5px var(--accent)}}
+@media (prefers-reduced-motion:reduce){@keyframes pdChipIn{from{opacity:0}}}
+
+/* The employee's finger in its row: the print wobbles while it is read
+   (about 1.8 s), then settles green. */
+.payd .rfp{display:inline-grid;place-items:center;flex:none;width:34px;height:34px;border-radius:50%;background:var(--warn-bg);color:var(--warn-fg)}
+.payd .rfp.reading svg{animation:pdWobble 600ms cubic-bezier(0.77,0,0.175,1) infinite;transform-origin:50% 70%}
+@keyframes pdWobble{0%,100%{transform:rotate(0)}25%{transform:rotate(-8deg)}75%{transform:rotate(8deg)}}
+.payd .rfp.done{background:var(--ok-bg);color:var(--ok-fg);animation:pdFpIn 200ms cubic-bezier(0.23,1,0.32,1)}
+@keyframes pdFpIn{from{transform:scale(0.9);opacity:.6}}
+@media (prefers-reduced-motion:reduce){.payd .rfp.reading svg{animation:pdFpFade 900ms ease infinite alternate}@keyframes pdFpFade{to{opacity:.4}}.payd .rfp.done{animation:none}}

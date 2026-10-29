@@ -141,6 +141,48 @@ pub async fn print_receipt_here(
     .await
 }
 
+/// Central Gudang: ask the node for one move's surat jalan as bytes
+/// (`POST /api/v1/store/warehouse/moves/{number}/slip/escpos`) and send them
+/// to the USB printer on this PC, exactly as a sale's receipt goes. `paper` is
+/// `NARROW` or `WIDE`; `copy` stamps a reprint as one.
+#[tauri::command]
+pub async fn print_slip_here(
+    app: tauri::AppHandle,
+    number: String,
+    paper: String,
+    copy: bool,
+) -> Result<PrintedHere, String> {
+    edge::off_the_window(move || {
+        let printer = usb_printer(&app)?;
+        let path = format!(
+            "/api/v1/store/warehouse/moves/{}/slip/escpos",
+            segment(number.trim())
+        );
+        let body = json!({ "paper": paper, "copy": copy });
+        let reply = edge::session_call(&app, "POST", &path, Some(&body));
+        if !reply.ok {
+            return Err(reply
+                .problem
+                .unwrap_or_else(|| "Node tidak memberikan surat jalan untuk dicetak.".into()));
+        }
+        let hex = reply
+            .body
+            .get("escpos_hex")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| {
+                "Node ini belum bisa menyiapkan surat jalan untuk printer USB — perbarui node."
+                    .to_string()
+            })?;
+        let bytes = from_hex(hex)?;
+        send_raw(&printer, &format!("Surat jalan {}", number.trim()), &bytes)?;
+        Ok(PrintedHere {
+            bytes: bytes.len(),
+            printer,
+        })
+    })
+    .await
+}
+
 /// A few lines to prove the cable, the name and the paper, without a sale.
 ///
 /// The outcome is told to the node as well (`requests::report`), off this

@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
 import { myShifts } from "@/api"
-import { isWeb } from "@/edition"
+import { bindSession } from "@/edge"
+import { isGudang, isWeb } from "@/edition"
+import { WarehouseApp } from "@/gudang/app"
 import { useIdleLock, LockScreen } from "@/lock"
 import { pump, useUnacknowledged } from "@/outbox"
 import { CustomerScreen } from "@/screens/customer"
 import { JoinScreen } from "@/screens/join"
 import { LoginScreen, SetupScreen } from "@/screens/login"
 import { PeripheralsScreen } from "@/screens/peripherals"
-import { ReturnScreen, VoidScreen } from "@/screens/returns"
 import { ShiftGate, ShiftScreen } from "@/screens/shift"
 import { isStopped, StoppedScreen, useStanding } from "@/screens/stopped"
 import { holdSeat, seatNow, type Seat } from "@/seat"
@@ -43,8 +44,8 @@ import { Till, type Where } from "@/till"
 export function App() {
   // The second window opens at `?display`, which is a thing about the window
   // and not about the session — so it is read before the session is consulted
-  // and never inside it.
-  if (new URLSearchParams(window.location.search).has("display")) {
+  // and never inside it. Central Gudang has no shopper to show anything to.
+  if (!isGudang && new URLSearchParams(window.location.search).has("display")) {
     return <CustomerScreen />
   }
   return <Counter />
@@ -95,8 +96,9 @@ function Counter() {
   }, [])
 
   // What the Windows uninstaller is told: it refuses to remove a till that
-  // still holds sales the store server has not taken (`Unsent`,
-  // `wix/uninstall-guard.wxs`). Written on every change, one after another, so
+  // still holds sales head office is not known to hold — the store server's
+  // yes is not enough (`Unsent`, `wix/uninstall-guard.wxs`, `outbox.ts`).
+  // Written on every change, one after another, so
   // the last word is always the latest count.
   const unacknowledged = useUnacknowledged()
   const told = useRef<Promise<unknown>>(Promise.resolve())
@@ -113,6 +115,18 @@ function Counter() {
   // ends some way other than the sign-out button, which would otherwise let the
   // next person straight past the gate on the last one's drawer.
   const signedIn = session.me !== null
+
+  // Central Gudang: the session signed in here, tied to this PC by the shell
+  // (`bindSession`) — what lets a cashier here receive and move stock. Asked
+  // again whenever the token changes. Refused, the node still lets a
+  // supervisor in, and a cashier's write says why it was refused.
+  const token = session.token
+  useEffect(() => {
+    if (!isGudang || !signedIn || token === null) return
+    void bindSession().then((reply) => {
+      if (!reply.ok) console.warn("this session is not tied to this PC:", reply.problem)
+    })
+  }, [signedIn, token])
   useEffect(() => {
     if (!signedIn) {
       holdSeat(null)
@@ -172,7 +186,8 @@ function Counter() {
         <StoppedScreen
           standing={standing}
           terminalId={session.terminalId}
-          onCloseShift={() => setClosing(true)}
+          // A warehouse PC keeps no drawer to come in and close.
+          onCloseShift={isGudang ? () => undefined : () => setClosing(true)}
         />
       )
     }
@@ -235,6 +250,22 @@ function Counter() {
   }
 
   const actorId = session.me.username
+
+  // Central Gudang: after the door, the warehouse screen — no shift, no
+  // drawer, no till kept underneath (`gudang/app.tsx`).
+  if (isGudang) {
+    return (
+      <WarehouseApp
+        name={session.me.display_name?.trim() || actorId}
+        terminalId={session.terminalId}
+        onSignOut={() => {
+          void session.signOut()
+          setWhere("sale")
+        }}
+      />
+    )
+  }
+
   // The devices on this till are an Admin's alone, not a supervisor's.
   const isAdmin = (session.me.role ?? "").toUpperCase() === "ADMIN"
 
@@ -284,10 +315,6 @@ function Counter() {
           setWhere("sale")
         }}
       />
-    ) : where === "return" ? (
-      <ReturnScreen actorId={actorId} onBack={() => setWhere("sale")} />
-    ) : where === "void" ? (
-      <VoidScreen actorId={actorId} onBack={() => setWhere("sale")} />
     ) : null
 
   return (

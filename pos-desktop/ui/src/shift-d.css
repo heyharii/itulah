@@ -144,6 +144,18 @@
 .shd .cc-pcs:focus{box-shadow:inset 0 0 0 1px var(--accent),var(--shadow-focus)}
 .shd .cc-amt{text-align:right;font-weight:500;font-variant-numeric:tabular-nums}
 .shd .cc-amt.zero{color:var(--faint);font-weight:400}
+/* Struk EDC, the step before the cash count (client, 25 Oct 2026): a machine,
+   and the slips it printed typed into a box. */
+.shd .cc-sec.ed,.shd .cc-row.ed{grid-template-columns:56px minmax(0,1fr) 200px 120px}
+.shd .cc-row.ed{height:60px}
+.shd .edc-chip{display:grid;place-items:center;width:44px;height:32px;border-radius:7px;background:var(--soft-2);color:var(--line-ico)}
+.shd .cc-mach{display:flex;flex-direction:column;min-width:0;line-height:20px}
+.shd .cc-mach b{font-weight:500}
+.shd .cc-slip{display:flex;align-items:center;justify-content:flex-end;gap:6px;height:38px;padding:0 12px;border-radius:var(--r-inner);background:#fff;box-shadow:inset 0 0 0 1px var(--hairline-2);cursor:text}
+.shd .cc-slip:focus-within{box-shadow:inset 0 0 0 1px var(--accent),var(--shadow-focus)}
+.shd .cc-slip input{flex:1;min-width:0;text-align:right;font-size:17px;font-weight:600;font-variant-numeric:tabular-nums;caret-color:var(--accent)}
+.shd .cc-slip input::placeholder{color:var(--faint);font-weight:500}
+.shd .cc-slip .u{font-weight:500;color:var(--body)}
 .shd .cc-r{display:flex;flex-direction:column;padding:24px;background:#fff;border-left:1px solid var(--hairline);min-height:0}
 .shd .cc-who{display:flex;align-items:center;gap:12px;line-height:20px}
 .shd .cc-who b{display:block;font-weight:600}
@@ -163,16 +175,6 @@
 .shd .cc-go{margin-top:auto;width:100%;height:52px;border-radius:var(--r-inner);justify-content:space-between;padding:0 14px 0 20px;font-size:17px}
 .shd .cc-err+.cc-go{margin-top:14px}
 .shd .cc-go:disabled{opacity:.4}
-/* Setor modal [F2] and Tambah modal [F3]: two tinted buttons above Tutup kasir.
-   Neither closes the till. */
-.shd .cc-acts{margin-top:auto;display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.shd .cc-acts .ds-btn{height:44px;justify-content:space-between;padding:0 10px 0 14px}
-.shd .cc-acts+.cc-go{margin-top:10px}
-.shd .ds-btn--tint{padding:0 14px;background:var(--accent-bg);color:var(--accent);font-weight:600}
-.shd .ds-btn--tint:disabled{opacity:.4}
-.shd .ds-btn--tint .kbd{background:transparent;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 30%,transparent);color:var(--accent)}
-@media (hover:hover) and (pointer:fine){.shd .ds-btn--tint:hover:not(:disabled){background:color-mix(in srgb,var(--accent) 15%,transparent)}}
-
 /* "Tutup kasir dengan Rp …?" */
 .shd .veil{position:absolute;inset:0;z-index:30;background:var(--scrim);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);display:grid;place-items:center}
 .shd .cfm{width:400px;max-width:calc(100% - 24px);border-radius:var(--r-card);background:#fff;box-shadow:var(--shadow-sheet);padding:22px 22px 18px}
@@ -180,35 +182,45 @@
 .shd .cfm-act{display:flex;justify-content:flex-end;gap:8px;margin-top:22px}
 .shd .cfm-act .ds-btn{padding:0 16px}
 
-/* ── The closing paper and its two buttons ── */
+/* ── The closing paper (thermal, 80 mm) beside its two buttons ── */
+.shd .th-col{align-self:stretch;width:340px;max-height:100%;display:flex;flex-direction:column;gap:14px;overflow:auto;padding:8px 6px 20px;overscroll-behavior:contain}
+.shd .th-col>.lbl{color:var(--body);font-weight:600}
 .shd .paper-side{align-self:flex-start;margin-top:8px;width:260px;display:flex;flex-direction:column;gap:10px}
 .shd .paper-side .ttl{margin-bottom:2px}
 .shd .paper-side .cap{color:var(--body);margin-bottom:8px}
 .shd .paper-side .ds-btn{height:44px;border-radius:10px;justify-content:space-between;padding:0 12px 0 16px}
 .shd .paper-side .ds-btn>span:first-child{display:flex;align-items:center;gap:8px}
-.shd .paper{height:100%;max-height:820px;aspect-ratio:1/1.414;background:#fff;box-shadow:0 1px 3px rgb(0 0 0/8%),0 18px 40px rgb(0 0 0/10%);padding:5% 7%;color:#111;font-size:12px;line-height:1.45;display:flex;flex-direction:column}
-.shd .pp-co{font-size:17px;font-weight:700;letter-spacing:.02em}
-.shd .pp-date{margin-top:2px}
-.shd .pp-title{margin-top:12px;font-size:15px;font-weight:700;letter-spacing:.06em}
-.shd .pp-facts{margin-top:12px;display:grid;grid-template-columns:120px 1fr;row-gap:3px}
-.shd .pp-facts dt{color:#333}
-.shd .pp-facts dd{font-variant-numeric:tabular-nums}
-.shd .pp-sec{margin-top:14px;font-weight:700}
-.shd .pp-t{margin-top:6px;border-collapse:collapse;width:76%}
-.shd .pp-t td{border:1px solid #222;padding:2px 8px;font-variant-numeric:tabular-nums}
-.shd .pp-t td:nth-child(2),.shd .pp-t td:nth-child(3){text-align:right}
-.shd .pp-t td:first-child{white-space:nowrap}
-.shd .pp-tot{width:76%;display:flex;justify-content:flex-end;padding:6px 8px 0;font-weight:700;font-variant-numeric:tabular-nums}
-.shd .pp-tot span{border-bottom:3px double #111;padding-bottom:1px}
-.shd .pp-note{margin-top:10px}
-.shd .pp-sign{margin-top:auto;display:grid;grid-template-columns:1fr 1fr;gap:40px;padding-bottom:6px}
-.shd .pp-sign div{display:flex;flex-direction:column}
-.shd .pp-sign .line{margin-top:50px;border-top:1px solid #111}
-.shd .pp-by{margin-top:10px;color:#333}
-
 /* The prototype's 1024 frame. */
 @media (max-width:1100px){
   .shd .cc{grid-template-columns:minmax(0,1fr) 300px}
   .shd .cc-sec,.shd .cc-row{grid-template-columns:48px minmax(0,1fr) 142px 112px}
+  .shd .cc-sec.ed,.shd .cc-row.ed{grid-template-columns:48px minmax(0,1fr) 190px 24px}
   .shd .paper-side{width:200px}
 }
+
+/* ── Thermal paper: an 80 mm roll, the printer's monospace, dashed rules, a
+   torn foot (pos-thermal-prototype.html). Shared by the cash screens; the
+   printer's copy of the same markup is `.th-print`, paged in pos.css. ── */
+.thermal,.th-print{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-variant-numeric:tabular-nums;color:#111}
+.thermal p,.th-print p{margin:0}
+.th-wrap{filter:drop-shadow(0 1px 1px rgb(0 0 0/10%)) drop-shadow(0 6px 14px rgb(0 0 0/8%))}
+.thermal{padding:18px 16px 30px;background:#fff;font-size:15px;line-height:1.4;-webkit-mask:conic-gradient(from -45deg at bottom,#0000,#000 1deg 89deg,#0000 90deg) 50%/12px 100%;mask:conic-gradient(from -45deg at bottom,#0000,#000 1deg 89deg,#0000 90deg) 50%/12px 100%}
+.thermal hr,.th-print hr{margin:8px 0;border:0;border-top:1px dashed #111}
+.th-logo{display:flex;flex-direction:column;align-items:center;margin-bottom:6px;padding:8px 0 6px;background:#111;color:#fff;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.th-logo b{font-size:28px;line-height:30px;font-weight:800;letter-spacing:.06em}
+.th-logo i{font-size:15px;line-height:18px;font-style:italic;opacity:.85}
+.th-c{text-align:center}
+.th-b{font-weight:700}
+.th-mute{color:#555}
+.th-r{display:flex;justify-content:space-between;gap:12px}
+.th-r span:first-child{min-width:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.th-r span:last-child{flex:none;text-align:right;white-space:pre}
+.th-sec{margin-top:2px;font-weight:700}
+.th-sign{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:14px;text-align:center}
+.th-sign .line{display:block;height:48px;border-bottom:1px solid #111;margin-bottom:4px}
+/* Auto-cut pieces, one per denomination, taped to its bundle. */
+.th-cuts{display:flex;flex-direction:column;gap:10px}
+.th-cut{padding:12px 16px 14px;background:#fff;box-shadow:0 1px 2px rgb(0 0 0/10%),0 6px 14px rgb(0 0 0/8%);font-size:15px;line-height:1.4}
+.th-lab-k{text-align:center;color:#555}
+.th-lab-v{text-align:center;font-size:30px;line-height:36px;font-weight:700;letter-spacing:-.5px}
+.th-lab-v.th-sm{font-size:24px;line-height:30px;font-weight:600}

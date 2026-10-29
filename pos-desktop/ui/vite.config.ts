@@ -5,17 +5,20 @@ import { defineConfig } from "vite"
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [react()],
   // Tauri points its dev window here; a strict port means a second copy of the
   // dev server cannot quietly take 5411 and leave the window on a stale build.
+  // Central Gudang (`--mode gudang`) has a port of its own, 5416, which
+  // `src-tauri/tauri.gudang.conf.json` points its window at, so the POS and
+  // the warehouse app can both run on one machine while they are built.
   //
   // `VITE_API_TARGET` is the web till: the same page opened in a browser tab
   // from the shop app, with `/api` proxied to the shop's node so every call is
   // same-origin (`src/web.ts`). Tauri never sets it, and its window still
   // goes through the shell.
   server: {
-    port: 5410,
+    port: mode === "gudang" ? 5416 : 5410,
     strictPort: true,
     proxy:
       process.env.VITE_API_TARGET === undefined
@@ -50,4 +53,4 @@ export default defineConfig({
       ),
     },
   },
-})
+}))

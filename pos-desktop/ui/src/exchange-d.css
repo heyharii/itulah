@@ -102,3 +102,10 @@
 
 .xchd .xc-sum{display:flex;justify-content:space-between;align-items:baseline;gap:16px;padding-top:4px;color:var(--body)}
 .xchd .xc-sum b{font-size:24px;line-height:30px;font-weight:600;letter-spacing:-.03em;color:var(--ink)}
+
+/* Small and tinted buttons, for the Member and Laci dialogs. */
+.xchd .ds-btn--sm{height:32px;padding:0 12px}
+.xchd .ds-btn--tint{padding:0 14px;background:var(--accent-bg);color:var(--accent);font-weight:600}
+.xchd .ds-btn--tint-bad{padding:0 14px;background:var(--bad-bg);color:var(--bad-fg);font-weight:600}
+@media (hover:hover) and (pointer:fine){.xchd .ds-btn--tint-bad:hover{background:color-mix(in srgb,var(--bad-fg) 15%,transparent)}}
+.xchd .ds-btn--takes-away{color:var(--bad-fg)}

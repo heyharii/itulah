@@ -7,6 +7,8 @@
     "dev:web": "vite --mode web",
     "build": "tsc -b && vite build",
     "build:web": "tsc -b && vite build --mode web --outDir dist-web",
+    "dev:gudang": "vite --mode gudang",
+    "build:gudang": "tsc -b && vite build --mode gudang --outDir dist-gudang",
     "typecheck": "tsc -b"
   },
   "dependencies": {

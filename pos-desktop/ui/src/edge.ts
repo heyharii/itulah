@@ -127,6 +127,19 @@ export async function signedEdge<T>(
   )
 }
 
+/// Central Gudang: tie the session just signed in to this warehouse PC
+/// (`edge_bind_session`). The shell sends the session's token and this
+/// machine's signature in one request — the node's proof that the session is
+/// this PC's, which is what lets a cashier here receive and move stock.
+/// Answers `{ terminal_id, label }`.
+export type BoundSession = { readonly terminal_id: string; readonly label: string }
+
+export async function bindSession(): Promise<EdgeReply<BoundSession>> {
+  const invoke = bridge()
+  if (invoke === null) return noShell("the warehouse PC's sign-in")
+  return heard(await invoke<EdgeReply<BoundSession>>("edge_bind_session"))
+}
+
 export type DeviceState = { readonly bound: boolean; readonly detail: string }
 
 /// Who the finger on the scanner belongs to — `Identified` in

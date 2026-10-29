@@ -5,7 +5,7 @@
 /// A cashier's hands live in the scan field. The caret is put back into it
 /// after every change of screen — `till.tsx` does that on purpose — so a
 /// shortcut hook that politely stood aside whenever an input had focus would
-/// be a hook that never fired once on the busiest screen in the shop. F10 is
+/// be a hook that never fired once on the busiest screen in the shop. Bayar is
 /// how a till is paid off, and it has to work from inside that field.
 ///
 /// The other half is just as true. In the scan field `1` is a digit of a
@@ -14,19 +14,19 @@
 /// and taking them away from it would be taking away typing.
 ///
 /// So the line is not "is a field focused" but "does this key mean anything to
-/// a field": F1–F12 mean nothing to one and fire everywhere, including inside
+/// a field": Shift and a digit mean nothing to one and fire everywhere, including inside
 /// it; everything else waits until the caret is somewhere else.
 ///
 /// # What it will not swallow
 ///
 /// `preventDefault` is called for the keys the map actually claims and for no
-/// others. Swallowing F5 or F12 in a window that bound neither would break
+/// others. Swallowing the browser's F5 or F12 in a window that bound neither would break
 /// reload and the inspector for nothing at all.
 
 import { useEffect, useRef } from "react"
 
 /// Whether the last thing the person did was point at the screen. Motion is for
-/// a mouse or a finger: F10, Enter and Esc are pressed hundreds of times a day
+/// a mouse or a finger: Shift+digit, Enter and Esc are pressed hundreds of times a day
 /// and get none, and a scanner types its tag as keys, so it gets none either.
 /// A dialog reads it once, when it mounts: `useState(viaPointer)`.
 let pointed = false
@@ -70,7 +70,7 @@ const ORDER = ["ctrl", "alt", "shift", "meta"] as const
 
 /// Spellings that are easier to write down than the names `KeyboardEvent.key`
 /// gives them. Everything not listed is taken as `key` already spells it —
-/// "Escape", "Enter", "Tab", "F10", "p".
+/// "Escape", "Enter", "Tab", "Shift+9", "p".
 const ALIASES: Readonly<Record<string, string | undefined>> = {
   esc: "escape",
   return: "enter",
@@ -83,14 +83,7 @@ const ALIASES: Readonly<Record<string, string | undefined>> = {
   right: "arrowright",
 }
 
-/// F1 … F12, and nothing else.
-///
-/// Tested against the name rather than with `startsWith("F")`, which also
-/// matches the capital F a cashier types with shift held — and a shift+F that
-/// counted as a function key would fire a shortcut in the middle of a word.
-const FUNCTION_KEY = /^f([1-9]|1[0-2])$/
-
-/// Keys a text field has no use for, beyond the F-row.
+/// Keys a text field has no use for: Shift and a digit, numpad + and −, ctrl and a letter.
 ///
 /// Ctrl and a letter is a command, not typing — except the letters a field
 /// itself answers to (select all, copy, paste, cut, undo, redo), which a
@@ -100,6 +93,16 @@ const FUNCTION_KEY = /^f([1-9]|1[0-2])$/
 /// name still types.
 const FIELD_EDITING = new Set(["a", "c", "v", "x", "z", "y"])
 const NUMPAD_COMMANDS = new Set(["NumpadAdd", "NumpadSubtract"])
+
+/// Shift and a digit of the main row — every command of the till, now that
+/// there are no F-keys (client, 28 Oct 2026). Named by `event.code`, so it is
+/// "shift+1" on every layout rather than "!" on one and something else on the
+/// next; a barcode never holds shift, so it fires from the scan field.
+function shiftDigit(event: KeyboardEvent): string | null {
+  if (!event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return null
+  const digit = /^Digit([0-9])$/.exec(event.code)
+  return digit === null ? null : digit[1]
+}
 
 /// Rewrite a name from the map into the one spelling a pressed key is named
 /// with, so the two meet in the middle. Case and modifier order stop mattering.
@@ -129,16 +132,22 @@ function pressed(event: KeyboardEvent): string {
   if (event.altKey) held.push("alt")
   if (event.shiftKey) held.push("shift")
   if (event.metaKey) held.push("meta")
-  const key = NUMPAD_COMMANDS.has(event.code) ? event.code : event.key
+  const key = NUMPAD_COMMANDS.has(event.code) ? event.code : (shiftDigit(event) ?? event.key)
   return [...held, key.toLowerCase()].join("+")
 }
 
+/// Whether `event` is the key the map would call `name` — for the dialogs
+/// that listen on their own rather than through `useShortcuts`.
+export function isKey(event: KeyboardEvent, name: string): boolean {
+  return pressed(event) === canonical(name)
+}
+
 /// Whether a key may fire while the caret is in a text field: it must mean
-/// nothing to the field. F1–F12 never do; neither does ctrl and a letter the
-/// field does not answer to, nor a numpad + or −, which only the till reads.
+/// nothing to the field. Shift and a digit never do; neither does ctrl and a
+/// letter the field does not answer to, nor a numpad + or −, which only the till reads.
 function firesInField(event: KeyboardEvent, base: string): boolean {
-  if (FUNCTION_KEY.test(base)) return true
   if (NUMPAD_COMMANDS.has(event.code)) return true
+  if (shiftDigit(event) !== null) return true
   return event.ctrlKey && !event.altKey && !event.metaKey && base.length === 1 && !FIELD_EDITING.has(base)
 }
 
@@ -156,7 +165,7 @@ function typingIn(target: EventTarget | null): boolean {
 
 /// Bind F-keys and simple combos for as long as the screen is up.
 ///
-/// The map is keyed by name — `{ F10: pay, Escape: back, "ctrl+p": print }`.
+/// The map is keyed by name — `{ "shift+9": hold, Escape: back, "ctrl+p": print }`.
 /// Case and modifier order are free; a name the map does not carry is left
 /// alone entirely, default and all.
 ///
@@ -188,13 +197,13 @@ export function useShortcuts(
     if (!enabled) return
     const onKey = (event: KeyboardEvent) => {
       // A key held down repeats about thirty times a second. A receipt roll
-      // resting on F10 must not pay a basket off thirty times, and no shortcut
+      // resting on Enter must not pay a basket off thirty times, and no shortcut
       // on a counter means anything the second time.
       if (event.repeat) return
 
       const name = pressed(event)
       const base = name.slice(name.lastIndexOf("+") + 1)
-      // The distinction the whole hook is for: a function key means nothing to
+      // The distinction the whole hook is for: Shift and a digit mean nothing to
       // a text field, so it fires from inside the scan field where a cashier's
       // hands already are — and so do ctrl-letter commands and the numpad's
       // + and − (`firesInField`). Everything else is left to whoever is typing.

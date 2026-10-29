@@ -198,6 +198,22 @@
 .tilld .t-msg.col{flex-direction:column;align-items:stretch;gap:8px}
 .tilld .t-msg-acts{display:flex;flex-wrap:wrap;gap:8px}
 .tilld .t-msg-acts .ds-btn{height:32px;padding:0 12px;background:#fff}
+/* A Tunda in its last five minutes: the one figure on the counter that must
+   not need a keypress to be seen (owner, 28 Oct 2026). A quiet amber strip,
+   not a wall: the cashier reads the figure, the rest is one line. */
+.tilld .t-tunda{display:flex;align-items:center;gap:16px;padding:8px 14px;border:1px solid #f0dbb8;border-radius:10px;background:var(--warn-bg);color:var(--warn-fg)}
+.tilld .t-tunda-clock{display:flex;align-items:baseline;gap:8px;flex:none;padding-right:16px;border-right:1px solid #f0dbb8}
+.tilld .t-tunda-clock .k{font-size:11px;letter-spacing:.04em;text-transform:uppercase;opacity:.8}
+.tilld .t-tunda-clock .v{font-size:24px;line-height:1.1;font-weight:700;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.tilld .t-tunda-what{display:flex;flex-direction:column;gap:1px;flex:1;min-width:0;line-height:1.35;font-size:14px}
+.tilld .t-tunda-what .warn{font-size:13px;font-weight:500}
+@media (max-width:1199px){
+  .tilld .t-tunda{gap:10px;padding:7px 10px}
+  .tilld .t-tunda-clock{padding-right:10px}
+  .tilld .t-tunda-clock .v{font-size:20px}
+  .tilld .t-tunda-what{font-size:13px}
+  .tilld .t-tunda-what .warn{font-size:12px}
+}
 .tilld .t-card{border:1px solid var(--hairline);border-radius:10px;background:#fff;overflow:hidden}
 .tilld .t-card-h{display:flex;align-items:center;gap:8px;height:40px;padding:0 6px 0 16px;background:var(--band);box-shadow:inset 0 -1px 0 var(--hairline);color:var(--body);font-weight:500}
 .tilld .t-card-h span{flex:1}
@@ -341,6 +357,12 @@
 .tilld .t-mode{display:flex;align-items:center;gap:10px;padding:2px 24px 10px}
 .tilld .mode-flag{display:inline-flex;align-items:center;height:28px;padding:0 12px;border-radius:7px;background:var(--accent-bg);color:var(--accent);font-weight:600}
 .tilld .mode-flag.ret{background:var(--warn-bg);color:var(--warn-fg)}
+/* Return, B · Hitungan: two counts with their value, in the mode row. */
+.tilld .r-tal{display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 12px;border-radius:8px;font-weight:600}
+.tilld .r-tal b{font-weight:700}
+.tilld .r-tal .num{font-weight:500}
+.tilld .r-tal.back{background:var(--warn-bg);color:var(--warn-fg)}
+.tilld .r-tal.new{background:var(--accent-bg);color:var(--accent)}
 .tilld .t-coupons{display:inline-flex;align-items:center;gap:8px}
 .tilld .t-coupons .warn{color:var(--warn-fg)}
 /* The name over its division and tags (prototype `.nm-2`, `.nm-sub`). */
@@ -413,7 +435,11 @@ img.ph{animation:posFade 150ms var(--ease-out)}
 .payd .sk-row span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .payd .sk-row span:last-child{flex:none}
 .payd .sk-item+.sk-item{margin-top:4px}
-.payd .sk-name{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.payd .sk-paper .th-nm{overflow-wrap:anywhere}
+.payd .sk-paper .th-box{margin-top:8px;padding:6px 8px;border:1px solid #111}
+.payd .sk-paper .th-box p+p{margin-top:2px}
+.payd .sk-paper .th-r span:first-child{white-space:pre-wrap;overflow-wrap:anywhere}
+.payd .sk-name{display:block;overflow-wrap:anywhere}
 /* Printed top-down from the slot, once per sale: the paper mounts once, when
    the node's receipt has been read, and member added later does not replay it. */
 .payd .sk-paper{animation:sk-print 450ms var(--ease-out) both}
@@ -426,3 +452,59 @@ img.ph{animation:posFade 150ms var(--ease-out)}
 .tilld .tf-cancel{display:inline-flex;align-items:center;gap:8px;height:48px;padding:0 14px;border-radius:var(--r-inner);background:var(--bad,#d70015);color:#fff;font-weight:600;white-space:nowrap;transition:scale 120ms cubic-bezier(.23,1,.32,1)}
 .tilld .tf-cancel:active{scale:.98}
 .tilld .tf-cancel .kbd{background:rgb(255 255 255/18%);color:#fff}
+
+/* ── Tunda, Struk and Cek in the item list (client, 25 Oct 2026: "kurangi
+   sheet"; pos-classic-prototype.html, version D). The list is the sale list's
+   own table and floating foot; what is added is the mode's flag and search, the
+   band over a table, the status dots and the check card. ── */
+.tilld .ds-btn--destructive{background:var(--bad-fg);color:#fff;font-weight:600}
+.tilld .ds-btn--destructive .kbd{background:rgba(255,255,255,.16);box-shadow:inset 0 0 0 1px rgba(255,255,255,.25);color:#fff}
+.tilld .ds-btn--destructive:disabled{background:var(--bad-fg)!important;color:#fff!important;opacity:.4}
+@media (hover:hover) and (pointer:fine){.tilld .ds-btn--destructive:hover:not(:disabled){background:var(--bad-hover)}}
+.tilld .ds-status{display:inline-flex;align-items:center;gap:8px;min-height:24px;white-space:nowrap}
+.tilld .ds-status::before{content:"";flex:none;width:6px;height:6px;border-radius:50%;background:var(--body)}
+.tilld .ds-status--ok::before{background:var(--ok)}
+.tilld .ds-status--warn{color:var(--warn-fg)}
+.tilld .ds-status--warn::before{background:var(--warn)}
+.tilld .ds-status--bad{color:var(--bad-fg)}
+.tilld .ds-status--bad::before{background:var(--bad)}
+.tilld .mode-flag.held{background:var(--warn-bg);color:var(--warn-fg)}
+.tilld .mode-flag.bad{background:var(--bad-bg);color:var(--bad-fg)}
+/* The search of a list mode sits at the right of the mode row. */
+.tilld .t-find{display:flex;align-items:center;gap:8px;height:38px;padding:0 10px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:#fff;cursor:text;transition:border-color 120ms ease,box-shadow 120ms ease}
+.tilld .t-find:focus-within{border-color:var(--accent);box-shadow:var(--shadow-focus)}
+.tilld .t-find svg{color:var(--line-ico)}
+.tilld .t-find input{flex:1;height:100%}
+.tilld .t-find input::placeholder{color:var(--line-ico)}
+.tilld .t-find.in-mode{flex:0 1 360px;margin:0 0 0 auto}
+/* A row that opens something; ↑ ↓ lay a tint on the one Enter will open. */
+.tilld .t-grid tr.go td{cursor:pointer}
+.tilld .t-grid tr.at td{background:var(--soft-2)}
+.tilld .t-grid tr.sel.at td{background:var(--accent-bg)}
+/* The band over a table: what is late, what to do, what is known of a receipt. */
+.tilld .hg-band{display:flex;flex-direction:column;gap:8px;padding:14px 18px 12px}
+.tilld .rg-facts{display:flex;flex-wrap:wrap;align-items:center;gap:6px 16px;margin:0;color:var(--body)}
+.tilld .hold-warn{margin:0;padding:8px 12px;border-radius:8px;background:var(--warn-bg);color:var(--warn-fg)}
+.tilld .hold-warn.over{background:var(--bad-bg);color:var(--bad-fg)}
+.tilld .hold-warn b{font-variant-numeric:tabular-nums}
+.tilld .hold-left{font-weight:600;color:var(--bad-fg);font-variant-numeric:tabular-nums}
+.tilld .hp-sup{margin:0;padding:10px 12px;border-radius:8px;background:var(--bad-bg);color:var(--bad-fg);font-weight:500}
+.tilld .hp-note{margin:0;color:var(--body)}
+.tilld .hp-box{display:grid;place-items:center;width:20px;height:20px;border-radius:5px;box-shadow:inset 0 0 0 1.5px var(--hairline-2);color:#fff}
+.tilld .hp-box svg{width:14px;height:14px;stroke-width:2.4}
+.tilld .t-grid tr.sel .hp-box{background:var(--accent);box-shadow:none}
+/* What a voucher or a member card holds (F2 Cek). */
+.tilld .chk{display:grid;grid-template-columns:48px minmax(0,1fr) auto;align-items:center;gap:14px;padding:14px;border-radius:12px;background:var(--accent-bg)}
+.tilld .chk-ic{display:grid;place-items:center;width:48px;height:48px;border-radius:12px;background:#fff;color:var(--accent)}
+.tilld .chk-t{display:flex;flex-direction:column;min-width:0;line-height:20px}
+.tilld .chk-t b{font-weight:600}
+.tilld .chk-t span{color:var(--body)}
+.tilld .chk-v{display:flex;flex-direction:column;align-items:flex-end;font-size:22px;line-height:28px;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.tilld .chk-v span{font-size:15px;line-height:20px;font-weight:400;letter-spacing:0;color:var(--body)}
+/* The till locked by a Tunda past 30 minutes: one button, over everything but
+   the Kepala toko's finger (pos.css .pdoor.papr is 90). */
+.xchd.freeze{z-index:70}
+.xchd .dlg.freeze-dlg{width:440px;min-height:0}
+.xchd .freeze-dlg .dlg-body{flex:none;align-items:center;gap:10px;padding:32px 28px;text-align:center}
+.xchd .fz-seal{display:grid;place-items:center;width:52px;height:52px;border-radius:50%;background:var(--bad-bg);color:var(--bad-fg)}
+.xchd .freeze-dlg .ds-btn{height:44px;margin-top:8px}

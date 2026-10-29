@@ -1,41 +1,42 @@
-/// The two dialogs behind F3 Laci — "Tambah modal kasir" and "Setoran
-/// sementara" — and the slip each one prints (pos-classic-prototype.html:
-/// `faddView`, `faddGo`, `depositNow`, `slipPaperView`). Tutup kasir (F4) shares
-/// the first and has a third, "Setor modal" (`floatDeposit`): the cashier hands
-/// what is left of the float to the Kepala toko, slip "SETOR MODAL" (SM-0001).
+/// The dialogs behind ⇧3 Laci — "Tambah modal kasir", "Setoran sementara" and
+/// "Setor modal" — and the slip each one prints (pos-classic-prototype.html:
+/// `faddView`, `faddGo`, `depositNow`, `floatDeposit`, `slipPaperView`). The
+/// three cash movements live in one place: Tutup kasir only counts and closes.
 ///
-/// All ask the Kepala toko's finger: for the modal they are the one who hands
-/// the money over, for the setoran the one who receives it. The node takes the
-/// supervisor's proof directly on the movement (`perform`, as Return and Barang
-/// tak dikenal do), and answers a slip number (TM-0001 / ST-0001 / SM-0001). A
-/// node that answers without a slip gets one built here from what is known.
+/// Tambah modal has no finger (client, 28 Oct 2026): the cashier asks for the
+/// amount and the slip is the confirmation. Setoran sementara and Setor modal
+/// ask the Kepala toko's finger, the one who receives the money. The node takes
+/// the supervisor's proof directly on the movement (`perform`, as Return and
+/// Barang tak dikenal do), and answers a slip number (TM-0001 / ST-0001 /
+/// SM-0001). A node that answers without a slip gets one built here from what
+/// is known.
+///
+/// The slips are the 80 mm thermal papers of pos-thermal-prototype.html
+/// (`screens/thermal.tsx`): a Setoran sementara lists the notes counted and
+/// prints one cut label per denomination under its paper.
 
-import { useEffect, useRef, useState, type ReactNode } from "react"
-import { createPortal } from "react-dom"
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react"
 
 import * as api from "@/api"
 import { useApproval } from "@/approval"
 import { Icon } from "@/icons"
-import { siteTitle } from "@/joining"
 import { seatNow } from "@/seat"
 import { useNodeConfig, useSession } from "@/session"
 import { useShortcuts, viaPointer } from "@/shortcuts"
 import { units as grouped } from "@itulah/contract/money"
+import {
+  CashSlipPaper,
+  CutLabels,
+  PrintCopy,
+  shopOf,
+  ThermalSheet,
+  type Shop,
+} from "@/screens/thermal"
 
 import "@/exchange-d.css"
 import "@/laci-d.css"
 
-const MON = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"]
-const two = (n: number) => String(n).padStart(2, "0")
 const rp = (n: number) => `Rp ${grouped(n)}`
-
-/// `23 Okt 2026, 14:05` — the prototype's `dayTime`. Anything that is not a
-/// timestamp is shown as it arrived.
-function dayTime(stamp: string): string {
-  const at = new Date(stamp)
-  if (Number.isNaN(at.getTime())) return stamp
-  return `${at.getDate()} ${MON[at.getMonth()]} ${at.getFullYear()}, ${two(at.getHours())}:${two(at.getMinutes())}`
-}
 
 function newKey(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -45,10 +46,10 @@ function newKey(): string {
 
 const SILENT = "Server toko menolak tanpa alasan."
 
-/// What the paper says. `modal`: the supervisor hands over, the cashier
-/// receives. `setor`: the cashier hands over, the supervisor receives, the
-/// amount left for the receiver to write. `float` (Setor modal): the cashier
-/// hands over the float, the supervisor receives, the amount printed.
+/// What the paper says. `modal`: the head of the shop hands over, the cashier
+/// receives. `setor`: the cashier hands over what they counted, the supervisor
+/// receives, the amount printed. `float` (Setor modal): the cashier hands over
+/// the float, the supervisor receives, the amount printed.
 type Slip = {
   readonly kind: "modal" | "setor" | "float"
   readonly no: string
@@ -57,6 +58,10 @@ type Slip = {
   readonly cashier: string
   readonly from: string
   readonly to: string
+  /// The notes a setoran was counted from; empty on the other slips.
+  readonly counted: readonly { readonly value: number; readonly pieces: number }[]
+  /// The shop's header for the paper.
+  readonly shop: Shop
 }
 
 /// Reads the node's reply defensively: the slip may be the body itself or sit
@@ -64,7 +69,12 @@ type Slip = {
 function slipFrom(
   body: unknown,
   kind: Slip["kind"],
-  fallback: { cashier: string; supervisor: string; amount: number | null },
+  fallback: {
+    cashier: string
+    supervisor: string
+    amount: number | null
+    counted?: readonly { readonly value: number; readonly pieces: number }[]
+  },
 ): Slip {
   const root = body !== null && typeof body === "object" ? (body as Record<string, unknown>) : {}
   const inner =
@@ -82,7 +92,7 @@ function slipFrom(
     at: text("at") ?? new Date().toISOString(),
     // A float handed over is a figure on the paper, however the node signs it.
     amount:
-      kind === "modal"
+      kind === "modal" || kind === "setor"
         ? (amount ?? fallback.amount)
         : kind === "float" && amount !== null
           ? Math.abs(amount)
@@ -90,6 +100,8 @@ function slipFrom(
     cashier: fallback.cashier,
     from: given ?? (kind === "modal" ? fallback.supervisor : fallback.cashier),
     to: received ?? (kind === "modal" ? fallback.cashier : fallback.supervisor),
+    counted: fallback.counted ?? [],
+    shop: shopOf({ ...inner, ...root }),
   }
 }
 
@@ -125,7 +137,8 @@ function Frame({
   )
 }
 
-/// "Tambah modal kasir": the amount, then the Kepala toko's finger.
+/// "Tambah modal kasir": the amount, then the slip. No finger: the cashier and
+/// the head of the shop confirm on the paper.
 export function TambahModalDialog({
   actorId,
   shiftId: shiftOverride,
@@ -142,14 +155,16 @@ export function TambahModalDialog({
   /// the drawer and must draw it again.
   onDone: (text: string, body?: unknown) => void
 }) {
-  const approval = useApproval()
   const cashier = useCashier()
   const [digits, setDigits] = useState("")
   const [problem, setProblem] = useState<string | null>(null)
   const [float, setFloat] = useState<number | null>(null)
   const [slip, setSlip] = useState<Slip | null>(null)
+  const [busy, setBusy] = useState(false)
   const box = useRef<HTMLInputElement>(null)
   const sentBody = useRef<unknown>(null)
+  // One key for an amount: the same press tried again is the same movement.
+  const attempt = useRef<{ value: number; key: string } | null>(null)
   const value = Number(digits || 0)
 
   // "Modal sekarang": what the drawer was opened with plus earlier additions,
@@ -187,20 +202,17 @@ export function TambahModalDialog({
   }, [shiftOverride])
 
   useEffect(() => {
-    if (!approval.open && slip === null) box.current?.focus()
-  }, [approval.open, slip])
+    if (slip === null) box.current?.focus()
+  }, [slip])
 
-  useShortcuts(
-    { Escape: onClose },
-    !approval.open && slip === null,
-  )
+  useShortcuts({ Escape: onClose }, slip === null && !busy)
 
-  function go() {
+  async function go() {
     if (value <= 0) {
       box.current?.focus()
       return
     }
-    if (approval.open) return
+    if (busy) return
     const shiftId = shiftOverride ?? seatNow()?.shift_id
     if (shiftId === undefined) {
       setProblem("Kasir belum dibuka.")
@@ -211,43 +223,28 @@ export function TambahModalDialog({
       return
     }
     setProblem(null)
-    ;(document.activeElement as HTMLElement | null)?.blur()
-    // One key for this attempt: a finger tried again is the same movement.
-    const key = newKey()
-    let reply: unknown = null
-    // Next tick: the sheet reads Enter as a press on the sensor, and the
-    // Enter that pressed Tambah must not be that press.
-    window.setTimeout(
-      () =>
-        approval.ask({
-          action: "EDIT_CART",
-          title: "Tambah modal kasir",
-          detail: `${rp(value)} · diserahkan …`,
-          perform: async (supervisor) => {
-            const sent = await api.cashMovement(shiftId, {
-              kind: "PICKUP",
-              amount_minor: value,
-              reason: "Tambah modal kasir",
-              actor_id: actorId,
-              idempotency_key: key,
-              supervisor,
-            })
-            if (!sent.ok) {
-              return sent.status === 401 || sent.status === 403
-                ? "Bukan kepala toko"
-                : sent.status === 404 || sent.status === 405
-                  ? "Server toko ini belum bisa menambah modal kasir."
-                  : (sent.problem ?? SILENT)
-            }
-            reply = sent.body
-            sentBody.current = sent.body
-            return null
-          },
-          onApproved: (by) =>
-            setSlip(slipFrom(reply, "modal", { cashier, supervisor: by.name, amount: value })),
-        }),
-      0,
-    )
+    setBusy(true)
+    if (attempt.current === null || attempt.current.value !== value) {
+      attempt.current = { value, key: newKey() }
+    }
+    const sent = await api.cashMovement(shiftId, {
+      kind: "PICKUP",
+      amount_minor: value,
+      reason: "Tambah modal kasir",
+      actor_id: actorId,
+      idempotency_key: attempt.current.key,
+    })
+    setBusy(false)
+    if (!sent.ok) {
+      setProblem(
+        sent.status === 404 || sent.status === 405
+          ? "Server toko ini belum bisa menambah modal kasir."
+          : (sent.problem ?? SILENT),
+      )
+      return
+    }
+    sentBody.current = sent.body
+    setSlip(slipFrom(sent.body, "modal", { cashier, supervisor: "", amount: value }))
   }
 
   if (slip !== null) {
@@ -260,7 +257,7 @@ export function TambahModalDialog({
   }
 
   return (
-    <Frame label="Tambah modal kasir" approvalOpen={approval.open} sheet={approval.sheet} onClose={onClose}>
+    <Frame label="Tambah modal kasir" approvalOpen={false} onClose={onClose}>
       <div className="dlg-head">
         <div>
           <p className="ttl">Tambah modal kasir</p>
@@ -284,7 +281,7 @@ export function TambahModalDialog({
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   event.preventDefault()
-                  go()
+                  void go()
                 } else if (event.key === "." || event.key === "," || event.code === "NumpadDecimal") {
                   // The key that would be the decimal point types 000.
                   event.preventDefault()
@@ -309,7 +306,7 @@ export function TambahModalDialog({
         <button type="button" className="ds-btn ds-btn--ghost" onClick={onClose}>
           Batal
         </button>
-        <button type="button" className="ds-btn ds-btn--primary" disabled={value <= 0} onClick={go}>
+        <button type="button" className="ds-btn ds-btn--primary" disabled={value <= 0 || busy} onClick={() => void go()}>
           <span>Tambah</span>
           <span className="kbd">Enter</span>
         </button>
@@ -318,8 +315,48 @@ export function TambahModalDialog({
   )
 }
 
-/// "Setoran sementara": no amount — the Kepala toko's finger straight away,
-/// and the paper is printed with the amount blank for the receiver to fill.
+/// The denominations a setoran is counted in, largest first as Tutup kasir
+/// lays them out (owner, 28 Oct 2026: "orang ngisi dulu uang 100 ribu berapa").
+const SETOR_DENOMINATIONS = [
+  100_000, 50_000, 20_000, 10_000, 5_000, 2_000, 1_000, 500, 200, 100,
+] as const
+const SETOR_ORDER = SETOR_DENOMINATIONS
+
+/// The prototype's money chips, as Tutup kasir draws them.
+const CHIP: Readonly<
+  Record<number, { kind: "note" | "coin" | "both"; c: string; c2?: string }>
+> = {
+  100_000: { kind: "note", c: "#d0484d" },
+  50_000: { kind: "note", c: "#2f6fb8" },
+  20_000: { kind: "note", c: "#2f9461" },
+  10_000: { kind: "note", c: "#7f55ad" },
+  5_000: { kind: "note", c: "#a8743a" },
+  2_000: { kind: "note", c: "#7b7f88" },
+  1_000: { kind: "both", c: "#5d9a88", c2: "#c9cbd0" },
+  500: { kind: "coin", c: "#cdb36a" },
+  200: { kind: "coin", c: "#c3c6cc" },
+  100: { kind: "coin", c: "#c9cbd0" },
+}
+
+function MoneyChip({ value }: { value: number }) {
+  const chip = CHIP[value]
+  if (chip === undefined) return null
+  const paint = (c: string) => ({ "--c": c }) as CSSProperties
+  if (chip.kind === "coin") return <span className="coin-chip" style={paint(chip.c)} />
+  if (chip.kind === "both") {
+    return (
+      <span className="duo">
+        <span className="note-chip" style={paint(chip.c)} />
+        <span className="coin-chip" style={paint(chip.c2 ?? chip.c)} />
+      </span>
+    )
+  }
+  return <span className="note-chip" style={paint(chip.c)} />
+}
+
+/// "Setoran sementara": the cashier counts what leaves the drawer by
+/// denomination, then the Kepala toko's finger receives it and the paper
+/// carries the total.
 export function SetoranDialog({
   actorId,
   onClose,
@@ -334,13 +371,28 @@ export function SetoranDialog({
   const cashier = useCashier()
   const [slip, setSlip] = useState<Slip | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
-  const asked = useRef(false)
+  const [counts, setCounts] = useState<Record<number, string>>({})
   const key = useRef(newKey())
 
-  // Opens on the finger sheet at once; Batal there closes this too.
-  useEffect(() => {
-    if (asked.current) return
-    asked.current = true
+  const declared = SETOR_DENOMINATIONS.reduce(
+    (sum, value) => sum + value * (Number(counts[value] ?? "") || 0),
+    0,
+  )
+  const set = (value: number, next: number) =>
+    setCounts((was) => ({
+      ...was,
+      [value]: next <= 0 ? "" : String(Math.min(next, 9999)),
+    }))
+  const pieces = (value: number) => Number(counts[value] ?? "") || 0
+
+  useShortcuts({ Escape: onClose }, !approval.open && slip === null)
+
+  function go() {
+    if (declared <= 0) {
+      setProblem("Hitung dulu uang yang disetor.")
+      return
+    }
+    if (approval.open) return
     const shiftId = seatNow()?.shift_id
     if (shiftId === undefined) {
       setProblem("Kasir belum dibuka.")
@@ -350,31 +402,27 @@ export function SetoranDialog({
       setProblem("Masuk dulu.")
       return
     }
-    ask(shiftId)
-    // Once, when the dialog opens.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  function ask(shiftId: string) {
+    setProblem(null)
+    ;(document.activeElement as HTMLElement | null)?.blur()
     let reply: unknown = null
+    // One key for this attempt: a finger tried again is the same movement.
     approval.ask({
       action: "EDIT_CART",
       title: "Setoran sementara",
-      detail: `${cashier} · ${seatNow()?.label ?? ""}`.replace(/ · $/, ""),
+      detail: `${rp(declared)} · ${cashier} · ${seatNow()?.label ?? ""}`.replace(/ · $/, ""),
       perform: async (supervisor) => {
-        const base = {
+        const sent = await api.cashMovement(shiftId, {
           kind: "DROP",
+          amount_minor: declared,
+          counted: SETOR_DENOMINATIONS.map((value) => ({
+            value_minor: value,
+            pieces: Number(counts[value] ?? "") || 0,
+          })).filter((line) => line.pieces > 0),
           reason: "Setoran sementara",
           actor_id: actorId,
+          idempotency_key: key.current,
           supervisor,
-        }
-        // The amount is left blank on the paper: sent as 0; a node that
-        // refuses 0 and takes the amount as optional gets it without.
-        let sent = await api.cashMovement(shiftId, { ...base, amount_minor: 0, idempotency_key: key.current })
-        if (!sent.ok && (sent.status === 400 || sent.status === 422)) {
-          const retry = await api.cashMovement(shiftId, { ...base, idempotency_key: newKey() })
-          if (retry.ok) sent = retry
-        }
+        })
         if (!sent.ok) {
           return sent.status === 401 || sent.status === 403
             ? "Bukan kepala toko"
@@ -386,7 +434,14 @@ export function SetoranDialog({
         return null
       },
       onApproved: (by) =>
-        setSlip(slipFrom(reply, "setor", { cashier, supervisor: by.name, amount: null })),
+        setSlip(
+          slipFrom(reply, "setor", {
+            cashier,
+            supervisor: by.name,
+            amount: declared,
+            counted: SETOR_DENOMINATIONS.map((value) => ({ value, pieces: pieces(value) })),
+          }),
+        ),
     })
   }
 
@@ -398,37 +453,110 @@ export function SetoranDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [approval.open])
 
-  if (slip !== null) return <SlipDialog slip={slip} onDone={() => onDone("Setoran sementara dicatat")} />
+  if (slip !== null) {
+    return (
+      <SlipDialog
+        slip={slip}
+        onDone={() => onDone(`Setoran sementara dicatat · ${rp(declared)}`)}
+      />
+    )
+  }
 
   return (
-    <>
-      {problem !== null && (
-        <Frame label="Setoran sementara" approvalOpen={false} sheet={approval.sheet} onClose={onClose}>
-          <div className="dlg-head">
-            <p className="ttl">Setoran sementara</p>
-            <button type="button" className="x-btn" aria-label="Tutup" onClick={onClose}>
-              <Icon name="x" />
-            </button>
-          </div>
-          <div className="dlg-body">
-            <p className="laci-err" role="alert">
-              {problem}
-            </p>
-          </div>
-          <div className="dlg-foot">
-            <span className="sp" />
-            <button type="button" className="ds-btn ds-btn--primary" onClick={onClose}>
-              <span>Tutup</span>
-            </button>
-          </div>
-        </Frame>
-      )}
-      {problem === null && approval.sheet !== null && <div className="xchd">{approval.sheet}</div>}
-    </>
+    <Frame
+      label="Setoran sementara"
+      approvalOpen={approval.open}
+      sheet={approval.sheet}
+      onClose={onClose}
+    >
+      <div className="dlg-head">
+        <p className="ttl">Setoran sementara</p>
+        <button type="button" className="x-btn" aria-label="Tutup" onClick={onClose}>
+          <Icon name="x" />
+        </button>
+      </div>
+      <div className="dlg-body">
+        <div className="laci-count">
+          <p className="laci-count-h">
+            <span className="l">Uang kertas &amp; koin</span>
+            <span className="c">Jumlah</span>
+            <span className="r">Nilai</span>
+          </p>
+          {SETOR_ORDER.map((value, index) => (
+            <div className="laci-count-row" key={value}>
+              <span className="laci-chip">
+                <MoneyChip value={value} />
+              </span>
+              <span className="laci-val">{rp(value)}</span>
+              <span className="laci-step">
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  aria-label={`Kurangi satu ${rp(value)}`}
+                  onClick={() => set(value, pieces(value) - 1)}
+                >
+                  −
+                </button>
+                <input
+                  value={counts[value] ?? ""}
+                  onChange={(event) =>
+                    set(value, Number(event.target.value.replace(/\D/g, "")) || 0)
+                  }
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault()
+                      go()
+                    }
+                  }}
+                  inputMode="numeric"
+                  placeholder="0"
+                  autoComplete="off"
+                  autoFocus={index === 0}
+                  aria-label={`Jumlah lembar ${rp(value)}`}
+                />
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  aria-label={`Tambah satu ${rp(value)}`}
+                  onClick={() => set(value, pieces(value) + 1)}
+                >
+                  +
+                </button>
+              </span>
+              <span className={`laci-amt${pieces(value) > 0 ? "" : " zero"}`}>
+                {pieces(value) > 0 ? rp(value * pieces(value)) : "—"}
+              </span>
+            </div>
+          ))}
+        </div>
+        <p className="laci-total">
+          <span>Total setoran</span>
+          <b>{rp(declared)}</b>
+        </p>
+        {problem !== null && (
+          <p className="laci-err" role="alert">
+            {problem}
+          </p>
+        )}
+      </div>
+      {/* One button: × in the head closes (primary-only, Hari 24 Oct 2026). */}
+      <div className="dlg-foot">
+        <span className="sp" />
+        <button
+          type="button"
+          className="ds-btn ds-btn--primary"
+          disabled={declared <= 0}
+          onClick={go}
+        >
+          <span>Setor</span>
+          <span className="kbd">Enter</span>
+        </button>
+      </div>
+    </Frame>
   )
 }
 
-/// "Setor modal" (Tutup kasir, F2; prototype `floatDeposit`): no amount is
+/// "Setor modal" (Laci, ⇧3; prototype `floatDeposit`): no amount is
 /// typed — what is left of the float all goes — so the dialog opens on the
 /// Kepala toko's finger at once, then the slip "SETOR MODAL" with the cashier
 /// giving and the Kepala toko receiving. It is a movement of its own kind
@@ -549,20 +677,17 @@ export function SetorModalDialog({
   )
 }
 
-/// The slip: shown beside "Cetak lagi" and "Selesai", printed once on opening.
+/// The slip: the 80 mm paper as it prints, beside "Cetak lagi" and "Selesai",
+/// printed once on opening. A setoran's paper lists the notes counted and is
+/// followed by one cut label per denomination.
 function SlipDialog({ slip, onDone }: { slip: Slip; onDone: () => void }) {
   const { config } = useNodeConfig()
   const modal = slip.kind === "modal"
   const float = slip.kind === "float"
-  const site = config?.joined != null ? siteTitle(config.joined).replace(" · ", " ") : ""
-  const till = seatNow()?.label ?? ""
-  const place = [site, till].filter((part) => part !== "").join(" · ")
+  const code = (config?.joined?.site_code ?? "").trim()
   const title = modal ? "TAMBAH MODAL KASIR" : float ? "SETOR MODAL" : "SETORAN SEMENTARA"
-  const amount =
-    (modal || float) && slip.amount !== null ? `Jumlah: ${rp(slip.amount)}` : "Jumlah: ____________"
-  // Every slip names the hand-over the same way (prototype `slipPaperView`).
-  const left = "Diserahkan oleh"
-  const right = "Diterima oleh"
+  const parsed = new Date(slip.at)
+  const at = Number.isNaN(parsed.getTime()) ? new Date() : parsed
 
   const print = () => window.setTimeout(() => window.print(), 50)
   useEffect(() => {
@@ -570,34 +695,22 @@ function SlipDialog({ slip, onDone }: { slip: Slip; onDone: () => void }) {
   }, [])
   useShortcuts({ Enter: onDone, Escape: onDone })
 
-  const body = (
-    <>
-      <h4>{title}</h4>
-      No. {slip.no}
-      <br />
-      {place}
-      <br />
-      {dayTime(slip.at)}
-      <br />
-      Kasir: {slip.cashier}
-      <br />
-      {amount}
-      <div className="sg">
-        <div>
-          {left}
-          <br />
-          <br />
-          <span>{slip.from}</span>
-        </div>
-        <div>
-          {right}
-          <br />
-          <br />
-          <span>{slip.to}</span>
-        </div>
-      </div>
-    </>
+  const paper = (
+    <CashSlipPaper
+      shop={slip.shop}
+      title={title}
+      no={slip.no}
+      at={at}
+      cashier={slip.cashier}
+      code={code}
+      amount={slip.amount}
+      denoms={slip.kind === "setor" ? slip.counted : undefined}
+      from={slip.from}
+      to={slip.to}
+    />
   )
+  const labels =
+    slip.kind === "setor" ? <CutLabels who={slip.cashier} at={at} lines={slip.counted} /> : null
 
   return (
     <>
@@ -612,7 +725,10 @@ function SlipDialog({ slip, onDone }: { slip: Slip; onDone: () => void }) {
             <p className="ttl">{modal ? "Modal ditambah" : float ? "Modal disetor" : "Setoran sementara"}</p>
           </div>
           <div className="dlg-body">
-            <div className="slip">{body}</div>
+            <div className="laci-paper">
+              <ThermalSheet>{paper}</ThermalSheet>
+              {labels}
+            </div>
           </div>
           <div className="dlg-foot">
             <button type="button" className="ds-btn ds-btn--tint" onClick={print}>
@@ -626,12 +742,104 @@ function SlipDialog({ slip, onDone }: { slip: Slip; onDone: () => void }) {
           </div>
         </section>
       </div>
-      {createPortal(
-        <div className="slip-print" aria-hidden="true">
-          {body}
-        </div>,
-        document.body,
-      )}
+      <PrintCopy paper={paper} labels={labels} />
     </>
+  )
+}
+
+/// "Setor modal" from Laci: the menu knows no shift, so this reads the open
+/// one and what is left of its float before opening the finger dialog.
+export function SetorModalFromSeat({
+  actorId,
+  onClose,
+  onDone,
+}: {
+  actorId: string
+  onClose: () => void
+  onDone: (text: string, body?: unknown) => void
+}) {
+  const [ready, setReady] = useState<{ shiftId: string; amount: number } | null | "waiting">(
+    "waiting",
+  )
+  useEffect(() => {
+    const shiftId = seatNow()?.shift_id
+    if (shiftId === undefined) {
+      setReady(null)
+      return
+    }
+    let alive = true
+    void api
+      .shiftReport(shiftId)
+      .then((reply) => {
+        if (!alive) return
+        if (!reply.ok || reply.body === null) {
+          setReady(null)
+          return
+        }
+        const report = reply.body as {
+          opening_float_minor?: unknown
+          float_returned_minor?: unknown
+          movements?: { kind?: unknown; amount_minor?: unknown }[]
+        }
+        if (typeof report.opening_float_minor !== "number") {
+          setReady(null)
+          return
+        }
+        const sum = (kinds: readonly string[], sign: (n: number) => number) =>
+          (report.movements ?? [])
+            .filter((one) => typeof one.kind === "string" && kinds.includes(one.kind))
+            .reduce(
+              (total, one) =>
+                total + (typeof one.amount_minor === "number" ? sign(one.amount_minor) : 0),
+              0,
+            )
+        const added = sum(["PICKUP", "CORRECTION"], (n) => n)
+        const returned =
+          typeof report.float_returned_minor === "number"
+            ? report.float_returned_minor
+            : sum(["FLOAT_RETURN"], Math.abs)
+        setReady({
+          shiftId,
+          amount: Math.max(0, report.opening_float_minor + added - returned),
+        })
+      })
+      .catch(() => alive && setReady(null))
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  if (ready === "waiting") return null
+  if (ready === null) {
+    return (
+      <Frame label="Setor modal" approvalOpen={false} onClose={onClose}>
+        <div className="dlg-head">
+          <p className="ttl">Setor modal</p>
+          <button type="button" className="x-btn" aria-label="Tutup" onClick={onClose}>
+            <Icon name="x" />
+          </button>
+        </div>
+        <div className="dlg-body">
+          <p className="laci-err" role="alert">
+            Kasir belum dibuka.
+          </p>
+        </div>
+        <div className="dlg-foot">
+          <span className="sp" />
+          <button type="button" className="ds-btn ds-btn--primary" onClick={onClose}>
+            <span>Tutup</span>
+          </button>
+        </div>
+      </Frame>
+    )
+  }
+  return (
+    <SetorModalDialog
+      actorId={actorId}
+      shiftId={ready.shiftId}
+      amountMinor={ready.amount}
+      onClose={onClose}
+      onDone={onDone}
+    />
   )
 }

@@ -5,8 +5,8 @@
 /// digits). The till spends part of the basket from that balance and the rest is
 /// paid as usual. Like a voucher it **needs the connection**: the shop node
 /// relays to head office, and when the line is down it answers 502 rather than
-/// inventing a balance. Not combinable with a promotion; a return gives the
-/// spent part back.
+/// inventing a balance. It combines with a promotion (owner, 29 Oct 2026); a
+/// return gives the spent part back.
 ///
 /// The three verbs are one conversation about one basket. `lookup` reads the
 /// balance without using the code up; `spend` uses the code up, once per
@@ -53,7 +53,7 @@ export function lookupBenefit(code: string): Promise<EdgeReply<BenefitHolder>> {
 /// Spend `amountMinor` from the balance for the sale named `saleRef`.
 ///
 /// One spend per `saleRef` (a second is 409), and the node refuses more than the
-/// balance, a basket with a promotion, and a cashier spending their own balance.
+/// balance and a cashier spending their own balance.
 /// A finger's grant is spent with it — one finger pays one basket — and given
 /// back by the node when head office does not take the spend.
 export function spendBenefit(

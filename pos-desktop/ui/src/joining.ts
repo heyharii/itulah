@@ -6,6 +6,7 @@
 /// window. What comes back is the code, the number and the outcome — nothing
 /// that could be used to sign.
 
+import { isGudang } from "@/edition"
 import { shellCall } from "@/session"
 
 /// `NodeIdentity` in `backend/src/sync/device.rs`: who a node says it is.
@@ -65,11 +66,14 @@ export const currentJoin = () => shellCall<JoinView | null>("join_current")
 
 /// Ask to join. A node heard on the LAN is asked with the names it answers
 /// to there, which the till keeps once it is let in; a typed address has none.
+/// Central Gudang asks as a `WAREHOUSE`: the node labels it "Gudang N", gives
+/// it no till seat, and never lets it sell.
 export const beginJoin = (baseUrl: string, found?: FoundNode) =>
   shellCall<JoinView>("join_begin", {
     baseUrl,
     instance: found?.instance ?? null,
     host: found !== undefined && found.instance !== null ? found.host : null,
+    kind: isGudang ? "WAREHOUSE" : "TILL",
   })
 
 /// `ok: false` means the node could not be asked this time — keep polling. A

@@ -910,21 +910,21 @@ body[data-device=tablet] .action-bar kbd,body[data-device=tablet] .pay-cta kbd,b
 .edc-row{display:grid;grid-template-columns:minmax(0,1fr) 220px;align-items:center;gap:14px}
 .edc-row>span:first-child{display:flex;flex-direction:column;line-height:20px}
 .edc-row strong{font-weight:600}
-.closing-paper{display:none}
+.th-print{display:none}
+/* Cash papers go to the 80 mm thermal printer: the paper, then one cut piece per
+   denomination, each ending in a page break so the printer cuts after it. */
 @media print{
-  body *{visibility:hidden}
-  .closing-paper,.closing-paper *{visibility:visible}
-  .closing-paper{display:block;position:absolute;left:0;top:0;width:76mm;padding:2mm;color:#000;font:12px/1.4 ui-monospace,Menlo,monospace}
-  .closing-paper .cp-co{font-weight:700;font-size:14px}
-  .closing-paper .cp-title{margin-top:6px;font-weight:700;letter-spacing:.05em}
-  .closing-paper dl{display:grid;grid-template-columns:auto 1fr;gap:1px 8px;margin:6px 0}
-  .closing-paper .cp-sec{margin-top:6px;font-weight:700}
-  .closing-paper table{width:100%;border-collapse:collapse}
-  .closing-paper td{border:1px solid #000;padding:1px 4px}
-  .closing-paper td+td{text-align:right}
-  .closing-paper .cp-tot{text-align:right;font-weight:700;margin-top:4px}
-  .closing-paper .cp-sign{display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;margin-top:10px}
-  .closing-paper .cp-line{margin-top:28px;border-top:1px solid #000}
+  body>*:not(.th-print){display:none!important}
+  .th-print{display:block;width:76mm;padding:2mm;background:#fff;color:#000;font-size:12px;line-height:1.4}
+  .th-print .th-logo b{font-size:22px;line-height:24px}
+  .th-print .th-logo i{font-size:12px;line-height:14px}
+  .th-print .th-sign .line{height:36px}
+  .th-print .th-paper:not(:last-child){break-after:page;page-break-after:always}
+  .th-print .th-cuts{display:block}
+  .th-print .th-cut{padding:3mm 0;box-shadow:none;font-size:12px;line-height:1.4;break-after:page;page-break-after:always;break-inside:avoid}
+  .th-print .th-cut:last-child{break-after:auto;page-break-after:auto}
+  .th-print .th-lab-v{font-size:22px;line-height:28px}
+  .th-print .th-lab-v.th-sm{font-size:16px;line-height:22px}
 }
 
 /* the discount sheet: what the node applied, one row each */
