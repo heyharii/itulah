@@ -98,7 +98,10 @@ jobs:
 
           Step 'Install and join the store'
           Start-Process msiexec -ArgumentList '/i', "$PWD\server.msi", '/l*v', "$PWD\shots\install.log" -Wait
-          Click (Find 'msedge' 'Continue' 180)
+          # Continue is enabled once the checks are in: wait for their last row.
+          Find 'msedge' 'Off while plugged in' 180 | Out-Null
+          Start-Sleep 2
+          Click (Find 'msedge' 'Continue' 30)
           Find 'msedge' 'Connect this PC to Central' 30 | Out-Null
           Start-Sleep 2
           [System.Windows.Forms.SendKeys]::SendWait($env:ENROLL_CODE)
