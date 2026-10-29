@@ -1,0 +1,147 @@
+name: Windows new store test
+
+# A new store from nothing on a clean Windows PC (the runner), as a shop
+# would do it: the store server MSI from the bucket and its installer window
+# (check this PC, install code, install, Ready), then Central POS, Central
+# Gudang and Central Store from the bucket, each finding the server on this
+# PC and asking to join. Head office approves the POS and the Gudang PC in
+# Central while this waits. Screenshots of every step are the `shots`
+# artifact.
+#
+# Started by pushing `.github/windows-new-store-test.json` (any content).
+# The install code — from Central › Stores › the new store › Server, good for
+# one hour and once — is the `ENROLL_CODE` secret.
+
+on:
+  push:
+    paths: [".github/windows-new-store-test.json"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  store:
+    name: Install a new store and its apps
+    runs-on: windows-2022
+    timeout-minutes: 75
+    steps:
+      - name: Install, join, open
+        shell: pwsh
+        env:
+          ENROLL_CODE: ${{ secrets.ENROLL_CODE }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing, UIAutomationClient
+          Add-Type -TypeDefinition @'
+          using System; using System.Runtime.InteropServices;
+          public class U { [DllImport("user32.dll")] public static extern bool SetCursorPos(int x,int y);
+           [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+           [DllImport("user32.dll")] public static extern void mouse_event(int f,int x,int y,int d,int e); }
+          '@
+          New-Item -ItemType Directory -Force shots | Out-Null
+          $script:n = 0
+          function Shot([string]$name) {
+            $script:n++
+            $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+            $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+            $g = [System.Drawing.Graphics]::FromImage($bmp)
+            $g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+            $bmp.Save(("shots/{0:d2}-{1}.png" -f $script:n, $name), [System.Drawing.Imaging.ImageFormat]::Png)
+            $g.Dispose(); $bmp.Dispose()
+          }
+          # An element of a process's windows whose name is like $pattern, waited for.
+          function Find([string]$process, [string]$pattern, [int]$seconds = 60) {
+            $until = (Get-Date).AddSeconds($seconds)
+            $all = [System.Windows.Automation.Condition]::TrueCondition
+            while ((Get-Date) -lt $until) {
+              foreach ($p in (Get-Process $process -ErrorAction SilentlyContinue | Where-Object MainWindowHandle -ne 0)) {
+                [U]::SetForegroundWindow($p.MainWindowHandle) | Out-Null
+                $w = [System.Windows.Automation.AutomationElement]::FromHandle($p.MainWindowHandle)
+                foreach ($e in $w.FindAll([System.Windows.Automation.TreeScope]::Descendants, $all)) {
+                  if ($e.Current.Name -like $pattern) { return $e }
+                }
+              }
+              Start-Sleep -Milliseconds 800
+            }
+            Shot ("missing-" + ($pattern -replace '\W', '-'))
+            throw "Never saw '$pattern' in $process"
+          }
+          function Click($e) {
+            $r = $e.Current.BoundingRectangle
+            [U]::SetCursorPos([int]($r.X + $r.Width / 2), [int]($r.Y + $r.Height / 2)); Start-Sleep -Milliseconds 150
+            [U]::mouse_event(2,0,0,0,0); [U]::mouse_event(4,0,0,0,0); Start-Sleep -Milliseconds 700
+          }
+          function TypeInto($e, [string]$text) { Click $e; [System.Windows.Forms.SendKeys]::SendWait($text); Start-Sleep -Milliseconds 400 }
+          function Step([string]$title) { Write-Host "::group::$title"; "- $title" >> $env:GITHUB_STEP_SUMMARY }
+
+          $bucket = 'https://storage.googleapis.com/itulah-central-desktop'
+          Step 'Download from the bucket'
+          Invoke-WebRequest "$bucket/store-server/latest.msi" -OutFile server.msi
+          Invoke-WebRequest "$bucket/pos/Central-POS-setup.exe" -OutFile pos-setup.exe
+          Invoke-WebRequest "$bucket/gudang/Central-Gudang-setup.exe" -OutFile gudang-setup.exe
+          Invoke-WebRequest "$bucket/store-app/Central-Store-setup.exe" -OutFile store-setup.exe
+          Get-NetConnectionProfile | Format-Table Name, NetworkCategory | Out-String | Write-Host
+
+          Step 'Store server: the installer, then its window'
+          Start-Process msiexec -ArgumentList '/i', "$PWD\server.msi", '/l*v', "$PWD\shots\server-install.log" -Wait
+          Get-NetConnectionProfile | Format-Table Name, NetworkCategory | Out-String | Write-Host
+          $ui = $true
+          try { Find 'msedge' 'Check this PC' 120 | Out-Null } catch { $ui = $false }
+          Shot 'server-check-this-pc'
+          if ($ui) {
+            Click (Find 'msedge' 'Continue' 90)
+            TypeInto (Find 'msedge' 'Install code' 30) $env:ENROLL_CODE
+            Shot 'server-install-code'
+            # Enter submits the code: "Install" is also the sidebar step's name.
+            [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+          } else {
+            # Edge did not open its window here: the page's own call, not a terminal at the shop.
+            Invoke-RestMethod -Method Post http://127.0.0.1:8082/setup/claim -ContentType 'application/json' -Body (@{ code = $env:ENROLL_CODE; cloud_url = '' } | ConvertTo-Json)
+          }
+          $until = (Get-Date).AddMinutes(5)
+          do { Start-Sleep 5; try { $h = Invoke-RestMethod http://127.0.0.1:8082/api/v1/health } catch { $h = $null } } until (($h -and $h.auth_policy) -or (Get-Date) -gt $until)
+          if (-not ($h -and $h.auth_policy)) { Shot 'server-not-ready'; throw 'The server never became Ready' }
+          if ($ui) { Find 'msedge' "*server is ready" 60 | Out-Null }
+          Shot 'server-ready'
+          Invoke-RestMethod http://127.0.0.1:8082/api/v1/node/identity | ConvertTo-Json | Write-Host
+
+          Step 'Central POS: Pindah ke toko ini, head office approves'
+          Start-Process .\pos-setup.exe -ArgumentList '/S' -Wait
+          Start-Process "$env:LOCALAPPDATA\Central POS\pos-desktop.exe"
+          Click (Find 'pos-desktop' 'Pindah ke toko ini' 120)
+          Click (Find 'pos-desktop' 'Minta bergabung' 30)
+          Start-Sleep 3
+          Shot 'pos-asks-head-office'
+          Find 'pos-desktop' 'POS ini sudah tergabung' 1500 | Out-Null
+          Shot 'pos-joined'
+          Click (Find 'pos-desktop' 'Selesai' 10)
+
+          Step 'Central Gudang: Pindah ke toko ini, head office approves'
+          Start-Process .\gudang-setup.exe -ArgumentList '/S' -Wait
+          Start-Process "$env:LOCALAPPDATA\Central Gudang\central-gudang.exe"
+          Click (Find 'central-gudang' 'Pindah ke toko ini' 120)
+          Click (Find 'central-gudang' 'Minta bergabung' 30)
+          Start-Sleep 3
+          Shot 'gudang-asks-head-office'
+          Find 'central-gudang' 'PC gudang ini sudah tergabung' 1500 | Out-Null
+          Shot 'gudang-joined'
+          Click (Find 'central-gudang' 'Selesai' 10)
+
+          Step 'Central Store: finds the server on this PC by itself'
+          Start-Process .\store-setup.exe -ArgumentList '/S' -Wait
+          Start-Process "$env:LOCALAPPDATA\Central Store\store-desktop.exe"
+          Find 'store-desktop' 'Sign in' 120 | Out-Null
+          Start-Sleep 3
+          Shot 'store-app-sign-in'
+
+          Step 'POS door after everything'
+          $pos = Get-Process pos-desktop | Select-Object -First 1
+          [U]::SetForegroundWindow($pos.MainWindowHandle) | Out-Null
+          Start-Sleep 3
+          Shot 'pos-door'
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shots
+          path: shots
