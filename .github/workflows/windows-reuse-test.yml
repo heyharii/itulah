@@ -107,7 +107,15 @@ jobs:
           [System.Windows.Forms.SendKeys]::SendWait($env:ENROLL_CODE)
           Start-Sleep 1
           Shot 'install-code'
-          [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+          # The Install button itself: "Install" is also the sidebar step's name.
+          $p = Get-Process msedge | Where-Object MainWindowHandle -ne 0 | Select-Object -First 1
+          $w = [System.Windows.Automation.AutomationElement]::FromHandle($p.MainWindowHandle)
+          $button = $w.FindAll([System.Windows.Automation.TreeScope]::Descendants, $all) |
+            Where-Object { $_.Current.Name -eq 'Install' -and $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button } |
+            Select-Object -First 1
+          if ($button) { Click $button } else { [System.Windows.Forms.SendKeys]::SendWait('{ENTER}') }
+          Start-Sleep 5
+          Shot 'after-install'
           Find 'msedge' '*server is ready' 300 | Out-Null
           Shot 'ready'
 
