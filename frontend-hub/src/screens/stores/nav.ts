@@ -1,4 +1,4 @@
-import { AlertTriangle, Store } from "lucide-react"
+import { AlertTriangle, MonitorDown, Store } from "lucide-react"
 
 import type { AppModule } from "@/lib/navigation"
 import { useStoresWaitingCount } from "@/lib/queries/stores"
@@ -45,6 +45,12 @@ export const storesNav: AppModule = {
           path: "/stores/exceptions",
           label: "Exceptions",
           icon: AlertTriangle,
+          hidden: true,
+        },
+        {
+          path: "/stores/apps",
+          label: "Desktop apps",
+          icon: MonitorDown,
           hidden: true,
         },
         {

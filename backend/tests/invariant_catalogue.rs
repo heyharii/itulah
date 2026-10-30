@@ -756,6 +756,8 @@ async fn money(pool: &PgPool) {
             expires_at: None,
             site_id: None,
             note: None,
+            // A card that keeps its rest, not a paper voucher (postgres 1006).
+            single_use: Some(false),
         },
         ACTOR,
         "invariant-issue",

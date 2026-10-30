@@ -91,7 +91,7 @@ import {
 import { SupplyComposer } from "@/screens/supplies/composer"
 import type { GaSupplyRequestRow } from "@itulah/contract"
 
-/// Supply Requests — what the places run out of.
+/// Supplies — what the places run out of.
 ///
 /// # What this screen is not
 ///
@@ -186,7 +186,7 @@ export function Supplies() {
   return (
     <PageContent>
       <PageHeader
-        title="Supply Requests"
+        title="Supplies"
         small
         actions={
           // On a phone the one thing this page makes is its round button.
@@ -222,7 +222,7 @@ export function Supplies() {
       {/* The register waits for its first page and streams in with it (the
           server starts the read too). */}
       <Suspense
-        fallback={<LoadingState>Loading supply requests…</LoadingState>}
+        fallback={<LoadingState>Loading supplies…</LoadingState>}
       >
         <SupplyRegister
           bar={bar}

@@ -2047,7 +2047,8 @@ pub async fn list_fleet_pools(
     // A shadowed Cloud row is the same pool as the Edge row that shadows it;
     // listing both put one shelf on the screen twice.
     items.retain(|item| {
-        item.pointer("/authority/write_policy").and_then(Value::as_str)
+        item.pointer("/authority/write_policy")
+            .and_then(Value::as_str)
             != Some("SHADOWED_READ_ONLY")
     });
 

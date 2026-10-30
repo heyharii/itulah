@@ -1293,6 +1293,27 @@ pub trait EdgeInventory: Send + Sync {
             "a shop's returns are kept by the SQLite edge".into(),
         ))
     }
+    /// Return to HO as Picklist · Picked · Packed · trips — see
+    /// [`super::store_returns::board`].
+    fn store_return_board(&self) -> Result<super::store_returns::ReturnBoard, EdgeError> {
+        Err(EdgeError::Forbidden(
+            "a shop's returns are kept by the SQLite edge".into(),
+        ))
+    }
+    /// What a Return to HO press worked out, kept under `key` so a retried
+    /// press runs the same steps — see [`super::store_returns`]. `make` is
+    /// called, with no lock held, only when nothing is kept yet.
+    fn store_return_kept(
+        &self,
+        _key: &str,
+        _operation: &str,
+        _request_json: &str,
+        _make: &dyn Fn() -> Result<serde_json::Value, EdgeError>,
+    ) -> Result<serde_json::Value, EdgeError> {
+        Err(EdgeError::Forbidden(
+            "a shop's returns are kept by the SQLite edge".into(),
+        ))
+    }
     /// What this shop counted that it could not book, until MD answers —
     /// see [`super::inbound::StoreOnHoldList`].
     fn store_on_hold(&self) -> Result<super::inbound::StoreOnHoldList, EdgeError> {
@@ -1595,6 +1616,8 @@ pub trait EdgeInventory: Send + Sync {
     fn shifts_on(&self, business_date: &str) -> Result<Vec<super::till::ShiftReport>, EdgeError>;
     /// The sales rung on one drawer, oldest first, with how each was paid.
     fn shift_sales(&self, shift_id: &str) -> Result<Vec<super::till::ShiftSale>, EdgeError>;
+    /// The returns made at one drawer, oldest first, each on its own receipt.
+    fn shift_returns(&self, shift_id: &str) -> Result<Vec<super::till::ShiftReturn>, EdgeError>;
     /// A supervisor's yes to a basket edit — a unit taken off, a basket
     /// abandoned, a parked basket thrown away — with the grant spent on it.
     fn record_till_approval(
@@ -1626,6 +1649,23 @@ pub trait EdgeInventory: Send + Sync {
     ) -> Result<super::till::ExchangeResult, EdgeError>;
     /// What the customer walks out with, resolved and ready to render.
     fn sale_receipt(&self, sale_id: &str) -> Result<super::escpos::ReceiptDocument, EdgeError>;
+    /// One struk by its whole number — a sale's, or a return's own — with
+    /// what a return from it may take (Hari, 28 Oct 2026: never listed).
+    fn receipt_lookup(&self, receipt_no: &str) -> Result<super::till::ReceiptLookup, EdgeError>;
+    /// The paper behind a struk number, for a printer.
+    fn receipt_by_number(
+        &self,
+        receipt_no: &str,
+    ) -> Result<super::escpos::ReceiptDocument, EdgeError>;
+    /// Spend a struk's one print; refused the second time (no reprint).
+    fn claim_receipt_print(
+        &self,
+        receipt_no: &str,
+        actor: &str,
+        copy: bool,
+    ) -> Result<(), EdgeError>;
+    /// Give the print back when the printer took nothing.
+    fn release_receipt_print(&self, receipt_no: &str) -> Result<(), EdgeError>;
     /// The Kepala toko approves an unknown item's name and price, once; the
     /// sale's UNKNOWN line spends the approval (`edge::unmatched`).
     fn approve_unknown_item(

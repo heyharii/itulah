@@ -192,12 +192,20 @@ impl ChangeKind {
 /// One row of "what changes": the field, what it is now, what it becomes.
 /// `from` is copied from the live record at filing time so the decider sees
 /// the same starting point the filer saw.
+///
+/// A field that holds an id (`reports_to`) keeps the id in `from`/`to` — the
+/// id is what the apply step writes — and the person's name beside it, taken
+/// at filing time, so a decider reads "Siska Wulandari", not `emp_…`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ChangeProp {
     pub field: String,
     pub from: serde_json::Value,
     pub to: serde_json::Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to_label: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -248,8 +256,10 @@ impl ChangeProposal {
     ///
     /// - `SALARY` carries exactly one prop, `base_minor`, a positive integer —
     ///   a pay change that also moves somebody is two proposals.
-    /// - `TRANSFER` carries exactly one prop, `unit_id`, naming somewhere
-    ///   else.
+    /// - `TRANSFER` carries exactly one prop: `unit_id`, naming somewhere
+    ///   else, or `reports_to`, naming a new boss — a move of place and a
+    ///   change of boss are two proposals (owner, 30 Oct 2026: a shop asks
+    ///   head office to change who somebody reports to).
     /// - `PROMOTION` carries `position` and/or `grade`.
     /// - `SEPARATION` carries no props; the date is the last day.
     pub fn file(
@@ -286,11 +296,27 @@ impl ChangeProposal {
                 }
             }
             ChangeKind::Transfer => {
-                if props.len() != 1 || text("unit_id").is_none() {
-                    return Err("a transfer carries exactly one field: unit_id".to_owned());
+                let unit = text("unit_id");
+                let boss = text("reports_to");
+                if props.len() != 1 || (unit.is_none() && boss.is_none()) {
+                    return Err(
+                        "a transfer carries exactly one field: unit_id or reports_to".to_owned(),
+                    );
                 }
-                if text("unit_id").as_deref() == Some(unit_id.as_str()) {
+                if unit.as_deref() == Some(unit_id.as_str()) {
                     return Err("a transfer to the current unit changes nothing".to_owned());
+                }
+                if let Some(boss) = boss {
+                    let boss = boss.trim();
+                    if boss.is_empty() {
+                        return Err("reports_to names the new boss".to_owned());
+                    }
+                    if boss == employee_id.as_str() {
+                        return Err("nobody reports to themselves".to_owned());
+                    }
+                    if props[0].from.as_str() == Some(boss) {
+                        return Err("this person already reports to them".to_owned());
+                    }
                 }
             }
             ChangeKind::Promotion => {

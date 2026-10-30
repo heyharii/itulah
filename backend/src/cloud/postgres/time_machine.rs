@@ -160,31 +160,42 @@ async fn ledger_timeline(
                LIMIT $2"#,
         ),
     };
-    let mut query = sqlx::query_as::<_, (
-        i64,
-        Uuid,
-        i64,
-        DateTime<Utc>,
-        Uuid,
-        String,
-        String,
-        String,
-        String,
-        Option<String>,
-        Option<String>,
-    )>(sql.as_str());
+    let mut query = sqlx::query_as::<
+        _,
+        (
+            i64,
+            Uuid,
+            i64,
+            DateTime<Utc>,
+            Uuid,
+            String,
+            String,
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+        ),
+    >(sql.as_str());
     if let Some(subject) = scope.subject_id {
         query = query.bind(subject);
     }
-    let rows = query
-        .bind(MAX_TIMELINE_ROWS + 1)
-        .fetch_all(pool)
-        .await?;
+    let rows = query.bind(MAX_TIMELINE_ROWS + 1).fetch_all(pool).await?;
 
     let truncated = rows.len() > MAX_TIMELINE_ROWS as usize;
     let mut events = Vec::with_capacity(rows.len() * 2);
-    for (fact_sequence, subject, quantity, at, group, from_place, to_place, from_kind, to_kind, from_pool, to_pool) in
-        rows.into_iter().take(MAX_TIMELINE_ROWS as usize)
+    for (
+        fact_sequence,
+        subject,
+        quantity,
+        at,
+        group,
+        from_place,
+        to_place,
+        from_kind,
+        to_kind,
+        from_pool,
+        to_pool,
+    ) in rows.into_iter().take(MAX_TIMELINE_ROWS as usize)
     {
         let fact = fact_seq_u64(fact_sequence, "movement")?;
         let origin = format!("movement group {group} fact {fact}");

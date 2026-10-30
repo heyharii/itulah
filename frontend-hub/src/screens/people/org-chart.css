@@ -1,0 +1,247 @@
+/* The org chart: boxes top-down with elbow lines (owner, 2026-10-30), ported
+   from store-menu-prototype.html. A manager whose reports lead nobody stacks
+   them under their card, so the tree stays narrow. Minimum text is 15px. The
+   tree scrolls inside its own box; the page never scrolls sideways. */
+
+.oc {
+  padding: 8px 0 24px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+/* Several trees (people whose boss is in another unit) side by side, wrapping.
+   Auto margins centre a tree that fits and let one that does not run off to
+   the right, where the box scrolls to it; `justify-content: center` would
+   clip its left half. */
+.oc-roots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 32px 24px;
+}
+.oc-roots > .oc-top {
+  margin-inline: auto;
+}
+.oc ul {
+  display: flex;
+  justify-content: center;
+  margin: 0;
+  padding: 28px 0 0;
+  position: relative;
+  list-style: none;
+}
+.oc .oc-top {
+  padding-top: 0;
+}
+.oc li {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 28px 8px 0;
+}
+.oc .oc-top > li {
+  padding-top: 0;
+}
+.oc li::before,
+.oc li::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 50%;
+  width: 50%;
+  height: 28px;
+  border-top: 1.5px solid var(--hairline-2);
+}
+.oc li::after {
+  right: auto;
+  left: 50%;
+  border-left: 1.5px solid var(--hairline-2);
+}
+.oc li:only-child::before,
+.oc li:only-child::after {
+  display: none;
+}
+.oc li:only-child {
+  padding-top: 28px;
+}
+.oc .oc-top > li:only-child {
+  padding-top: 0;
+}
+.oc li:first-child::before,
+.oc li:last-child::after {
+  border: 0;
+}
+.oc li:last-child::before {
+  border-right: 1.5px solid var(--hairline-2);
+  border-radius: 0 10px 0 0;
+}
+.oc li:first-child::after {
+  border-radius: 10px 0 0 0;
+}
+.oc ul ul::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  height: 28px;
+  border-left: 1.5px solid var(--hairline-2);
+}
+
+/* One person: the box on the chart, and the same face in a list. */
+.oc-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 232px;
+  padding: 10px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--canvas);
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgb(16 24 40 / 5%);
+  transition:
+    box-shadow var(--t-hover) var(--ease-out),
+    scale var(--t-press) var(--ease-out);
+}
+.oc-card:active {
+  scale: 0.98;
+}
+.oc-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .oc-card:hover {
+    box-shadow:
+      0 0 0 1.5px var(--accent),
+      0 4px 12px rgb(16 24 40 / 8%);
+  }
+}
+.oc-av {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--soft-2);
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1;
+}
+.oc-tx {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.3;
+}
+.oc-tx > b,
+.oc-tx > span {
+  font-size: 15px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.oc-tx > b {
+  font-weight: 600;
+  color: var(--ink);
+}
+.oc-tx > span {
+  color: var(--body);
+}
+
+/* A manager whose people lead nobody: they stand in a column under the card. */
+.oc-leaves {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 20px;
+  padding-left: 22px;
+  position: relative;
+}
+.oc-leaves::before {
+  content: "";
+  position: absolute;
+  top: -20px;
+  bottom: 30px;
+  left: 10px;
+  border-left: 1.5px solid var(--hairline-2);
+}
+.oc-leaves .oc-card {
+  position: relative;
+  width: 212px;
+}
+.oc-leaves .oc-card::before {
+  content: "";
+  position: absolute;
+  left: -12px;
+  top: 50%;
+  width: 12px;
+  border-top: 1.5px solid var(--hairline-2);
+}
+
+/* People nobody has placed: the same cards, in a wrapping grid, each with its
+   Place button at the right. */
+.oc-un {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr));
+  gap: 12px;
+}
+.oc-un-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.oc-un-item .oc-card {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+
+/* The sheet's Reports to list: one radio per person. */
+.oc-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 22rem;
+  padding: 2px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.oc-opt {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  cursor: pointer;
+  transition:
+    border-color var(--t-hover) var(--ease-out),
+    background-color var(--t-hover) var(--ease-out);
+}
+.oc-opt:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.oc-opt:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .oc-opt:not(:has(input:checked)):hover {
+    background: var(--soft-2);
+  }
+}
+.oc-opt .oc-tx {
+  flex: 1;
+}
+.oc-opt input {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent);
+}

@@ -25,6 +25,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import id.itulah.kasir.data.Money
+import id.itulah.kasir.data.OutboxEntry
 import id.itulah.kasir.data.skuDisplay
 import id.itulah.kasir.data.ReceiptDocument
 import id.itulah.kasir.data.SaleResult
@@ -43,11 +44,26 @@ import id.itulah.kasir.data.WhenIt
  * day are two sales to whoever counts them.
  *
  * The one blue button starts the next sale; printing is a plain word beside it.
+ *
+ * # A sale the store server has not taken
+ *
+ * The cashier has the money, so this screen can be reached before the node has
+ * said anything. [pending] is that sale, straight from the outbox: it shows
+ * what is true — "Tersimpan di kasir ini" — and no receipt, because a sale the
+ * node has not named has no receipt to read and nothing to print against. The
+ * moment the node takes it the caller stops passing [pending] and the screen is
+ * the ordinary one; if the node refuses it, it says so, in the node's words.
  */
 @Composable
 fun ReceiptScreen(
     receipt: ReceiptDocument?,
     sale: SaleResult?,
+    /// The sale just rung, while the node has not taken it. Null once it has.
+    pending: OutboxEntry?,
+    /// Its first attempt is still in flight: say "sending", not "saved here".
+    settling: Boolean,
+    /// The disk is not keeping the outbox; everything owed is only in memory.
+    storageProblem: String?,
     hasPrinter: Boolean,
     busy: Boolean,
     onPrint: (copy: Boolean) -> Unit,
@@ -65,6 +81,11 @@ fun ReceiptScreen(
                 .padding(horizontal = 16.dp, vertical = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            if (pending != null) {
+                Pending(pending, settling, storageProblem, onBack)
+                return@Column
+            }
+
             if (total == null) {
                 Text("Receipt not loaded.", style = Type.meta)
                 Spacer(Modifier.height(16.dp))
@@ -137,4 +158,72 @@ fun ReceiptScreen(
             }
         }
     }
+}
+
+/**
+ * The sale is rung and the money is taken, and the node has not said yes.
+ *
+ * Three headings, and the cashier reads which one before the next customer
+ * steps up: on its way (the first attempt, a few seconds at most), saved here
+ * and waiting (the pump sends it again), or refused by the node, which waits
+ * for a person. The figure is the same one the done screen leads with — the
+ * change to hand over, else what was paid — worked locally from the tenders,
+ * because the node has not priced the receipt yet and the customer is standing
+ * there.
+ */
+@Composable
+private fun Pending(entry: OutboxEntry, settling: Boolean, storageProblem: String?, onBack: () -> Unit) {
+    val refused = entry.refused
+    val change = entry.changeMinor
+    val heading = when {
+        refused -> "Ditolak server toko"
+        settling -> "Mengirim ke server toko…"
+        else -> "Tersimpan di kasir ini"
+    }
+    val how = entry.tenders.map { methodLabel(it.method) }.distinct().joinToString(" + ")
+
+    Box(
+        Modifier.size(56.dp).background(if (refused) BadBg else WarnBg, CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            if (refused) Glyph.Alert else Glyph.Clock,
+            null,
+            Modifier.size(26.dp),
+            tint = if (refused) BadFg else WarnFg,
+        )
+    }
+    Spacer(Modifier.height(10.dp))
+    Text(heading, style = Type.hero, textAlign = TextAlign.Center)
+    Spacer(Modifier.height(14.dp))
+    Text(if (change > 0) "Change" else "Paid", style = Type.control.copy(color = Mute))
+    Text(
+        Money.format(if (change > 0) change else entry.quotedTotalMinor),
+        style = Type.money.copy(fontSize = 44.sp),
+        maxLines = 1,
+    )
+    val meta = listOfNotNull(if (change > 0) Money.format(entry.quotedTotalMinor) else null, how.ifBlank { null })
+        .joinToString(" · ")
+    if (meta.isNotEmpty()) Text(meta, style = Type.meta, textAlign = TextAlign.Center)
+    Spacer(Modifier.height(18.dp))
+
+    if (storageProblem != null) {
+        Notice(storageProblem, bad = true, title = "Penyimpanan kasir")
+        Spacer(Modifier.height(10.dp))
+    }
+    when {
+        refused -> Notice(
+            text = (entry.problem ?: "Server toko menolak penjualan ini tanpa alasan.") +
+                "\nPenjualan tetap tersimpan di kasir ini.",
+            bad = true,
+            title = "Ditolak server toko",
+        )
+        !settling -> Notice(
+            text = "Dikirim otomatis begitu server toko menjawab; struk dicetak setelah terkirim." +
+                (entry.problem?.let { "\n$it" } ?: ""),
+            warn = true,
+        )
+    }
+    Spacer(Modifier.height(16.dp))
+    PrimaryButton("New sale", onBack, Modifier.fillMaxWidth())
 }

@@ -112,14 +112,14 @@ $headline = $menu.Items.Add('Checking...')
 $headline.Enabled = $false
 [void]$menu.Items.Add('-')
 $open = $menu.Items.Add('Open status page')
-$open.add_Click({ Start-Process "http://localhost:8082/console" })
+$open.add_Click({ Start-Process "http://127.0.0.1:8082/console" })
 $setup = $menu.Items.Add('Setup')
-$setup.add_Click({ Start-Process "http://localhost:8082/setup" })
+$setup.add_Click({ Start-Process "http://127.0.0.1:8082/setup" })
 $refresh = $menu.Items.Add('Check now')
 [void]$menu.Items.Add('-')
 $quit = $menu.Items.Add('Hide this icon')
 $icon.ContextMenuStrip = $menu
-$icon.add_MouseDoubleClick({ Start-Process "http://localhost:8082/console" })
+$icon.add_MouseDoubleClick({ Start-Process "http://127.0.0.1:8082/console" })
 
 $script:lastTone = $null
 

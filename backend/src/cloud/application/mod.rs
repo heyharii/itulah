@@ -179,8 +179,8 @@ impl AppConfig {
                 "INVENTORY_AUTH_SESSION_IDLE_MINUTES must be between 1 and 1440".into(),
             ));
         }
-        let vertex = env_opt("ASSISTANT_PROVIDER")
-            .is_some_and(|value| value.eq_ignore_ascii_case("vertex"));
+        let vertex =
+            env_opt("ASSISTANT_PROVIDER").is_some_and(|value| value.eq_ignore_ascii_case("vertex"));
         Ok(Self {
             bind_addr,
             database_url,

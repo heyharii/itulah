@@ -153,12 +153,17 @@ pub async fn open_shop(api: &Api) -> Shop {
     api.node(POS, STORE, "STORE").await;
     let floor = stock::receiving_node(api, STORE).await;
     api.bank_account("1005", HO, "BCA", "8880012345").await;
-    api.post(
-        FINANCE,
-        "/api/v1/finance/edc-terminals",
-        json!({ "site_id": STORE, "terminal_id": "T-BNI-01", "bank_code": "BNI" }),
-    )
-    .await;
+    // The shop has two EDC machines, BCA and BNI. A card or QRIS taken on
+    // either settles into that machine's bank account, not into Piutang.
+    api.bank_account("1008", HO, "BNI", "8880012346").await;
+    for (terminal, bank) in [("T-BCA-01", "BCA"), ("T-BNI-01", "BNI")] {
+        api.post(
+            FINANCE,
+            "/api/v1/finance/edc-terminals",
+            json!({ "site_id": STORE, "terminal_id": terminal, "bank_code": bank }),
+        )
+        .await;
+    }
     let supplier = stock::supplier(api, "SANDANG").await;
     let goods = stock::receive(
         api,
@@ -229,10 +234,12 @@ async fn a_mixed_shop_day_posts_one_sale_day(pool: sqlx::PgPool) {
         &[],
         0,
     );
-    // BCA debit, VISA credit, QRIS on BNI's EDC (the POS sent only the terminal).
+    // BCA debit, VISA credit, and a QRIS on BNI's EDC. The QRIS names its
+    // provider (GOPAY) as the acquirer and the machine it was paid on; the
+    // machine is what decides the bank (owner: QRIS follows the EDC).
     let b = sale(&[Sold { sku: trousers.clone(), price: 300_000, discount: 0 }], &[card(300_000, "BCA", "DEBIT")], 0, &[], 0);
     let c = sale(&[Sold { sku: shirt.clone(), price: 249_950, discount: 0 }], &[card(249_950, "VISA", "CREDIT")], 0, &[], 0);
-    let d = sale(&[Sold { sku: trousers.clone(), price: 300_000, discount: 0 }], &[qris(300_000, Some("T-BNI-01"), None)], 0, &[], 0);
+    let d = sale(&[Sold { sku: trousers.clone(), price: 300_000, discount: 0 }], &[qris(300_000, Some("T-BNI-01"), Some("GOPAY"))], 0, &[], 0);
     // A free voucher of 100,000 against a shirt; the rest in cash.
     let e = sale(&[Sold { sku: shirt.clone(), price: 249_950, discount: 0 }], &[voucher(100_000), cash(149_950)], 0, &[], 0);
     for fact in [&a, &b, &c, &d, &e] {
@@ -247,8 +254,19 @@ async fn a_mixed_shop_day_posts_one_sale_day(pool: sqlx::PgPool) {
     assert_eq!(day.entries().len(), 1, "one SALE_DAY for the shop's day\n{}", day.dump());
     // Money in, by tender.
     assert_eq!(day.dr("1002", STORE), 225_000 + 149_950, "cash on hand\n{}", day.dump());
-    assert_eq!(day.dr("1021", STORE), 300_000 + 300_000, "BCA debit + QRIS on BNI's EDC");
-    assert_eq!(day.dr("1020", STORE), 249_950, "VISA credit");
+    // Digital tenders land in the EDC's bank the day they are taken. The BCA
+    // debit is on BCA's machine, and a credit card that names only its scheme
+    // falls to the company's primary EDC bank; the QRIS names the BNI machine
+    // and follows it — no Piutang either way.
+    assert_eq!(
+        day.dr("1005", HO),
+        300_000 + 249_950,
+        "BCA debit + VISA credit into BCA\n{}",
+        day.dump()
+    );
+    assert_eq!(day.dr("1008", HO), 300_000, "QRIS on BNI into BNI\n{}", day.dump());
+    assert_eq!(day.dr("1021", STORE), 0, "no debit-card receivable\n{}", day.dump());
+    assert_eq!(day.dr("1020", STORE), 0, "no credit-card receivable\n{}", day.dump());
     // The free voucher, and only the voucher: the 25,000 promotion and the two
     // bags given away are inside the price charged, so they never reach 4012
     // (owner decision 25 Sep 2026 — promotions are net inside revenue).
@@ -325,7 +343,8 @@ async fn qris_without_a_bank_and_online_tenders_wait_and_the_day_posts(pool: sql
         .await;
     assert!(refused.refused(), "an online tender stays refused: {refused:?}");
     let books = api.books().await;
-    assert_eq!(books.dr("1021", STORE), 249_950, "the resolved QRIS on BCA's debit leaf");
+    assert_eq!(books.dr("1005", HO), 249_950, "the resolved QRIS into BCA\n{}", books.dump());
+    assert_eq!(books.dr("1021", STORE), 0, "no debit-card receivable\n{}", books.dump());
     assert_eq!(books.cr("4003", STORE), 249_950);
     books.assert_sound(true);
     record("qris_without_a_bank_and_online_tenders_wait_and_the_day_posts", &books);
@@ -447,7 +466,7 @@ async fn a_promoted_day_with_a_return_posts_what_was_charged_and_no_tax(pool: sq
     assert_eq!(day.cr("4002", STORE), 224_950 + 249_950, "cash sale + the replacement\n{}", day.dump());
     assert_eq!(day.cr("4003", STORE), 270_000, "BCA debit at the promoted price\n{}", day.dump());
     assert_eq!(day.dr("1002", STORE), 224_950);
-    assert_eq!(day.dr("1021", STORE), 270_000);
+    assert_eq!(day.dr("1005", HO), 270_000, "BCA debit into BCA\n{}", day.dump());
     // Nothing reaches the discount account from a promotion.
     assert_eq!(day.dr("4012", STORE), 0, "promotions are inside revenue\n{}", day.dump());
     // The return at its whole value; the unused difference forfeited.
@@ -458,12 +477,79 @@ async fn a_promoted_day_with_a_return_posts_what_was_charged_and_no_tax(pool: sq
     record("a_promoted_day_with_a_return_posts_what_was_charged_and_no_tax", &books);
 }
 
+// 3b ------------------------------------------------------------------------
+
+/// A bank added from Finance's own screen must start on the bank, not on
+/// Piutang Debit Card. 0722 fixed the rows that existed on 1 Oct 2026; the
+/// "Tambah bank" path was still writing 0468's old default.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_new_bank_starts_with_its_edc_takings_in_the_bank(pool: sqlx::PgPool) {
+    let api = Api::new(pool).await;
+    let added = api
+        .post(
+            FINANCE,
+            "/api/v1/finance/banks/add",
+            json!({
+                "bank_code": "BSI",
+                "bank_name": "BSI",
+                "giro": true,
+                "savings": false,
+                "debit_card": true,
+                "account_no": null,
+                "account_holder": null,
+                "account_unit_id": null,
+                "terminals": [],
+            }),
+        )
+        .await;
+    assert_eq!(added["bank_code"], "BSI", "{added}");
+
+    let methods = api.get(FINANCE, "/api/v1/finance/payment-methods").await;
+    for code in ["DEBIT_BSI", "QRIS_BSI"] {
+        let one = methods
+            .as_array()
+            .and_then(|rows| rows.iter().find(|row| row["code"] == code))
+            .unwrap_or_else(|| panic!("{code} was not created: {methods}"));
+        assert_eq!(
+            one["settlement_mode"], "DIRECT_TO_BANK",
+            "{code} must land in BSI's own account: {one}"
+        );
+    }
+
+    // A method saved without a mode gets the tender's own default, and for a
+    // card that is the bank — not 0468's old VIA_RECEIVABLE.
+    let saved = api
+        .post(
+            FINANCE,
+            "/api/v1/finance/payment-methods",
+            json!({
+                "code": "CREDIT_AMEX", "name": "Kartu kredit AMEX",
+                "tender_type": "CREDIT_CARD", "bank_code": "AMEX", "is_active": true,
+            }),
+        )
+        .await;
+    assert_eq!(saved["settlement_mode"], "DIRECT_TO_BANK", "{saved}");
+}
+
 // 4 -------------------------------------------------------------------------
 
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn a_bca_card_settlement_into_head_office_keeps_the_mdr_in_the_shop(pool: sqlx::PgPool) {
     let api = Api::new(pool).await;
     let shop = open_shop(&api).await;
+    // This test is the settlement path, so its BCA card method is one that
+    // really pays later. The direct-to-bank rule is tested by the sale-day
+    // tests above; an acquirer that settles on Thursday still exists.
+    api.post(
+        FINANCE,
+        "/api/v1/finance/payment-methods",
+        json!({
+            "code": "DEBIT_BCA", "name": "Debit BCA", "tender_type": "DEBIT_CARD",
+            "bank_code": "BCA", "settlement_mode": "VIA_RECEIVABLE",
+            "mdr_bps": 0, "is_active": true,
+        }),
+    )
+    .await;
     let trousers = sku(&shop, 1);
     for _ in 0..2 {
         ring(&api, &sale(&[Sold { sku: trousers.clone(), price: 300_000, discount: 0 }], &[card(300_000, "BCA", "DEBIT")], 0, &[], 0)).await;

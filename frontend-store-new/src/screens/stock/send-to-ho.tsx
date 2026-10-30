@@ -14,6 +14,7 @@ import {
   raiseRejectReturn,
   returnsKey,
   sendReturn,
+  sumBySku,
   type StoreReturnAsk,
   type ToReturnPocket,
 } from "@/lib/returns"
@@ -50,7 +51,8 @@ const POCKETS: readonly {
 /// held to one, and HO's receipt counts against it. Send raises one per
 /// pocket at head office (`raiseRejectReturn`) and sends it as soon as its
 /// activation reaches this node; one that has not arrived in time waits
-/// under Ready to send. A return already raised is listed as such. Each
+/// under Ready to send. Returns already raised are listed SKU by SKU under
+/// one tick, never return by return. Each
 /// leaves as its own koli under the same Trip note.
 export function SendToHo({
   open,
@@ -64,7 +66,7 @@ export function SendToHo({
   onClose: () => void
 }) {
   const client = useQueryClient()
-  /// What is unticked: `ask:<allotment>` or `<pocket>:<sku>`.
+  /// What is unticked: `asks` (everything HO raised) or `<pocket>:<sku>`.
   const [off, setOff] = useState<ReadonlySet<string>>(new Set())
   const [note, setNote] = useState("")
   // One key per act for as long as the sheet lives, so a retry after a
@@ -86,7 +88,7 @@ export function SendToHo({
       return next
     })
 
-  const sendingAsks = asks.filter((ask) => !off.has(`ask:${ask.allotment_id}`))
+  const sendingAsks = off.has("asks") ? [] : asks
   const sendingLines = (pocket: ToReturnPocket) =>
     pockets[pocket].filter((one) => !off.has(`${pocket}:${one.sku_code}`))
   const pieces =
@@ -196,40 +198,28 @@ export function SendToHo({
           ),
         )}
 
+        {/* What HO already raised, as the goods: one row per SKU, one tick
+            for all of it — never return by return (owner, 25 Oct 2026). */}
         {asks.length > 0 && (
           <SheetSection
-            title="Ready to send"
+            title={
+              <Checkbox
+                label={<span className="normal-case">Ready to send</span>}
+                checked={!off.has("asks")}
+                onChange={(checked) => tick("asks", checked)}
+              />
+            }
             aside={pcs(asks.reduce((sum, ask) => sum + ask.quantity, 0))}
           >
             <RowList>
-              {asks.flatMap((ask) =>
-                ask.lines.map((line, index) => (
-                  <Row
-                    key={`${ask.allotment_id}:${line.sku_code}`}
-                    title={
-                      index === 0 ? (
-                        <Checkbox
-                          label={
-                            <span className="normal-case">
-                              {line.name ?? sku(line.sku_code)}
-                            </span>
-                          }
-                          checked={!off.has(`ask:${ask.allotment_id}`)}
-                          onChange={(checked) => tick(`ask:${ask.allotment_id}`, checked)}
-                        />
-                      ) : (
-                        <span className="pl-7">{line.name ?? sku(line.sku_code)}</span>
-                      )
-                    }
-                    sub={
-                      <span className="font-mono">
-                        {ask.allotment_number} · {sku(line.sku_code)}
-                      </span>
-                    }
-                    figure={pcs(line.quantity)}
-                  />
-                )),
-              )}
+              {sumBySku(asks).map((line) => (
+                <Row
+                  key={line.sku_code}
+                  title={line.name ?? sku(line.sku_code)}
+                  sub={<span className="font-mono">{sku(line.sku_code)}</span>}
+                  figure={pcs(line.quantity)}
+                />
+              ))}
             </RowList>
           </SheetSection>
         )}

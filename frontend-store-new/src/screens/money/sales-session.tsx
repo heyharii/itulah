@@ -17,7 +17,7 @@ import {
   useSessionReceipts,
   type Session,
 } from "@/lib/queries/sessions"
-import { useReceipt } from "@/lib/till"
+import { useReceipt, useReceiptByNumber } from "@/lib/till"
 import { articleId, sku } from "@/lib/format"
 import { dayTitle } from "@/screens/money/format"
 import { FactBox, FactRow } from "@/screens/money/sales-facts"
@@ -213,15 +213,20 @@ export function SessionSheet({
 /// One receipt: what was bought, what it came to and how it was paid.
 export function ReceiptSheet({
   saleId,
+  receiptNo = null,
   open,
   onClose,
 }: {
   saleId: string | null
+  /// Set, the receipt is read by its number instead: a return's.
+  receiptNo?: string | null
   open: boolean
   onClose: () => void
 }) {
   const people = usePeople()
-  const receipt = useReceipt(saleId)
+  const bySale = useReceipt(receiptNo === null ? saleId : null)
+  const byNumber = useReceiptByNumber(receiptNo)
+  const receipt = receiptNo === null ? bySale : byNumber
   const printed = receipt.data
 
   const items =

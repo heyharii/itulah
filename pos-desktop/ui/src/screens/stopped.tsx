@@ -108,12 +108,17 @@ export function StoppedScreen({
   standing,
   terminalId,
   onCloseShift,
+  onJoin,
 }: {
   standing: TillStanding
   terminalId: string
   /// "Tutup kasir": count and close the drawer still open at this till. Only
   /// offered for a stopped store, whose tills still sign people in.
   onCloseShift: () => void
+  /// Join a store server again: this till was removed — its server replaced,
+  /// or head office let it go — and without this the door offered only
+  /// "Uninstall" (riza-1, 30 Oct 2026; C015 the day before).
+  onJoin?: () => void
 }) {
   const { config } = useNodeConfig()
   const [now, setNow] = useState(() => new Date())
@@ -137,10 +142,12 @@ export function StoppedScreen({
   // sign anybody in.
   const closeHere = !removed && store !== null && shift !== null
 
-  // What the store server has not taken, refused sales included. "All sent" is
-  // news once something was waiting, and where it unlocks the uninstall.
+  // What head office is not known to hold: not taken by the store server,
+  // refused by it, or taken and not at head office yet — the count the
+  // installer is told (`outbox.ts`). "All sent" is news once something was
+  // waiting, and where it unlocks the uninstall.
   const outbox = useOutbox()
-  const owed = outbox.unsent + outbox.refused
+  const owed = outbox.unsent + outbox.refused + outbox.waiting + outbox.needsHeadOffice
   const [waited, setWaited] = useState(false)
   useEffect(() => {
     if (owed > 0) setWaited(true)
@@ -197,6 +204,14 @@ export function StoppedScreen({
                 {outbox.refused > 0 && (
                   <p className="d-err">{outbox.refused} penjualan ditolak server toko</p>
                 )}
+                {outbox.waiting > 0 && (
+                  <p>{outbox.waiting} penjualan belum sampai kantor pusat</p>
+                )}
+                {outbox.needsHeadOffice > 0 && (
+                  <p className="d-err">
+                    {outbox.needsHeadOffice} penjualan perlu dicek kantor pusat
+                  </p>
+                )}
               </>
             ) : (
               (waited || canUninstall) && <p>Semua penjualan sudah terkirim</p>
@@ -211,6 +226,11 @@ export function StoppedScreen({
             )}
             {!closeHere && !removed && shift !== null && (
               <p>Shift {shift.name} masih terbuka · tutup di kasir lain</p>
+            )}
+            {canUninstall && onJoin !== undefined && !storeRemoved && (
+              <button className="pd-btn" type="button" onClick={onJoin}>
+                Gabung lagi ke server toko
+              </button>
             )}
             {canUninstall && (
               <>

@@ -1,5 +1,7 @@
 //! Independent SQLite edge runtime and its domain contracts.
 
+/// Which of a till's sales head office holds yet, asked by idempotency key.
+pub mod at_head_office;
 /// The unit's punch station: the employee and roster slice head office
 /// publishes, and this box's own durable punch log. A different thing from
 /// `fingerprint` beside it, which is about signing in to a till.
@@ -12,6 +14,9 @@ pub mod backup;
 pub mod cli;
 pub mod console;
 pub mod contracts;
+pub mod dc_allotment;
+pub mod dc_outbound;
+pub mod dc_receiving;
 /// The machines enrolled to this node: a till joining by code and a
 /// supervisor's yes, printers recorded once, and all of it reported upward.
 pub mod devices;
@@ -23,7 +28,6 @@ pub mod domain;
 pub mod enrolment;
 pub mod escpos;
 pub mod fingerprint;
-pub mod sign_ins;
 /// Goods flows at this node: what head office's flows said about its site,
 /// and the Gudang's return inspection.
 pub mod flows;
@@ -31,6 +35,7 @@ pub mod heartbeat;
 pub mod http;
 /// Deliveries head office announced to this shop, counted blind on arrival.
 pub mod inbound;
+pub mod laptop;
 pub mod node;
 pub mod notice;
 pub mod ops;
@@ -51,7 +56,12 @@ pub mod printing;
 pub mod removal;
 pub mod reports;
 pub mod rfid;
+/// The return promise a shop prints and enforces, kept locally (`0101`).
+pub mod point_policy;
+pub mod receipt_header;
+pub mod return_policy;
 pub mod secret;
+pub mod sign_ins;
 /// What head office says about this node's site and the others — kind,
 /// display code, clock — so nothing here reads them off an id.
 pub mod site_profile;
@@ -62,6 +72,9 @@ pub mod sync;
 pub mod till;
 pub mod unmatched;
 pub mod update;
+/// Central Gudang: what a warehouse PC moves, as numbered moves with a surat
+/// jalan (sqlite 0094).
+pub mod warehouse;
 #[cfg(windows)]
 pub mod winservice;
 pub mod zpl;

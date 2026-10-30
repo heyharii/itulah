@@ -85,10 +85,16 @@ impl SaleFactUnmatched {
             return Err("an unmatched sale line needs its id".into());
         }
         if self.line_no < 0 {
-            return Err(format!("unmatched line {} has a negative position", self.id));
+            return Err(format!(
+                "unmatched line {} has a negative position",
+                self.id
+            ));
         }
         if !KINDS.contains(&self.kind.as_str()) {
-            return Err(format!("unmatched line {} has unknown kind {}", self.id, self.kind));
+            return Err(format!(
+                "unmatched line {} has unknown kind {}",
+                self.id, self.kind
+            ));
         }
         let blank = |value: Option<&str>| value.map(str::trim).is_none_or(str::is_empty);
         if self.kind == KIND_UNKNOWN {
@@ -181,11 +187,7 @@ impl UnmatchedSaleTakePayload {
                 return Err(format!("an unmatched sale take needs {field}"));
             }
         }
-        if self
-            .epc
-            .as_deref()
-            .is_some_and(|epc| epc.trim().is_empty())
-        {
+        if self.epc.as_deref().is_some_and(|epc| epc.trim().is_empty()) {
             return Err("an unmatched sale take's EPC cannot be blank".into());
         }
         Ok(())
@@ -231,8 +233,7 @@ mod tests {
             "receipt_no": "STORE-03-20261023-ABC123",
             "matched_by": "hq-admin",
         });
-        let parsed =
-            parse_unmatched_sale_take(&payload).unwrap_or_else(|error| panic!("{error}"));
+        let parsed = parse_unmatched_sale_take(&payload).unwrap_or_else(|error| panic!("{error}"));
         assert_eq!(parsed.take_id, take_id);
         assert_eq!(parsed.epc.as_deref(), Some("A00011020453000000000001"));
     }

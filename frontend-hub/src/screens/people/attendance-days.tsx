@@ -20,7 +20,7 @@ import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill, Status } from "@/components/ui/pill"
 import { KeyValue, MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
-import { ButtonGroup, Toolbar } from "@/components/ui/segmented"
+import { ButtonGroup, Segmented, Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Timeline } from "@/components/ui/timeline"
@@ -51,7 +51,14 @@ import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { FileCorrectionSheet } from "@/screens/people/attendance-correction-sheet"
-import { Quiet, UnitChoice, useUnit } from "@/screens/people/parts"
+import { AttendanceMonth } from "@/screens/people/attendance-month"
+import {
+  MonthChoice,
+  Quiet,
+  UnitChoice,
+  useHrMonth,
+  useUnit,
+} from "@/screens/people/parts"
 import type {
   AttendanceDayView,
   PunchRow,
@@ -483,6 +490,16 @@ function DayChoice({
   )
 }
 
+/// How the page reads attendance: one day with everything about it, or one
+/// month as a grid of squares, a row a person. The cut changes, the unit does
+/// not.
+type Mode = "day" | "month"
+
+const MODES = [
+  { value: "day", label: "Day" },
+  { value: "month", label: "Month" },
+] as const
+
 export function AttendanceDays() {
   const phone = useLayout() === "phone"
   const unit = useUnit()
@@ -490,6 +507,11 @@ export function AttendanceDays() {
   const person = useSheet("attendanceOf")
   const [correcting, setCorrecting] = useState(false)
   const [date, setDate] = useState(todayIso)
+  const [mode, setMode] = useState<Mode>("day")
+  /// The HR month, shared with the other HR pages, defaulting to the month of
+  /// the business date (not `currentMonth()`, which is UTC and reads the 1st
+  /// of a Jakarta morning as last month).
+  const [month, setMonth] = useHrMonth(() => todayIso().slice(0, 7))
   const [sorting, setSorting] = useState<SortingState>([
     // Alphabetical, and deliberately not worst-first. A day is read to find one
     // person as often as to scan it, and a table that reorders itself as
@@ -509,14 +531,14 @@ export function AttendanceDays() {
     queryFn: ({ signal }) => listTerminals(unitId ?? undefined, signal),
     enabled: unitId !== null,
   })
-  /// The month this day falls in, because the two figures the readiness
-  /// carries are the ones a close will be signed against and both of them are
-  /// invisible in a single day: a correction still open, and a punch on a day
-  /// nobody was rostered.
+  /// The month this day falls in (or the month on the grid, in the Month
+  /// view), because the two figures the readiness carries are the ones a close
+  /// will be signed against and both of them are invisible in a single day: a
+  /// correction still open, and a punch on a day nobody was rostered.
+  const readMonth = mode === "month" ? month : date.slice(0, 7)
   const readiness = useQuery({
-    queryKey: punchKeys.readiness(unitId ?? "", date.slice(0, 7)),
-    queryFn: ({ signal }) =>
-      punchReadiness(unitId ?? "", date.slice(0, 7), signal),
+    queryKey: punchKeys.readiness(unitId ?? "", readMonth),
+    queryFn: ({ signal }) => punchReadiness(unitId ?? "", readMonth, signal),
     enabled: unitId !== null,
   })
   /// **Bounded to the unit the day is about**, not to the caller — the same
@@ -711,12 +733,21 @@ export function AttendanceDays() {
       />
       {phone && (
         <>
+          {/* Not the toolbar: that is the Filters sheet on a phone, and the
+              way to look at the page is not a filter. */}
+          <div className="mb-3.5">
+            <Segmented options={MODES} value={mode} onChange={setMode} />
+          </div>
           <UnitChoice
             unitId={unitId}
             units={unit.units}
             onChange={unit.setUnitId}
           />
-          <DayChoice value={date} onChange={setDate} />
+          {mode === "day" ? (
+            <DayChoice value={date} onChange={setDate} />
+          ) : (
+            <MonthChoice month={month} onChange={setMonth} />
+          )}
           <Fab label="File correction" onClick={() => setCorrecting(true)} />
         </>
       )}
@@ -728,7 +759,7 @@ export function AttendanceDays() {
           headcount: a rest day nobody worked produces no row at all, which is
           the server declining to say anything about a day there is nothing to
           say about. */}
-      {drawing && (
+      {mode === "day" && drawing && (
         <KpiStrip>
           <Kpi label="Days accounted for" value={count(rows.length)} />
           <Kpi label="Arrived" value={count(arrived)} />
@@ -744,43 +775,51 @@ export function AttendanceDays() {
 
       {!phone && (
         <Toolbar>
+          <Segmented options={MODES} value={mode} onChange={setMode} />
           <UnitChoice
             unitId={unitId}
             units={unit.units}
             onChange={unit.setUnitId}
           />
+          {mode === "month" && (
+            <MonthChoice month={month} onChange={setMonth} />
+          )}
           {/* A day at a time, because attendance is asked about a day. The
           picker stays for the jump to a month back. */}
-          <ButtonGroup>
-            <Button
-              variant="ghost"
-              aria-label="Previous day"
-              onClick={() => setDate(addDays(date, -1))}
-            >
-              <ChevronLeft className="size-4 stroke-[1.7]" />
-            </Button>
-            <Button variant="ghost" onClick={() => setDate(todayIso())}>
-              Today
-            </Button>
-            <Button
-              variant="ghost"
-              aria-label="Next day"
-              onClick={() => setDate(addDays(date, 1))}
-            >
-              <ChevronRight className="size-4 stroke-[1.7]" />
-            </Button>
-          </ButtonGroup>
-          <Day
-            value={date}
-            onChange={(next) => {
-              // A day-shaped screen has no "any day": there is always a date
-              // whose attendance is being read, so cleared is not a state
-              // this screen can be in.
-              if (next !== "") setDate(next)
-            }}
-            clearable={false}
-            className="h-8 w-36"
-          />
+          {mode === "day" && (
+            <>
+              <ButtonGroup>
+                <Button
+                  variant="ghost"
+                  aria-label="Previous day"
+                  onClick={() => setDate(addDays(date, -1))}
+                >
+                  <ChevronLeft className="size-4 stroke-[1.7]" />
+                </Button>
+                <Button variant="ghost" onClick={() => setDate(todayIso())}>
+                  Today
+                </Button>
+                <Button
+                  variant="ghost"
+                  aria-label="Next day"
+                  onClick={() => setDate(addDays(date, 1))}
+                >
+                  <ChevronRight className="size-4 stroke-[1.7]" />
+                </Button>
+              </ButtonGroup>
+              <Day
+                value={date}
+                onChange={(next) => {
+                  // A day-shaped screen has no "any day": there is always a date
+                  // whose attendance is being read, so cleared is not a state
+                  // this screen can be in.
+                  if (next !== "") setDate(next)
+                }}
+                clearable={false}
+                className="h-8 w-36"
+              />
+            </>
+          )}
         </Toolbar>
       )}
 
@@ -790,7 +829,7 @@ export function AttendanceDays() {
         </Banner>
       )}
 
-      {future && (
+      {mode === "day" && future && (
         <Banner tone="info" className="mb-4">
           {day(date)} has not happened yet.
         </Banner>
@@ -801,47 +840,89 @@ export function AttendanceDays() {
           and posting "no station has ever reported" because a request fell
           over is inventing a fact about a unit out of a network error. When
           nothing is drawn the empty card says the same thing. */}
-      {drawing && view.data !== undefined && <Source posture={posture} />}
+      {(mode === "day" ? drawing : connected) && view.data !== undefined && (
+        <Source posture={posture} />
+      )}
 
-      <Card className="mb-4 overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-        <CardHeader>
-          <CardTitle>{weekday(date, true)}</CardTitle>
-          {posture.kind === "REPORTING" && (
-            <span className="text-meta text-mute">
-              last punch delivered {moment(posture.last)}
-            </span>
-          )}
-        </CardHeader>
-        {queryState(view, {
-          loading: "Deriving the day…",
-          refused: <EmptyState>This unit is outside your reach.</EmptyState>,
-          render: () =>
-            !drawing ? (
-              <EmptyState>{unsaid(posture, unit.name)}</EmptyState>
-            ) : rows.length === 0 ? (
-              <EmptyState>
-                Nobody was rostered at {unit.name ?? "this unit"} on {day(date)}
-                .
-              </EmptyState>
-            ) : (
-              <DataTable<DayRow>
-                refresh={[view]}
-                table={table}
-                onRowClick={(row) => person.open(row.employeeId)}
-                isSelected={(row) => row.employeeId === person.value}
-                cardsApart
-                cardLead
-                cardSort={false}
-              />
-            ),
-        })}
-      </Card>
+      {/* The month, as squares. Gated on the same first word as the day —
+          `connected` — and on the posture inside, which draws the grid for a
+          suspended or silent unit only when some punch is in hand. */}
+      {mode === "month" && (
+        <Card className="mb-4 overflow-hidden">
+          {queryState(view, {
+            loading: "Reading the month…",
+            refused: <EmptyState>This unit is outside your reach.</EmptyState>,
+            render: () =>
+              !connected || unitId === null ? (
+                <EmptyState>{unsaid(posture, unit.name)}</EmptyState>
+              ) : (
+                <AttendanceMonth
+                  unitId={unitId}
+                  unitName={unit.name}
+                  month={month}
+                  today={today}
+                  people={team.data}
+                  phone={phone}
+                  unsaid={
+                    posture.kind === "REGISTERED" ||
+                    posture.kind === "REPORTING"
+                      ? null
+                      : unsaid(posture, unit.name)
+                  }
+                  onOpen={(employeeId, on) => {
+                    // The sheet reads thirty days back from the day on the
+                    // page and the device's punches for it, so the day
+                    // pressed becomes the day on the page.
+                    setDate(on)
+                    person.open(employeeId)
+                  }}
+                />
+              ),
+          })}
+        </Card>
+      )}
 
-      {underivable.length > 0 && (
+      {mode === "day" && (
+        <Card className="mb-4 overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+          <CardHeader>
+            <CardTitle>{weekday(date, true)}</CardTitle>
+            {posture.kind === "REPORTING" && (
+              <span className="text-meta text-mute">
+                last punch delivered {moment(posture.last)}
+              </span>
+            )}
+          </CardHeader>
+          {queryState(view, {
+            loading: "Deriving the day…",
+            refused: <EmptyState>This unit is outside your reach.</EmptyState>,
+            render: () =>
+              !drawing ? (
+                <EmptyState>{unsaid(posture, unit.name)}</EmptyState>
+              ) : rows.length === 0 ? (
+                <EmptyState>
+                  Nobody was rostered at {unit.name ?? "this unit"} on{" "}
+                  {day(date)}.
+                </EmptyState>
+              ) : (
+                <DataTable<DayRow>
+                  refresh={[view]}
+                  table={table}
+                  onRowClick={(row) => person.open(row.employeeId)}
+                  isSelected={(row) => row.employeeId === person.value}
+                  cardsApart
+                  cardLead
+                  cardSort={false}
+                />
+              ),
+          })}
+        </Card>
+      )}
+
+      {mode === "day" && underivable.length > 0 && (
         <Underivable rows={underivable} named={named} />
       )}
 
-      {blocked.length > 0 && (
+      {mode === "day" && blocked.length > 0 && (
         <CannotClockIn
           ids={blocked}
           named={named}
@@ -850,7 +931,7 @@ export function AttendanceDays() {
         />
       )}
 
-      {unrostered.length > 0 && (
+      {mode === "day" && unrostered.length > 0 && (
         <Unrostered
           rows={unrostered}
           named={named}
@@ -862,7 +943,7 @@ export function AttendanceDays() {
         <Stations query={stations} unit={unit.name} />
         <Card className="overflow-hidden">
           <CardHeader>
-            <CardTitle>{monthYear(date)} so far</CardTitle>
+            <CardTitle>{monthYear(readMonth)} so far</CardTitle>
           </CardHeader>
           <div className="px-4 pb-4">
             {queryState(readiness, {

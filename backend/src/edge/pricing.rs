@@ -824,6 +824,15 @@ pub struct CatalogRow {
     /// screen that browses this is a grid of photographs with the range down
     /// one side, and none of it can be drawn from a code, a name and a number.
     pub has_image: bool,
+    /// False when a return policy says this never comes back — the article
+    /// itself, or its category such as underwear (postgres 1006). The till
+    /// warns at Bayar and the store server refuses it on a return.
+    #[serde(default = "taken_back_by_default")]
+    pub exchangeable: bool,
+}
+
+fn taken_back_by_default() -> bool {
+    true
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -961,6 +970,7 @@ pub fn store_catalog(
         .map_err(db)?;
 
     let facts = merchandise(connection, None)?;
+    let promise = crate::edge::return_policy::current(connection)?;
     let products: Vec<CartLine> = items
         .iter()
         .map(|(code, ..)| line_for(code, 1, &facts))
@@ -983,6 +993,12 @@ pub fn store_catalog(
         // how a catalogue comes to be filed under one division and priced
         // against another.
         let (article_code, division_code, tags) = facts.get(&sku_code).cloned().unwrap_or_default();
+        let exchangeable = crate::edge::return_policy::exchangeable_article(
+            &promise,
+            article_code.as_deref(),
+            division_code.as_deref(),
+            &tags,
+        );
         rows.push(CatalogRow {
             sku_code,
             name,
@@ -998,6 +1014,7 @@ pub fn store_catalog(
             division_code,
             tags,
             has_image,
+            exchangeable,
         });
     }
     Ok(rows)
@@ -1060,6 +1077,7 @@ pub fn store_catalog_page(
         crate::edge::site_profile::utc_offset_minutes(connection),
     );
     let facts = merchandise(connection, Some(&sku_codes))?;
+    let promise = crate::edge::return_policy::current(connection)?;
     let products: Vec<CartLine> = sku_codes
         .iter()
         .map(|code| line_for(code, 1, &facts))
@@ -1075,6 +1093,12 @@ pub fn store_catalog_page(
             let entry = priced.get(&sku_code)?;
             let (article_code, division_code, tags) =
                 facts.get(&sku_code).cloned().unwrap_or_default();
+            let exchangeable = crate::edge::return_policy::exchangeable_article(
+                &promise,
+                article_code.as_deref(),
+                division_code.as_deref(),
+                &tags,
+            );
             Some(CatalogRow {
                 sku_code,
                 name,
@@ -1090,6 +1114,7 @@ pub fn store_catalog_page(
                 division_code,
                 tags,
                 has_image,
+                exchangeable,
             })
         })
         .collect();
@@ -1394,17 +1419,9 @@ fn load_campaign_faces(
     Ok(faces)
 }
 
-/// What this shop is running, and what it is about to run.
-///
-/// Answered out of the resident snapshot, like everything else here, so a
-/// promotions board keeps working with the line to the centre down. It has to:
-/// the shopper asking "is the Lebaran promo still on" is standing in the shop.
-pub fn store_offers(
-    connection: &Connection,
-    site_id: &str,
-    channel: &str,
-    at: DateTime<Utc>,
-) -> Result<StoreOffers, EdgeError> {
+/// The promotions half of the book: rules, campaigns and coupons, held to this
+/// shop's allowances — what the offers board and the coupon check read.
+fn offer_snapshot(connection: &Connection) -> Result<PricingSnapshot, EdgeError> {
     // Prices and markdowns are deliberately left out of this snapshot. The gate
     // reads the rule, its campaign and its coupon and nothing else, and loading
     // forty thousand price rows to answer "what promotions are on" is the cost
@@ -1416,7 +1433,7 @@ pub fn store_offers(
     // The board says what the counter would do, and the counter holds this
     // shop to its allowance.
     hold_to_allowances(&mut rules, &mut campaigns, &allowances);
-    let snapshot = PricingSnapshot {
+    Ok(PricingSnapshot {
         publication_version: 0,
         entries: Vec::new(),
         markdowns: Vec::new(),
@@ -1428,7 +1445,205 @@ pub fn store_offers(
         // file builds must differ only in what they were asked for, or the
         // window and the counter come to disagree for a reason nobody can see.
         tax_rules: load_tax_rules(connection)?,
+    })
+}
+
+/// F2 Cek on a coupon code: what it gives, until when, and whether this shop
+/// would take it now — read from the shop's own book, nothing held and
+/// nothing spent.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct CouponCheck {
+    /// As the book holds it, or as typed when the book has no such code.
+    pub code: String,
+    /// The promotion the code opens; null when this shop has no such code.
+    pub name: Option<String>,
+    /// What it gives, in the till's words: `Diskon 20%`, `Potongan Rp 50.000`.
+    pub what: Option<String>,
+    /// The earliest of the coupon's, its promotion's and its campaign's ends;
+    /// null when none of them ends.
+    pub valid_until: Option<DateTime<Utc>>,
+    pub valid: bool,
+    /// Why not, when it is not valid. On a valid coupon, the one condition
+    /// the till meets at payment: a member for a members' coupon.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub reason: Option<String>,
+}
+
+/// Look one coupon code up the way the counter will judge it, before there is
+/// a basket. A limited coupon is valid here: its use is reserved at head
+/// office when the sale is paid (`/store/coupons/{code}/authorize`).
+pub fn check_coupon(
+    connection: &Connection,
+    site_id: &str,
+    channel: &str,
+    code: &str,
+    at: DateTime<Utc>,
+) -> Result<CouponCheck, EdgeError> {
+    let typed = code.trim();
+    let snapshot = offer_snapshot(connection)?;
+    let found = snapshot
+        .coupons
+        .iter()
+        .find(|coupon| coupon.code == typed)
+        .or_else(|| {
+            snapshot
+                .coupons
+                .iter()
+                .find(|coupon| coupon.code.eq_ignore_ascii_case(typed))
+        });
+    let Some(coupon) = found else {
+        return Ok(CouponCheck {
+            code: typed.to_string(),
+            name: None,
+            what: None,
+            valid_until: None,
+            valid: false,
+            reason: Some("Kupon tidak dikenal di toko ini".into()),
+        });
     };
+    let mut context = crate::reporting::pricing_context(
+        site_id,
+        channel,
+        at,
+        crate::edge::site_profile::utc_offset_minutes(connection),
+    );
+    context.coupon_codes = vec![coupon.code.clone()];
+    let rule = snapshot
+        .rules
+        .iter()
+        .find(|rule| rule.rule_id == coupon.rule_id);
+    let campaign = rule
+        .and_then(|rule| rule.campaign_id.as_ref())
+        .and_then(|id| {
+            snapshot
+                .campaigns
+                .iter()
+                .find(|campaign| campaign.campaign_id == *id)
+        });
+    let said: Vec<RejectionReason> = [
+        pricing_engine::check_coupon(&snapshot, &context, &coupon.code).err(),
+        match rule {
+            Some(rule) => pricing_engine::rule_standing(rule, &snapshot, &context).err(),
+            None => Some(RejectionReason::CampaignUnknown),
+        },
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    // What the till supplies at payment is not a refusal at F2: the hold of a
+    // limited coupon, and the member a members' coupon is for.
+    let refusal = said.iter().copied().find(|reason| {
+        !matches!(
+            reason,
+            RejectionReason::CouponNeedsOnlineAuthorization
+                | RejectionReason::NotThisCustomer
+                | RejectionReason::CouponBelongsToSomeoneElse
+        )
+    });
+    let condition = said
+        .iter()
+        .copied()
+        .find(|reason| *reason != RejectionReason::CouponNeedsOnlineAuthorization);
+    let not_yet = coupon.valid_from.is_some_and(|from| at < from);
+    Ok(CouponCheck {
+        code: coupon.code.clone(),
+        name: rule.map(|rule| rule.name.clone()),
+        what: rule.map(|rule| effect_words(&rule.effect)),
+        valid_until: earlier(
+            coupon.valid_to,
+            earlier(
+                rule.and_then(|rule| rule.conditions.effective_to),
+                campaign.and_then(|campaign| campaign.valid_to),
+            ),
+        ),
+        valid: refusal.is_none(),
+        reason: refusal
+            .or(condition)
+            .map(|reason| coupon_words(reason, not_yet)),
+    })
+}
+
+/// Why a coupon is not taken, in the till's language.
+fn coupon_words(reason: RejectionReason, not_yet: bool) -> String {
+    match reason {
+        RejectionReason::CouponUnknown => "Kupon tidak dikenal di toko ini".into(),
+        RejectionReason::CouponNotActive => "Kupon tidak aktif".into(),
+        RejectionReason::CouponExpired if not_yet => "Kupon belum berlaku".into(),
+        RejectionReason::CouponExpired => "Kupon sudah kedaluwarsa".into(),
+        RejectionReason::CouponUsedUp => "Kuota kupon sudah habis".into(),
+        RejectionReason::CouponBelongsToSomeoneElse => "Hanya untuk member pemilik kupon".into(),
+        RejectionReason::NotThisCustomer => "Khusus member".into(),
+        RejectionReason::NotActive => "Promo kupon ini tidak aktif".into(),
+        RejectionReason::NotStarted => "Promo kupon ini belum mulai".into(),
+        RejectionReason::Expired => "Promo kupon ini sudah berakhir".into(),
+        RejectionReason::DayNotAllowed => "Promo kupon ini tidak berlaku hari ini".into(),
+        RejectionReason::TimeNotAllowed => "Promo kupon ini tidak berlaku jam ini".into(),
+        RejectionReason::WrongSite | RejectionReason::WrongChannel => {
+            "Promo kupon ini tidak berlaku di toko ini".into()
+        }
+        RejectionReason::CampaignUnknown => "Promo kupon ini belum diterima toko ini".into(),
+        RejectionReason::BudgetSpent => "Anggaran promo kupon ini sudah habis".into(),
+        RejectionReason::UsageExhausted => "Kuota promo kupon ini sudah habis".into(),
+        other => format!("Kupon tidak bisa dipakai: {}", other.describe()),
+    }
+}
+
+/// What a promotion gives, as a cashier says it: `Diskon 20%`, `Potongan Rp
+/// 50.000`, `Beli 2 gratis 1`.
+fn effect_words(effect: &Effect) -> String {
+    let rupiah = crate::edge::escpos::rupiah;
+    let percent = |bps: i64| {
+        let (whole, rest) = (bps / 100, (bps % 100).abs());
+        match rest {
+            0 => format!("{whole}%"),
+            _ if rest % 10 == 0 => format!("{whole},{}%", rest / 10),
+            _ => format!("{whole},{rest:02}%"),
+        }
+    };
+    match effect {
+        Effect::Percent { bps, .. } => format!("Diskon {}", percent(*bps)),
+        Effect::Amount { amount } => format!("Potongan Rp {}", rupiah(amount.minor)),
+        Effect::FixedUnitPrice { unit_price } => format!("Harga Rp {}", rupiah(unit_price.minor)),
+        Effect::FreeItem { quantity, .. } => format!("Gratis {quantity} barang"),
+        Effect::BuyXGetY {
+            buy,
+            get,
+            reward_bps,
+        } if *reward_bps >= 10_000 => format!("Beli {buy} gratis {get}"),
+        Effect::BuyXGetY {
+            buy,
+            get,
+            reward_bps,
+        } => format!(
+            "Beli {buy}, {get} berikutnya diskon {}",
+            percent(*reward_bps)
+        ),
+        Effect::EarnPoints(earn) => match earn {
+            pricing_engine::EarnEffect::SpendRate { spend_per_point } => {
+                format!("1 poin tiap Rp {}", rupiah(spend_per_point.minor))
+            }
+            pricing_engine::EarnEffect::FixedPoints { points } => format!("Bonus {points} poin"),
+            pricing_engine::EarnEffect::PointsPerQuantity { points } => {
+                format!("{points} poin per barang")
+            }
+        },
+    }
+}
+
+/// What this shop is running, and what it is about to run.
+///
+/// Answered out of the resident snapshot, like everything else here, so a
+/// promotions board keeps working with the line to the centre down. It has to:
+/// the shopper asking "is the Lebaran promo still on" is standing in the shop.
+pub fn store_offers(
+    connection: &Connection,
+    site_id: &str,
+    channel: &str,
+    at: DateTime<Utc>,
+) -> Result<StoreOffers, EdgeError> {
+    let snapshot = offer_snapshot(connection)?;
     let context = crate::reporting::pricing_context(
         site_id,
         channel,
@@ -1783,6 +1998,10 @@ pub struct QuotedLine {
     /// hoping exactly one candidate covered that instant — which is a
     /// reconstruction, and a reconstruction is not evidence.
     pub markdown_id: Option<String>,
+    /// False when a return policy says this never comes back (postgres
+    /// 1006): Bayar says "Tidak bisa ditukar: …" before the shopper pays.
+    #[serde(default = "taken_back_by_default")]
+    pub exchangeable: bool,
 }
 
 /// An item the shopper is given, granted by a promotion.
@@ -1997,6 +2216,34 @@ pub fn quote_with_coupon_holds(
         .collect();
     let result = price_cart(&snapshot, &context, &cart).map_err(translate)?;
 
+    // The point policy's points, per line, beside what the promotions earned
+    // and ADDED to it — never the larger of the two, and neither replaces the
+    // other (owner, 30 Oct 2026; postgres 1008). Member points, so a basket
+    // with no member earns none from the policy. A policy this node cannot
+    // read earns nothing rather than refusing the quote.
+    let policy_points: Vec<i64> = match customer_id {
+        Some(_) => {
+            let day = (at
+                + chrono::Duration::minutes(i64::from(
+                    crate::edge::site_profile::utc_offset_minutes(connection),
+                )))
+            .date_naive();
+            let charged: Vec<(&str, i64)> = result
+                .lines
+                .iter()
+                .map(|line| (line.sku_code.as_str(), line.line_total.minor))
+                .collect();
+            crate::edge::point_policy::current(connection)
+                .and_then(|policy| {
+                    crate::edge::point_policy::points_for(
+                        connection, &policy, site_id, day, &charged,
+                    )
+                })
+                .unwrap_or_else(|_| vec![0; charged.len()])
+        }
+        None => vec![0; result.lines.len()],
+    };
+
     // The hold behind a code, but only for a code that is actually LIMITED. An
     // uncapped coupon needs no hold and must not carry one onto the sale fact,
     // where head office would try to commit something nothing reserved for it.
@@ -2098,6 +2345,9 @@ pub fn quote_with_coupon_holds(
             }),
     );
 
+    // Whether each line may come back, for Bayar's warning. A promise this
+    // node cannot read takes everything back rather than refusing the quote.
+    let promise = crate::edge::return_policy::current(connection).unwrap_or_default();
     Ok(Some(Quote {
         trace_id: result.trace_id.clone(),
         lines: result
@@ -2117,10 +2367,17 @@ pub fn quote_with_coupon_holds(
                     .flat_map(|award| award.line_points.iter())
                     .filter(|share| share.line == index)
                     .map(|share| share.points)
-                    .sum(),
+                    .sum::<i64>()
+                    + policy_points.get(index).copied().unwrap_or(0),
                 price_source: line.source.as_str().to_string(),
                 publication_version: line.publication_version,
                 markdown_id: line.markdown_id.clone(),
+                exchangeable: crate::edge::return_policy::exchangeable_sku(
+                    connection,
+                    &promise,
+                    &line.sku_code,
+                )
+                .unwrap_or(true),
             })
             .collect(),
         granted_lines: result
@@ -2151,7 +2408,9 @@ pub fn quote_with_coupon_holds(
             .collect(),
         charge_total_minor: result.charge_total.minor,
         amount_due_minor: result.amount_due.minor,
-        points_earned: result.points_earned,
+        points_earned: result
+            .points_earned
+            .saturating_add(policy_points.iter().sum::<i64>()),
         coupons_to_authorize,
     }))
 }

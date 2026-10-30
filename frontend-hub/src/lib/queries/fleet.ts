@@ -34,6 +34,7 @@ export const FLEET_DOT: Readonly<Record<FleetColour, string>> = {
 /// `DEVICE`'s own kind — `FleetPart.device_kind` on the wire.
 export type FleetDeviceKind =
   | "TILL"
+  | "WAREHOUSE"
   | "PRINTER"
   | "HANDHELD"
   | "RFID_READER"

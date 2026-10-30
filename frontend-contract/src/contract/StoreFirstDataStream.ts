@@ -21,4 +21,11 @@ done: boolean,
  * How many there are, when head office knows: the articles in the
  * catalogue, the price books published, the people on the roster.
  */
-count: number | null, };
+count: number | null, 
+/**
+ * Commands of this kind the server has taken, and how many were sent:
+ * what moves while a stream is still coming in, which `done` cannot show
+ * until its last command (C001, 30 Oct 2026: "0 of 4" for a quarter of an
+ * hour). Both 0 when the delivery is not told apart.
+ */
+taken: number, queued: number, };

@@ -146,7 +146,9 @@ pub const MEMBER_SALES: &str = member_sales!();
 /// failure worth having, rather than the one where it silently matches nobody.
 pub const MEMBER_SOURCE: &str = concat!(
     "    FROM member m\n",
-    "    LEFT JOIN (", member_sales!(), ") s ON s.customer_id = m.member_id\n",
+    "    LEFT JOIN (",
+    member_sales!(),
+    ") s ON s.customer_id = m.member_id\n",
     "    LEFT JOIN (
         SELECT member_id, sum(balance_minor)::bigint AS voucher_balance_minor
           FROM voucher
@@ -203,7 +205,9 @@ pub const MEMBER_SOURCE: &str = concat!(
 /// this source's `WHERE` compiles or fails exactly as it would there.
 pub const MEMBER_RANK_SOURCE: &str = concat!(
     "    FROM member m\n",
-    "    LEFT JOIN (", member_sales!(), ") s ON s.customer_id = m.member_id\n",
+    "    LEFT JOIN (",
+    member_sales!(),
+    ") s ON s.customer_id = m.member_id\n",
     "    LEFT JOIN points_account pa ON pa.customer_id = m.member_id\n",
     "    LEFT JOIN (
         SELECT customer_id, COALESCE(-sum(points), 0)::bigint AS points_spent_total
@@ -726,7 +730,11 @@ pub async fn list_members(
     // rather than guessing at its own clauses.
     let rank_wide =
         narrowing.is_some() || matches!(query.sort.as_deref(), Some("units") | Some("upt"));
-    let rank_source = if rank_wide { MEMBER_SOURCE } else { MEMBER_RANK_SOURCE };
+    let rank_source = if rank_wide {
+        MEMBER_SOURCE
+    } else {
+        MEMBER_RANK_SOURCE
+    };
 
     // The pass's row definition. It carries the columns the page prints that
     // the pass source already joins, plus every sort key. The six and `total`
@@ -866,11 +874,13 @@ pub async fn list_members(
                FROM edge_sale es
                JOIN edge_sale_line esl ON esl.sale_id = es.sale_id
               WHERE es.customer_id = m.member_id
-                AND es.status = 'COMPLETED')".to_owned(),
+                AND es.status = 'COMPLETED')"
+                .to_owned(),
             "(SELECT COALESCE(sum(v.balance_minor), 0)::bigint
                FROM voucher v
               WHERE v.member_id = m.member_id
-                AND v.status = 'ACTIVE')".to_owned(),
+                AND v.status = 'ACTIVE')"
+                .to_owned(),
         )
     };
 
@@ -952,14 +962,15 @@ pub async fn list_members(
             member_count: 0,
             next_cursor: None,
             total: 0,
-            facets: MemberFacets { segments: Vec::new() },
+            facets: MemberFacets {
+                segments: Vec::new(),
+            },
         });
     };
     let total: i64 = counted.try_get("total")?;
     let member_count: i64 = counted.try_get("member_count")?;
-    let mut segments: Vec<MemberFacet> = serde_json::from_value(
-        counted.try_get::<serde_json::Value, _>("facets")?,
-    )?;
+    let mut segments: Vec<MemberFacet> =
+        serde_json::from_value(counted.try_get::<serde_json::Value, _>("facets")?)?;
 
     let page: Vec<PgRow> = rows
         .into_iter()

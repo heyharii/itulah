@@ -323,60 +323,57 @@ pub async fn match_unmatched_sale(
     {
         return Err(AppError::NotFound(format!("SKU {sku_code}")));
     }
-    let nothing_there = || {
-        AppError::Conflict(format!(
-            "{place_name} holds no {sku_code} on hand to take"
-        ))
-    };
+    let nothing_there =
+        || AppError::Conflict(format!("{place_name} holds no {sku_code} on hand to take"));
 
     let (matched_epc, movement_group_id, command_id): (Option<String>, Option<Uuid>, Option<Uuid>) =
         match inventory_owner_tx(&mut tx, &site_id).await? {
-        // A shop with its own server: its node lets the piece go.
-        Some(origin_id) => {
-            if !origin_takes_tx(&mut tx, &origin_id, UNMATCHED_SALE_TAKE_CAPABILITY).await? {
-                return Err(AppError::Conflict(format!(
+            // A shop with its own server: its node lets the piece go.
+            Some(origin_id) => {
+                if !origin_takes_tx(&mut tx, &origin_id, UNMATCHED_SALE_TAKE_CAPABILITY).await? {
+                    return Err(AppError::Conflict(format!(
                     "{place_name}'s server needs an update before head office can take a piece from it"
                 )));
-            }
-            let piece = sqlx::query(
-                "SELECT epc FROM edge_inventory_fact_position
+                }
+                let piece = sqlx::query(
+                    "SELECT epc FROM edge_inventory_fact_position
                   WHERE origin_id = $1 AND sku_code = $2 AND place_id ~ $3
                   ORDER BY (place_id LIKE '%.floor:on_hand') DESC, epc NULLS LAST, updated_at
                   LIMIT 1",
-            )
-            .bind(&origin_id)
-            .bind(&sku_code)
-            .bind(SALE_SOURCE_PLACE)
-            .fetch_optional(&mut *tx)
-            .await?
-            .ok_or_else(nothing_there)?;
-            let epc: Option<String> = piece.try_get("epc")?;
-            let payload = UnmatchedSaleTakePayload {
-                take_id: line_id,
-                site_id: origin_site_id_tx(&mut tx, &origin_id).await?,
-                sku_code: sku_code.clone(),
-                epc: epc.clone(),
-                sale_id,
-                sold_at_site_id: sold_at_site.clone(),
-                receipt_no: receipt_no.clone(),
-                matched_by: actor.to_owned(),
-            };
-            let command_id = issue_command_tx(
-                &mut tx,
-                INVENTORY_UNMATCHED_SALE_TAKE_V1,
-                &serde_json::to_value(&payload)?,
-                actor,
-                None,
-                std::slice::from_ref(&origin_id),
-            )
-            .await?;
-            (epc, None, Some(command_id))
-        }
-        // The centre keeps this place's ledger: the SALE movement is written
-        // here, in this transaction.
-        None => {
-            let piece = sqlx::query(
-                "SELECT pr.subject_id, pr.place_id, su.epc
+                )
+                .bind(&origin_id)
+                .bind(&sku_code)
+                .bind(SALE_SOURCE_PLACE)
+                .fetch_optional(&mut *tx)
+                .await?
+                .ok_or_else(nothing_there)?;
+                let epc: Option<String> = piece.try_get("epc")?;
+                let payload = UnmatchedSaleTakePayload {
+                    take_id: line_id,
+                    site_id: origin_site_id_tx(&mut tx, &origin_id).await?,
+                    sku_code: sku_code.clone(),
+                    epc: epc.clone(),
+                    sale_id,
+                    sold_at_site_id: sold_at_site.clone(),
+                    receipt_no: receipt_no.clone(),
+                    matched_by: actor.to_owned(),
+                };
+                let command_id = issue_command_tx(
+                    &mut tx,
+                    INVENTORY_UNMATCHED_SALE_TAKE_V1,
+                    &serde_json::to_value(&payload)?,
+                    actor,
+                    None,
+                    std::slice::from_ref(&origin_id),
+                )
+                .await?;
+                (epc, None, Some(command_id))
+            }
+            // The centre keeps this place's ledger: the SALE movement is written
+            // here, in this transaction.
+            None => {
+                let piece = sqlx::query(
+                    "SELECT pr.subject_id, pr.place_id, su.epc
                    FROM inventory_projection pr
                    JOIN inventory_place pl ON pl.id = pr.place_id
                    JOIN operational_pool op ON op.id = pl.pool_id
@@ -386,49 +383,52 @@ pub async fn match_unmatched_sale(
                   ORDER BY (pr.place_id LIKE '%.floor:on_hand') DESC, su.epc NULLS LAST,
                            pr.updated_at
                   LIMIT 1",
-            )
-            .bind(&site_id)
-            .bind(&sku_code)
-            .bind(SALE_SOURCE_PLACE)
-            .fetch_optional(&mut *tx)
-            .await?
-            .ok_or_else(nothing_there)?;
-            let subject_id: Uuid = piece.try_get("subject_id")?;
-            let place_id: String = piece.try_get("place_id")?;
-            let epc: Option<String> = piece.try_get("epc")?;
-            let from: Place = place_id
-                .parse()
-                .map_err(|e: crate::cloud::domain::PlaceError| AppError::Validation(e.to_string()))?;
-            let to: Place = "external/customer"
-                .parse()
-                .map_err(|e: crate::cloud::domain::PlaceError| AppError::Validation(e.to_string()))?;
-            let group_id = Uuid::new_v4();
-            let command = MovementCommand {
-                movement_group_id: MovementGroupId(group_id),
-                lines: vec![MovementLine {
-                    subject_id: SubjectId(subject_id),
-                    quantity: 1,
-                    from,
-                    to,
-                }],
-                cause: MovementCause::Sale,
-                reference_type: Some(UNMATCHED_SALE_REFERENCE.into()),
-                reference_id: Some(line_id.to_string()),
-                reason: format!(
-                    "Unmatched sale {} at {sold_at_site}, matched by head office",
-                    receipt_no.clone().unwrap_or_else(|| sale_id.to_string())
-                ),
-                actor_id: actor.to_owned(),
-                occurred_at: now,
-            };
-            validate_command(&command).map_err(|e| AppError::Validation(e.to_string()))?;
-            // One take per line, ever: the key cannot collide with another.
-            let movement_key = format!("unmatched-sale:{line_id}:take");
-            insert_group(&mut tx, &command, &movement_key, &digest).await?;
-            apply_lines(&mut tx, &command, &movement_key, &digest).await?;
-            (epc, Some(group_id), None)
-        }
-    };
+                )
+                .bind(&site_id)
+                .bind(&sku_code)
+                .bind(SALE_SOURCE_PLACE)
+                .fetch_optional(&mut *tx)
+                .await?
+                .ok_or_else(nothing_there)?;
+                let subject_id: Uuid = piece.try_get("subject_id")?;
+                let place_id: String = piece.try_get("place_id")?;
+                let epc: Option<String> = piece.try_get("epc")?;
+                let from: Place =
+                    place_id
+                        .parse()
+                        .map_err(|e: crate::cloud::domain::PlaceError| {
+                            AppError::Validation(e.to_string())
+                        })?;
+                let to: Place = "external/customer".parse().map_err(
+                    |e: crate::cloud::domain::PlaceError| AppError::Validation(e.to_string()),
+                )?;
+                let group_id = Uuid::new_v4();
+                let command = MovementCommand {
+                    movement_group_id: MovementGroupId(group_id),
+                    lines: vec![MovementLine {
+                        subject_id: SubjectId(subject_id),
+                        quantity: 1,
+                        from,
+                        to,
+                    }],
+                    cause: MovementCause::Sale,
+                    reference_type: Some(UNMATCHED_SALE_REFERENCE.into()),
+                    reference_id: Some(line_id.to_string()),
+                    reason: format!(
+                        "Unmatched sale {} at {sold_at_site}, matched by head office",
+                        receipt_no.clone().unwrap_or_else(|| sale_id.to_string())
+                    ),
+                    actor_id: actor.to_owned(),
+                    occurred_at: now,
+                };
+                validate_command(&command).map_err(|e| AppError::Validation(e.to_string()))?;
+                // One take per line, ever: the key cannot collide with another.
+                let movement_key = format!("unmatched-sale:{line_id}:take");
+                insert_group(&mut tx, &command, &movement_key, &digest).await?;
+                apply_lines(&mut tx, &command, &movement_key, &digest).await?;
+                (epc, Some(group_id), None)
+            }
+        };
 
     let match_doc = if site_id == sold_at_site {
         OWN_STOCK.to_owned()

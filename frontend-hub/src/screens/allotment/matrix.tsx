@@ -1065,7 +1065,47 @@ function NewAllotmentGrid() {
     done: number
     total: number
   } | null>(null)
+  /// The reads a save has already set going, so the way back to the list can
+  /// wait for them instead of starting a second set. Emptied when the next save
+  /// starts.
+  const refreshing = useRef<Promise<void> | null>(null)
+  /// Every read a save makes wrong: the book, the fleet's counts, and the
+  /// pool's availability — under both keys, because the list reads the pool as
+  /// `"whole"` and the held read this grid shares.
+  ///
+  /// Returns a promise, because the way back needs to wait for it — see
+  /// `backToList`.
+  const refreshAfterSave = useCallback(
+    (articleIds: readonly string[]) => {
+      const sourcePools = new Set(
+        articleIds.flatMap((id) =>
+          (standing.get(id)?.lines ?? []).map((line) => line.source_pool_id)
+        )
+      )
+      // A create always draws from this page's own pool, so it is read again
+      // even when the saved lines are already gone from the draft.
+      if (source !== "") sourcePools.add(source)
+      return Promise.all([
+        client.invalidateQueries({ queryKey: inventoryKeys.allotments() }),
+        client.invalidateQueries({ queryKey: inventoryKeys.fleet() }),
+        ...[...sourcePools].flatMap((sourcePool) => [
+          client.invalidateQueries({
+            queryKey: ["inventory", "availability", sourcePool],
+          }),
+          client.invalidateQueries({
+            queryKey: ["inventory", "availability", "whole", sourcePool],
+          }),
+        ]),
+      ]).then(() => undefined)
+    },
+    [client, standing, source]
+  )
   const create = useMutation({
+    /// A save is a new question about the pool, so the previous save's read is
+    /// no longer the one to wait for.
+    onMutate: () => {
+      refreshing.current = null
+    },
     mutationFn: async (articleIds: readonly string[]) => {
       const note = notes.trim() === "" ? null : notes
       const batches = articleIds
@@ -1136,26 +1176,21 @@ function NewAllotmentGrid() {
         }
       }
     },
+    // Nothing left to allot: the page closes by itself, no X needed (owner,
+    // 25 Oct 2026). A re-allot is one allotment's article and ends with it.
+    onSuccess: async () => {
+      const left = steps.some((one) =>
+        one.articles.some((id) => !saved.current.has(id))
+      )
+      if (!left) await backToList()
+    },
     onSettled: (_result, _error, articleIds) => {
       setProgress(null)
-      client.invalidateQueries({ queryKey: inventoryKeys.allotments() })
-      // Availability is keyed per source pool — and per pool again under
-      // "whole", the matrix's held read — so only the pools this save drew
-      // from need to answer again.
-      const sourcePools = new Set(
-        articleIds.flatMap((id) =>
-          (standing.get(id)?.lines ?? []).map((line) => line.source_pool_id)
-        )
-      )
-      for (const sourcePool of sourcePools) {
-        client.invalidateQueries({
-          queryKey: ["inventory", "availability", sourcePool],
-        })
-        client.invalidateQueries({
-          queryKey: ["inventory", "availability", "whole", sourcePool],
-        })
-      }
-      client.invalidateQueries({ queryKey: inventoryKeys.fleet() })
+      // The way back (when nothing was left) has already asked, and the list
+      // paints those answers the moment it mounts: asking again here would only
+      // read the same pool twice.
+      if (refreshing.current === null)
+        refreshing.current = refreshAfterSave(articleIds)
     },
   })
 
@@ -1311,7 +1346,21 @@ function NewAllotmentGrid() {
 
   /// Back to the Allotments page's Unallotted tab, with every supplier's
   /// articles still ticked there — less the ones saved, which are allotted.
-  const backToList = () => {
+  ///
+  /// What a save took is read again **before** the page goes. The list draws
+  /// the same pool read, so leaving first makes it paint the articles that were
+  /// just allotted until the fresh read lands — on a slow link, long enough to
+  /// tick them again and be refused. A plain Close saved nothing and waits for
+  /// nothing.
+  const backToList = async () => {
+    if (saved.current.size > 0) {
+      // The save's own read, if it is already going, is the one to wait for;
+      // otherwise the way back starts it (the page closes by itself before
+      // the settle has had a chance to).
+      if (refreshing.current === null)
+        refreshing.current = refreshAfterSave([...saved.current])
+      await refreshing.current
+    }
     const left = steps
       .map((one) => ({
         supplier: one.supplier,

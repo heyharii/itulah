@@ -1,7 +1,9 @@
 import { useSyncExternalStore } from "react"
 
 import {
+  atHeadOffice,
   sell,
+  type AtHeadOffice,
   type Charge,
   type CouponAuthorization,
   type EdgeReply,
@@ -23,7 +25,7 @@ import {
 /// after the counter's switch is rebooted, or by a window that was closed and
 /// reopened overnight.
 ///
-/// # Four properties, and the lines that exist for them
+/// # Five properties, and the lines that exist for them
 ///
 /// **The idempotency key is minted once, at enqueue, and persisted with the
 /// sale.** Every attempt carries that same one, so the node recognises the
@@ -47,7 +49,18 @@ import {
 /// **Nothing the node has not acknowledged is ever dropped — a refusal
 /// included.** A refused sale was paid for, so it waits for a supervisor to
 /// resolve it (`resolveRefused`) and goes again (owner, 21 Oct 2026: "Jangan
-/// Discard, wajib diselesaikan"). Acknowledged sales age out; nothing else does.
+/// Discard, wajib diselesaikan"). Sales head office holds age out; nothing
+/// else does.
+///
+/// **Accepted is not done: head office holding it is.** If the store server's
+/// PC dies while the line to head office is down, a sale it took and had not
+/// sent exists nowhere but here. So an accepted entry waits
+/// (`headOffice: "waiting"`) until the node lists its key as at head office
+/// (`askHeadOffice`). A key the node says it never took — a replaced server —
+/// is kept as "needs-head-office" and never sent again from here: the old
+/// server may have sent it before it died, and a second delivery would be a
+/// second sale at head office. A node too old to be asked leaves accepted as
+/// done, as it always was.
 ///
 /// # What is deliberately not here
 ///
@@ -57,7 +70,8 @@ import {
 /// to retry. `till.tsx` flushes whenever it comes back to rest on the sale
 /// screen, and `app.tsx` ticks `pump` on whatever screen is up, the stopped
 /// door included: a sale already rung is owed to the store whichever screen the
-/// till is showing. This file decides what happens once it is woken.
+/// till is showing. This file decides what happens once it is woken — and
+/// `pump` is also when it asks what head office holds, every other tick.
 
 const STORAGE_KEY = "pos.outbox.v1"
 
@@ -71,9 +85,10 @@ const KEEP_SENT = 25
 /// There is no "sending" state and no attempt counter, because neither survives
 /// what this file is built for: a window killed mid-request leaves a row that
 /// is simply unsent, which is the truth and is safe to act on — the key it
-/// carries makes a second delivery a no-op at the node. Three states, read off
-/// two fields: `saleId` set means the node has it, `refused` means the node
-/// said no, and neither means it is still owed.
+/// carries makes a second delivery a no-op at the node. Its states, read off
+/// three fields: neither `saleId` nor `refused` means it is still owed,
+/// `refused` means the node said no, and `saleId` set means the node has it —
+/// and then `headOffice` says whether head office does.
 export type OutboxEntry = {
   /// This row's name, minted here. A row can be forgotten and a rung sale
   /// cannot, so the two never share an identifier.
@@ -81,6 +96,9 @@ export type OutboxEntry = {
   /// The node's name for it, once the node has accepted it. Null until then,
   /// and the only evidence in this file that a sale actually landed.
   readonly saleId: string | null
+  /// Where the sale stands with head office once the node has it; null until
+  /// then. See `HeadOffice`.
+  readonly headOffice: HeadOffice | null
   /// Minted once, at enqueue, and never again for this sale.
   readonly idempotencyKey: string
   /// When the cashier confirmed, which is when the money changed hands. Not
@@ -117,6 +135,16 @@ export type OutboxEntry = {
   /// its own record of each yes (`till_approval`, named by `approvalId`).
   readonly resolutions: readonly Resolution[]
 }
+
+/// Where a sale the node accepted stands with head office.
+///
+/// - `waiting`: the node has it and has not said head office does. Kept.
+/// - `held`: head office has it — or the node is too old to be asked, and
+///   then accepted is done, as it always was. Ages out with the last few.
+/// - `needs-head-office`: the node says it never took this key, so the server
+///   that did is gone. Kept, and never sent again from here: somebody at head
+///   office has to look for it.
+export type HeadOffice = "waiting" | "held" | "needs-head-office"
 
 /// One tag swapped on a refused sale: the tag the node would not sell, and the
 /// garment's real tag that went in its place.
@@ -181,6 +209,12 @@ export type OutboxView = {
   readonly unsent: number
   /// How many are waiting on a person rather than on the network.
   readonly refused: number
+  /// How many the node has and head office does not yet. Never a reason to
+  /// hold the drawer: the node is sending them.
+  readonly waiting: number
+  /// How many the node says it never took (a replaced server), kept here for
+  /// head office to look for.
+  readonly needsHeadOffice: number
   readonly flushing: boolean
 }
 
@@ -232,6 +266,16 @@ function revive(row: unknown): Mutable | null {
   return {
     localId: it.localId,
     saleId: typeof it.saleId === "string" ? it.saleId : null,
+    // An accepted row from before head office was asked about is asked now;
+    // a node too old to answer settles it as done, as that build did.
+    headOffice:
+      typeof it.saleId !== "string"
+        ? null
+        : it.headOffice === "held" ||
+            it.headOffice === "waiting" ||
+            it.headOffice === "needs-head-office"
+          ? it.headOffice
+          : "waiting",
     idempotencyKey: it.idempotencyKey,
     // A row written before this build knew about fees carries none, which is
     // the truth about it: that sale was rung without a bag on the bill.
@@ -306,14 +350,29 @@ const listeners = new Set<() => void>()
 const isOwed = (entry: OutboxEntry): boolean =>
   entry.saleId === null && !entry.refused
 
+/// Accepted, and head office has it: the only rows that may age out.
+const isDone = (entry: OutboxEntry): boolean =>
+  entry.saleId !== null && entry.headOffice === "held"
+
 function compose(): OutboxView {
   let unsent = 0
   let refused = 0
+  let waiting = 0
+  let needsHeadOffice = 0
   for (const entry of queue) {
     if (entry.refused) refused += 1
     else if (entry.saleId === null) unsent += 1
+    else if (entry.headOffice === "waiting") waiting += 1
+    else if (entry.headOffice === "needs-head-office") needsHeadOffice += 1
   }
-  return { entries: queue, unsent, refused, flushing: passes > 0 }
+  return {
+    entries: queue,
+    unsent,
+    refused,
+    waiting,
+    needsHeadOffice,
+    flushing: passes > 0,
+  }
 }
 
 /// Recomposed only when something actually changed, and handed out by identity.
@@ -366,15 +425,17 @@ function snapshot(): OutboxView {
   return view
 }
 
-/// How many sales the node has not acknowledged, owed and refused together —
-/// the number the Windows uninstaller is told (`app.tsx`). A number rather than
-/// the view, so a reader renders when the count moves and not on every pass.
+/// How many sales head office is not known to hold — owed, refused, waiting
+/// and needs-head-office together — the number the Windows uninstaller is told
+/// (`app.tsx`): uninstalling would delete the only copy this till has of each.
+/// A number rather than the view, so a reader renders when the count moves and
+/// not on every pass.
 export function useUnacknowledged(): number {
   return useSyncExternalStore(subscribe, unacknowledged, unacknowledged)
 }
 
 function unacknowledged(): number {
-  return view.unsent + view.refused
+  return view.unsent + view.refused + view.waiting + view.needsHeadOffice
 }
 
 // ── writing a sale down ─────────────────────────────────────────────────
@@ -393,6 +454,7 @@ export function enqueue(sale: SaleDraft): OutboxEntry {
   const entry: Mutable = {
     localId: mintKey(),
     saleId: null,
+    headOffice: null,
     idempotencyKey: mintKey(),
     takenAt: new Date().toISOString(),
     epcs: [...sale.epcs],
@@ -543,8 +605,12 @@ async function run(): Promise<void> {
       // Rust side — so the fallback is for an answer that should not exist. It
       // still counts as accepted, because 2xx *is* acceptance, and re-sending a
       // sale the node holds because its answer was oddly shaped would be a
-      // terminal sending on a loop.
-      patch(next, { saleId: reply.body.sale_id ?? "—", problem: null })
+      // terminal sending on a loop. Kept until head office has it too.
+      patch(next, {
+        saleId: reply.body.sale_id ?? "—",
+        headOffice: "waiting",
+        problem: null,
+      })
       ageOut()
       continue
     }
@@ -607,9 +673,106 @@ export async function flush(): Promise<FlushOutcome> {
 /// screen is up. Skipping a tick while a pass waits keeps a node that answers
 /// slowly from collecting a line of passes behind it, and `flush` still queues
 /// behind any pass that starts in between, so two never run at once.
+///
+/// Every other tick it also asks what head office holds (`askHeadOffice`),
+/// whether or not anything is owed.
 export function pump(): void {
+  ask()
   if (passes > 0 || !queue.some(isOwed)) return
   void flush()
+}
+
+// ── what head office holds ──────────────────────────────────────────────
+
+/// How long after one question the next may go. `app.tsx` ticks every 15 s, so
+/// this asks on every other tick: every 30 s. Not 30 000 exactly, or a tick a
+/// millisecond early would wait for the third.
+const ASK_AFTER_MS = 25_000
+
+/// The most keys one question carries: the node's own cap
+/// (`backend/src/edge/at_head_office.rs`).
+const ASK_AT_MOST = 200
+
+let askedAt = 0
+let asking = false
+
+/// Accepted, and head office not known to hold it.
+const unheld = (entry: OutboxEntry): boolean =>
+  entry.saleId !== null &&
+  (entry.headOffice === "waiting" || entry.headOffice === "needs-head-office")
+
+function ask(): void {
+  if (asking || Date.now() - askedAt < ASK_AFTER_MS) return
+  if (!queue.some(unheld)) return
+  asking = true
+  askedAt = Date.now()
+  void askHeadOffice().finally(() => {
+    asking = false
+  })
+}
+
+function isAnswer(body: unknown): body is AtHeadOffice {
+  if (typeof body !== "object" || body === null) return false
+  const it = body as Record<string, unknown>
+  return strings(it.at_head_office) && strings(it.waiting) && strings(it.unknown)
+}
+
+/// Ask the node, by idempotency key, which accepted sales head office holds.
+///
+/// Waiting ones first, oldest first, in batches of the node's cap. A
+/// needs-head-office one is asked too, so a node that does have it after all —
+/// the old server back on the counter — can still say so. Nothing here sends a
+/// sale: an unknown key is marked and kept, never put back in line.
+///
+/// A node that cannot be asked (an older build: 404, 405, or a 2xx that is not
+/// this answer) leaves accepted as done, as it was before. Any other failure is
+/// no answer at all, and everything stays as it was until the next question.
+async function askHeadOffice(): Promise<void> {
+  const asked = [
+    ...queue.filter((entry) => entry.saleId !== null && entry.headOffice === "waiting"),
+    ...queue.filter(
+      (entry) => entry.saleId !== null && entry.headOffice === "needs-head-office",
+    ),
+  ]
+  for (let at = 0; at < asked.length; at += ASK_AT_MOST) {
+    const batch = asked.slice(at, at + ASK_AT_MOST)
+    let reply: EdgeReply<AtHeadOffice>
+    try {
+      reply = await atHeadOffice(batch.map((entry) => entry.idempotencyKey))
+    } catch {
+      return
+    }
+    if (reply.ok && isAnswer(reply.body)) {
+      settle(batch, reply.body)
+      continue
+    }
+    if (reply.ok || reply.status === 404 || reply.status === 405) {
+      for (const entry of queue) {
+        if (entry.saleId !== null && entry.headOffice === "waiting") {
+          entry.headOffice = "held"
+        }
+      }
+      keep([...queue])
+      ageOut()
+    }
+    return
+  }
+}
+
+/// Write the node's answer onto the entries asked about. A key it did not
+/// mention stays as it was.
+function settle(batch: readonly Mutable[], answer: AtHeadOffice): void {
+  const held = new Set(answer.at_head_office)
+  const waiting = new Set(answer.waiting)
+  const unknown = new Set(answer.unknown)
+  for (const entry of batch) {
+    const key = entry.idempotencyKey
+    if (held.has(key)) entry.headOffice = "held"
+    else if (unknown.has(key)) entry.headOffice = "needs-head-office"
+    else if (waiting.has(key)) entry.headOffice = "waiting"
+  }
+  keep([...queue])
+  ageOut()
 }
 
 /// Why something is still owed, in the words most likely to be about the sale
@@ -627,14 +790,15 @@ function reason(stuck: readonly Mutable[]): string {
   return "The sale is saved on this terminal, but the node has not accepted it yet."
 }
 
-/// Let acknowledged sales age out, and nothing else.
+/// Let sales head office holds age out, and nothing else.
 ///
-/// The node has these; the queue keeps them only so the last few minutes at the
-/// counter can still be read back. Owed and refused rows are never touched here
-/// — the queue grows only while the shop is trading and the node is not
-/// listening, which is exactly the moment when nothing may be thrown away.
+/// Head office has these; the queue keeps them only so the last few minutes at
+/// the counter can still be read back. Owed, refused, waiting and
+/// needs-head-office rows are never touched here — the queue grows only while
+/// the shop is trading and the node or head office is not listening, which is
+/// exactly the moment when nothing may be thrown away.
 function ageOut(): void {
-  const done = queue.filter((entry) => entry.saleId !== null)
+  const done = queue.filter(isDone)
   if (done.length <= KEEP_SENT) return
   const going = new Set(done.slice(0, done.length - KEEP_SENT))
   keep(queue.filter((entry) => !going.has(entry)))

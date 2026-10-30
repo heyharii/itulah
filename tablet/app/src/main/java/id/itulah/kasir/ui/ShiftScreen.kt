@@ -45,6 +45,10 @@ import id.itulah.kasir.data.ShiftReport
 fun ShiftScreen(
     shift: ShiftReport?,
     busy: Boolean,
+    /// Sales the store server has not taken yet, and sales it refused. The
+    /// drawer cannot be closed while either is above nil.
+    unsent: Int,
+    refused: Int,
     onOpen: (Long) -> Unit,
     onMovement: (kind: String, amountMinor: Long, reason: String) -> Unit,
     onClose: (Long, String?) -> Unit,
@@ -95,7 +99,7 @@ fun ShiftScreen(
         Spacer(Modifier.height(12.dp))
         CashMovement(busy, onMovement)
         Spacer(Modifier.height(12.dp))
-        CloseShift(busy, onClose)
+        CloseShift(busy, unsent, refused, onClose)
     }
 }
 
@@ -179,12 +183,38 @@ private fun CashMovement(busy: Boolean, onMovement: (String, Long, String) -> Un
 }
 
 @Composable
-private fun CloseShift(busy: Boolean, onClose: (Long, String?) -> Unit) {
+private fun CloseShift(busy: Boolean, unsent: Int, refused: Int, onClose: (Long, String?) -> Unit) {
     var counted by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
+    // A sale the store server has not acknowledged belongs to this drawer, and
+    // closing fixes what the drawer should hold. Closed first, it would arrive
+    // afterwards as cash nobody counted. A refused one does not hold the shift
+    // open: this tablet has no way to put it right (the desktop till's
+    // "Selesaikan" needs the store head), so it stays listed here and on the
+    // desk, and its money shows up as a drawer surplus head office can trace.
+    val owed = unsent
     Card(Modifier.fillMaxWidth()) {
         SectionLabel("Tutup shift")
         Spacer(Modifier.height(6.dp))
+        if (unsent > 0 || refused > 0) {
+            val why = buildList<String> {
+                if (unsent > 0) {
+                    add(
+                        "$unsent penjualan belum terkirim ke server toko — tunggu sampai " +
+                            "terkirim sebelum tutup shift.",
+                    )
+                }
+                if (refused > 0) {
+                    add(
+                        "$refused penjualan ditolak server toko — tetap tersimpan di tablet " +
+                            "ini. Uangnya akan terlihat sebagai selisih laci; laporkan ke " +
+                            "kepala toko.",
+                    )
+                }
+            }
+            Notice(text = why.joinToString("\n"), bad = refused > 0, warn = refused == 0)
+            Spacer(Modifier.height(10.dp))
+        }
         Text(
             "Hitung laci dulu, baru isi angkanya. Selisihnya muncul setelah " +
                 "dikirim — bukan sebelum.",
@@ -213,7 +243,7 @@ private fun CloseShift(busy: Boolean, onClose: (Long, String?) -> Unit) {
             "Tutup shift",
             { onClose(Money.parse(counted), note.takeIf { it.isNotBlank() }) },
             Modifier.fillMaxWidth(),
-            enabled = counted.isNotBlank(),
+            enabled = counted.isNotBlank() && owed == 0,
             busy = busy,
         )
     }

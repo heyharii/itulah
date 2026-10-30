@@ -169,7 +169,9 @@ pub fn read_number(text: &str) -> Option<Decimal> {
     let thousands = !rest.is_empty()
         && lead.len() <= 3
         && all_digits(lead)
-        && rest.iter().all(|group| group.len() == 3 && all_digits(*group))
+        && rest
+            .iter()
+            .all(|group| group.len() == 3 && all_digits(*group))
         && fraction.is_none_or(all_digits);
     let plain = if thousands {
         text.replace('.', "").replace(',', ".")

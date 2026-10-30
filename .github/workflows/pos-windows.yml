@@ -134,12 +134,127 @@ jobs:
             throw "ZKFinger-setup.exe is not the verified ZKFinger SDK 5.3.0.33 installer: $hash"
           }
 
+      # Checks that report but do not stop the run, so one build shows every
+      # problem at once.
+      - name: Check formatting
+        continue-on-error: true
+        run: cargo fmt --manifest-path pos-desktop/src-tauri/Cargo.toml --check
+
+      - name: Type-check the POS UI
+        continue-on-error: true
+        working-directory: pos-desktop/ui
+        run: npm run typecheck
+
+      - name: Clippy
+        continue-on-error: true
+        run: cargo clippy --manifest-path pos-desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
+
       - name: Test POS native commands
         run: cargo test --manifest-path pos-desktop/src-tauri/Cargo.toml --lib
+
+      # No scanner on a runner, but everything short of one can be proved: the
+      # vendor installer runs silently, libzkfp.dll lands in System32 and loads
+      # with its imports, every export fingerprint.rs binds resolves, and the
+      # SDK initialises, counts zero scanners, and builds and frees a 1:N cache.
+      - name: Install the ZKFinger driver and probe libzkfp.dll
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = Join-Path $env:GITHUB_WORKSPACE 'pos-desktop/src-tauri/fingerprint-native/ZKFinger-setup.exe'
+          $p = Start-Process $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-',"/LOG=$env:RUNNER_TEMP\zk-install.log" -PassThru
+          if (-not $p.WaitForExit(300000)) { $p.Kill(); Get-Content "$env:RUNNER_TEMP\zk-install.log" -Tail 60 -ErrorAction SilentlyContinue; throw 'ZKFinger installer did not finish in 5 minutes' }
+          Write-Host "installer exit code: $($p.ExitCode)"
+          Get-Content "$env:RUNNER_TEMP\zk-install.log" -Tail 40 -ErrorAction SilentlyContinue
+          $dll = Join-Path $env:SystemRoot 'System32\libzkfp.dll'
+          if (-not (Test-Path $dll)) { throw "libzkfp.dll is not in System32 after the install" }
+          Write-Host "libzkfp.dll $((Get-Item $dll).VersionInfo.FileVersion) $((Get-FileHash $dll).Hash)"
+          foreach ($n in 'ZKFPCap.dll','fpslib.dll') {
+            Write-Host "$n : $(Test-Path (Join-Path $env:SystemRoot "System32\$n"))"
+          }
+
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.Runtime.InteropServices;
+          public static class Zk {
+            [DllImport("kernel32", SetLastError=true, CharSet=CharSet.Unicode)] public static extern IntPtr LoadLibraryExW(string p, IntPtr h, uint f);
+            [DllImport("kernel32", CharSet=CharSet.Ansi)] public static extern IntPtr GetProcAddress(IntPtr m, string n);
+            public delegate int Int0();
+            public delegate IntPtr Ptr0();
+            public delegate int Free1(IntPtr h);
+          }
+          '@
+          $lib = [Zk]::LoadLibraryExW($dll, [IntPtr]::Zero, 8)   # LOAD_WITH_ALTERED_SEARCH_PATH, as fingerprint.rs
+          if ($lib -eq [IntPtr]::Zero) { throw "libzkfp.dll did not load: Win32 error $([Runtime.InteropServices.Marshal]::GetLastWin32Error())" }
+          $want = @(
+            @('ZKFPM_Init'), @('ZKFPM_Terminate'), @('ZKFPM_GetDeviceCount'), @('ZKFPM_OpenDevice'),
+            @('ZKFPM_CloseDevice'), @('ZKFPM_GetParameters'), @('ZKFPM_AcquireFingerprint'),
+            @('ZKFPM_DBInit','ZKFPM_CreateDBCache'), @('ZKFPM_DBFree','ZKFPM_CloseDBCache'),
+            @('ZKFPM_DBAdd','ZKFPM_AddRegTemplateToDBCache'), @('ZKFPM_DBIdentify','ZKFPM_Identify'),
+            @('ZKFPM_DBMatch','ZKFPM_MatchFinger'), @('ZKFPM_DBMerge','ZKFPM_GenRegTemplate')
+          )
+          $addr = @{}
+          $missing = @()
+          foreach ($names in $want) {
+            $hit = $names | Where-Object { [Zk]::GetProcAddress($lib, $_) -ne [IntPtr]::Zero } | Select-Object -First 1
+            if ($hit) { $addr[$names[0]] = [Zk]::GetProcAddress($lib, $hit); Write-Host "export ok: $hit" } else { $missing += $names[0] }
+          }
+          if ($missing) { throw "libzkfp.dll lacks: $($missing -join ', ')" }
+
+          $init  = [Runtime.InteropServices.Marshal]::GetDelegateForFunctionPointer($addr['ZKFPM_Init'], [Zk+Int0])
+          $count = [Runtime.InteropServices.Marshal]::GetDelegateForFunctionPointer($addr['ZKFPM_GetDeviceCount'], [Zk+Int0])
+          $dbi   = [Runtime.InteropServices.Marshal]::GetDelegateForFunctionPointer($addr['ZKFPM_DBInit'], [Zk+Ptr0])
+          $dbf   = [Runtime.InteropServices.Marshal]::GetDelegateForFunctionPointer($addr['ZKFPM_DBFree'], [Zk+Free1])
+          $term  = [Runtime.InteropServices.Marshal]::GetDelegateForFunctionPointer($addr['ZKFPM_Terminate'], [Zk+Int0])
+          $a = $init.Invoke();  Write-Host "ZKFPM_Init -> $a"
+          $c = $count.Invoke(); Write-Host "ZKFPM_GetDeviceCount -> $c (no scanner on a runner)"
+          $h = $dbi.Invoke();   Write-Host "ZKFPM_DBInit -> $h"
+          if ($h -eq [IntPtr]::Zero) { throw 'ZKFPM_DBInit returned no cache' }
+          Write-Host "ZKFPM_DBFree -> $($dbf.Invoke($h))"
+          Write-Host "ZKFPM_Terminate -> $($term.Invoke())"
+          if ($a -ne 0 -and $a -ne 1) { throw "ZKFPM_Init answered $a" }
 
       - name: Build the Windows installer
         working-directory: pos-desktop
         run: npm exec --yes --package=@tauri-apps/cli@2.11.5 -- tauri build --config src-tauri/tauri.windows.conf.json
+
+      # Install the MSI as a shop would, start the till, and prove it stays
+      # up with its window drawn.
+      - name: Install the MSI and start the till
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          New-Item -ItemType Directory -Force shots | Out-Null
+          $msi = Get-ChildItem pos-desktop/src-tauri/target/release/bundle/msi/*.msi | Select-Object -First 1
+          $p = Start-Process msiexec -ArgumentList "/i `"$($msi.FullName)`" /qn /l*v pos-install.log" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content pos-install.log -Tail 60; throw "POS install: $($p.ExitCode)" }
+          $exe = Get-ChildItem 'C:\Program Files\Central POS\*.exe', "$env:LOCALAPPDATA\Programs\Central POS\*.exe" -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -notmatch 'uninstall' } | Select-Object -First 1
+          if (-not $exe) { throw 'Central POS is not where the installer puts it' }
+          $dir = $exe.DirectoryName
+          foreach ($f in 'rfid-native\UHFAPI.dll','rfid-native\libusb-1.0.dll','fingerprint-native\ZKFinger-setup.exe') {
+            if (-not (Test-Path (Join-Path $dir $f))) { throw "installed app lacks $f" }
+          }
+          $app = Start-Process $exe.FullName -PassThru
+          Start-Sleep -Seconds 30
+          $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+          $g = [System.Drawing.Graphics]::FromImage($bmp)
+          $g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+          $bmp.Save('shots/pos-after-30s.png', [System.Drawing.Imaging.ImageFormat]::Png)
+          $alive = -not $app.HasExited
+          Write-Host "till still running after 30 s: $alive"
+          Get-Process msedgewebview2 -ErrorAction SilentlyContinue | Measure-Object | ForEach-Object { Write-Host "webview2 processes: $($_.Count)" }
+          if (-not $alive) { throw "the till exited with code $($app.ExitCode)" }
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pos-windows-shots-${{ github.sha }}
+          path: |
+            shots/
+            pos-install.log
+          if-no-files-found: ignore
 
       - uses: actions/upload-artifact@v4
         with:

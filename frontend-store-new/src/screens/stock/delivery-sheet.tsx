@@ -19,6 +19,7 @@ import {
   identitiesKey,
   inboundDeliveryKey,
   inboundListKey,
+  inventoryKey,
   onHoldKey,
   receiveInboundByCount,
 } from "@/lib/queries"
@@ -312,6 +313,8 @@ function useCountReceive(
         queryKey: inboundDeliveryKey(delivery.delivery_id),
       })
       void client.invalidateQueries({ queryKey: onHoldKey() })
+      // What was booked is stock now: balances and ledger read again.
+      void client.invalidateQueries({ queryKey: inventoryKey() })
     },
   })
 
@@ -479,7 +482,8 @@ function ArticleThumb({
 /// the node's identity table for the unpriced SKUs the catalogue drops.
 ///
 /// What the shop counts beyond what was sent is not booked: it waits on hold
-/// until MD answers (`Receive` › On hold).
+/// until MD answers (this sheet's In review; Stock › To be returned › Over
+/// delivery).
 ///
 /// A quantity on a phone is picked on the number pad (the `Input` opens it), so
 /// the keyboard never covers the row being counted.

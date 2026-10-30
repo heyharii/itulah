@@ -130,7 +130,9 @@ pub async fn logout() -> Result<(), AppError> {
         .header("x-gateway-key", &gateway.key)
         .send()
         .await
-        .map_err(|error| AppError::Conflict(format!("the WhatsApp gateway did not answer: {error}")))?;
+        .map_err(|error| {
+            AppError::Conflict(format!("the WhatsApp gateway did not answer: {error}"))
+        })?;
     if response.status().is_success() {
         Ok(())
     } else {
@@ -144,8 +146,9 @@ pub async fn logout() -> Result<(), AppError> {
 /// Send `text` to a member's number. Answers WhatsApp's message id.
 pub async fn send(phone: &str, text: &str) -> Result<String, AppError> {
     let gateway = gateway().ok_or_else(not_set_up)?;
-    let to = wa_number(phone)
-        .ok_or_else(|| AppError::Validation(format!("{phone} is not a phone number WhatsApp can reach")))?;
+    let to = wa_number(phone).ok_or_else(|| {
+        AppError::Validation(format!("{phone} is not a phone number WhatsApp can reach"))
+    })?;
     let response = gateway
         .client
         .post(format!("{}/send", gateway.url))
@@ -153,7 +156,9 @@ pub async fn send(phone: &str, text: &str) -> Result<String, AppError> {
         .json(&json!({ "to": to, "text": text }))
         .send()
         .await
-        .map_err(|error| AppError::Conflict(format!("the WhatsApp gateway did not answer: {error}")))?;
+        .map_err(|error| {
+            AppError::Conflict(format!("the WhatsApp gateway did not answer: {error}"))
+        })?;
     let status = response.status();
     let body: Value = response.json().await.unwrap_or(Value::Null);
     if status.is_success() {
@@ -163,11 +168,17 @@ pub async fn send(phone: &str, text: &str) -> Result<String, AppError> {
             .unwrap_or_default()
             .to_string());
     }
-    let error = body.get("error").and_then(Value::as_str).unwrap_or_default();
+    let error = body
+        .get("error")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     Err(match error {
-        "not_on_whatsapp" => AppError::Unprocessable(format!("{} is not on WhatsApp", masked(phone))),
+        "not_on_whatsapp" => {
+            AppError::Unprocessable(format!("{} is not on WhatsApp", masked(phone)))
+        }
         "not_connected" => AppError::Conflict(
-            "head office's WhatsApp is not connected: scan its QR in Central, System, WhatsApp".into(),
+            "head office's WhatsApp is not connected: scan its QR in Central, System, WhatsApp"
+                .into(),
         ),
         "rate_limited" => {
             AppError::Conflict("too many WhatsApp messages this minute: try again shortly".into())
@@ -175,7 +186,9 @@ pub async fn send(phone: &str, text: &str) -> Result<String, AppError> {
         "send_timeout" => AppError::Conflict(
             "WhatsApp did not confirm the message in time: it may still arrive".into(),
         ),
-        _ => AppError::Conflict(format!("WhatsApp did not send the message ({status} {error})")),
+        _ => AppError::Conflict(format!(
+            "WhatsApp did not send the message ({status} {error})"
+        )),
     })
 }
 
@@ -243,7 +256,10 @@ mod tests {
     #[test]
     fn a_local_number_reaches_whatsapp_with_62() {
         assert_eq!(wa_number("081234567890").as_deref(), Some("6281234567890"));
-        assert_eq!(wa_number("+62 812-3456-7890").as_deref(), Some("6281234567890"));
+        assert_eq!(
+            wa_number("+62 812-3456-7890").as_deref(),
+            Some("6281234567890")
+        );
         assert_eq!(wa_number("6281234567890").as_deref(), Some("6281234567890"));
     }
 

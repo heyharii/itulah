@@ -205,6 +205,8 @@ async fn a_gift_card_is_spent_once(pool: PgPool) {
             expires_at: None,
             site_id: None,
             note: None,
+            // A card that keeps its rest, not a paper voucher (postgres 1006).
+            single_use: Some(false),
         },
         ACTOR,
         "race-issue",
@@ -480,7 +482,12 @@ async fn a_member_has_one_live_redeem_request(pool: PgPool) {
             cloud::ask_redeem_request(&pool, &member, 300, asker()),
             cloud::ask_redeem_request(&pool, &member, 300, asker())
         );
-        assert!(a.is_ok() && b.is_ok(), "attempt {attempt}: {:?} / {:?}", a.map(|_| ()), b.map(|_| ()));
+        assert!(
+            a.is_ok() && b.is_ok(),
+            "attempt {attempt}: {:?} / {:?}",
+            a.map(|_| ()),
+            b.map(|_| ())
+        );
         let live: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM member_redeem_request
               WHERE member_id = $1 AND confirmed_at IS NULL AND cancelled_at IS NULL",
@@ -489,7 +496,10 @@ async fn a_member_has_one_live_redeem_request(pool: PgPool) {
         .fetch_one(&pool)
         .await
         .unwrap_or_else(|error| panic!("count: {error}"));
-        assert_eq!(live, 1, "attempt {attempt}: {live} live requests for {member}");
+        assert_eq!(
+            live, 1,
+            "attempt {attempt}: {live} live requests for {member}"
+        );
     }
 }
 
@@ -731,6 +741,8 @@ async fn a_redemption_cannot_spend_what_a_checkout_holds(pool: PgPool) {
             expires_at: None,
             site_id: None,
             note: None,
+            // A card that keeps its rest, not a paper voucher (postgres 1006).
+            single_use: Some(false),
         },
         ACTOR,
         "hold-issue",

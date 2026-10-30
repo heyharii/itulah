@@ -1,0 +1,2 @@
+/* BKM and BKK as 7Soft draws them: the replica built from the manual's own screenshots */
+;['bkm-bkk', 'replica'].forEach(id => reg7({ id, manual: 'Manual hal. 179–187 · replica built from the screenshots', render: () => `<iframe title="7Soft BKM and BKK" src="7soft-bkm-bkk-prototype.html" style="width:100%;height:calc(100vh - 220px);min-height:720px;border:1px solid var(--hairline);border-radius:var(--r-card);background:#fff"></iframe>` }))

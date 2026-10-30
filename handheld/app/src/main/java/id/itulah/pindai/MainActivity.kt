@@ -26,6 +26,7 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.MoveToInbox
 import androidx.compose.material.icons.outlined.Checklist
 import androidx.compose.material.icons.outlined.Science
+import androidx.compose.material.icons.outlined.Verified
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -50,6 +51,7 @@ import id.itulah.pindai.core.Reader
 import id.itulah.pindai.core.Trigger
 import id.itulah.pindai.data.CatalogStore
 import id.itulah.pindai.data.ConfigStore
+import id.itulah.pindai.data.NodeRole
 import id.itulah.pindai.screens.*
 import id.itulah.pindai.ui.kit.Chip
 import id.itulah.pindai.ui.theme.*
@@ -192,6 +194,9 @@ private enum class Tab(val label: String, val icon: ImageVector, val mode: Mode?
     PACKING("Packing", Icons.Outlined.Inventory2, Mode.PACKING),
     RECEIVING("Receive", Icons.Outlined.MoveToInbox, Mode.RECEIVING),
     COUNT("Count", Icons.Outlined.Checklist, Mode.COUNT),
+    // Verify koli (owner, 25 Oct 2026): the stores Packed sends. A Gudang's
+    // job, so only a handheld at the Gudang shows it. See VerifyScreen.
+    VERIFY("Verify", Icons.Outlined.Verified, Mode.VERIFY),
     // The bench gets a tab of its own, because an instrument that cannot be
     // reached is an instrument that does not exist. See LabScreen.
     LAB("Lab", Icons.Outlined.Science, null),
@@ -266,7 +271,13 @@ private fun Shell(
         onDispose { window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
     }
 
+    // Which node this is decides whether Verify is offered. Asked on every tab
+    // change because Setelan can repoint the handheld; the answer is cached
+    // per node, so asking again costs nothing when nothing moved.
+    val atGudang = state.slice { it.nodeRole == NodeRole.DC }.value
+
     LaunchedEffect(tab) {
+        vm.resolveNodeRole()
         tab.mode?.let { mode ->
             // A refused switch puts the bar back on the job that is still open.
             // A delivery half swept keeps its sweep across pulls, so "finish
@@ -361,7 +372,7 @@ private fun Shell(
         // sweep's own result, where it can say what it is about; putting it
         // back as furniture over every screen is not the answer.
 
-        TabBar(tab, Modifier.align(Alignment.BottomCenter)) { next ->
+        TabBar(tab, atGudang, Modifier.align(Alignment.BottomCenter)) { next ->
             previous = tab; tab = next; showSessions = false
         }
     }
@@ -422,10 +433,18 @@ private val TabGap = 14.dp
  * handheld with a smaller panel turns up.
  */
 @Composable
-private fun TabBar(selected: Tab, modifier: Modifier = Modifier, onSelect: (Tab) -> Unit) {
+private fun TabBar(
+    selected: Tab,
+    atGudang: Boolean,
+    modifier: Modifier = Modifier,
+    onSelect: (Tab) -> Unit,
+) {
     // The Lab is a bench instrument: it retunes the radio mid-shift and can
     // make foreign tags count as stock. It does not appear on a shop floor.
-    val tabs = Tab.entries.filter { BuildConfig.BENCH || it != Tab.LAB }
+    // Nor does Verify, which reads koli before they leave the Gudang.
+    val tabs = Tab.entries.filter {
+        (BuildConfig.BENCH || it != Tab.LAB) && (atGudang || it != Tab.VERIFY || it == selected)
+    }
     val width = LocalConfiguration.current.screenWidthDp.dp
     val size = minOf(
         TabSquircle,

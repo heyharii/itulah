@@ -18,6 +18,10 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use uuid::Uuid;
 
+use super::point_policy::PointPolicySnapshot;
+use super::receipt_header::ReceiptHeader;
+use super::return_policy::ReturnPolicySnapshot;
+
 /// One fact on the wire and in the log.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SyncFact {
@@ -1505,6 +1509,16 @@ pub struct AuthPolicyDevice {
     pub valid_until: DateTime<Utc>,
 }
 
+/// One EDC machine Finance holds against a site (`edc_terminal`), carried so
+/// Tutup kasir can ask every machine for its slip count even in a shift that
+/// took no card. No key and no lease: an EDC is not a node, and the register
+/// links it to its site rather than to a server.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct AuthPolicyEdcMachine {
+    pub machine_id: String,
+    pub label: String,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct AuthPolicySnapshot {
     pub snapshot_id: Uuid,
@@ -1560,6 +1574,47 @@ pub struct AuthPolicySnapshot {
     /// reason as `site`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pos_stops: Option<PosStops>,
+    /// Until when a FINGER still lets each person in here, by user id
+    /// (`edge::auth`, sqlite 0095). A finger proves the person is standing at
+    /// the till, so it may outlive the password lease in `users` — 24 hours at
+    /// most for a store head or an admin — and a store cut off from head office
+    /// for longer can still be opened, and a void approved, by its head. Never
+    /// earlier than the person's `valid_until`. A person not named here, or a
+    /// policy from an older centre, is let in by a finger exactly as long as by
+    /// a password. Beside `users` rather than inside them, and outside the
+    /// hash, for the same reason as `device_kinds`: an older node hashes each
+    /// user field by field, and a field it does not know would fail every
+    /// policy it receives.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub finger_valid_until: BTreeMap<Uuid, DateTime<Utc>>,
+    /// The EDC machines Finance holds against this site (`edc_terminal`), so
+    /// Tutup kasir asks every machine for a slip count even when the shift
+    /// took no card. `Some(empty)` clears the node's book; absent from an
+    /// older centre, which the node reads as "no word" and keeps what it had.
+    /// Outside the hash for the same reason as `site`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edc_machines: Option<Vec<AuthPolicyEdcMachine>>,
+    /// The return promise this node prints and enforces (postgres 1005): the
+    /// fleet's window, the exceptions and the two conditions on the paper.
+    ///
+    /// Beside the policy rather than inside it, and outside `content_hash`,
+    /// for the reason every other late field here is: an older node hashes the
+    /// users and devices it knows and would refuse a policy carrying a field
+    /// it does not — locking its users out over a return window. The command
+    /// lane is signed. `Some` replaces what the node held; absent from an
+    /// older centre means "no word" and keeps it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub return_policy: Option<ReturnPolicySnapshot>,
+    /// The point policy this node earns by (postgres 1008), beside the return
+    /// promise and outside `content_hash` for the same reason. `Some` replaces
+    /// what the node held; absent keeps it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub point_policy: Option<PointPolicySnapshot>,
+    /// The picture this store prints at the top of a receipt (postgres 1009),
+    /// outside `content_hash` for the same reason. `Some` replaces what the
+    /// node held — an empty one clears it; absent keeps it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub receipt_header: Option<ReceiptHeader>,
 }
 
 /// What head office has stopped on one node's POS (postgres 0990). A till

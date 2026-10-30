@@ -29,12 +29,18 @@ export interface StockSku extends Counts {
   readonly label: string
   /// A swatch's CSS background.
   readonly paint: string
+  /// Whether the price book holds a photograph of this SKU.
+  readonly hasImage: boolean
 }
 
 export interface StockArticle {
   readonly key: string
   readonly name: string
   readonly division: string | null
+  /// Every tag any SKU of the article carries.
+  readonly tags: readonly string[]
+  /// The SKU whose photograph stands for the article, when one has a photograph.
+  readonly photoSku: string | null
   readonly skus: readonly StockSku[]
 }
 
@@ -54,6 +60,15 @@ export function articlesOf(
   const division = new Map<string, string | null>()
   for (const row of rows)
     division.set(row.article_code ?? row.sku_code, row.division_code)
+  const tagsOf = new Map<string, Set<string>>()
+  const photoOf = new Map<string, string>()
+  for (const row of rows) {
+    const key = row.article_code ?? row.sku_code
+    const tags = tagsOf.get(key) ?? new Set<string>()
+    for (const tag of row.tags) tags.add(tag)
+    tagsOf.set(key, tags)
+    if (row.has_image && !photoOf.has(key)) photoOf.set(key, row.sku_code)
+  }
   const out: StockArticle[] = []
   const listed = new Set(rows.map((row) => row.sku_code))
   for (const [key, shape] of shapeBook(rows)) {
@@ -71,6 +86,7 @@ export function articlesOf(
           sku: row.sku_code,
           label: [colour.label, size].filter(Boolean).join(" ") || row.name,
           paint: swatchBackground(colour.paint),
+          hasImage: row.has_image,
           floor: has?.floor ?? 0,
           warehouse: has?.warehouse ?? 0,
           reject: has?.reject ?? 0,
@@ -83,6 +99,8 @@ export function articlesOf(
       key,
       name: shape.name,
       division: division.get(key) ?? null,
+      tags: [...(tagsOf.get(key) ?? [])].sort(),
+      photoSku: photoOf.get(key) ?? null,
       skus,
     })
   }
@@ -94,11 +112,14 @@ export function articlesOf(
       key: code,
       name: skuText(code),
       division: null,
+      tags: [],
+      photoSku: null,
       skus: [
         {
           sku: code,
           label: skuText(code),
           paint: swatchBackground([]),
+          hasImage: false,
           floor: has.floor,
           warehouse: has.warehouse,
           reject: has.reject ?? 0,
@@ -111,48 +132,24 @@ export function articlesOf(
   return out.sort((a, b) => a.name.localeCompare(b.name))
 }
 
-export const SHOWS = [
-  ["stock", "In stock"],
-  ["all", "Everything"],
-  ["gap", "Not in Store"],
-] as const
-
-export type Show = (typeof SHOWS)[number][0]
-
-/// Whether a row is listed: "In stock" asks only of the places on screen, so
-/// the Warehouse slice lists what the warehouse holds and nothing else.
-export function held(sku: Counts, show: Show, pools: readonly Figure[]): boolean {
-  switch (show) {
-    case "stock":
-      return pools.some((pool) => sku[pool] > 0)
-    case "gap":
-      return sku.floor === 0 && sku.warehouse > 0
-    case "all":
-      return true
-  }
-}
-
-/// The articles and rows that survive the search, the division and the show;
-/// an article with no row left is dropped.
+/// The articles and rows that survive the search, the division and the tag;
+/// only rows that hold something in the places on screen are listed, and an
+/// article with no row left is dropped.
 export function narrow(
   articles: readonly StockArticle[],
   needle: string,
   division: string,
-  show: Show,
+  tag: string,
   pools: readonly Figure[],
 ): StockArticle[] {
   const out: StockArticle[] = []
   for (const article of articles) {
     if (division !== "" && article.division !== division) continue
+    if (tag !== "" && !article.tags.includes(tag)) continue
     const skus = article.skus.filter(
       (one) =>
-        held(one, show, pools) &&
-        matches(
-          needle,
-          `${article.name} ${one.label}`,
-          article.key,
-          one.sku,
-        ),
+        pools.some((pool) => one[pool] > 0) &&
+        matches(needle, `${article.name} ${one.label}`, article.key, one.sku),
     )
     if (skus.length > 0) out.push({ ...article, skus })
   }

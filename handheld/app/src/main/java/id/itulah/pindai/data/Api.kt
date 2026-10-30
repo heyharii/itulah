@@ -194,6 +194,17 @@ class Api(
         return post("/api/v1/store/inbound/" + pathSegment(deliveryId) + "/receive", payload)
     }
 
+    /** The stores Packed sent to be verified, each with its packed koli. */
+    fun verifyStores(): JSONObject = get(Verify.REQUESTS_PATH)
+
+    /** What a sweep comes to against one store. Saved nowhere. */
+    fun checkStore(storeId: String, epcs: List<String>): JSONObject =
+        post(Verify.REQUESTS_PATH + "/" + pathSegment(storeId) + "/check", Verify.epcBody(epcs))
+
+    /** Verify the store. Central refuses it (409) unless the sweep matches. */
+    fun verifyStore(storeId: String, epcs: List<String>): JSONObject =
+        post(Verify.REQUESTS_PATH + "/" + pathSegment(storeId) + "/verify", Verify.epcBody(epcs))
+
     /**
      * Open the socket before anything needs it.
      *

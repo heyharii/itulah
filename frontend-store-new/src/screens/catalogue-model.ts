@@ -8,11 +8,12 @@ import type {
 
 import { dealsOf, type Deals } from "@/lib/deals"
 import { isDown } from "@/lib/prices"
-import { paintOf, type ArticleShape } from "@/lib/variants"
+import { type ArticleShape } from "@/lib/variants"
+import { parseMoneyToMinor } from "@itulah/contract/money"
 
 /// The Catalogue's data, joined once: each SKU with its colour and size, the
 /// price a walk-in pays for it now, its stock and the deals that reach it —
-/// and the filters, the facet counts and the cards, all decided in the browser
+/// and the search and the cards, all decided in the browser
 /// over the whole book in hand (see `catalogue.tsx` for why).
 
 export interface Item {
@@ -100,184 +101,150 @@ export function itemsOf({
   })
 }
 
-// ── filters ─────────────────────────────────────────────────────────────────
+// ── search ──────────────────────────────────────────────────────────────────
 
-export interface Filters {
-  readonly division: string | undefined
-  /// Colours, lower case.
-  readonly colours: readonly string[]
-  readonly sizes: readonly string[]
-  readonly deals: readonly Deal[]
-  readonly tags: readonly string[]
-  /// Show the SKUs nothing is left of.
-  readonly soldOut: boolean
-}
-
-export const NO_FILTERS: Filters = {
-  division: undefined,
-  colours: [],
-  sizes: [],
-  deals: [],
-  tags: [],
-  soldOut: true,
-}
-
-type Group = "division" | "colour" | "size" | "deal" | "tag" | "stock"
-
-/// Whether an item survives every filter but `except` — the one whose own
-/// counts are being taken, so choosing Navy does not make every other colour
-/// read zero and stop being a way to look.
+/// What the one box understands. The Catalogue has no filters: whatever
+/// somebody would have narrowed by, they type.
 ///
-/// Within a group the choices widen (Navy or Black); across groups they
-/// narrow (Navy, in M, on promotion). Tags narrow within their group too: a
-/// row must carry every tag chosen, as before.
-export function passes(item: Item, filters: Filters, except?: Group): boolean {
-  if (
-    except !== "division" &&
-    filters.division !== undefined &&
-    item.row.division_code !== filters.division
-  )
-    return false
-  if (
-    except !== "colour" &&
-    filters.colours.length > 0 &&
-    !filters.colours.includes((item.colour ?? "").toLowerCase())
-  )
-    return false
-  if (
-    except !== "size" &&
-    filters.sizes.length > 0 &&
-    !filters.sizes.includes(item.size ?? "")
-  )
-    return false
-  if (
-    except !== "deal" &&
-    filters.deals.length > 0 &&
-    !filters.deals.some((deal) => hasDeal(item, deal))
-  )
-    return false
-  if (
-    except !== "tag" &&
-    filters.tags.length > 0 &&
-    !filters.tags.every((tag) => item.row.tags.includes(tag))
-  )
-    return false
-  if (except !== "stock" && !filters.soldOut && soldOut(item)) return false
-  return true
+///   kaos navy l        words: every one must match the SKU somewhere
+///   sold out · habis   none left        in stock · ready   some left
+///   promo · diskon     brought down, or a promotion reaches it
+///   voucher · member   a code, or a members' price
+///   <100k  >150rb  100k-200k           what a walk-in pays
+export interface Query {
+  readonly words: readonly string[]
+  /// `true`: only what is sold out; `false`: only what is left; `null`: both.
+  readonly soldOut: boolean | null
+  /// Any of them.
+  readonly deals: readonly Deal[]
+  readonly min: number | null
+  readonly max: number | null
 }
 
-export function filterCount(filters: Filters): number {
+export function isBlank(query: Query): boolean {
   return (
-    filters.colours.length +
-    filters.sizes.length +
-    filters.deals.length +
-    filters.tags.length +
-    (filters.soldOut ? 0 : 1)
+    query.words.length === 0 &&
+    query.soldOut === null &&
+    query.deals.length === 0 &&
+    query.min === null &&
+    query.max === null
   )
 }
 
-// ── facets ──────────────────────────────────────────────────────────────────
+/// The phrases that are not words, in Indonesian as well: the shop's people
+/// type what they say.
+const KEYWORDS: readonly (readonly [RegExp, Partial<Query>])[] = [
+  [/(sold ?out|habis|kosong)/, { soldOut: true }],
+  [/(in ?stock|ready|ada stok|tersedia)/, { soldOut: false }],
+  [/(price ?down|markdown|turun harga)/, { deals: ["down"] }],
+  [/(promo(tion)?s?|diskon|discount|sale)/, { deals: ["down", "promotion"] }],
+  [/(vouchers?|kupon)/, { deals: ["voucher"] }],
+  [/(members?)/, { deals: ["members"] }],
+]
 
-export interface ColourFacet {
-  /// Lower case — what the filter holds.
-  readonly key: string
-  readonly label: string
-  readonly paint: readonly string[]
-  readonly count: number
-}
+const AMOUNT = String.raw`(\d[\d.,]*)\s?(k|rb|ribu|jt|juta)?`
 
-export interface Facets {
-  /// Commonest first.
-  readonly divisions: readonly (readonly [string, number])[]
-  readonly colours: readonly ColourFacet[]
-  /// Smallest first, as the articles' own sizes run.
-  readonly sizes: readonly (readonly [string, number])[]
-  readonly deals: ReadonlyMap<Deal, number>
-  readonly tags: readonly (readonly [string, number])[]
-  /// How many units are sold out, every other filter applied.
-  readonly soldOut: number
-  /// What "Everything" holds: every filter but the division.
-  readonly everything: number
-}
+export function parseQuery(text: string, currency: string): Query {
+  let rest = ` ${text.toLowerCase()} `
+  let soldOut: boolean | null = null
+  const deals = new Set<Deal>()
+  let min: number | null = null
+  let max: number | null = null
 
-/// Each facet's counts, in the unit the list is showing — articles or SKUs —
-/// so a figure and the cards it narrows to cannot disagree.
-export function facetsOf(
-  items: readonly Item[],
-  filters: Filters,
-  unit: (item: Item) => string,
-  sizeOrder: (sizes: string[]) => string[],
-): Facets {
-  const tally = (group: Group, values: (item: Item) => readonly string[]) => {
-    const sets = new Map<string, Set<string>>()
-    for (const item of items) {
-      if (!passes(item, filters, group)) continue
-      for (const value of values(item)) {
-        const set = sets.get(value)
-        if (set === undefined) sets.set(value, new Set([unit(item)]))
-        else set.add(unit(item))
-      }
-    }
-    return new Map([...sets].map(([value, set]) => [value, set.size] as const))
+  const amount = (digits: string, unit: string | undefined) => {
+    const scale =
+      unit === "k" || unit === "rb" || unit === "ribu"
+        ? 1_000
+        : unit === "jt" || unit === "juta"
+          ? 1_000_000
+          : 1
+    const major = Number(digits.replace(/[.,]/g, "")) * scale
+    return parseMoneyToMinor(String(major), currency)
   }
-  const commonest = (counts: Map<string, number>) =>
-    [...counts].sort((a, b) =>
-      a[1] === b[1] ? a[0].localeCompare(b[0]) : b[1] - a[1],
+  const take = (pattern: RegExp, on: (match: string[]) => void) => {
+    rest = rest.replace(
+      new RegExp(String.raw`(?<=\s)${pattern.source}(?=\s)`, "g"),
+      (...match: string[]) => {
+        on(match)
+        return " "
+      },
     )
-
-  const colourLabels = new Map<string, { label: string; name: string }>()
-  for (const item of items)
-    if (item.colour !== null && !colourLabels.has(item.colour.toLowerCase()))
-      colourLabels.set(item.colour.toLowerCase(), {
-        label: item.colour,
-        name: item.row.name,
-      })
-
-  const sizeCounts = tally("size", (item) =>
-    item.size === null ? [] : [item.size],
-  )
-  const everything = new Set<string>()
-  const sold = new Set<string>()
-  for (const item of items) {
-    if (passes(item, filters, "division")) everything.add(unit(item))
-    if (passes(item, filters, "stock") && soldOut(item)) sold.add(unit(item))
   }
+
+  take(new RegExp(`${AMOUNT}\\s?-\\s?${AMOUNT}`), ([, a, ua, b, ub]) => {
+    min = amount(a ?? "", ua)
+    max = amount(b ?? "", ub)
+  })
+  take(new RegExp(`([<>])\\s?${AMOUNT}`), ([, sign, digits, unit]) => {
+    if (sign === "<") max = amount(digits ?? "", unit)
+    else min = amount(digits ?? "", unit)
+  })
+  for (const [pattern, effect] of KEYWORDS)
+    take(pattern, () => {
+      if (effect.soldOut !== undefined) soldOut = effect.soldOut
+      for (const deal of effect.deals ?? []) deals.add(deal)
+    })
 
   return {
-    divisions: commonest(
-      tally("division", (item) =>
-        item.row.division_code === null || item.row.division_code === ""
-          ? []
-          : [item.row.division_code],
-      ),
-    ),
-    colours: commonest(
-      tally("colour", (item) =>
-        item.colour === null ? [] : [item.colour.toLowerCase()],
-      ),
-    ).map(([key, count]) => {
-      const seen = colourLabels.get(key)
-      return {
-        key,
-        label: seen?.label ?? key,
-        paint: paintOf(seen?.label ?? key, seen?.name ?? ""),
-        count,
-      }
-    }),
-    sizes: sizeOrder([...sizeCounts.keys()]).map(
-      (size) => [size, sizeCounts.get(size) ?? 0] as const,
-    ),
-    deals: new Map(
-      [
-        ...tally("deal", (item) =>
-          DEALS.filter(([deal]) => hasDeal(item, deal)).map(([deal]) => deal),
-        ),
-      ].map(([deal, howMany]) => [deal as Deal, howMany] as const),
-    ),
-    tags: commonest(tally("tag", (item) => item.row.tags)),
-    soldOut: sold.size,
-    everything: everything.size,
+    words: rest.split(/\s+/).filter((word) => word !== ""),
+    soldOut,
+    deals: [...deals],
+    min,
+    max,
   }
+}
+
+/// Everything a word can find on one SKU, lower case, in one string.
+export function haystackOf(item: Item, divisionName: string): string {
+  const { row, deals } = item
+  return [
+    row.name,
+    row.sku_code,
+    row.barcode ?? "",
+    row.article_code ?? "",
+    item.colour ?? "",
+    item.size ?? "",
+    row.division_code ?? "",
+    divisionName,
+    ...row.tags,
+    ...item.applied.map((one) => one.name),
+    ...deals.promotion.map((one) => one.name),
+    ...deals.voucher.map((one) => one.coupon_code ?? one.name),
+    ...deals.members.map((one) => one.name),
+  ]
+    .join(" ")
+    .toLowerCase()
+}
+
+/// Whether one SKU is what was asked for.
+///
+/// A word that is one of the book's sizes means the size — "kaos l" is the
+/// large, not every kaos with an L in its name — unless it stands on its own
+/// in the name or the colour.
+export function matchesQuery(
+  item: Item,
+  query: Query,
+  haystack: string,
+  sizes: ReadonlySet<string>,
+): boolean {
+  if (query.soldOut !== null && soldOut(item) !== query.soldOut) return false
+  if (
+    query.deals.length > 0 &&
+    !query.deals.some((deal) => hasDeal(item, deal))
+  )
+    return false
+  if (query.min !== null && item.final < query.min) return false
+  if (query.max !== null && item.final > query.max) return false
+  return query.words.every((word) => {
+    if (sizes.has(word))
+      return (
+        (item.size ?? "").toLowerCase() === word ||
+        ` ${item.row.name} ${item.colour ?? ""} `
+          .toLowerCase()
+          .includes(` ${word} `)
+      )
+    return haystack.includes(word) || haystack.includes(word.replace(/·/g, ""))
+  })
 }
 
 // ── cards ───────────────────────────────────────────────────────────────────

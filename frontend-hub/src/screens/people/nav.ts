@@ -15,7 +15,6 @@ import {
   FileText,
   Fingerprint,
   Gauge,
-  Gift,
   Handshake,
   HandCoins,
   History,
@@ -59,16 +58,20 @@ import { usePeopleAudience } from "@/screens/people/scope"
 /// | Attendance | Records · Corrections · Leave · Overtime |
 /// | Payroll | Runs · Adjustments · Payslips · Tax |
 /// | Claims | Requests · History |
-/// | Benefits | Balances · History |
 /// | Loans | Loans · Repayments |
-/// | Settings | Organization · Attendance · Payroll · Benefits · Access |
+/// | Settings | Organization · Attendance · Payroll |
 ///
 /// Schedules is the plan and Attendance is what happened. Payroll is the
 /// salary due for a period; Claims is what an employee paid for the work and
-/// is owed back; Benefits is the shopping balance the company gives; Loans is
-/// money an employee owes the company. Each is its own menu, so a payroll
-/// deduction for a loan is the loan's repayment, never a second balance kept
-/// inside Payroll.
+/// is owed back; Loans is money an employee owes the company. Each is its own
+/// menu, so a payroll deduction for a loan is the loan's repayment, never a
+/// second balance kept inside Payroll.
+///
+/// The employee discount (the shopping balance the company gives, formerly
+/// Benefits) moved to Marketing on 29 Oct 2026: it is spent at the till like a
+/// voucher, and Marketing sets the terms. Its balances, history and setting
+/// live under `screens/commercial/employee-discount*`, and its old paths here
+/// redirect.
 ///
 /// Travel (assignment → approval → advance → settlement, claims linked) is
 /// the next menu, after Loans; it is not built.
@@ -79,8 +82,8 @@ import { usePeopleAudience } from "@/screens/people/scope"
 /// own name, so ⌘K still finds it and its row lights the door. Renamed paths
 /// keep the old one in `moved`, so a link or a bookmark still lands. A view's
 /// `audience` stays on its item: `doorTabsFor` leaves a store manager's door
-/// without head office's views, so they see six menus — no Benefits, Loans
-/// or Settings, and Employees without Changes and Discipline.
+/// without head office's views, so they see six menus — no Loans or Settings,
+/// and Employees without Changes and Discipline.
 ///
 /// No row's path is a prefix of another door's: the sidebar lights a row when
 /// the address equals one of its paths or starts with it plus a slash.
@@ -92,6 +95,12 @@ function door(
 ): NavItem {
   const paths = row.tabs.flatMap((tab) => tab.views.map((view) => view.path))
   return { ...row, path: paths[0], alsoLights: paths.slice(1) }
+}
+
+/// A door row also lit by a screen that is no tab of it: a person's page is
+/// reached from the Directory, so Employees stays lit under it.
+function withLit(path: string, item: NavItem): NavItem {
+  return { ...item, alsoLights: [...(item.alsoLights ?? []), path] }
 }
 
 const one = (label: string, path: string): NavTab => ({
@@ -122,23 +131,25 @@ export const peopleNav: AppModule = {
             one("Reports", "/people/reports"),
           ],
         }),
-        door({
-          label: "Employees",
-          icon: Users,
-          tabs: [
-            {
-              label: "Directory",
-              views: [
-                { label: "List", path: "/people" },
-                { label: "Org chart", path: "/people/org-chart" },
-              ],
-            },
-            one("Changes", "/people/changes"),
-            one("Onboarding", "/people/onboarding"),
-            one("Offboarding", "/people/offboarding"),
-            one("Discipline", "/people/discipline"),
-          ],
-        }),
+        withLit(
+          "/people/employee",
+          door({
+            label: "Employees",
+            icon: Users,
+            tabs: [
+              {
+                label: "Directory",
+                views: [
+                  { label: "List", path: "/people" },
+                  { label: "Org chart", path: "/people/org-chart" },
+                ],
+              },
+              // Changes, Onboarding, Offboarding and Discipline are off the
+              // menu (owner, 30 Oct 2026): head office edits a person
+              // directly, and a shop's proposals wait in Overview › Inbox.
+            ],
+          })
+        ),
         door({
           label: "Schedules",
           icon: CalendarRange,
@@ -180,23 +191,8 @@ export const peopleNav: AppModule = {
             },
           ],
         }),
-        door({
-          label: "Claims",
-          icon: ReceiptText,
-          tabs: [
-            one("Requests", "/people/claims"),
-            one("History", "/people/claim-history"),
-          ],
-        }),
-        door({
-          label: "Benefits",
-          icon: Gift,
-          audience: "employer",
-          tabs: [
-            one("Balances", "/people/benefit"),
-            one("History", "/people/benefit-history"),
-          ],
-        }),
+        // Claims is off the People menu for now (owner, 30 Oct 2026); its
+        // routes stay. Loans stays.
         door({
           label: "Loans",
           icon: HandCoins,
@@ -223,6 +219,7 @@ export const peopleNav: AppModule = {
                 },
                 { label: "Departments", path: "/people/settings/departments" },
                 { label: "Levels & grades", path: "/people/settings/levels" },
+                { label: "Delegation", path: "/people/settings/delegation" },
                 {
                   label: "Onboarding tasks",
                   path: "/people/settings/checklists",
@@ -240,6 +237,7 @@ export const peopleNav: AppModule = {
                   label: "Mobile & locations",
                   path: "/people/settings/mobile",
                 },
+                { label: "Employee app", path: "/people/settings/app" },
                 { label: "Shifts & breaks", path: "/people/settings/shifts" },
                 { label: "Leave types", path: "/people/settings/leave-types" },
                 { label: "Holidays", path: "/people/settings/holidays" },
@@ -267,16 +265,9 @@ export const peopleNav: AppModule = {
                 { label: "Claim limits", path: "/people/claim-allowances" },
               ],
             },
-            one("Benefits", "/people/settings/benefit"),
-            {
-              label: "Access",
-              views: [
-                { label: "Roles", path: "/people/roles" },
-                { label: "Invitations", path: "/people/invitations" },
-                { label: "Delegation", path: "/people/settings/delegation" },
-                { label: "Employee app", path: "/people/settings/app" },
-              ],
-            },
+            // Access is gone (owner, 30 Oct 2026): roles and invitations are
+            // System › Users; delegation sits with the organisation and the
+            // employee app with attendance.
           ],
         }),
 
@@ -289,6 +280,12 @@ export const peopleNav: AppModule = {
           hidden: true,
         },
         // Employees
+        {
+          path: "/people/employee",
+          label: "Employee",
+          icon: Users,
+          hidden: true,
+        },
         {
           path: "/people/org-chart",
           label: "Org Chart",
@@ -393,14 +390,6 @@ export const peopleNav: AppModule = {
           path: "/people/claim-history",
           label: "Claim History",
           icon: History,
-          hidden: true,
-        },
-        // Benefits
-        {
-          path: "/people/benefit-history",
-          label: "Benefit History",
-          icon: History,
-          audience: "employer",
           hidden: true,
         },
         // Loans
@@ -530,14 +519,6 @@ export const peopleNav: AppModule = {
           path: "/people/claim-allowances",
           label: "Claim Limits",
           icon: Wallet,
-          audience: "employer",
-          hidden: true,
-        },
-        // Settings · Benefits
-        {
-          path: "/people/settings/benefit",
-          label: "Benefit Settings",
-          icon: Gift,
           audience: "employer",
           hidden: true,
         },

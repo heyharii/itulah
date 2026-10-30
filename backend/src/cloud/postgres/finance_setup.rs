@@ -483,6 +483,17 @@ pub async fn add_bank(
                 .into(),
         ));
     }
+    // A card or QRIS taken on this bank's EDC settles into its Cash In Bank
+    // Giro the day it is taken. Without that leaf there is no account for the
+    // money to land in, and the old code quietly fell back to Piutang Debit
+    // Card instead. Say so here rather than at the first sale.
+    if request.debit_card && !request.giro {
+        return Err(AppError::Validation(
+            "a bank that takes debit cards and QRIS needs a giro account: that is where the \
+             takings land, and without it the day has no bank to post to"
+                .into(),
+        ));
+    }
     let display = if name.to_ascii_uppercase().starts_with("BANK ") {
         name.to_string()
     } else {
@@ -561,13 +572,18 @@ pub async fn add_bank(
             mapped += map_everywhere(&mut tx, role, &bank, &usual, actor).await?;
         }
         // The bank's debit cards and its QRIS become payment methods the
-        // tills accept (0468), settling through the acquirer as the others do.
+        // tills accept (0468), and they settle straight into the bank the day
+        // they are taken (owner, 1 Oct 2026; 0722). A new bank must not start
+        // life on Piutang Debit Card: that would need a settlement file to
+        // clear an EDC that already pays into the account.
         for (prefix, label, tender) in [("DEBIT", "Debit", "DEBIT_CARD"), ("QRIS", "QRIS", "QRIS")]
         {
             sqlx::query(
                 "INSERT INTO payment_method (code, name, tender_type, bank_code, settlement_mode, created_by)
-                 VALUES ($1, $2, $3, $4, 'VIA_RECEIVABLE', $5)
-                 ON CONFLICT (tender_type, bank_code) DO NOTHING",
+                 VALUES ($1, $2, $3, $4, 'DIRECT_TO_BANK', $5)
+                 ON CONFLICT (tender_type, bank_code) DO UPDATE
+                    SET settlement_mode = 'DIRECT_TO_BANK'
+                  WHERE payment_method.settlement_mode = 'VIA_RECEIVABLE'",
             )
             .bind(format!("{prefix}_{bank}"))
             .bind(format!("{label} {name}"))
@@ -1060,6 +1076,23 @@ async fn sync_shop_card_methods(
     )
     .bind(site_id)
     .bind(actor)
+    .execute(&mut **tx)
+    .await?;
+    // A method the bank itself created earlier may still be on
+    // VIA_RECEIVABLE (0468's old default). The machine at this shop is the
+    // fact that decides where its takings land, so adding or keeping one puts
+    // its debit, credit and QRIS methods on the bank (owner, 1 Oct 2026).
+    sqlx::query(
+        "UPDATE payment_method p
+            SET settlement_mode = 'DIRECT_TO_BANK'
+          WHERE p.tender_type IN ('DEBIT_CARD', 'CREDIT_CARD', 'QRIS')
+            AND p.is_active
+            AND p.settlement_mode = 'VIA_RECEIVABLE'
+            AND EXISTS (SELECT 1 FROM edc_terminal e
+                         WHERE e.site_id = $1 AND e.active
+                           AND upper(e.bank_code) = upper(p.bank_code))",
+    )
+    .bind(site_id)
     .execute(&mut **tx)
     .await?;
     sqlx::query(&format!(

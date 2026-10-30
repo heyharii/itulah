@@ -14,7 +14,6 @@ use serde::Serialize;
 use sqlx::PgPool;
 use std::time::{Duration, Instant};
 
-
 /// Sum again every store month whose days changed (0932 and 0937, marked by
 /// 0933), newest first, optionally only within `from..=to`. A month written
 /// to while it is being summed keeps its mark.
@@ -77,7 +76,10 @@ pub struct SalesRollupDrain {
 /// Recompute dirty store days, newest first, until none are left or `budget`
 /// is spent. A day that is written to again while it is being summed keeps its
 /// mark and is summed again on the next pass.
-pub async fn sales_rollup_drain(pool: &PgPool, budget: Duration) -> Result<SalesRollupDrain, AppError> {
+pub async fn sales_rollup_drain(
+    pool: &PgPool,
+    budget: Duration,
+) -> Result<SalesRollupDrain, AppError> {
     let started = Instant::now();
     let mut drained = SalesRollupDrain::default();
     while started.elapsed() < budget {

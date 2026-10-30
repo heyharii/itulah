@@ -645,7 +645,10 @@ pub async fn run(
                     .ok()
                     .filter(|url| !url.trim().is_empty())
             });
-            if !enrolment::run_setup(dir.clone(), bind, cloud, stopping()).await? {
+            let frontend = std::env::var("FRONTEND_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|_| default_frontend_dir(true));
+            if !enrolment::run_setup(dir.clone(), bind, cloud, frontend, stopping()).await? {
                 stopped_cleanly(dir, journal, "asked to stop");
                 return Ok(Exit::Stopped);
             }
@@ -744,15 +747,26 @@ pub async fn run(
     let _advertisement =
         crate::edge::discovery::advertise(&lan_identity, inventory.connection(), bind);
     sd_notify("READY=1\nSTATUS=Serving");
+    // The setup page stays after enrolment, as the server's Ready page.
+    let laptop = crate::edge::laptop::Laptop::new(
+        frontend.clone(),
+        std::env::var("SYNC_UPLOAD_URL")
+            .ok()
+            .filter(|url| !url.trim().is_empty())
+            .or_else(|| enrolment::baked_cloud().map(str::to_owned)),
+        bind,
+    );
     let routes = match role {
         EdgeRole::Dc => dc_router_with_sync(inventory.clone(), auth, frontend, sync)?,
         EdgeRole::Store => store_router_with_sync(inventory.clone(), auth, frontend, sync)?,
     };
-    let router = routes.merge(console::router(console::Console {
-        source,
-        data_dir: data_dir.clone(),
-        stop: stop_tx.clone(),
-    }));
+    let router = routes
+        .merge(console::router(console::Console {
+            source,
+            data_dir: data_dir.clone(),
+            stop: stop_tx.clone(),
+        }))
+        .merge(crate::edge::laptop::router(laptop, true));
     // With the caller's address, which is how the console knows a request
     // came from the machine itself.
     axum::serve(

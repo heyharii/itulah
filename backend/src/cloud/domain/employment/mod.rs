@@ -38,6 +38,7 @@
 mod assignment;
 mod audit;
 mod contract;
+mod details;
 mod employee;
 mod error;
 mod ids;
@@ -48,6 +49,7 @@ mod reach;
 pub use assignment::{AssignmentSpan, AssignmentTimeline};
 pub use audit::{actions, required_role as required_role_for_action, Authorization};
 pub use contract::{Contract, ContractKind, ContractTimeline, Grade, PkwtRun, Position};
+pub use details::{missing_documents, DocumentKind, EmployeeDetails};
 pub use employee::{
     Employee, EmployeeCodeCorrection, EmploymentEvent, EmploymentStatus, EmploymentTransition,
 };

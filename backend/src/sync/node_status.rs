@@ -148,9 +148,8 @@ pub struct NodeStatus {
     /// actions (28 Sep 2026).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub action_results: Option<Vec<crate::sync::node_ops::ActionReport>>,
-    /// Where the shop's own screens answer on its network, by the stable name
-    /// the server advertises (`http://{node}.local:8082`,
-    /// `edge/discovery.rs`): what the hub shows, and draws as a QR, once the
+    /// Where the shop's own screens answer on its network, the server PC's LAN
+    /// address (`http://192.168.1.20:8082`, `edge/discovery.rs`): what the hub shows, and draws as a QR, once the
     /// server is ready. `None` from a server that predates it, or one that
     /// listens on this machine only or does not advertise itself.
     #[serde(default, skip_serializing_if = "Option::is_none")]

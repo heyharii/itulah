@@ -41,6 +41,33 @@ svg{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:
 kbd{font-family:"JetBrains Mono",monospace;font-size:12px;background:var(--canvas);border:1px solid var(--hairline-2);border-bottom-width:2px;border-radius:5px;padding:0 5px;color:var(--body)}
 @keyframes rise{from{opacity:0;transform:translateY(6px)}}
 @keyframes pop{from{opacity:0;transform:translateY(-4px) scale(.98)}}
+/* ---------- table options (design 1) ---------- */
+.gridopt{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.gridopt>b{font-weight:600;margin-right:2px}
+.gridopt .chip{height:34px;font-size:15px;padding:0 14px}
+.tbl.dense th{height:40px;font-size:15px;padding:0 10px}
+.tbl.dense td{height:44px;font-size:15px;padding:0 10px}
+.tbl.dense .cell-in{height:36px;font-size:15px}
+.tbl.dense tbody tr:focus-within{background:var(--accent-bg)}
+.tbl.dense .rn{width:44px;padding:0;text-align:center;color:var(--mute)}
+.tbl.dense tr.entry td{background:var(--soft)}
+.tbl.dense .muted{color:var(--mute)}
+.tbl.dense.lines th+th,.tbl.dense.lines td+td{border-left:1px solid var(--hairline)}
+.tbl.dense.lines td{padding:0}
+.tbl.dense.lines .cell-in{height:44px;border-radius:0;border-color:transparent;padding:0 10px}
+.tbl.dense.lines .cell-in:hover{background:var(--soft-3)}
+.tbl.dense.lines .cell-in:focus{box-shadow:inset 0 0 0 2px var(--accent);border-color:transparent;background:var(--canvas)}
+.tbl.dense.lines td.muted{padding:0 10px}
+.tbl.dense.lines tfoot td{padding:0 10px}
+.tbl.dense .cb{margin:0}
+.qchips{display:flex;gap:8px;flex-wrap:wrap;padding:12px 12px 4px}
+.qchips .chip{height:36px;font-size:15px;padding:0 14px 0 10px}
+.qchips .chip svg{width:16px;height:16px}
+.ddm{position:fixed;z-index:60;max-height:300px;overflow:auto;background:var(--canvas);border:1px solid var(--hairline-2);border-radius:10px;box-shadow:var(--shadow-pop);padding:4px}
+.ddm[hidden]{display:none}
+.ddi{display:flex;align-items:baseline;gap:12px;width:100%;border:0;background:none;padding:9px 12px;border-radius:7px;text-align:left;font-size:15px;color:var(--ink)}
+.ddi .dc{width:48px;flex:none;color:var(--mute);font-variant-numeric:tabular-nums}
+.ddi[aria-selected=true]{background:var(--soft-2)}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
 /* ---------- prototype chrome (not part of the app) ---------- */
@@ -102,6 +129,8 @@ kbd{font-family:"JetBrains Mono",monospace;font-size:12px;background:var(--canva
 .f{display:flex;flex-direction:column;gap:6px;min-width:0}
 .f>span:first-child{font-weight:500;color:var(--text)}
 .req{color:var(--bad);font-style:normal;margin-left:2px}
+.optl{color:var(--mute);font-style:normal;font-weight:400;font-size:14px;margin-left:6px}
+.avatar.none{background:var(--soft-2);color:var(--mute)}
 .in{height:40px;width:100%;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);padding:0 12px;outline:none;color:var(--ink);display:flex;align-items:center;gap:8px;min-width:0;transition:border-color .15s,box-shadow .15s}
 .in:hover{border-color:var(--hairline-strong)}
 .in:focus,.in:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
@@ -463,6 +492,13 @@ details.jr[open] summary{margin-bottom:8px}
 .colm h3 .sum{margin-left:auto;font-weight:500;color:var(--body);font-size:13px;font-variant-numeric:tabular-nums}
 .gcard{background:var(--canvas);border:1px solid var(--hairline);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px;box-shadow:var(--shadow-soft)}
 .gcard .top{display:flex;align-items:center;gap:8px}
+.gcard .top .mono{white-space:nowrap}
+.gcard.sel{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.board.one{grid-template-columns:repeat(auto-fill,minmax(280px,1fr))}
+.v9tools{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.v9bar{position:sticky;bottom:16px;margin-top:16px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:12px 16px;background:var(--canvas);border:1px solid var(--hairline-2);border-radius:var(--r-card);box-shadow:var(--shadow-pop)}
+.v9bar .f.inl{flex-direction:row;align-items:center;gap:8px}
+.v9bar .f.inl .in{width:auto;min-width:150px}
 .gcard .amt{font-size:17px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
 .gcard .who{color:var(--text)}
 .gcard .meta{color:var(--mute);font-size:13px}
@@ -600,24 +636,26 @@ const M={
  bkm:{code:'BKM',title:'Cash receipt',plural:'Cash receipts',newTitle:'New cash receipt',party:'Customer',dir:'in',col:'Received',open:'Receivable',
   settle:'Settle invoices',offset:'Offset payables',offOpen:'Payable',amountLbl:'Total received',post:'Post receipt',
   paperKas:'BUKTI KAS MASUK',paperBank:'BUKTI BANK MASUK',paperParty:'Diterima dari',paperSign:'Penyetor',
-  disc:'4012',voucher:'BKM/HO/2609/0041',invWord:'invoice',other:['6002','8002','8003','1022']},
+  disc:'4012',disc2:'8004',voucher:'BKM/HO/2609/0041',invWord:'invoice',other:['6002','8002','8003','1022']},
  bkk:{code:'BKK',title:'Cash payment',plural:'Cash payments',newTitle:'New cash payment',party:'Supplier',dir:'out',col:'Paid',open:'Payable',
   settle:'Settle bills',offset:'Offset receivables',offOpen:'Receivable',amountLbl:'Total paid',post:'Post payment',
   paperKas:'BUKTI KAS KELUAR',paperBank:'BUKTI BANK KELUAR',paperParty:'Dibayarkan kepada',paperSign:'Penerima',
-  disc:'8004',voucher:'BKK/HO/2609/0057',invWord:'bill',other:['6043','6045','6041','6040','6042','6044','8003']},
+  disc:'8004',disc2:'4012',voucher:'BKK/HO/2609/0057',invWord:'bill',other:['6043','6045','6041','6040','6042','6044','8003']},
 };
 
 /* ---------- state ---------- */
 function fresh(mode){const d=DATA[mode];return{party:d.party,account:'1005',method:mode==='bkm'?'transfer':'giro',date:TODAY,ref:'',note:'',
  giro:mode==='bkm'?{no:'',bank:'',due:''}:{no:'BG 456124',bank:'BCA',due:'2026-10-12'},
- inv:d.inv.map((x,i)=>({...x,pick:i<d.picked,disc:0,amt:i<d.picked?x.open:0})),
- off:d.off.map(x=>({...x,pick:false,amt:0})),other:[]}}
+ voucher:'',
+ inv:d.inv.map((x,i)=>({...x,pick:i<d.picked,disc:0,note:'',amt:i<d.picked?x.open:0})),
+ off:d.off.map(x=>({...x,pick:false,disc:0,note:'',amt:0})),other:[]}}
 const ST={bkm:fresh('bkm'),bkk:fresh('bkk')};
 let MODE='bkm',V=1;
 const UI={tab1:'settle',menu:null,tried:{bkm:false,bkk:false},posting:false,posted:{bkm:false,bkk:false},
  v2sel:{bkm:0,bkk:0},v2new:false,
  v3amt:{bkm:null,bkk:null},v3skip:{bkm:new Set(),bkk:new Set()},v3left:{bkm:0,bkk:0},v3lo:{bkm:'advance',bkk:'advance'},
  v4open:null,
+ grid:'E',entry:{bkm:{acc:'',note:'',amt:0},bkk:{acc:'',note:'',amt:0}},v9f:{bkm:'all',bkk:'all'},v9tab:'giro',v9chk:{bkm:new Set(),bkk:new Set()},v9rej:null,v2acc:false,
  v6sel:{bkm:0,bkk:0},v6done:{bkm:{},bkk:{}},v6pick:{bkm:{},bkk:{}},
  v8amt:{bkm:85000,bkk:450000},v8cat:{bkm:'6002',bkk:'6040'},v8photo:{bkm:false,bkk:true},v8saved:{bkm:false,bkk:false},v8saving:false,
  v9:{bkm:{},bkk:{}},v9open:null,
@@ -626,23 +664,28 @@ const UI={tab1:'settle',menu:null,tried:{bkm:false,bkk:false},posting:false,post
   bkm:[{amt:125400,acc:'8002',cb:'1005',unit:'HO',note:'Bunga jasa giro Sep'},{amt:85000,acc:'6002',cb:'1003',unit:'C003',note:'Kardus bekas'}],
   bkk:[{amt:1845200,acc:'6045',cb:'1005',unit:'C001',note:'PLN postpaid Sep'},{amt:15000,acc:'6043',cb:'1005',unit:'HO',note:'Adm bank Sep'},{amt:450000,acc:'6040',cb:'1003',unit:'C003',note:'Sabun & alat pel'}]}};
 const S=()=>ST[MODE],T=()=>M[MODE];
-const partyOf=()=>PARTY[MODE].find(p=>p.code===S().party);
+/* A voucher does not always have a customer or supplier — bank fees, power,
+   interest and petty cash have none. The party is only needed to settle or
+   offset an invoice, so it can be left empty. */
+const NOPARTY={bkm:{code:'',name:'—',open:0,none:true,label:'No customer'},bkk:{code:'',name:'—',open:0,none:true,label:'No supplier'}};
+const partyOf=()=>PARTY[MODE].find(p=>p.code===S().party)||NOPARTY[MODE];
+const vno=()=>S().voucher.trim()||T().voucher;
 const homeParty=()=>PARTY[MODE].find(p=>p.code===DATA[MODE].party);
 const isHome=()=>S().party===DATA[MODE].party;
 const invs=()=>isHome()?S().inv:[];
 const offs=()=>isHome()?S().off:[];
 function sums(){const s=S(),A=invs().filter(x=>x.pick),O=offs().filter(x=>x.pick);
- const settled=A.reduce((a,x)=>a+x.amt,0),disc=A.reduce((a,x)=>a+x.disc,0),other=s.other.reduce((a,x)=>a+x.amt,0),off=O.reduce((a,x)=>a+x.amt,0);
- return{settled,disc,other,off,total:settled+other-off,count:A.length,openSel:A.reduce((a,x)=>a+x.open,0)}}
+ const settled=A.reduce((a,x)=>a+x.amt,0),disc=A.reduce((a,x)=>a+x.disc,0),other=s.other.reduce((a,x)=>a+x.amt,0),off=O.reduce((a,x)=>a+x.amt,0),offDisc=O.reduce((a,x)=>a+x.disc,0);
+ return{settled,disc,other,off,offDisc,total:settled+other-off,count:A.length,openSel:A.reduce((a,x)=>a+x.open,0)}}
 /* Over-settling is refused as it is typed; what is merely missing is said
    once somebody tries to post — a form that opens covered in red is a form
    that shouts before anything has gone wrong. */
 function problems(submit=UI.tried[MODE]){const s=S(),p={};
  invs().forEach((x,i)=>{if(x.pick&&x.amt+x.disc>x.open)p['inv'+i]=`${x.no}: more than the ${fmt(x.open)} still open`});
- offs().forEach((x,i)=>{if(x.pick&&x.amt>x.open)p['off'+i]=`${x.no}: more than the ${fmt(x.open)} still open`});
+ offs().forEach((x,i)=>{if(x.pick&&x.amt+x.disc>x.open)p['off'+i]=`${x.no}: more than the ${fmt(x.open)} still open`});
  if(submit){
   if(s.method==='giro'){if(!s.giro.no.trim())p.gno='A giro needs its number';if(!s.giro.due)p.gdue='A giro needs its due date';if(MODE==='bkm'&&!s.giro.bank.trim())p.gbank='Which bank the giro is drawn on'}
-  s.other.forEach((o,i)=>{if(!o.amt)p['oth'+i]=`Other line ${i+1}: amount is needed`});
+  s.other.forEach((o,i)=>{if(!o.acc&&!o.amt)return;if(!o.acc)p['oth'+i]=`Other line ${i+1}: pick an account`;else if(!o.amt)p['oth'+i]=`Other line ${i+1}: amount is needed`});
   if(sums().total<=0)p.total=`Nothing to ${MODE==='bkm'?'receive':'pay'} yet — settle an ${T().invWord} or add a line`;
  }
  return p}
@@ -650,6 +693,17 @@ function problems(submit=UI.tried[MODE]){const s=S(),p={};
 /* ======================================================================
    Shared pieces
    ====================================================================== */
+const GRIDS=[
+ ['now','Now','Tabel sekarang — baris besar, akun lewat dropdown, tombol "Add a line".'],
+ ['A','Sheet','Seperti lembar kerja: baris rapat 44px, garis sel, baris kosong selalu menunggu di bawah — ketik langsung, tanpa tombol tambah. Akun dicari dengan mengetik kode atau nama; Enter pindah ke sel berikutnya.'],
+ ['B','Code first','Kebiasaan orang akuntansi 7Soft: ketik KODE akun (6045) lalu Enter — nama akun muncul sendiri di sebelahnya. Tanpa garis, tanpa dropdown, hanya keyboard.'],
+ ['C','Quick accounts','Akun yang paling sering dipakai jadi tombol di atas tabel — satu klik menambah baris, kursor langsung ke jumlah. Untuk yang lebih suka mouse; akun lain tetap bisa dicari.'],
+ ['D','Entry row','Satu baris isian tetap di atas tabel (akun · catatan · jumlah · Add). Enter di jumlah memasukkan baris ke daftar di bawahnya; daftar rapi dan bisa diedit.'],
+ ['E','With unit','Seperti A, ditambah kolom Unit (HO, C001…) karena biaya biasanya dibebankan ke toko. Unit juga dicari dengan mengetik.'],
+];
+const UNITS=[['HO','Head office'],['C001','Store C001'],['C003','Store C003 · Kebayoran'],['C004','Store C004'],['C005','Store C005']];
+const QUICK={bkm:[['8002','Bunga bank'],['6002','Pendapatan lain'],['8003','Pembulatan'],['1022','Piutang pegawai']],bkk:[['6045','Listrik'],['6043','Biaya bank'],['6041','ATK'],['6040','Kebersihan'],['6042','Rumah tangga'],['6044','Telepon']]};
+const newOther=()=>({acc:UI.grid==='now'?T().other[0]:'',note:'',amt:0,unit:'HO'});
 const NAMES=[
  [1,'Klasik','Tata letak 7Soft yang sudah dikenal tim: kepala dua kolom, tab Pelunasan / Lain-lain / Kontra, grid dengan centang Lunas, tombol Browse Nota dan Tolakan. Dirapikan — yang wajib bertanda *, giro minta nomor + bank + jatuh tempo bersamaan, lebih bayar langsung merah, total dan terbilang hidup.'],
  [2,'Daftar + sheet','Pola hub sekarang: daftar voucher dengan chip status (draft, giro menunggu, tolak, void); klik baris → sheet di kanan berisi fakta, baris, tangga total dan jurnal. Yang sudah dibukukan hanya-baca; "New" membuka form ringkas di sheet yang sama.'],
@@ -659,30 +713,35 @@ const NAMES=[
  [6,'Cocokkan mutasi','Mulai dari mutasi rekening. Tiap baris mutasi diberi tebakan pasangannya — nota, setoran toko, settlement kartu kredit + MDR, bunga, kliring giro — lengkap dengan alasannya. Satu klik jadi BKM/BKK.'],
  [7,'Lensa jurnal','Form di kiri, jurnal yang akan terbentuk di kanan: akun klien, Debit/Kredit, potongan ke akun potongan, giro ke Outstanding Giro, dan jurnal yang menyusul saat giro cair. Berubah setiap kali mengetik.'],
  [8,'Ponsel toko','Kas kecil toko dari ponsel dalam 3 langkah: nominal (keypad), untuk apa (+ foto nota wajib untuk BKK), lalu cek saldo kas kecil sebelum/sesudah dan simpan. Keypad dan tile bisa diketuk.'],
- [9,'Papan giro','Siklus giro seperti Pencairan BG di 7Soft: Menunggu → Jatuh tempo → Cair / Tolak, dengan Ganti untuk tolakan dan Batal cair. Giro keluar cair dari mutasi bank, tidak diketik (sesuai GIRO-PLAN).'],
+ [9,'Papan giro','Siklus giro seperti Pencairan BG di 7Soft: filter Semua / Menunggu / Jatuh tempo / Cair / Tolak, centang beberapa giro lalu cairkan sekaligus (bank tujuan + tanggal cair). Tolak hanya dari giro yang sudah cair, Batal cair terkunci bila bulannya sudah closed, tab Opening giro = Saldo Awal BG. Giro keluar cair dari mutasi bank (sesuai GIRO-PLAN).'],
  [10,'Ketik cepat','Ketik seperti bicara — "450rb listrik c001 kas kecil" — langsung jadi baris dengan akun, kas dan unit yang benar. Banyak voucher sekaligus, bukukan sekali. Untuk biaya dan penerimaan harian yang kecil-kecil.'],
 ];
 function buildProto(){
  document.getElementById('proto').innerHTML=`<div class="proto-top"><div class="brand"><b>BKM · BKK</b><span>10 rancangan · data dari manual 7Soft &amp; chart klien</span></div><span class="sp"></span>
  <div class="modes" role="group" aria-label="Dokumen"><button data-act="mode" data-m="bkm">${I.in} BKM · kas/bank masuk</button><button data-act="mode" data-m="bkk">${I.out} BKK · kas/bank keluar</button></div></div>
  <div class="vtabs" role="group" aria-label="Rancangan">${NAMES.map(([n,name])=>`<button data-act="v" data-v="${n}"><i>${n%10}</i>${name}</button>`).join('')}</div>
- <p class="proto-why" id="why"></p>`}
+ <p class="proto-why" id="why"></p>
+ <div class="gridopt" id="gridopt" hidden></div><p class="proto-why" id="gwhy"></p>`}
 function syncProto(){
  document.querySelectorAll('.modes button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.m===MODE));
  document.querySelectorAll('.vtabs button').forEach(b=>b.setAttribute('aria-pressed',+b.dataset.v===V));
  const n=NAMES.find(x=>x[0]===V);
- document.getElementById('why').innerHTML=`<b>${n[0]} · ${n[1]}</b>${n[2]} <span class="muted">— tombol 1–9, 0 ganti rancangan · M ganti BKM/BKK</span>`}
+ document.getElementById('why').innerHTML=`<b>${n[0]} · ${n[1]}</b>${n[2]} <span class="muted">— tombol 1–9, 0 ganti rancangan · M ganti BKM/BKK</span>`;
+ const go=document.getElementById('gridopt'),gw=document.getElementById('gwhy');
+ go.hidden=V!==1;gw.hidden=V!==1;
+ if(V===1){go.innerHTML='<b>Tabel</b>'+GRIDS.map(([k,l])=>`<button type="button" class="chip ${UI.grid===k?'on':''}" data-act="gridsel" data-k="${k}" aria-pressed="${UI.grid===k}">${k==='now'?'':k+' · '}${l}</button>`).join('');
+  const g=GRIDS.find(x=>x[0]===UI.grid);gw.innerHTML=`<b>${g[0]==='now'?'Now':g[0]+' · '+g[1]}</b>${g[2]}`}}
 
 function rail(){return `<nav class="rail" aria-label="Modules"><span class="logo">i</span>${[['home',0],['wallet',1],['book',0],['users',0],['box',0]].map(([k,on])=>`<a class="${on?'on':''}" aria-label="${k}">${I[k]}</a>`).join('')}<span class="sp"></span><a aria-label="Settings">${I.gear}</a></nav>`}
 function head(o={}){const t=T(),ro=UI.posted[MODE];
  const pill=o.plain?'':(ro?'<span class="pill ok">Posted</span>':'<span class="pill">Draft</span>');
- const no=o.plain?'':`<span class="mono muted">${t.voucher}</span>`;
+ const no=o.plain?'':`<span class="mono muted">${vno()}</span>`;
  return `<header class="ph"><div class="crumb">Finance<span>/</span>Cash &amp; bank<span>/</span>${o.crumb||t.plural}</div><div class="ph-row"><span class="dir d-${t.dir}">${I[t.dir]}</span><h1>${o.title||t.newTitle}</h1>${pill}${no}<span class="sp"></span>${o.actions??actions()}</div></header>`}
 function actions(){const t=T();
  if(UI.posted[MODE])return `<button class="btn" data-act="print">${I.print}Print ${t.code}</button><button class="btn ghost" data-act="reset">Back to draft (demo)</button>`;
  return `<button class="btn ghost" data-act="toast" data-msg="Saved as a draft — nothing posted">Save draft</button><button class="btn pri" data-act="post" ${UI.posting?'disabled aria-busy="true"':''}>${UI.posting?'Posting…':t.post}</button>`}
 function app(inner,o){return `<div class="app">${rail()}<main class="main">${head(o)}${inner}</main></div>`}
-function postedBanner(){const t=T();return UI.posted[MODE]?`<div class="banner ok ${UI.flash?'anim':''}">${I.check}<span>Posted as <b class="mono">${t.voucher}</b> · journal <span class="mono">JV/HO/2609/0132</span>. September is open, so it can still be voided — never edited.</span></div>`:''}
+function postedBanner(){const t=T();return UI.posted[MODE]?`<div class="banner ok ${UI.flash?'anim':''}">${I.check}<span>Posted as <b class="mono">${vno()}</b> · journal <span class="mono">JV/HO/2609/0132</span>. September is open, so it can still be voided — never edited.</span></div>`:''}
 function problemBanner(){const p=problems(),k=Object.keys(p);if(!k.length)return '';return `<div class="banner bad" role="alert">${I.alert}<span>${k.map(x=>esc(p[x])).join(' · ')}</span></div>`}
 function fieldErr(k){const p=problems();return p[k]?`<small class="err">${esc(p[k])}</small>`:''}
 function dayField(){return `<div class="in day">${I.cal}<span>${day(S().date)}</span><span class="muted">${S().date===TODAY?'· today':''}</span></div>`}
@@ -694,10 +753,12 @@ function giroFields(){const s=S(),p=problems();if(s.method!=='giro')return '';
  ${MODE==='bkm'?`<label class="f"><span>Drawn on<i class="req">*</i></span><input class="in" data-bind="giro.bank" value="${esc(s.giro.bank)}" placeholder="BCA, Mandiri, BRI…" aria-invalid="${!!p.gbank}">${fieldErr('gbank')}</label>`:`<div class="f"><span>Drawn on</span><div class="in ro">${CB[s.account].bank||'—'} <em>from the account</em></div></div>`}
  <div class="f g-due"><span>Due<i class="req">*</i></span><div class="dayrow"><div class="in day ${p.gdue?'bad':''}">${I.cal}<span>${s.giro.due?day(s.giro.due):'<span class="muted">Pick a day</span>'}</span></div>${[14,30,45].map(n=>`<button type="button" class="chip" data-act="due" data-n="${n}">+${n} d</button>`).join('')}</div>${fieldErr('gdue')}</div>
  <p class="giro-note">${MODE==='bkm'?'Waits as a giro until it is deposited and clears — see the Giro board.':'Posts to Outstanding Giro until the bank statement shows it cleared.'}</p></div>`}
-function partyMenu(cls=''){return `<div class="menu ${cls} ${UI.fresh?'anim':''}" role="listbox">${PARTY[MODE].map(p=>`<button role="option" data-act="setparty" data-c="${p.code}" aria-selected="${p.code===S().party}"><span class="avatar sm">${initials(p.name)}</span><span><b style="font-weight:500">${p.name}</b> <span class="mono muted">${p.code}</span></span><span class="sp"></span><span class="num muted">${fmt(p.open)}</span></button>`).join('')}</div>`}
-function partyPick(){const p=partyOf();return `<div class="pickwrap"><button type="button" class="pick" data-act="menu" data-m="party"><span class="avatar">${initials(p.name)}</span><b style="font-weight:500">${esc(p.name)}</b><span class="mono muted">${p.code}</span><span class="sp"></span><span class="muted num">${fmt(p.open)} open</span>${I.chev}</button>${UI.menu==='party'?partyMenu():''}</div>`}
+function partyMenu(cls=''){const n=NOPARTY[MODE];return `<div class="menu ${cls} ${UI.fresh?'anim':''}" role="listbox"><button role="option" data-act="setparty" data-c="" aria-selected="${!S().party}"><span class="avatar sm none">–</span><span><b style="font-weight:500">${n.label}</b> <span class="muted">expense or other income only</span></span></button>${PARTY[MODE].map(p=>`<button role="option" data-act="setparty" data-c="${p.code}" aria-selected="${p.code===S().party}"><span class="avatar sm">${initials(p.name)}</span><span><b style="font-weight:500">${p.name}</b> <span class="mono muted">${p.code}</span></span><span class="sp"></span><span class="num muted">${fmt(p.open)}</span></button>`).join('')}</div>`}
+function partyPick(){const p=partyOf();return `<div class="pickwrap"><button type="button" class="pick" data-act="menu" data-m="party">${p.none?`<span class="avatar none">–</span><b style="font-weight:500">${p.label}</b><span class="sp"></span>`:`<span class="avatar">${initials(p.name)}</span><b style="font-weight:500">${esc(p.name)}</b><span class="mono muted">${p.code}</span><span class="sp"></span><span class="muted num">${fmt(p.open)} open</span>`}${I.chev}</button>${UI.menu==='party'?partyMenu():''}</div>`}
 function partyChange(){return `<div class="pickwrap"><button type="button" class="btn sm ghost" data-act="menu" data-m="party">Change ${I.chev}</button>${UI.menu==='party'?partyMenu('r'):''}</div>`}
-function emptyParty(){const t=T(),p=partyOf(),h=homeParty();return `<div class="empty"><span class="empty-ico">${I.file}</span><b>${esc(p.name)} has nothing open to settle</b><p>Money from them that isn't for an ${t.invWord} goes on Other lines. (In this demo only ${esc(h.name)} has open ${t.invWord}s.)</p><div class="row" style="justify-content:center"><button class="btn sm" data-act="addother">${I.plus} Add an other line</button><button class="btn sm ghost" data-act="setparty" data-c="${h.code}">Back to ${esc(h.name)}</button></div></div>`}
+function emptyParty(){const t=T(),p=partyOf(),h=homeParty();
+ if(p.none)return `<div class="empty"><span class="empty-ico">${I.file}</span><b>${p.label} on this ${t.code}</b><p>Pick a ${t.party.toLowerCase()} only to settle their ${t.invWord}s. Without one, use Other lines — ${MODE==='bkm'?'interest, other income':'bank fees, electricity, supplies'}.</p><div class="row" style="justify-content:center"><button class="btn sm" data-act="addother">${I.plus} Add an other line</button><button class="btn sm ghost" data-act="setparty" data-c="${h.code}">Pick ${esc(h.name)}</button></div></div>`
+ return `<div class="empty"><span class="empty-ico">${I.file}</span><b>${esc(p.name)} has nothing open to settle</b><p>Money from them that isn't for an ${t.invWord} goes on Other lines. (In this demo only ${esc(h.name)} has open ${t.invWord}s.)</p><div class="row" style="justify-content:center"><button class="btn sm" data-act="addother">${I.plus} Add an other line</button><button class="btn sm ghost" data-act="setparty" data-c="${h.code}">Back to ${esc(h.name)}</button></div></div>`}
 function compactInv(){const t=T(),p=problems();return `<div class="cinv">${invs().map((x,i)=>`<div class="crow ${x.pick?'':'off'}" data-row="${i}"><input type="checkbox" class="cb" data-change="pick" data-i="${i}" ${x.pick?'checked':''} aria-label="Settle ${x.no}"><div class="cmeta"><span class="mono">${x.no}</span><span>${fmt(x.open)}${dueTag(x.due)}</span></div><input class="cell-in" data-money data-bind="inv.disc.${i}" value="${x.disc?fmt(x.disc):''}" placeholder="disc." ${x.pick?'':'disabled'} aria-label="Discount on ${x.no}"><input class="cell-in" data-money data-bind="inv.amt.${i}" value="${x.amt?fmt(x.amt):''}" placeholder="0" aria-invalid="${!!p['inv'+i]}" aria-label="${t.col} on ${x.no}"></div>`).join('')}</div>`}
 function otherCompact(){const t=T(),s=S();return `<div class="cinv">${s.other.map((o,i)=>`<div class="crow" style="grid-template-columns:minmax(0,1fr) 128px 32px"><select class="in sm" data-change="otheracc" data-i="${i}" aria-label="Account">${t.other.map(c=>`<option value="${c}" ${c===o.acc?'selected':''}>${c} · ${GL[c]}</option>`).join('')}</select><input class="cell-in" data-money data-bind="other.amt.${i}" value="${o.amt?fmt(o.amt):''}" placeholder="0" aria-label="Amount"><button class="icon-btn" data-act="delother" data-i="${i}" aria-label="Remove line">${I.x}</button></div>`).join('')}<button class="addrow" data-act="addother" style="border-radius:0">${I.plus} Add a line — ${MODE==='bkm'?'interest, other income, a staff repayment':'bank fees, electricity, supplies'}</button></div>`}
 
@@ -711,48 +772,119 @@ function journal(){const s=S(),su=sums(),a=CB[s.account],p=partyOf(),L=[];
  if(MODE==='bkm'){
   if(su.total)L.push({...cash,dr:su.total});
   if(su.disc)L.push({code:'4012',name:GL['4012'],dr:su.disc});
-  if(su.off)L.push({code:'2002',name:`${GL['2002']} · ${p.name}`,dr:su.off,note:'netted off'});
+  if(su.off+su.offDisc)L.push({code:'2002',name:`${GL['2002']} · ${p.name}`,dr:su.off+su.offDisc,note:'netted off'});
   if(su.settled+su.disc)L.push({code:'link',link:'receivable',name:`Receivable · ${p.name}`,cr:su.settled+su.disc,note:`${su.count} invoice${su.count===1?'':'s'}`});
-  s.other.forEach(o=>{if(o.amt)L.push({code:o.acc,name:GL[o.acc],cr:o.amt,note:o.note})});
+  if(su.offDisc)L.push({code:'8004',name:GL['8004'],cr:su.offDisc});
+  s.other.forEach(o=>{if(o.amt&&o.acc)L.push({code:o.acc,name:GL[o.acc],cr:o.amt,note:o.note})});
  }else{
   if(su.settled+su.disc)L.push({code:'2002',name:`${GL['2002']} · ${p.name}`,dr:su.settled+su.disc,note:`${su.count} bill${su.count===1?'':'s'}`});
-  s.other.forEach(o=>{if(o.amt)L.push({code:o.acc,name:GL[o.acc],dr:o.amt,note:o.note})});
+  s.other.forEach(o=>{if(o.amt&&o.acc)L.push({code:o.acc,name:GL[o.acc],dr:o.amt,note:o.note})});
   if(su.total)L.push({...cash,cr:su.total});
+  if(su.offDisc)L.push({code:'4012',name:GL['4012'],dr:su.offDisc});
   if(su.disc)L.push({code:'8004',name:GL['8004'],cr:su.disc});
-  if(su.off)L.push({code:'link',link:'receivable',name:`Receivable · ${p.name}`,cr:su.off,note:'netted off'});
+  if(su.off+su.offDisc)L.push({code:'link',link:'receivable',name:`Receivable · ${p.name}`,cr:su.off+su.offDisc,note:'netted off'});
  }
  return L}
 
 /* ======================================================================
    1 · Classic — 7Soft's layout, tidied
    ====================================================================== */
+const tblCls=()=>UI.grid==='now'?'tbl':'tbl dense'+(UI.grid==='A'||UI.grid==='E'?' lines':'');
 function settleTable(){const t=T(),p=problems(),rows=invs(),su=sums();if(!rows.length)return emptyParty();
- return `<table class="tbl"><thead><tr><th style="width:44px"></th><th>${t.invWord==='bill'?'Bill':'Invoice'}</th><th>Due</th><th class="r">${t.open}</th><th>Ref</th><th class="r" style="width:150px">Discount</th><th class="r" style="width:170px">${t.col}</th><th style="width:70px">In full</th></tr></thead><tbody>
+ return `<table class="${tblCls()}"><thead><tr><th style="width:44px"></th><th>${t.invWord==='bill'?'Bill':'Invoice'}</th><th>Due</th><th class="r">${t.open}</th><th>Ref</th><th style="width:210px">Note</th><th class="r" style="width:140px">Discount</th><th class="r" style="width:170px">${t.col}</th><th style="width:70px">In full</th></tr></thead><tbody>
  ${rows.map((x,i)=>`<tr data-row="${i}" class="${x.pick?'':'off'}"><td><input type="checkbox" class="cb" data-change="pick" data-i="${i}" ${x.pick?'checked':''} aria-label="Settle ${x.no}"></td><td class="mono">${x.no}</td><td>${day(x.due)}${dueTag(x.due)}</td><td class="r num">${fmt(x.open)}</td><td class="muted mono">${x.ref}</td>
+ <td><input class="cell-in left" data-bind="inv.note.${i}" value="${esc(x.note)}" placeholder="Note" ${x.pick?'':'disabled'} aria-label="Note on ${x.no}"></td>
  <td class="r"><input class="cell-in" data-money data-bind="inv.disc.${i}" value="${x.disc?fmt(x.disc):''}" placeholder="0" ${x.pick?'':'disabled'} aria-label="Discount on ${x.no}"></td>
  <td class="r"><input class="cell-in" data-money data-bind="inv.amt.${i}" value="${x.amt?fmt(x.amt):''}" placeholder="0" aria-invalid="${!!p['inv'+i]}" aria-label="${t.col} on ${x.no}"></td>
  <td><input type="checkbox" class="cb" data-change="full" data-i="${i}" ${x.pick&&x.amt+x.disc===x.open?'checked':''} aria-label="${x.no} in full"></td></tr>`).join('')}
- </tbody><tfoot><tr><td></td><td colspan="2"><span data-out="count">${su.count}</span> of ${rows.length} selected</td><td class="r num" data-out="openSel">${fmt(su.openSel)}</td><td></td><td class="r num" data-out="disc">${fmt(su.disc)}</td><td class="r num" data-out="settled">${fmt(su.settled)}</td><td></td></tr></tfoot></table>`}
-function otherTable(){const t=T(),s=S(),p=problems();return `<table class="tbl"><thead><tr><th style="width:340px">Account</th><th>Note</th><th class="r" style="width:190px">Amount</th><th style="width:52px"></th></tr></thead><tbody>
+ </tbody><tfoot><tr><td></td><td colspan="2"><span data-out="count">${su.count}</span> of ${rows.length} selected</td><td class="r num" data-out="openSel">${fmt(su.openSel)}</td><td></td><td></td><td class="r num" data-out="disc">${fmt(su.disc)}</td><td class="r num" data-out="settled">${fmt(su.settled)}</td><td></td></tr></tfoot></table>`}
+function otherTable(){if(UI.grid!=='now')return otherSheet();const t=T(),s=S(),p=problems();return `<table class="tbl"><thead><tr><th style="width:340px">Account</th><th>Note</th><th class="r" style="width:190px">Amount</th><th style="width:52px"></th></tr></thead><tbody>
  ${s.other.map((x,i)=>`<tr><td><select class="in sm" data-change="otheracc" data-i="${i}" aria-label="Account">${t.other.map(c=>`<option value="${c}" ${c===x.acc?'selected':''}>${c} · ${GL[c]}</option>`).join('')}</select></td><td><input class="cell-in left" data-bind="other.note.${i}" value="${esc(x.note)}" placeholder="What it was" aria-label="Note"></td><td class="r"><input class="cell-in" data-money data-bind="other.amt.${i}" value="${x.amt?fmt(x.amt):''}" placeholder="0" aria-invalid="${!!p['oth'+i]}" aria-label="Amount"></td><td><button class="icon-btn" data-act="delother" data-i="${i}" aria-label="Remove line">${I.x}</button></td></tr>`).join('')}
  <tr><td colspan="4"><button class="addrow" data-act="addother">${I.plus} Add a line — ${MODE==='bkm'?'interest, other income, a staff repayment':'bank fees, electricity, supplies'}</button></td></tr></tbody></table>`}
-function offsetTable(){const t=T(),p=problems(),list=offs();if(!list.length)return emptyParty();
+/* ---- Other lines, options A–E: dense, keyboard first ---- */
+const cellId=(r,c)=>`${r}.${c}`;
+function pickIn(kind,r,c,shown,ph){return `<input class="cell-in left" data-pick="${kind}" data-r="${r}" data-cell="${cellId(r,c)}" data-shown="${esc(shown)}" value="${esc(shown)}" placeholder="${ph}" autocomplete="off" spellcheck="false" role="combobox" aria-label="${ph}">`}
+function otherSheet(){const g=UI.grid,s=S(),p=problems(),su=sums(),rows=s.other,n=rows.length;
+ const head={A:['Account','Note','Amount'],B:['Code','Account','Note','Amount'],C:['Account','Note','Amount'],D:['Account','Note','Amount'],E:['Account','Unit','Note','Amount']}[g];
+ const w={A:[420,0,190],B:[110,340,0,190],C:[420,0,190],D:[420,0,190],E:[340,130,0,190]}[g];
+ const ci={A:{n:1,m:2},B:{n:2,m:3},C:{n:1,m:2},D:{n:1,m:2},E:{n:2,m:3}}[g];
+ const accShown=o=>o&&o.acc?(g==='B'?o.acc:`${o.acc} · ${GL[o.acc]}`):'';
+ const line=(o,i,ghost)=>{
+  const acc=pickIn('acc',i,0,accShown(o),g==='B'?'Code':'Account');
+  const name=g==='B'?`<td class="${o&&o.acc?'':'muted'}">${o&&o.acc?esc(GL[o.acc]):''}</td>`:'';
+  const unit=g==='E'?`<td>${pickIn('unit',i,1,ghost?'':(o.unit||'HO'),'Unit')}</td>`:'';
+  const note=`<td><input class="cell-in left" ${ghost?'data-ghost="note"':`data-bind="other.note.${i}"`} data-cell="${cellId(i,ci.n)}" value="${esc(ghost?'':o.note)}" placeholder="Note" autocomplete="off" aria-label="Note"></td>`;
+  const amt=`<td class="r"><input class="cell-in" data-money ${ghost?'data-ghost="amt"':`data-bind="other.amt.${i}"`} data-cell="${cellId(i,ci.m)}" value="${!ghost&&o.amt?fmt(o.amt):''}" placeholder="0" aria-invalid="${!!p['oth'+i]}" aria-label="Amount"></td>`;
+  const del=ghost?'<td></td>':`<td><button type="button" class="icon-btn" data-act="delother" data-i="${i}" aria-label="Remove line" tabindex="-1">${I.x}</button></td>`;
+  return `<tr data-orow="${i}"><td class="rn">${i+1}</td><td>${acc}</td>${name}${unit}${note}${amt}${del}</tr>`};
+ const entry=g==='D'?(()=>{const e=UI.entry[MODE];return `<tr class="entry"><td class="rn">+</td><td>${pickIn('acc','e',0,e.acc?`${e.acc} · ${GL[e.acc]}`:'','Account')}</td><td><input class="cell-in left" data-bind="entry.note" data-cell="e.1" value="${esc(e.note)}" placeholder="Note" autocomplete="off" aria-label="Note"></td><td class="r"><input class="cell-in" data-money data-bind="entry.amt" data-cell="e.2" value="${e.amt?fmt(e.amt):''}" placeholder="0" aria-label="Amount"></td><td><button type="button" class="btn sm pri" data-act="eadd">Add</button></td></tr>`})():'';
+ const ghost=(g==='A'||g==='B'||g==='E')?line({acc:'',note:'',amt:0,unit:''},n,true):'';
+ const body=entry+rows.map((o,i)=>line(o,i,false)).join('')+ghost;
+ const chips=g==='C'?`<div class="qchips">${QUICK[MODE].map(([c,l])=>`<button type="button" class="chip" data-act="qadd" data-c="${c}">${I.plus} ${l}</button>`).join('')}</div>`:'';
+ const empty=g==='C'&&!n?`<tr><td colspan="${head.length+2}" class="muted" style="height:56px;text-align:center">No lines yet</td></tr>`:'';
+ return `${chips}<table class="${tblCls()}"><thead><tr><th class="rn"></th>${head.map((h,k)=>`<th class="${h==='Amount'?'r':''}" ${w[k]?`style="width:${w[k]}px"`:''}>${h}</th>`).join('')}<th style="width:${g==='D'?84:52}px"></th></tr></thead><tbody>${body}${empty}</tbody><tfoot><tr><td></td><td colspan="${head.length-1}">${n} line${n===1?'':'s'}</td><td class="r num" data-out="other">${fmt(su.other)}</td><td></td></tr></tfoot></table>`}
+
+/* ---- account / unit search: type, arrows, Enter. No animation — it is used all day. ---- */
+const DM={el:document.createElement('div'),inp:null,items:[],idx:0};
+DM.el.className='ddm';DM.el.hidden=true;document.body.appendChild(DM.el);
+function dmItems(inp){const raw=inp.value.trim(),q=raw===inp.dataset.shown?'':raw.toLowerCase();
+ if(inp.dataset.pick==='unit')return UNITS.filter(([c,n])=>!q||c.toLowerCase().startsWith(q)||n.toLowerCase().includes(q)).map(([c,n])=>({v:c,a:c,b:n}));
+ const rank=c=>c.startsWith(q)?0:GL[c].toLowerCase().startsWith(q)?1:GL[c].toLowerCase().split(/[\s/(),&]+/).some(w=>w.startsWith(q))?2:3;
+ return T().other.filter(c=>!q||c.startsWith(q)||GL[c].toLowerCase().includes(q)).sort((a,b)=>!q?0:rank(a)-rank(b)).map(c=>({v:c,a:c,b:GL[c]}))}
+function dmOpen(inp){DM.inp=inp;DM.items=dmItems(inp);DM.idx=0;dmDraw()}
+function dmDraw(){const inp=DM.inp;if(!inp||!DM.items.length){DM.el.hidden=true;return}
+ const r=inp.getBoundingClientRect();
+ DM.el.innerHTML=DM.items.map((x,i)=>`<button type="button" class="ddi" role="option" tabindex="-1" data-v="${x.v}" aria-selected="${i===DM.idx}"><span class="dc">${x.a}</span><span>${esc(x.b)}</span></button>`).join('');
+ DM.el.style.left=r.left+'px';DM.el.style.top=(r.bottom+4)+'px';DM.el.style.minWidth=Math.max(r.width,340)+'px';DM.el.hidden=false;
+ DM.el.querySelector('[aria-selected=true]')?.scrollIntoView({block:'nearest'})}
+function dmClose(){DM.el.hidden=true;DM.inp=null}
+function focusCell(id){const el=document.querySelector(`[data-cell="${id}"]`);if(el){el.focus();if(!el.dataset.pick)el.select?.()}}
+function focusNext(el){const list=[...el.closest('.grid-card').querySelectorAll('.cell-in:not(:disabled)')],i=list.indexOf(el);if(list[i+1])list[i+1].focus()}
+function dmPick(v){const inp=DM.inp;if(!inp||v==null)return;const kind=inp.dataset.pick,r=inp.dataset.r,id=inp.dataset.cell;dmClose();
+ if(r==='e')UI.entry[MODE][kind]=v;
+ else{const s=S();let row=s.other[+r];if(!row){row=newOther();s.other.push(row)}row[kind]=v}
+ render();const el=document.querySelector(`[data-cell="${id}"]`);if(el)focusNext(el)}
+document.addEventListener('focusin',e=>{const el=e.target;
+ if(el.matches?.('input[data-pick]')){el.select();dmOpen(el)}
+ else{if(DM.inp)dmClose();if(UI.grid!=='now'&&el.matches?.('.cell-in[data-money]'))el.select()}});
+document.addEventListener('focusout',e=>{const el=e.target;if(el.matches?.('input[data-pick]')){dmClose();el.value=el.dataset.shown}});
+DM.el.addEventListener('mousedown',e=>e.preventDefault());
+DM.el.addEventListener('click',e=>{const b=e.target.closest('.ddi');if(b)dmPick(b.dataset.v)});
+document.addEventListener('input',e=>{const el=e.target;
+ if(el.matches?.('input[data-pick]')){dmOpen(el);return}
+ if(el.dataset?.ghost){/* the waiting row becomes a real one the moment it is typed in */
+  const s=S(),id=el.dataset.cell,row=newOther();if(el.dataset.ghost==='note')row.note=el.value;else row.amt=digits(el.value);
+  s.other.push(row);render();const n=document.querySelector(`[data-cell="${id}"]`);if(n){n.focus();n.setSelectionRange?.(n.value.length,n.value.length)}}});
+document.addEventListener('keydown',e=>{const el=e.target;if(!el.matches?.('.cell-in')||UI.grid==='now')return;
+ if(el.dataset.pick&&!DM.el.hidden){
+  if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();DM.idx=(DM.idx+(e.key==='ArrowDown'?1:-1)+DM.items.length)%DM.items.length;dmDraw();return}
+  if(e.key==='Enter'||(e.key==='Tab'&&!e.shiftKey&&el.value.trim()!==el.dataset.shown)){e.preventDefault();dmPick(DM.items[DM.idx]?.v);return}
+  if(e.key==='Escape'){e.preventDefault();e.stopPropagation();el.value=el.dataset.shown;dmClose();return}}
+ if(e.key==='Enter'&&!e.metaKey&&!e.ctrlKey){e.preventDefault();
+  if(el.dataset.cell==='e.2'){ACT.eadd();return}
+  focusNext(el)}},true);
+
+function offsetTable(){const t=T(),p=problems(),list=offs(),su=sums();if(!list.length)return emptyParty();
  return `<div class="banner info" style="margin:12px 12px 0">${I.swap}<span>${esc(partyOf().name)} is also a ${MODE==='bkm'?'supplier':'customer'}. Tick a ${t.offOpen.toLowerCase()} to net it against this ${t.code} — the ${MODE==='bkm'?'receipt':'payment'} shrinks by the same amount.</span></div>
- <table class="tbl"><thead><tr><th style="width:44px"></th><th>Document</th><th>Due</th><th class="r">${t.offOpen}</th><th>Ref</th><th class="r" style="width:180px">Net off</th></tr></thead><tbody>
- ${list.map((x,i)=>`<tr class="${x.pick?'':'off'}"><td><input type="checkbox" class="cb" data-change="offpick" data-i="${i}" ${x.pick?'checked':''} aria-label="Offset ${x.no}"></td><td class="mono">${x.no}</td><td>${day(x.due)}${dueTag(x.due)}</td><td class="r num">${fmt(x.open)}</td><td class="muted mono">${x.ref}</td><td class="r"><input class="cell-in" data-money data-bind="off.amt.${i}" value="${x.amt?fmt(x.amt):''}" placeholder="0" aria-invalid="${!!p['off'+i]}" ${x.pick?'':'disabled'} aria-label="Net off ${x.no}"></td></tr>`).join('')}
- </tbody></table>`}
+ <table class="${tblCls()}"><thead><tr><th style="width:44px"></th><th>Document</th><th>Due</th><th class="r">${t.offOpen}</th><th>Ref</th><th style="width:210px">Note</th><th class="r" style="width:140px">Discount</th><th class="r" style="width:170px">Net off</th><th style="width:70px">In full</th></tr></thead><tbody>
+ ${list.map((x,i)=>`<tr data-orow="${i}" class="${x.pick?'':'off'}"><td><input type="checkbox" class="cb" data-change="offpick" data-i="${i}" ${x.pick?'checked':''} aria-label="Offset ${x.no}"></td><td class="mono">${x.no}</td><td>${day(x.due)}${dueTag(x.due)}</td><td class="r num">${fmt(x.open)}</td><td class="muted mono">${x.ref}</td>
+ <td><input class="cell-in left" data-bind="off.note.${i}" value="${esc(x.note)}" placeholder="Note" ${x.pick?'':'disabled'} aria-label="Note on ${x.no}"></td>
+ <td class="r"><input class="cell-in" data-money data-bind="off.disc.${i}" value="${x.disc?fmt(x.disc):''}" placeholder="0" ${x.pick?'':'disabled'} aria-label="Discount on ${x.no}"></td>
+ <td class="r"><input class="cell-in" data-money data-bind="off.amt.${i}" value="${x.amt?fmt(x.amt):''}" placeholder="0" aria-invalid="${!!p['off'+i]}" aria-label="Net off ${x.no}"></td>
+ <td><input type="checkbox" class="cb" data-change="offfull" data-i="${i}" ${x.pick&&x.amt+x.disc===x.open?'checked':''} aria-label="${x.no} in full"></td></tr>`).join('')}
+ </tbody><tfoot><tr><td></td><td colspan="2"><span>${list.filter(x=>x.pick).length}</span> of ${list.length} selected</td><td class="r num">${fmt(list.filter(x=>x.pick).reduce((a,x)=>a+x.open,0))}</td><td></td><td></td><td class="r num" data-out="offdisc">${fmt(su.offDisc)}</td><td class="r num" data-out="offnet">${fmt(su.off)}</td><td></td></tr></tfoot></table>`}
 function v1(){const s=S(),t=T(),ro=UI.posted[MODE],su=sums(),tab=UI.tab1;
  return app(`<div class="content">${postedBanner()}
  <fieldset ${ro?'disabled':''}>
  <section class="card v1-hdr">
   <div class="col">
-   <div class="f"><span>Voucher no</span><div class="in ro mono">${t.voucher}<em>auto</em></div></div>
+   <label class="f"><span>Voucher no<i class="optl">auto</i></span><input class="in mono" data-bind="voucher" value="${esc(s.voucher)}" placeholder="${t.voucher}" ${ro?'disabled':''}></label>
    <div class="f"><span>Date<i class="req">*</i></span>${dayField()}</div>
    <label class="f"><span>Cash / bank<i class="req">*</i></span>${acctSelect()}</label>
    <label class="f"><span>Reference</span><input class="in" data-bind="ref" value="${esc(s.ref)}" placeholder="${MODE==='bkm'?'Their transfer reference':'Our transfer reference'}"></label>
   </div>
   <div class="col">
-   <div class="f"><span>${t.party}<i class="req">*</i></span>${partyPick()}</div>
+   <div class="f"><span>${t.party}<i class="optl">only to settle ${t.invWord}s</i></span>${partyPick()}</div>
    <div class="f"><span>Paid by</span>${methodSeg()}</div>
    ${giroFields()}
    <label class="f"><span>Note</span><input class="in" data-bind="note" value="${esc(s.note)}" placeholder="Printed on the ${t.code}"></label>
@@ -770,7 +902,7 @@ function v1(){const s=S(),t=T(),ro=UI.posted[MODE],su=sums(),tab=UI.tab1;
  <section class="card grid-card">${tab==='settle'?settleTable():tab==='other'?otherTable():offsetTable()}</section>
  </fieldset>
  <div id="probs">${problemBanner()}</div>
- <div class="statusbar"><span><kbd>⌘</kbd><kbd>↵</kbd> post</span><span>Discount posts to <span class="mono">${t.disc}</span> ${GL[t.disc]} — change it in Account links</span><span class="sp"></span><span>${UI.tried[MODE]?'':'Missing fields are pointed out when you post, not before'}</span></div>
+ <div class="statusbar"><span><kbd>⌘</kbd><kbd>↵</kbd> post</span><span>Discount and short-pay post to <span class="mono">${t.disc}</span> ${GL[t.disc]}${offs().some(x=>x.pick&&x.disc)?` · on the offset side to <span class="mono">${t.disc2}</span> ${GL[t.disc2]}`:''} — change it in Account links</span><span class="sp"></span><span>${UI.tried[MODE]?'':'Missing fields are pointed out when you post, not before'}</span></div>
  </div>`)}
 
 /* ======================================================================
@@ -802,10 +934,11 @@ function simpleJournal(r){
  if(!m&&MODE==='bkk'&&r.code.startsWith('S-'))counter={code:'2002',name:`${GL['2002']} · ${r.party}`};
  if(!m&&r.code&&!r.code.includes('-'))counter={code:'1002',name:`Cash on hand · ${r.code}`};
  return MODE==='bkm'?[{...cash,dr:r.amt},{...counter,cr:r.amt}]:[{...counter,dr:r.amt},{...cash,cr:r.amt}]}
+const giroNo=(r,live)=>live?(S().method==='giro'?esc(S().giro.no||'—'):'—'):((r.what.match(/BG \d+/)||['—'])[0]);
 function v2detail(r){const t=T(),s=S(),live=!!r.draft,[c,l]=STPILL[r.st],acc=CB[live?s.account:r.acc];
  const su=live?sums():{settled:r.amt,disc:0,other:0,off:0,total:r.amt};
  const party=live?partyOf().name:r.party;
- const lines=live?invs().filter(x=>x.pick).map(x=>[x.no,`${t.invWord} · due ${dayS(x.due)}`,x.amt]).concat(s.other.map(o=>[o.acc,GL[o.acc],o.amt])):[[r.what,'',r.amt]];
+ const lines=live?invs().filter(x=>x.pick).map(x=>[x.no,`${t.invWord} · due ${dayS(x.due)}`,x.amt]).concat(s.other.filter(o=>o.acc).map(o=>[o.acc,GL[o.acc],o.amt])):[[r.what,'',r.amt]];
  const method=live?s.method:r.method;
  const giro=live?(s.method==='giro'?`${esc(s.giro.no||'—')} · due ${s.giro.due?dayS(s.giro.due):'—'}`:''):(r.method==='giro'?esc(r.what):'');
  const jr=live?journal():simpleJournal(r);
@@ -813,22 +946,22 @@ function v2detail(r){const t=T(),s=S(),live=!!r.draft,[c,l]=STPILL[r.st],acc=CB[
  <div class="sh-body"><div><div class="big"><small>Rp</small>${fmt(su.total)}</div><div class="words">${terbilang(su.total)}</div></div>
  ${r.st==='bounced'?`<div class="banner bad" style="margin:0">${I.alert}<span>The giro bounced. The ${t.invWord}s it paid are open again — record the replacement from the Giro board.</span></div>`:''}
  ${r.st==='void'?`<div class="banner warn" style="margin:0">${I.alert}<span>${esc(r.what)}. It stays on record; its journal was reversed.</span></div>`:''}
- <dl class="facts"><dt>Date</dt><dd>${day(r.date)}</dd><dt>Cash / bank</dt><dd>${acc.name} · ${acc.unit} <span class="mono muted">${acc.code}</span></dd><dt>Paid by</dt><dd>${method}${giro&&method==='giro'?` · ${giro}`:''}</dd><dt>${live?'Drafted':'Posted'} by</dt><dd>Hari · ${dayS(r.date)}</dd></dl>
+ <dl class="facts"><dt>Date</dt><dd>${day(r.date)}</dd><dt>Period</dt><dd>${new Date(r.date+'T00:00').toLocaleDateString('en-GB',{month:'long',year:'numeric'})}</dd><dt>Cash / bank</dt><dd>${acc.name} · ${acc.unit} <span class="mono muted">${acc.code}</span></dd><dt>Paid by</dt><dd>${method}${giro&&method==='giro'?` · ${giro}`:''}</dd><dt>${live?'Drafted':'Posted'} by</dt><dd>Hari · ${dayS(r.date)}</dd></dl>
  <div><div class="sub">Lines</div><table class="mini-t">${lines.map(([a,b,v])=>`<tr><td><span class="mono">${esc(a)}</span>${b?`<br><span class="muted">${esc(b)}</span>`:''}</td><td class="r">${fmt(v)}</td></tr>`).join('')||`<tr><td class="muted">No lines yet</td><td></td></tr>`}</table></div>
  <div class="ladder"><div><span>${t.settle}</span><span>${fmt(su.settled)}</span></div><div><span>Discount given</span><span>${fmt(su.disc)}</span></div><div><span>Other lines</span><span>${fmt(su.other)}</span></div><div><span>${t.offset}</span><span>${su.off?'− '+fmt(su.off):'0'}</span></div><div class="tot"><span>${t.amountLbl}</span><span>${fmt(su.total)}</span></div></div>
  <details class="jr"><summary>${I.book} Journal · ${jr.length} lines</summary><table class="mini-t">${jr.map(x=>`<tr><td><span class="code ${x.code==='link'?'link':''}">${x.code==='link'?x.link:x.code}</span> ${esc(x.name)}</td><td class="r">${x.dr?fmt(x.dr):''}</td><td class="r">${x.cr?fmt(x.cr):''}</td></tr>`).join('')}</table></details></div>
  <div class="sh-actions">${live?`<button class="btn pri" data-act="v" data-v="1">Open the full form</button><button class="btn ghost" data-act="post">${t.post}</button>`:r.st==='void'?`<span class="muted">Void vouchers stay on the list, greyed.</span>`:`<button class="btn" data-act="print">${I.print}Print ${t.code}</button><button class="btn ghost" data-act="toast" data-msg="Void asks why, then reverses the journal — the number is never reused">Void…</button>`}</div>`}
 function v2composer(){const t=T();return `<div class="sh-head"><span class="dir d-${t.dir}">${I[t.dir]}</span><div style="flex:1"><div class="mono muted">${t.voucher} · new</div><h2>${t.newTitle}</h2></div><button class="icon-btn" data-act="v2close" aria-label="Close">${I.x}</button></div>
- <div class="sh-body">${postedBanner()}<fieldset ${UI.posted[MODE]?'disabled':''} class="col"><div class="f"><span>${t.party}<i class="req">*</i></span>${partyPick()}</div><div class="two"><label class="f"><span>Cash / bank<i class="req">*</i></span>${acctSelect()}</label><div class="f"><span>Paid by</span>${methodSeg()}</div></div>${giroFields()}
+ <div class="sh-body">${postedBanner()}<fieldset ${UI.posted[MODE]?'disabled':''} class="col"><div class="f"><span>${t.party}<i class="optl">only to settle ${t.invWord}s</i></span>${partyPick()}</div><div class="two"><label class="f"><span>Cash / bank<i class="req">*</i></span>${acctSelect()}</label><div class="f"><span>Paid by</span>${methodSeg()}</div></div>${giroFields()}
  <div class="f"><span>${t.settle}</span>${invs().length?compactInv():emptyParty()}</div></fieldset><div id="probs">${problemBanner()}</div>
  <div class="ladder"><div class="tot"><span>${t.amountLbl}</span><span data-out="total">${fmt(sums().total)}</span></div></div></div>
  <div class="sh-actions">${UI.posted[MODE]?`<button class="btn" data-act="print">${I.print}Print ${t.code}</button><button class="btn ghost" data-act="reset">Back to draft (demo)</button>`:`<button class="btn pri" data-act="post" ${UI.posting?'disabled aria-busy="true"':''}>${UI.posting?'Posting…':t.post}</button><button class="btn ghost" data-act="v2close">Cancel</button>`}</div>`}
-function v2(){const t=T(),list=LIST[MODE],sel=UI.v2sel[MODE];
- const rows=list.map((r,i)=>{const [c,l]=STPILL[UI.posted[MODE]&&r.draft?'posted':r.st];const live=!!r.draft;const amt=live?sums().total:r.amt;
-  return `<tr class="${i===sel&&!UI.v2new?'sel':''}" data-act="v2sel" data-i="${i}" tabindex="0"><td><span class="mono">${r.no}</span><span class="sub2">${dayS(r.date)}</span></td><td><span style="color:var(--ink);font-weight:500">${esc(live?partyOf().name:r.party)}</span><span class="sub2">${esc(live?`${sums().count} ${t.invWord}${sums().count===1?'':'s'}`:r.what)}</span></td><td>${CB[r.acc].name}<span class="sub2">${r.method}</span></td><td class="r num">${fmt(amt)}</td><td><span class="pill ${c}">${l}</span></td></tr>`}).join('');
+function v2(){const t=T(),list=LIST[MODE],sel=UI.v2sel[MODE],acc=S().account;
+ const rows=list.map((r,i)=>[r,i]).filter(([r])=>!UI.v2acc||(r.draft?acc:r.acc)===acc).map(([r,i])=>{const [c,l]=STPILL[UI.posted[MODE]&&r.draft?'posted':r.st];const live=!!r.draft;const amt=live?sums().total:r.amt;
+  return `<tr class="${i===sel&&!UI.v2new?'sel':''}" data-act="v2sel" data-i="${i}" tabindex="0"><td><span class="mono">${r.no}</span><span class="sub2">${dayS(r.date)}</span></td><td><span style="color:var(--ink);font-weight:500">${esc(live?partyOf().name:r.party)}</span><span class="sub2">${esc(live?`${sums().count} ${t.invWord}${sums().count===1?'':'s'}`:r.what)}</span></td><td>${CB[live?acc:r.acc].name}<span class="sub2">${live?S().method:r.method}${giroNo(r,live)!=='—'?` · <span class="mono">${giroNo(r,live)}</span>`:''}</span></td><td class="r num">${fmt(amt)}</td><td><span class="pill ${c}">${l}</span></td></tr>`}).join('');
  const chips=[['All',list.length],['Draft',list.filter(r=>r.st==='draft').length],['Giro waiting',list.filter(r=>r.st==='waiting').length],['Bounced',list.filter(r=>r.st==='bounced').length]];
- return app(`<div class="content"><div class="v2"><section class="card" style="overflow:hidden"><div class="v2-tools"><div class="search">${I.search}<input placeholder="Search ${t.code} no, ${t.party.toLowerCase()}, giro no…" aria-label="Search"></div><div class="row">${chips.map(([l,n],i)=>`<button type="button" class="chip ${i===0?'on':''}">${l} <span>${n}</span></button>`).join('')}</div></div>
- <table class="tbl rows"><thead><tr><th>${t.code}</th><th>${t.party} · what</th><th>Cash / bank</th><th class="r">Amount</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table><div class="list-foot">Loads more as you scroll · 1.284 ${t.plural.toLowerCase()} this year</div></section>
+ return app(`<div class="content"><div class="v2"><section class="card" style="overflow:hidden"><div class="v2-tools"><div class="search">${I.search}<input placeholder="Search ${t.code} no, ${t.party.toLowerCase()}, giro no…" aria-label="Search"></div><div class="row">${chips.map(([l,n],i)=>`<button type="button" class="chip ${i===0?'on':''}">${l} <span>${n}</span></button>`).join('')}<button type="button" class="chip ${UI.v2acc?'on':''}" data-act="v2acc" aria-pressed="${UI.v2acc}">Only ${CB[acc].name}</button></div></div>
+ <table class="tbl rows"><thead><tr><th>${t.code}</th><th>${t.party} · what</th><th>Cash / bank · giro no</th><th class="r">Amount</th><th>Status</th></tr></thead><tbody>${rows||`<tr><td colspan="5" class="muted" style="height:72px;text-align:center">No ${t.plural.toLowerCase()} on ${CB[acc].name} yet</td></tr>`}</tbody></table><div class="list-foot">Loads more as you scroll · 1.284 ${t.plural.toLowerCase()} this year</div></section>
  <aside class="card sheet" aria-label="Voucher">${UI.v2new?v2composer():v2detail(list[sel])}</aside></div></div>`,
  {plain:true,title:t.plural,actions:`<button class="btn" data-act="toast" data-msg="Export queued — it arrives as a file">Export</button><button class="btn pri" data-act="v2new">${I.plus}New ${t.title.toLowerCase()}</button>`})}
 
@@ -901,7 +1034,7 @@ function v4(){const s=S(),t=T(),p=partyOf(),a=CB[s.account],pr=problems(),ro=UI.
 function v5(){const s=S(),t=T(),a=CB[s.account],p=partyOf(),su=sums(),posted=UI.posted[MODE];const title=a.kind==='bank'?t.paperBank:t.paperKas;
  const rows=[];
  invs().forEach((x,i)=>{if(x.pick)rows.push({desc:`Pelunasan ${x.no} (${x.ref})${x.disc?` · potongan ${fmt(x.disc)}`:''}`,acc:MODE==='bkm'?'Piutang':'2002',bind:`inv.amt.${i}`,amt:x.amt})});
- s.other.forEach((o,i)=>rows.push({desc:o.note,descBind:`other.note.${i}`,ph:GL[o.acc],acc:o.acc,bind:`other.amt.${i}`,amt:o.amt}));
+ s.other.forEach((o,i)=>o.acc&&rows.push({desc:o.note,descBind:`other.note.${i}`,ph:GL[o.acc],acc:o.acc,bind:`other.amt.${i}`,amt:o.amt}));
  offs().forEach(x=>{if(x.pick)rows.push({desc:`Dikompensasi ${x.no}`,acc:MODE==='bkm'?'2002':'Piutang',amt:x.amt,neg:true})});
  const blanks=Math.max(1,7-rows.length);
  const tick=m=>`<span class="box ${s.method===m?'x':''}"></span>`;
@@ -971,7 +1104,7 @@ function lensHTML(){const L=journal(),dr=L.reduce((a,x)=>a+(x.dr||0),0),cr=L.red
  <tfoot><tr><td>Total</td><td class="r num"><span class="dbl">${fmt(dr)}</span></td><td class="r num"><span class="dbl">${fmt(cr)}</span></td></tr></tfoot></table>${lensLater()}`}
 function v7(){const t=T(),posted=UI.posted[MODE];
  return app(`<div class="content">${postedBanner()}<div class="v7"><section class="card v7-form"><fieldset ${posted?'disabled':''} class="col">
-  <div class="f"><span>${t.party}<i class="req">*</i></span>${partyPick()}</div>
+  <div class="f"><span>${t.party}<i class="optl">only to settle ${t.invWord}s</i></span>${partyPick()}</div>
   <div class="two"><label class="f"><span>Cash / bank<i class="req">*</i></span>${acctSelect()}</label><div class="f"><span>Paid by</span>${methodSeg()}</div></div>${giroFields()}
   <div class="f"><span>${t.settle} <span class="muted" style="font-weight:400">· discount, then ${t.col.toLowerCase()}</span></span>${invs().length?compactInv():emptyParty()}</div>
   <div class="f"><span>Other lines</span>${otherCompact()}</div></fieldset><div id="probs">${problemBanner()}</div></section>
@@ -1009,29 +1142,49 @@ const GIRO={
   {id:'g2',no:'BG 118930',bank:'Mandiri',party:'Toko Maju Jaya',amt:4250000,due:'2026-10-12',st:'wait',from:'BKM/HO/2609/0038'},
   {id:'g3',no:'BG 551027',bank:'BRI',party:'CV Sinar Abadi',amt:2980000,due:'2026-09-26',st:'wait',from:'BKM/HO/2609/0036'},
   {id:'g4',no:'BG 660311',bank:'BCA',party:'Agung Jaya Sentosa',amt:16105000,due:'2026-09-20',st:'cleared',at:'2026-09-21',from:'BKM/HO/2609/0024'},
-  {id:'g5',no:'BG 402288',bank:'BNI',party:'Toko Maju Jaya',amt:1575000,due:'2026-09-17',st:'bounced',at:'2026-09-18',from:'BKM/HO/2609/0035'}],
+  {id:'g5',no:'BG 402288',bank:'BNI',party:'Toko Maju Jaya',amt:1575000,due:'2026-09-17',st:'bounced',at:'2026-09-18',from:'BKM/HO/2609/0035'},
+  {id:'g6',no:'BG 559021',bank:'BCA',party:'CV Sinar Abadi',amt:3120000,due:'2026-08-27',st:'cleared',at:'2026-08-28',closed:true,from:'BKM/HO/2608/0088'}],
  bkk:[{id:'k1',no:'BG 456124',bank:'BCA',party:'Langgeng Jaya Sentosa',amt:33689000,due:'2026-10-12',st:'wait',from:'BKK/HO/2609/0057 · draft'},
   {id:'k2',no:'BG 456120',bank:'Mandiri',party:'CV Anugrah Textile',amt:12450000,due:'2026-10-03',st:'wait',from:'BKK/HO/2609/0054'},
   {id:'k3',no:'BG 456123',bank:'BCA',party:'Sumber Komputer',amt:8374200,due:'2026-09-26',st:'wait',from:'BKK/HO/2609/0055'},
   {id:'k4',no:'BG 456119',bank:'BCA',party:'PT Graha Clean',amt:4200000,due:'2026-09-22',st:'cleared',at:'2026-09-22',from:'BKK/HO/2609/0046'},
-  {id:'k5',no:'BG 456101',bank:'BCA',party:'PT Delta Tex',amt:5100000,due:'2026-09-19',st:'bounced',at:'2026-09-20',from:'BKK/HO/2609/0051'}]};
+  {id:'k5',no:'BG 456101',bank:'BCA',party:'PT Delta Tex',amt:5100000,due:'2026-09-19',st:'bounced',at:'2026-09-20',from:'BKK/HO/2609/0051'},
+  {id:'k6',no:'BG 455980',bank:'BCA',party:'Sumber Komputer',amt:2750000,due:'2026-08-26',st:'cleared',at:'2026-08-27',closed:true,from:'BKK/HO/2608/0071'}]};
+/* Giro still out on day one — 7Soft's Saldo Awal BG. */
+const OPENING={
+ bkm:[{no:'BG 330012',bank:'BCA',amt:5200000,made:'2026-09-01',due:'2026-09-30',note:'Toko Maju Jaya',st:'New'},{no:'BG 330145',bank:'Mandiri',amt:1840000,made:'2026-09-01',due:'2026-10-05',note:'CV Sinar Abadi',st:'New'},{no:'BG 329870',bank:'BNI',amt:960000,made:'2026-09-01',due:'2026-09-24',note:'Agung Jaya Sentosa',st:'Cleared'}],
+ bkk:[{no:'BG 455871',bank:'BCA',amt:7400000,made:'2026-09-01',due:'2026-09-28',note:'Langgeng Jaya Sentosa',st:'New'},{no:'BG 455902',bank:'Mandiri',amt:3150000,made:'2026-09-01',due:'2026-10-02',note:'CV Anugrah Textile',st:'New'}]};
 const gstate=g=>{const o=UI.v9[MODE][g.id];return o?{...g,...o}:g};
 const gcol=g=>g.st==='cleared'?'cleared':g.st==='bounced'?'bounced':lateBy(g.due)>=-7?'due':'wait';
-function gcard(g){const t=T(),c=gcol(g),d=lateBy(g.due),open=UI.v9open===g.id;
+function gcard(g){const t=T(),c=gcol(g),d=lateBy(g.due),open=UI.v9open===g.id,rej=UI.v9rej===g.id,chk=UI.v9chk[MODE].has(g.id);
  const cd=c==='cleared'?`<span class="cd">Cleared ${dayS(g.at)}${MODE==='bkk'?' · by statement':''}</span>`:c==='bounced'?`<span class="cd late">Bounced ${dayS(g.at)}</span>`:d>0?`<span class="cd late">${d} d past due</span>`:d===0?`<span class="cd late">Due today</span>`:`<span class="cd">Due ${dayS(g.due)} · in ${-d} d</span>`;
  let acts='';
- if(c==='wait'||c==='due')acts=MODE==='bkm'?`<button type="button" class="btn sm" data-act="v9open" data-id="${g.id}">Deposit &amp; clear</button><button type="button" class="btn sm ghost" data-act="v9set" data-id="${g.id}" data-st="bounced">Bounced</button>`
+ if(c==='wait'||c==='due')acts=MODE==='bkm'?`<button type="button" class="btn sm" data-act="v9open" data-id="${g.id}">Deposit &amp; clear</button>`
   :`<span class="pill info">Clears from the statement</span><button type="button" class="btn sm ghost" data-act="v9find">Find it</button>`;
  else if(c==='bounced')acts=g.repl?`<span class="pill ok">Replaced by <span class="mono">${g.repl}</span></span>`:`<button type="button" class="btn sm" data-act="v9repl" data-id="${g.id}">${I.undo} Replace</button><span class="muted" style="font-size:13px">${MODE==='bkm'?'its invoices are open again':'its bills are open again'}</span>`;
- else if(MODE==='bkm')acts=`<button type="button" class="btn sm ghost" data-act="v9set" data-id="${g.id}" data-st="wait">Undo clearing</button>`;
- const form=open?`<div class="clr"><label class="f"><span>Into</span><select class="in sm">${['1005','1006'].map(k=>`<option>${CB[k].name} · HO</option>`).join('')}</select></label><div class="f"><span>Cleared on</span><div class="in sm day">${I.cal}${day(TODAY)}</div></div><div class="row"><button type="button" class="btn sm pri" data-act="v9set" data-id="${g.id}" data-st="cleared">Clear ${fmt(g.amt)}</button><button type="button" class="btn sm ghost" data-act="v9open" data-id="${g.id}">Cancel</button></div></div>`:'';
- return `<div class="gcard"><div class="top"><span class="mono" style="color:var(--ink)">${g.no}</span><span class="pill">${g.bank}</span><span class="sp"></span>${cd}</div><div class="amt">Rp ${fmt(g.amt)}</div><div class="who">${esc(g.party)}</div><div class="meta">from <span class="mono">${g.from}</span></div><div class="acts">${acts}</div>${form}</div>`}
-function v9(){const G=GIRO[MODE].map(gstate),by=k=>G.filter(g=>gcol(g)===k),sum=a=>a.reduce((x,g)=>x+g.amt,0);
+ else if(g.closed)acts=`<span class="pill">Closed · ${dayS(g.at)} is in a closed month</span>`;
+ else acts=`${MODE==='bkm'?`<button type="button" class="btn sm ghost" data-act="v9set" data-id="${g.id}" data-st="wait">Undo clearing</button>`:''}<button type="button" class="btn sm ghost" data-act="v9rej" data-id="${g.id}">Bounced</button>`;
+ const form=open?`<div class="clr"><label class="f"><span>Into</span><select class="in sm">${['1005','1006'].map(k=>`<option>${CB[k].name} · HO</option>`).join('')}</select></label><div class="f"><span>Cleared on</span><div class="in sm day">${I.cal}${day(TODAY)}</div></div><div class="row"><button type="button" class="btn sm pri" data-act="v9set" data-id="${g.id}" data-st="cleared">Clear ${fmt(g.amt)}</button><button type="button" class="btn sm ghost" data-act="v9open" data-id="${g.id}">Cancel</button></div></div>`
+  :rej?`<div class="clr"><div class="f"><span>Bounced on</span><div class="in sm day">${I.cal}${day(TODAY)}</div></div><div class="row"><button type="button" class="btn sm pri" data-act="v9set" data-id="${g.id}" data-st="bounced">Mark bounced</button><button type="button" class="btn sm ghost" data-act="v9rej" data-id="${g.id}">Cancel</button></div></div>`:'';
+ const pick=MODE==='bkm'&&(c==='wait'||c==='due')?`<input type="checkbox" class="cb" data-change="v9chk" data-id="${g.id}" ${chk?'checked':''} aria-label="Select ${g.no}">`:'';
+ return `<div class="gcard ${chk?'sel':''}"><div class="top">${pick}<span class="mono" style="color:var(--ink)">${g.no}</span><span class="pill">${g.bank}</span><span class="sp"></span>${cd}</div><div class="amt">Rp ${fmt(g.amt)}</div><div class="who">${esc(g.party)}</div><div class="meta">from <span class="mono">${g.from}</span></div><div class="acts">${acts}</div>${form}</div>`}
+function v9opening(){const t=T(),L=OPENING[MODE];
+ return `<section class="card" style="overflow:hidden"><table class="tbl"><thead><tr><th>Giro no</th><th>Bank</th><th class="r">Amount</th><th>Made</th><th>Due</th><th>Note</th><th>Status</th></tr></thead><tbody>
+ ${L.map(x=>`<tr><td class="mono">${x.no}</td><td>${x.bank}</td><td class="r num">${fmt(x.amt)}</td><td>${day(x.made)}</td><td>${day(x.due)}</td><td>${esc(x.note)}</td><td><span class="pill ${x.st==='Cleared'?'ok':'warn'}">${x.st}</span></td></tr>`).join('')}
+ </tbody><tfoot><tr><td colspan="2">${L.length} giro${L.length===1?'':'s'} out on day one</td><td class="r num">${fmt(L.reduce((a,x)=>a+x.amt,0))}</td><td colspan="4"></td></tr></tfoot></table></section>`}
+function v9(){const G=GIRO[MODE].map(gstate),by=k=>G.filter(g=>gcol(g)===k),sum=a=>a.reduce((x,g)=>x+g.amt,0),t=T();
  const cols=[['wait','Waiting'],['due','Due within 7 days'],['cleared','Cleared'],['bounced','Bounced']];
- const kpi=[['Waiting',by('wait')],['Due within 7 days',by('due')],['Cleared this month',by('cleared')],['Bounced this month',by('bounced')]];
- return app(`<div class="content"><div class="kpis">${kpi.map(([l,a])=>`<div class="card kpi"><small>${l}</small><b>${fmt(sum(a))}</b><span>${a.length} giro${a.length===1?'':'s'}</span></div>`).join('')}</div>
- <div class="board">${cols.map(([k,l])=>{const a=by(k);return `<div class="colm"><h3>${l}<span class="n">${a.length}</span><span class="sum">${fmt(sum(a))}</span></h3>${a.map(gcard).join('')||'<div class="empty-col">Nothing here</div>'}</div>`}).join('')}</div></div>`,
- {plain:true,title:MODE==='bkm'?'Giro received':'Giro issued',crumb:'Giro',actions:`<button type="button" class="btn" data-act="toast" data-msg="Opening giro: the ones still out on day one (7Soft's Saldo Awal BG)">Opening giro</button>`})}
+ const month=a=>a.filter(g=>g.at>='2026-09-01');
+ const kpi=[['Waiting',by('wait')],['Due within 7 days',by('due')],['Cleared this month',month(by('cleared'))],['Bounced this month',month(by('bounced'))]];
+ const f=UI.v9f[MODE],chips=[['all','All',G.length],...cols.map(([k,l])=>[k,l,by(k).length])];
+ const chk=[...UI.v9chk[MODE]].map(id=>G.find(g=>g.id===id)).filter(g=>g&&(gcol(g)==='wait'||gcol(g)==='due'));
+ const bar=chk.length?`<div class="v9bar"><b>${chk.length} selected</b><span class="num">Rp ${fmt(sum(chk))}</span><label class="f inl"><span>Into</span><select class="in sm">${['1005','1006'].map(k=>`<option>${CB[k].name} · HO</option>`).join('')}</select></label><div class="f inl"><span>Cleared on</span><div class="in sm day">${I.cal}${day(TODAY)}</div></div><span class="sp"></span><button type="button" class="btn sm ghost" data-act="v9none">Clear selection</button><button type="button" class="btn sm pri" data-act="v9batch">Clear ${chk.length} giro${chk.length===1?'':'s'}</button></div>`:'';
+ const body=UI.v9tab==='open'?v9opening():`<div class="kpis">${kpi.map(([l,a])=>`<div class="card kpi"><small>${l}</small><b>${fmt(sum(a))}</b><span>${a.length} giro${a.length===1?'':'s'}</span></div>`).join('')}</div>
+ <div class="v9tools" role="group" aria-label="Show">${chips.map(([k,l,n])=>`<button type="button" class="chip ${f===k?'on':''}" data-act="v9f" data-k="${k}" aria-pressed="${f===k}">${l} <span>${n}</span></button>`).join('')}</div>
+ ${f==='all'?`<div class="board">${cols.map(([k,l])=>{const a=by(k);return `<div class="colm"><h3>${l}<span class="n">${a.length}</span><span class="sum">${fmt(sum(a))}</span></h3>${a.map(gcard).join('')||'<div class="empty-col">Nothing here</div>'}</div>`}).join('')}</div>`
+  :`<div class="board one">${by(f).map(gcard).join('')||'<div class="empty-col">Nothing here</div>'}</div>`}${bar}`;
+ return app(`<div class="content">${body}</div>`,
+ {plain:true,title:MODE==='bkm'?'Giro received':'Giro issued',crumb:'Giro',actions:`<div class="segm" role="group" aria-label="View">${[['giro','Giro'],['open','Opening giro']].map(([k,l])=>`<button type="button" data-act="v9tab" data-k="${k}" aria-pressed="${UI.v9tab===k}">${l}</button>`).join('')}</div>`})}
 
 /* ======================================================================
    10 · Quick entry — type it the way it's said
@@ -1087,7 +1240,9 @@ function refresh(){const su=sums();
  const p=problems();
  invs().forEach((x,i)=>{document.querySelectorAll(`[data-bind="inv.amt.${i}"]`).forEach(n=>n.setAttribute('aria-invalid',p['inv'+i]?'true':'false'));
   document.querySelectorAll(`[data-row="${i}"]`).forEach(r=>{r.classList.toggle('off',!x.pick);const cb=r.querySelector('[data-change="pick"]');if(cb)cb.checked=x.pick;const d=r.querySelector(`[data-bind="inv.disc.${i}"]`);if(d)d.disabled=!x.pick;const f=r.querySelector('[data-change="full"]');if(f)f.checked=x.pick&&x.amt+x.disc===x.open})});
- offs().forEach((x,i)=>document.querySelectorAll(`[data-bind="off.amt.${i}"]`).forEach(n=>n.setAttribute('aria-invalid',p['off'+i]?'true':'false')));
+ offs().forEach((x,i)=>{document.querySelectorAll(`[data-bind="off.amt.${i}"]`).forEach(n=>n.setAttribute('aria-invalid',p['off'+i]?'true':'false'));
+  document.querySelectorAll(`[data-orow="${i}"]`).forEach(r=>{r.classList.toggle('off',!x.pick);const cb=r.querySelector('[data-change="offpick"]');if(cb)cb.checked=x.pick;r.querySelectorAll('[data-bind="off.disc.'+i+'"],[data-bind="off.note.'+i+'"]').forEach(n=>n.disabled=!x.pick);const f=r.querySelector('[data-change="offfull"]');if(f)f.checked=x.pick&&x.amt+x.disc===x.open})});
+ set('offdisc',fmt(su.offDisc));set('offnet',fmt(su.off));
  const pb=document.getElementById('probs');if(pb)pb.innerHTML=problemBanner();
  HOOK[V]?.()}
 let toastTimer;
@@ -1097,16 +1252,20 @@ function toast(msg,tone='ok'){const el=document.getElementById('toast');el.class
 function post(){if(UI.posted[MODE]||UI.posting)return;const p=problems(true);
  if(Object.keys(p).length){UI.tried[MODE]=true;render();toast(Object.values(p)[0],'bad');return}
  UI.posting=true;render();
- setTimeout(()=>{UI.posting=false;UI.posted[MODE]=true;UI.tried[MODE]=false;UI.flash=true;render();UI.flash=false;toast(`${T().voucher} posted`)},700)}
+ setTimeout(()=>{UI.posting=false;UI.posted[MODE]=true;UI.tried[MODE]=false;UI.flash=true;render();UI.flash=false;toast(`${vno()} posted`)},700)}
 
 const ACT={
- mode:b=>{MODE=b.dataset.m;UI.menu=null;UI.v4open=null;UI.v9open=null;render(true)},
+ mode:b=>{MODE=b.dataset.m;UI.menu=null;UI.v4open=null;UI.v9open=null;UI.v9rej=null;render(true)},
  v:b=>{V=+b.dataset.v;UI.menu=null;UI.v4open=null;UI.v9open=null;render(true);window.scrollTo({top:0,behavior:'smooth'})},
  tab1:b=>{UI.tab1=b.dataset.t;render()},
  method:b=>{const s=S(),m=b.dataset.m;s.method=m;if(m==='cash'&&CB[s.account].kind!=='cash')s.account='1002';if(m!=='cash'&&CB[s.account].kind==='cash')s.account='1005';UI.v4open=null;render()},
  menu:b=>{UI.menu=UI.menu===b.dataset.m?null:b.dataset.m;UI.fresh=true;render();UI.fresh=false},
- setparty:b=>{S().party=b.dataset.c;UI.menu=null;UI.v4open=null;UI.v3amt[MODE]=null;UI.v3skip[MODE]=new Set();render()},
- addother:()=>{S().other.push({acc:T().other[0],note:'',amt:0});if(V===1)UI.tab1='other';UI.menu=null;render()},
+ setparty:b=>{S().party=b.dataset.c;if(!b.dataset.c&&V===1){UI.tab1='other';if(!S().other.length&&UI.grid==='now')S().other.push(newOther())}else if(b.dataset.c&&V===1)UI.tab1='settle';UI.menu=null;UI.v4open=null;UI.v3amt[MODE]=null;UI.v3skip[MODE]=new Set();render()},
+ addother:()=>{S().other.push(newOther());if(V===1)UI.tab1='other';UI.menu=null;render();if(UI.grid!=='now')focusCell(cellId(S().other.length-1,0))},
+ gridsel:b=>{UI.grid=b.dataset.k;if(UI.grid==='now'){const s=S();s.other=s.other.filter(o=>o.acc||o.amt);s.other.forEach(o=>{if(!o.acc)o.acc=T().other[0]})}UI.tab1='other';render()},
+ qadd:b=>{const s=S();s.other.push({...newOther(),acc:b.dataset.c});render();focusCell(cellId(s.other.length-1,2))},
+ eadd:()=>{const e=UI.entry[MODE];if(!e.acc){toast('Pick an account first','bad');focusCell('e.0');return}if(!e.amt){toast('How much?','bad');focusCell('e.2');return}
+  S().other.push({acc:e.acc,note:e.note,amt:e.amt,unit:'HO'});UI.entry[MODE]={acc:'',note:'',amt:0};render();focusCell('e.0');dmClose()},
  delother:b=>{S().other.splice(+b.dataset.i,1);render()},
  browse:()=>{invs().forEach(x=>{x.pick=true;x.amt=x.open-x.disc});UI.tab1='settle';UI.v3amt[MODE]=null;render();toast(`All ${invs().length} open ${T().invWord}s added — untick the ones this ${T().code} doesn't pay`)},
  post:()=>post(),
@@ -1115,6 +1274,7 @@ const ACT={
  toast:b=>toast(b.dataset.msg),
  due:b=>{S().giro.due=plusDays(TODAY,+b.dataset.n);UI.v4open=null;render()},
  v2sel:b=>{UI.v2sel[MODE]=+b.dataset.i;UI.v2new=false;render()},
+ v2acc:()=>{UI.v2acc=!UI.v2acc;render()},
  v2new:()=>{UI.v2new=true;render()},
  v2close:()=>{UI.v2new=false;render()},
  v3skip:b=>{const i=+b.dataset.i,sk=UI.v3skip[MODE];sk.has(i)?sk.delete(i):sk.add(i);render()},
@@ -1138,10 +1298,15 @@ const ACT={
  v8again:()=>{UI.v8saved[MODE]=false;UI.v8amt[MODE]=0;render()},
  v9open:b=>{UI.v9open=UI.v9open===b.dataset.id?null:b.dataset.id;render()},
  v9set:b=>{const id=b.dataset.id,st=b.dataset.st,g=GIRO[MODE].find(x=>x.id===id),t=T();
-  UI.v9[MODE][id]={st,at:TODAY,repl:null};UI.v9open=null;render();
+  UI.v9[MODE][id]={st,at:TODAY,repl:null};UI.v9open=null;UI.v9rej=null;UI.v9chk[MODE].delete(id);render();
   toast(st==='cleared'?`${g.no} cleared into BCA · Giro — its ${t.code} is now paid`:st==='bounced'?`${g.no} bounced — its ${t.invWord}s are open again`:`${g.no} is waiting again`,st==='bounced'?'bad':'ok')},
  v9repl:b=>{const id=b.dataset.id,g=GIRO[MODE].find(x=>x.id===id),t=T(),no=`${t.code}/HO/2609/00${70+Object.keys(UI.v9[MODE]).length}`;
   UI.v9[MODE][id]={...(UI.v9[MODE][id]||{st:'bounced',at:g.at}),repl:no};render();toast(`${no} started for ${g.party} — replaces ${g.no}`)},
+ v9rej:b=>{UI.v9rej=UI.v9rej===b.dataset.id?null:b.dataset.id;UI.v9open=null;render()},
+ v9f:b=>{UI.v9f[MODE]=b.dataset.k;render()},
+ v9tab:b=>{UI.v9tab=b.dataset.k;render()},
+ v9none:()=>{UI.v9chk[MODE].clear();render()},
+ v9batch:()=>{const G=GIRO[MODE].map(gstate),ids=[...UI.v9chk[MODE]].filter(id=>{const g=G.find(x=>x.id===id);return g&&(gcol(g)==='wait'||gcol(g)==='due')});ids.forEach(id=>{UI.v9[MODE][id]={st:'cleared',at:TODAY,repl:null}});UI.v9chk[MODE].clear();render();toast(`${ids.length} giro${ids.length===1?'':'s'} cleared into BCA · Giro`)},
  v9find:()=>{V=6;render(true);toast('Waiting for the bank to show it')},
  v10ex:b=>{UI.v10text=b.dataset.x;render();const c=document.getElementById('cmd');if(c){c.focus();c.setSelectionRange(c.value.length,c.value.length)}},
  v10add:()=>v10add(),
@@ -1152,19 +1317,22 @@ const ACT={
 const CHG={
  pick:el=>{const x=invs()[+el.dataset.i];x.pick=el.checked;x.amt=x.pick?(x.amt||x.open-x.disc):0;if(!x.pick)x.disc=0;UI.v3amt[MODE]=null;render()},
  full:el=>{const x=invs()[+el.dataset.i];if(el.checked){x.pick=true;x.amt=x.open-x.disc}else{x.pick=false;x.amt=0;x.disc=0}UI.v3amt[MODE]=null;render()},
- offpick:el=>{const x=offs()[+el.dataset.i];x.pick=el.checked;x.amt=x.pick?x.open:0;render()},
+ offpick:el=>{const x=offs()[+el.dataset.i];x.pick=el.checked;x.amt=x.pick?x.open-x.disc:0;if(!x.pick)x.disc=0;render()},
+ offfull:el=>{const x=offs()[+el.dataset.i];if(el.checked){x.pick=true;x.amt=x.open-x.disc}else{x.pick=false;x.amt=0;x.disc=0}render()},
  account:el=>{const s=S();s.account=el.value;const k=CB[el.value].kind;if(k==='cash')s.method='cash';else if(s.method==='cash')s.method='transfer';render()},
  otheracc:el=>{S().other[+el.dataset.i].acc=el.value;refresh()},
  v6acc:el=>{UI.v6pick[MODE][el.dataset.id]=el.value},
+ v9chk:el=>{const k=UI.v9chk[MODE];el.checked?k.add(el.dataset.id):k.delete(el.dataset.id);render()},
  v10acc:el=>{UI.v10rows[MODE][+el.dataset.i].acc=el.value},
  v10cb:el=>{UI.v10rows[MODE][+el.dataset.i].cb=el.value},
 };
 /* Money is grouped as it is typed — 2.000.000, never 2000000. */
 function regroup(el){const pos=el.selectionStart??el.value.length,before=el.value.length,v=digits(el.value);el.value=v?fmt(v):'';const np=Math.max(0,pos+(el.value.length-before));try{el.setSelectionRange(np,np)}catch(e){}}
 function BIND(k,el){const s=S(),[a,b,c]=k.split('.');
- if(a==='inv'){const r=invs()[+c];if(!r)return;r[b]=digits(el.value);if(b==='amt')r.pick=r.amt>0;UI.v3amt[MODE]=null}
- else if(a==='off'){const r=offs()[+c];if(r)r.amt=digits(el.value)}
+ if(a==='inv'){const r=invs()[+c];if(!r)return;if(b==='note'){r.note=el.value;return}r[b]=digits(el.value);if(b==='amt')r.pick=r.amt>0;UI.v3amt[MODE]=null}
+ else if(a==='off'){const r=offs()[+c];if(!r)return;if(b==='note'){r.note=el.value;return}r[b]=digits(el.value);if(b==='amt')r.pick=r.amt>0}
  else if(a==='other'){const r=s.other[+c];if(!r)return;if(b==='amt')r.amt=digits(el.value);else r[b]=el.value}
+ else if(a==='entry'){const e=UI.entry[MODE];if(b==='amt')e.amt=digits(el.value);else e[b]=el.value;return}
  else if(a==='giro'){s.giro[b]=el.value}
  else if(a==='v3amt'||a==='v4amt'){UI.v3amt[MODE]=digits(el.value);UI.v3skip[MODE]=new Set();allocate();if(a==='v4amt')el.size=Math.max(3,el.value.length)}
  else if(a==='v10text'){UI.v10text=el.value;const pv=document.getElementById('v10prev');if(pv)pv.innerHTML=previewHTML(parseCmd(el.value));return}
@@ -1182,12 +1350,14 @@ document.addEventListener('keydown',e=>{
  if(e.target.id==='cmd'&&e.key==='Enter'){e.preventDefault();v10add();return}
  if(e.target.matches?.('tr[data-act]')&&(e.key==='Enter'||e.key===' ')){e.preventDefault();e.target.click();return}
  if((e.metaKey||e.ctrlKey)&&e.key==='Enter'){if([1,2,3,4,5,7].includes(V)){e.preventDefault();post()}return}
- if(e.key==='Escape'&&(UI.menu||UI.v4open||UI.v9open)){UI.menu=null;UI.v4open=null;UI.v9open=null;render();return}
+ if(e.key==='Escape'&&(UI.menu||UI.v4open||UI.v9open||UI.v9rej)){UI.menu=null;UI.v4open=null;UI.v9open=null;UI.v9rej=null;render();return}
  const typing=/INPUT|TEXTAREA|SELECT/.test(e.target.tagName);
  if(typing||e.metaKey||e.ctrlKey||e.altKey)return;
  if(/^[0-9]$/.test(e.key)){V=e.key==='0'?10:+e.key;render(true)}
  else if(e.key==='m'||e.key==='M'){MODE=MODE==='bkm'?'bkk':'bkm';render(true)}});
 
+/* #9 opens design 9, #bkk opens BKK */
+{const h=location.hash.slice(1);if(/^\d+$/.test(h)&&+h>=1&&+h<=10)V=+h;if(h==='bkk')MODE='bkk'}
 buildProto();render(true);
 </script>
 </body>

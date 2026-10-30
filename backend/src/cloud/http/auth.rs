@@ -262,6 +262,9 @@ fn is_public(path: &str) -> bool {
             | "/api/v1/auth/login"
             | "/api/v1/sync/ingest"
             | "/api/v1/sync/handshake"
+            // A replacement server asking for its store's stock: the same
+            // per-origin `x-sync-key`, checked in the handler.
+            | "/api/v1/sync/stock-handover"
             // A machine enrolling has no session and no registered key yet:
             // the claim is authorised by its one-time code, the status by the
             // key whose digest the claim carried. Both checked in the handler

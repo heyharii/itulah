@@ -969,17 +969,26 @@ body.bare #holder,body.full #holder{border-radius:0;box-shadow:none}
 .t-slip{flex:0 1 auto;min-height:0;height:var(--slip-h,272px);overflow:auto;padding:14px 12px 0;background:var(--soft-2);cursor:pointer;overscroll-behavior:contain}
 #frame[data-size="1920"] .t-slip{--slip-h:420px}
 #frame:not([data-size="1920"]) .v-B .t-slip{display:none}
-.slip{padding:14px 14px 18px;border-radius:3px 3px 0 0;background:#fff;box-shadow:0 1px 2px rgb(0 0 0/8%),0 6px 18px rgb(0 0 0/6%);font-variant-numeric:tabular-nums;transition:box-shadow 150ms ease}
-@media (hover:hover) and (pointer:fine){.t-slip:hover .slip{box-shadow:0 0 0 1px var(--accent),0 6px 18px rgb(0 0 0/6%)}}
-.sl-c{text-align:center}
-.sl-b{font-weight:600}
-.sl-hr{margin:8px 0;border:0;border-top:1px dashed var(--hairline-2)}
-.sl-row{display:flex;justify-content:space-between;gap:12px}
-.sl-row span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.sl-row span:last-child{flex:none}
-.sl-mute{color:var(--body)}
-.sl-item+.sl-item{margin-top:6px}
-.sl-nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Every paper the till prints is a thermal roll (Hari, 28 Oct 2026): 80 mm
+   wide, the printer's monospace, dashed rules, a torn edge at the foot. */
+.th-wrap{flex:none;width:min(100%,340px);margin:0 auto;filter:drop-shadow(0 1px 1px rgb(0 0 0/10%)) drop-shadow(0 6px 14px rgb(0 0 0/8%))}
+.thermal{padding:18px 16px 30px;background:#fff;color:#111;font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:15px;line-height:1.4;font-variant-numeric:tabular-nums;-webkit-mask:conic-gradient(from -45deg at bottom,#0000,#000 1deg 89deg,#0000 90deg) 50%/12px 100%;mask:conic-gradient(from -45deg at bottom,#0000,#000 1deg 89deg,#0000 90deg) 50%/12px 100%}
+/* The store's header, as on the client's own struk: logo band, then the address. */
+.th-logo{display:flex;flex-direction:column;align-items:center;margin-bottom:6px;padding:8px 0 6px;background:#111;color:#fff;font-family:var(--font-sans,system-ui)}
+.th-logo b{font-size:28px;line-height:30px;font-weight:800;letter-spacing:.06em}
+.th-logo i{font-size:15px;line-height:18px;font-style:italic;opacity:.85}
+.th-c{text-align:center}
+.th-b{font-weight:700}
+.th-hr{margin:8px 0;border:0;border-top:1px dashed #111}
+.th-row{display:flex;justify-content:space-between;gap:12px}
+.th-row span:first-child{min-width:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.th-row span:last-child{flex:none;text-align:right}
+.th-mute{color:#555}
+.th-item+.th-item{margin-top:6px}
+.th-nm{overflow-wrap:anywhere}
+.th-sign{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:14px;text-align:center}
+.th-sign .line{display:block;height:48px;border-bottom:1px solid #111;margin-bottom:4px}
+@media (hover:hover) and (pointer:fine){.t-slip:hover .th-wrap{filter:drop-shadow(0 0 1px var(--accent)) drop-shadow(0 6px 14px rgb(0 0 0/8%))}}
 .t-prev-foot{flex:none;display:flex;align-items:center;gap:8px;padding:10px 12px;border-top:1px solid var(--hairline)}
 .t-prev-foot .ds-btn{gap:8px;padding:0 14px}
 
@@ -1067,12 +1076,20 @@ body.bare #holder,body.full #holder{border-radius:0;box-shadow:none}
 .mrow2{grid-column:2/-1;display:flex;gap:8px;min-width:0}
 .mrow2 .ds-seg{flex:none}
 .mrow2 .ds-seg-item{height:34px}
-.paybox{margin-top:auto;padding-top:12px;border-top:1px solid var(--hairline);display:grid;grid-template-columns:1fr auto;align-items:baseline;row-gap:4px}
-.paybox .k{color:var(--body)}
-.paybox .v{text-align:right;font-variant-numeric:tabular-nums}
-.paybox .ck{font-size:17px;font-weight:600}
-.paybox .cv{font-size:30px;line-height:38px;font-weight:600;letter-spacing:-.035em;text-align:right;font-variant-numeric:tabular-nums}
-.paybox .cv.due{color:var(--body)}
+/* The band runs to the dialog's edges, solid blue, so it reads from across the counter. */
+.paybox{margin:auto -28px -22px;padding-top:12px;display:grid}
+.paybox .pay-err,.paybox .pay-note{margin:0 28px 10px}
+.pay-tell{margin:0 28px 12px;padding:10px 14px;border-radius:var(--r-card);background:var(--warn-bg);color:var(--ink)}
+.pay-tell .pt-k{font-weight:600;color:var(--warn-fg)}
+.pay-tell b{font-weight:600}
+.pay-tell .pt-no{font-weight:600;color:var(--bad-fg)}
+.paybox .tally{display:grid;grid-template-columns:auto 1fr;align-items:baseline;column-gap:20px;row-gap:2px;padding:16px 28px 20px;background:var(--accent);color:#fff}
+.paybox .tk{font-size:17px;font-weight:600;color:#fff}
+.paybox .tv{font-size:30px;line-height:38px;font-weight:600;letter-spacing:-.035em;text-align:right;font-variant-numeric:tabular-nums}
+.sums{display:grid;grid-template-columns:1fr auto;align-items:baseline;row-gap:4px}
+.sums .k{color:var(--body)}
+.sums .v{text-align:right;font-variant-numeric:tabular-nums}
+.sums .v.due{color:var(--bad-fg);font-weight:600}
 .pay-err{grid-column:1/-1;margin-top:4px;color:var(--bad-fg)}
 /* Pay looks A–D: suggested amounts, machine chips, rows per machine, steps, tiles */
 .pay.p2{width:1240px;grid-template-columns:minmax(0,1fr) 500px}
@@ -1174,6 +1191,71 @@ tr.rc-row td{padding-top:12px;padding-bottom:12px;vertical-align:top}
 .t-mode{display:flex;align-items:center;gap:10px;padding:2px 24px 10px}
 .mode-flag{display:inline-flex;align-items:center;height:28px;padding:0 12px;border-radius:7px;background:var(--accent-bg);color:var(--accent);font-weight:600}
 .mode-flag.ret{background:var(--warn-bg);color:var(--warn-fg)}
+/* Return in two steps (Hari, 28 Oct 2026): what comes back first, then what goes out. */
+.r-steps{display:inline-flex;align-items:center;gap:8px;margin-left:6px;flex:none;white-space:nowrap}
+.r-st{display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 12px 0 6px;border:0;border-radius:8px;background:var(--segment-track);color:var(--body);font:inherit;font-weight:600;cursor:pointer}
+.r-st .n{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:#fff;color:var(--body);font-size:15px}
+.r-st b{font-weight:600;font-variant-numeric:tabular-nums}
+.r-st.on{background:var(--warn-bg);color:var(--warn-fg)}
+.r-st.on .n{background:var(--warn-fg);color:#fff}
+/* Penanda (client, 30 Oct 2026): Penjualan or Return, seen from a step away */
+.t-mode.mh{gap:14px;padding:16px 24px 6px}
+.t-mode.mh h1{font-size:27px;font-weight:700;letter-spacing:-.02em;line-height:1.2;color:var(--ink)}
+.t-mode.mh.tone-ret h1{color:var(--warn-fg)}
+.mh-sub{color:var(--body)}
+.t-mode.mh .r-steps,.t-band .r-steps{margin-left:auto}
+.t-band{display:flex;align-items:center;gap:14px;min-height:56px;margin:12px 24px 0;padding:0 10px 0 20px;border-radius:12px;background:var(--accent);color:#fff}
+.t-band b{font-size:22px;font-weight:700;letter-spacing:-.01em}
+.t-band .mh-sub{color:rgb(255 255 255/85%)}
+.t-band.tone-ret{background:var(--warn-fg)}
+.t-band.tone-held{background:var(--ink)}
+.t-band.tone-list{background:var(--segment-track);color:var(--ink)}
+.t-band.tone-list .mh-sub{color:var(--body)}
+.t-band .r-st{background:rgb(255 255 255/20%);color:#fff}
+.t-band .r-st .n{background:rgb(255 255 255/28%);color:#fff}
+.t-band .r-st.on{background:#fff;color:var(--warn-fg)}
+.t-band .r-st.on .n{background:var(--warn-fg);color:#fff}
+.t-band .r-arrow{color:rgb(255 255 255/70%)}
+.t-band .t-find.in-mode{background:#fff;color:var(--ink)}
+.till.mode-C.tone-ret::after{content:'';position:absolute;inset:0;border:6px solid var(--warn-fg);pointer-events:none;z-index:30}
+.till.mode-D.tone-ret{background:#f0d6a6}
+.till.mode-D.tone-ret .t-status{color:#5e3c0c}
+.till.mode-D.tone-ret .t-grid th{background:var(--warn-bg);color:var(--warn-fg)}
+/* Return step 1: a count per receipt line */
+.rq-step{display:inline-flex;align-items:center;gap:4px}
+.rq-step button{width:36px;height:36px;border-radius:8px;background:var(--segment-track);color:var(--ink);font-size:20px;font-weight:500}
+.rq-step button:disabled{opacity:.4;cursor:default}
+.rq-step input{width:64px;height:36px;border:1px solid var(--hairline-2);border-radius:8px;background:#fff;text-align:center;font-size:17px;font-weight:600;color:var(--ink)}
+.rq-step input:focus{border-color:var(--accent);box-shadow:var(--shadow-focus);outline:0}
+.t-grid tr.rq.got:not(.sel) td{background:#fdf6ea}
+.r-st:disabled{cursor:default;opacity:.5}
+.r-arrow{color:var(--faint)}
+/* B: two counts with their value */
+.r-tal{display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 12px;border-radius:8px;font-weight:600}
+.r-tal b{font-weight:700}
+.r-tal .num{font-weight:500}
+.r-tal.back{background:var(--warn-bg);color:var(--warn-fg)}
+.r-tal.new{background:var(--accent-bg);color:var(--accent)}
+/* C/D: a tag on each row; D the last tag read */
+.r-tag{display:inline-flex;align-items:center;height:24px;padding:0 8px;border-radius:6px;font-weight:600}
+.r-tag.back{background:var(--warn-bg);color:var(--warn-fg)}
+.r-tag.new{background:var(--accent-bg);color:var(--accent)}
+.r-last{font-weight:600}
+.r-last.back{color:var(--warn-fg)}
+.r-last.new{color:var(--accent)}
+.t-scanbox.st-back{box-shadow:inset 0 0 0 1.5px var(--warn-fg)}
+.t-scanbox.st-new{box-shadow:inset 0 0 0 1.5px var(--accent)}
+.rsec2 td{padding:14px 12px 6px;font-weight:600;color:var(--body);background:none}
+.rsec2.on td{color:var(--ink)}
+.rsec2 .v{float:right;font-variant-numeric:tabular-nums}
+.rwait td{padding:10px 12px 14px;color:var(--body)}
+.mode-flag.held{background:var(--warn-bg);color:var(--warn-fg)}
+.mode-flag.bad{background:var(--bad-bg,#fdecec);color:var(--bad-fg,#d70015)}
+.rg-facts{display:flex;flex-wrap:wrap;align-items:center;gap:6px 16px;margin:0;color:var(--body)}
+.t-find.in-mode{flex:0 1 360px;margin:0 0 0 auto}
+.hg-band{display:flex;flex-direction:column;gap:8px;padding:14px 18px 12px}
+.t-grid tr.sel .hp-box{background:var(--accent);box-shadow:none}
+.t-grid tr[data-act^="held"] td,.t-grid tr[data-act="rcOpen"] td{cursor:pointer}
 .mrow.edc .ml{align-self:start;padding-top:8px}
 .amt-code{height:44px;text-align:right;font-variant-numeric:tabular-nums;letter-spacing:.06em}
 .amt-code::placeholder{letter-spacing:0}
@@ -1189,6 +1271,8 @@ tr.rc-row td{padding-top:12px;padding-bottom:12px;vertical-align:top}
 .pad-tog{align-self:stretch;justify-content:space-between;height:40px}
 .kind-pill{display:inline-flex;align-items:center;height:22px;margin-left:6px;padding:0 8px;border-radius:6px;font-weight:500;background:var(--soft-2);color:var(--body)}
 .kind-pill.kind-return{background:var(--warn-bg);color:var(--warn-fg)}
+.t-grid tr.rg-back td{color:var(--body)}
+.t-grid tr.rg-back td.b{color:var(--bad-fg)}
 .kind-pill.kind-void{background:#fdeeee;color:var(--bad-fg)}
 .minus-star{color:var(--warn-fg);font-weight:700;margin-left:4px}
 .qty-step{display:inline-flex;align-items:center;gap:6px}
@@ -1212,6 +1296,29 @@ tr.rc-row td{padding-top:12px;padding-bottom:12px;vertical-align:top}
 .hold-red{background:#d70015!important;color:#fff!important;font-weight:600}
 .hold-red .kbd{background:rgba(255,255,255,.18);box-shadow:inset 0 0 0 1px rgba(255,255,255,.35);color:#fff}
 .dlg.held-dlg{width:720px}
+.t-rc.held .no{color:var(--bad-fg,#d70015)}
+.hold-left{font-size:15px;font-weight:600;color:var(--bad-fg,#d70015);font-variant-numeric:tabular-nums}
+.t-prev.hp{flex:1 1 0}
+.t-sidein .t-list:has(+.t-prev.hp){flex:none;min-height:0;max-height:42%}
+.hp-body{flex:1 1 0;min-height:0;overflow:auto;padding:14px 16px 10px;display:flex;flex-direction:column;gap:10px;overscroll-behavior:contain}
+.hp-head{display:flex;flex-direction:column;gap:2px}
+.hp-head b{font-weight:600}
+.hold-warn{margin:0;padding:8px 12px;border-radius:8px;background:#fff4e5;color:#9a5b00}
+.hold-warn.over{background:#fdecec;color:var(--bad-fg,#d70015)}
+.hold-warn b{font-variant-numeric:tabular-nums}
+.hp-sup{margin:0;padding:10px 12px;border-radius:8px;background:#fdecec;color:var(--bad-fg,#d70015);font-weight:500}
+.hp-lines{display:flex;flex-direction:column}
+.hp-line{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:12px;align-items:center;padding:9px 4px;border-bottom:1px solid var(--hairline);text-align:left;width:100%}
+.hp-line.chk{grid-template-columns:22px minmax(0,1fr) auto auto;cursor:pointer;border-radius:6px;transition:background-color 120ms ease}
+.hp-line.chk.on{background:var(--accent-bg)}
+.hp-box{display:grid;place-items:center;width:20px;height:20px;border-radius:5px;box-shadow:inset 0 0 0 1.5px var(--hairline-2,#c7c7cc);color:#fff;font-size:13px}
+.hp-line.chk.on .hp-box{background:var(--accent,#2862dc);box-shadow:none}
+.hp-nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hp-q{color:var(--body)}
+.hp-v{font-weight:500}
+.hp-note{margin:0;color:var(--body)}
+.dlg.freeze-dlg{width:440px}
+.fz-seal{display:grid;place-items:center;width:52px;height:52px;border-radius:50%;background:#fdecec;color:var(--bad-fg,#d70015)}
 .held-row{display:grid;grid-template-columns:28px minmax(0,1fr) 140px auto auto;align-items:center;column-gap:14px;padding:10px 12px;border-radius:10px;cursor:pointer}
 .held-row.on{background:var(--accent-bg)}
 .held-row b{font-variant-numeric:tabular-nums;font-weight:600}
@@ -1230,10 +1337,6 @@ tr.rc-row td{padding-top:12px;padding-bottom:12px;vertical-align:top}
 .chg-no{color:var(--body);margin-bottom:14px;font-variant-numeric:tabular-nums}
 .chg-acts{display:flex;gap:10px;margin-top:18px}
 .chg-acts .chg-go{flex:1;margin:0}
-.slip{width:360px;margin:6px auto 0;padding:18px 20px;border:1px dashed var(--hairline-2);border-radius:8px;font-family:ui-monospace,Menlo,monospace;font-size:15px;line-height:1.6}
-.slip h4{text-align:center;font-size:15px;margin-bottom:8px}
-.slip .sg{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:22px;text-align:center}
-.slip .sg span{border-top:1px solid var(--ink);padding-top:4px}
 .t-scanerr .ds-btn{margin-left:12px;height:30px;gap:8px}
 .unk-amt{display:flex;align-items:center;gap:10px;height:56px;padding:0 16px;border:1px solid var(--hairline-2);border-radius:10px;background:#fff;transition:border-color 120ms ease,box-shadow 120ms ease}
 .unk-amt:focus-within{border-color:var(--accent);box-shadow:var(--shadow-focus)}
@@ -1292,10 +1395,10 @@ tr.rc-row td{padding-top:12px;padding-bottom:12px;vertical-align:top}
 .sk-c{text-align:center}
 .sk-b{font-weight:700}
 .sk-row{display:flex;justify-content:space-between;gap:12px}
-.sk-row span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sk-row span:first-child{min-width:0;overflow-wrap:anywhere}
 .sk-row span:last-child{flex:none}
 .sk-item+.sk-item{margin-top:4px}
-.sk-name{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sk-name{display:block;overflow-wrap:anywhere}
 /* Printed top-down from the slot, once per sale, while the printer runs. */
 .sk-well.printing .sk-paper{animation:sk-print 450ms var(--ease-out) both}
 @keyframes sk-print{from{clip-path:inset(0 0 100% 0);transform:translateY(-12px)}}
@@ -1425,7 +1528,9 @@ tr.rc-row td{padding-top:12px;padding-bottom:12px;vertical-align:top}
 .duo{position:relative;display:grid}
 .duo .coin-chip{position:absolute;right:-6px;bottom:-7px;width:22px;height:22px;box-shadow:0 0 0 2px #fff,inset 0 0 0 1px rgb(0 0 0/12%),inset 0 0 0 3px rgb(255 255 255/.18)}
 .cc-row.on .duo .coin-chip{box-shadow:0 0 0 2px var(--accent-bg),inset 0 0 0 1px rgb(0 0 0/12%),inset 0 0 0 3px rgb(255 255 255/.18)}
-.cc-sec.ed,.cc-row.ed{grid-template-columns:56px minmax(0,1fr) 220px 180px}
+.cc-sec.ed,.cc-row.ed{grid-template-columns:56px minmax(0,1fr) 200px 120px}
+.cc-slip.cnt{gap:6px}
+.cc-slip .cur.u{order:2;margin:0 0 0 6px}
 .cc-row.ed{height:60px}
 .edc-chip{display:grid;place-items:center;width:44px;height:32px;border-radius:7px;background:var(--soft-2);color:var(--line-ico)}
 .cc-mach{display:flex;flex-direction:column;min-width:0;line-height:20px}
@@ -1462,29 +1567,18 @@ tr.rc-row td{padding-top:12px;padding-bottom:12px;vertical-align:top}
 .cc-go{margin-top:auto;height:52px;border-radius:var(--r-inner);justify-content:space-between;padding:0 14px 0 20px;font-size:17px}
 .cc-go[disabled]{opacity:.4}
 
-.paperwrap{position:absolute;inset:0;background:var(--stone);display:flex;align-items:center;justify-content:center;gap:28px;padding:20px}
+.paperwrap{position:absolute;inset:0;background:var(--stone);display:flex;align-items:flex-start;justify-content:center;gap:28px;padding:20px;overflow:auto}
+.paperwrap .th-wrap{margin:0}
+/* Auto-cut pieces after the paper: one per note counted, taped to its bundle. */
+.cuts{flex:none;width:300px;display:flex;flex-direction:column;gap:10px}
+.cuts .thermal{-webkit-mask:none;mask:none;padding:12px 16px 14px}
+.lab-k{text-align:center;color:#555}
+.lab-v{text-align:center;font-size:30px;line-height:36px;font-weight:700;letter-spacing:-.5px}
+.lab-v.sm{font-size:24px;line-height:30px;font-weight:600}
 .paper-side{align-self:flex-start;margin-top:8px;width:260px;display:flex;flex-direction:column;gap:10px}
 .paper-side .ttl{margin-bottom:2px}
 .paper-side .cap{color:var(--body);margin-bottom:8px}
 .paper-side .ds-btn{height:44px;border-radius:10px;justify-content:space-between;padding:0 12px 0 16px}
-.paper{height:100%;max-height:820px;aspect-ratio:1/1.414;background:#fff;box-shadow:0 1px 3px rgb(0 0 0/8%),0 18px 40px rgb(0 0 0/10%);padding:5% 7%;color:#111;font-size:12px;line-height:1.45;display:flex;flex-direction:column}
-.pp-co{font-size:17px;font-weight:700;letter-spacing:.02em}
-.pp-date{margin-top:2px}
-.pp-title{margin-top:12px;font-size:15px;font-weight:700;letter-spacing:.06em}
-.pp-facts{margin-top:12px;display:grid;grid-template-columns:120px 1fr;row-gap:3px}
-.pp-facts dt{color:#333}
-.pp-facts dd{font-variant-numeric:tabular-nums}
-.pp-sec{margin-top:14px;font-weight:700}
-.pp-t{margin-top:6px;border-collapse:collapse;width:76%}
-.pp-t td{border:1px solid #222;padding:2px 8px;font-variant-numeric:tabular-nums}
-.pp-t td:nth-child(2),.pp-t td:nth-child(3){text-align:right}
-.pp-t td:first-child{white-space:nowrap}
-.pp-tot{width:76%;display:flex;justify-content:flex-end;padding:6px 8px 0;font-weight:700;font-variant-numeric:tabular-nums}
-.pp-tot span{border-bottom:3px double #111;padding-bottom:1px}
-.pp-sign{margin-top:auto;display:grid;grid-template-columns:1fr 1fr;gap:40px;padding-bottom:6px}
-.pp-sign div{display:flex;flex-direction:column}
-.pp-sign .line{margin-top:50px;border-top:1px solid #111}
-.pp-by{margin-top:10px;color:#333}
 
 /* ── Toasts, bottom left ──────────────────────────────────────────────── */
 .toasts{position:absolute;left:16px;bottom:52px;z-index:60;display:flex;flex-direction:column;gap:8px;pointer-events:none}
@@ -1546,6 +1640,7 @@ tr.rc-row td{padding-top:12px;padding-bottom:12px;vertical-align:top}
     <span class="c-title">POS klasik</span>
     <div class="c-seg" id="c-ver"></div>
     <span class="c-lbl">Bayar</span><div class="c-seg" id="c-pay"></div>
+    <span class="c-lbl">Penanda</span><div class="c-seg" id="c-mode"></div>
 
 
     <div class="c-steps" id="c-steps"></div>
@@ -1579,7 +1674,7 @@ const ITEMS = [
   { sku: '10061190412', name: 'Bombi CPJ Kanvas', colour: 'Khaki', hex: '#b8a27c', size: '30', price: 157000, kind: 'pants' },
   { sku: '10077301305', name: 'MH Platinum Sweat Sweater', colour: 'Abu-abu', hex: '#9aa0a8', size: 'L', price: 189000, kind: 'sweater' },
   { sku: '10056091022', name: 'Picasso KOB 91 SAE', colour: 'Hitam', hex: '#2b2b2e', size: 'M', price: 94000, kind: 'top' },
-  { sku: '10081109015', name: 'Ygynium CPJ Legging 1109 Polos', colour: 'Hitam', hex: '#2b2b2e', size: '15/19', price: 37000, kind: 'legging' },
+  { sku: '10081109015', name: 'Ygynium CPJ Legging 1109 Polos', colour: 'Hitam', hex: '#2b2b2e', size: '15/19', price: 37000, kind: 'legging', final: true },
   { sku: '10090688128', name: 'JH Pailaisi CPJ Kanvas 688', colour: 'Abu muda', hex: '#c4c8cf', size: '28/32', price: 239000, kind: 'pants' },
   { sku: '10092199210', name: 'Lavon PLS Cutbray 2199', colour: 'Marun', hex: '#7a2e3a', size: '27', price: 144000, kind: 'pants' },
   { sku: '10043310102', name: 'Nadhira Tunik Seri WRN', colour: 'Sage', hex: '#9cb49a', size: 'M', price: 129000, kind: 'top' },
@@ -1698,6 +1793,7 @@ const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt
 const BULAN = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
 const WD = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
 const p2 = n => String(n).padStart(2, '0');
+const thRow = (k, v, cls = '') => `<p class="th-row${cls}"><span>${k}</span><span>${v}</span></p>`;
 const hm = d => p2(d.getHours()) + ':' + p2(d.getMinutes());
 const day = d => `${d.getDate()} ${MON[d.getMonth()]} ${d.getFullYear()}`;
 const dayTime = d => `${day(d)}, ${hm(d)}`;
@@ -1924,11 +2020,15 @@ function seedReceipts() {
     [2761, [[10, 1]], 'cash', 70000, 26],
     [2760, [[11, 1]], 'debit', 0, 34],
     [2759, [[9, 1]], 'cash', 150000, 41],
-    [2758, [[0, 1]], 'cash', 210000, 49, 'voided'],
+    [2758, [[0, 1]], 'cash', 210000, 49],
     [2757, [[1, 1], [2, 1]], 'credit', 0, 58, 'returned'],
     [2756, [[4, 1], [6, 2]], 'cash', 300000, 66],
     [2755, [[7, 1]], 'debit', 0, 75],
     [2754, [[5, 2]], 'cash', 200000, 83],
+    // Older days, reached only by searching.
+    [2690, [[3, 1], [7, 1]], 'debit', 0, 60 * 24 * 2 + 40],
+    [2631, [[6, 1]], 'cash', 100000, 60 * 24 * 4 + 15],
+    [2577, [[1, 2]], 'qris', 0, 60 * 24 * 6 + 90],
   ];
   const top = new Date(2026, 9, 21, 10, 52, 14).getTime();
   return spec.map(([no, ls, m, cash, back, status]) => {
@@ -1964,12 +2064,13 @@ function render() {
     if (typeof el.selectionStart === 'number') {
       const len = el.value.length;
       if (caret && want === prevKey && !S.focus) el.setSelectionRange(Math.min(caret[0], len), Math.min(caret[1], len));
+      else if (S.selectAll) el.setSelectionRange(0, len);
       else el.setSelectionRange(len, len);
     }
   } else if (act && frame.contains(act) === false && document.activeElement === document.body) {
     /* nothing to focus */
   }
-  S.focus = null;
+  S.focus = null; S.selectAll = false;
   if (S.scrollSel) {
     const row = frame.querySelector('.t-grid tr.sel');
     if (row) row.scrollIntoView({ block: 'nearest' });
@@ -1996,7 +2097,7 @@ function layerKeys() {
   if (S.ov === 'price') return ['pq'];
   if (S.ov === 'receipts') return ['find'];
   if (S.ov) return [];
-  if (S.screen === 'sell') return ['scan', 'find', 'lnote'];
+  if (S.screen === 'sell') return ['scan', 'find', 'pq', 'lnote'];
   if (S.screen === 'close') return ['cnote'];
   if (S.screen === 'door' && S.door === 'headpw') return ['pw-user', 'pw-pass'];
   return [];
@@ -2014,7 +2115,7 @@ function defaultFocus() {
   if (S.ov === 'price') return 'pq';
   if (S.ov === 'receipts') return 'find';
   if (S.ov) return null;
-  if (S.screen === 'sell') return 'scan';
+  if (S.screen === 'sell') return S.list === 'receipts' && !S.rcView ? 'find' : S.list === 'check' ? 'pq' : 'scan';
   if (S.screen === 'door' && S.door === 'headpw') return S.pw.user ? 'pw-pass' : 'pw-user';
   return null;
 }
@@ -2028,6 +2129,7 @@ function view() {
   if (S.ov) h += ovView();
   if (S.pop) h += popView();
   if (S.dlg2) h += dlg2View();
+  if (S.screen === 'sell' && heldFrozen() && !S.sup) h += freezeView();
   if (S.sup) h += supView();
   h += toastView();
   return h;
@@ -2156,11 +2258,14 @@ function tillView() {
       <section class="t-page${a(1)}">${heroView(t, false, false)}${scanView()}${gridView()}</section>
       <aside class="t-side${a(2)}">${memberCard()}${sideHead()}${sideList()}</aside>
     </div><footer class="t-keys${a(3)}">${keyTiles()}</footer></div>`;
-  if (v === 'D') return `<div class="till v-D">
+  if (v === 'D') {
+    const look = S.modeLook || 'B', head = look === 'now' ? scanView() + modeFlag() : modeFlag() + scanView();
+    return `<div class="till v-D mode-${look} tone-${modeOf().tone}">
     <header class="t-top${a(0)}">${brand}${keyTiles()}${person}</header>
     <div class="t-main one">
-      <section class="t-page${a(1)}">${(S.foot || 'B') === 'B' ? '' : heroView(t, false, true, false)}${scanView()}${modeFlag()}${gridView()}${floatView(t)}</section>
+      <section class="t-page${a(1)}">${(S.foot || 'B') === 'B' ? '' : heroView(t, false, true, false)}${head}${gridView()}${floatView(t)}</section>
     </div>${status}</div>`;
+  }
   return `<div class="till v-A">
     <header class="t-top${a(0)}">${brand}${keyTiles()}${person}</header>
     <div class="t-main">
@@ -2173,9 +2278,9 @@ function tillView() {
    the way the keys lie under her fingers. Numpad + and − are Baru and Hapus. */
 const KEYMAP = [
   ['+', 'Tambah', 'new'], ['−', 'Kurangi', 'minus'],
-  ['F1', 'Void', 'void'], ['F2', 'Cek', 'check'], ['F3', 'Laci', 'drawer'], ['F4', 'Tutup kasir', 'close'],
-  ['F5', 'Member', 'member'], ['F7', 'Batal', 'cancel'], ['F8', 'Return', 'return'],
-  ['F9', 'Tunda', 'hold'],
+  ['⇧2', 'Cek', 'check'], ['⇧3', 'Laci', 'drawer'], ['⇧4', 'Tutup kasir', 'close'],
+  ['⇧5', 'Member', 'member'], ['⇧7', 'Batal', 'cancel'], ['⇧8', 'Return', 'return'],
+  ['⇧9', 'Tunda', 'hold'], ['⇧0', 'Struk', 'receipts'],
 ];
 function keyTiles() {
   const none = !S.lines.length;
@@ -2190,15 +2295,15 @@ function memberCard() {
   const ini = n => n.split(' ').map(w => w[0]).join('').slice(0, 2);
   return `<div class="t-mem">${m
     ? `<div class="t-mem-who"><span class="av md">${ini(m.name)}</span><div class="t-mem-t"><b>${esc(m.name)}</b><span>${m.no} · ${maskPhone(m.phone)}</span><span class="pts">${fmt(m.points)} poin</span></div></div>
-       <div class="t-mem-act"><button class="ds-btn ds-btn--tint ds-btn--sm" data-act="key7" data-arg="member">Ganti <span class="kbd">F5</span></button><button class="ds-btn ds-btn--ghost ds-btn--sm" data-act="memberClear">Hapus</button></div>`
+       <div class="t-mem-act"><button class="ds-btn ds-btn--tint ds-btn--sm" data-act="key7" data-arg="member">Ganti <span class="kbd">⇧5</span></button><button class="ds-btn ds-btn--ghost ds-btn--sm" data-act="memberClear">Hapus</button></div>`
     : `<div class="t-mem-who"><span class="av md t-mem-none">${I.user}</span><div class="t-mem-t"><b>Umum</b><span>Bukan member</span></div></div>
-       <div class="t-mem-act"><button class="ds-btn ds-btn--tint ds-btn--sm" data-act="key7" data-arg="member">Cari <span class="kbd">F5</span></button><button class="ds-btn ds-btn--tint ds-btn--sm" data-act="key7" data-arg="register">Daftar <span class="kbd">⇧F5</span></button></div>`}</div>`;
+       <div class="t-mem-act"><button class="ds-btn ds-btn--tint ds-btn--sm" data-act="key7" data-arg="member">Cari <span class="kbd">⇧5</span></button><button class="ds-btn ds-btn--tint ds-btn--sm" data-act="key7" data-arg="register">Daftar <span class="kbd">⇧F5</span></button></div>`}</div>`;
 }
 function moneyView(t) {
   const m = S.member;
   const member = m
     ? `${esc(m.name)}<button class="t-x" data-act="memberClear" aria-label="Hapus member">${I.x}</button>`
-    : `Umum<button class="ds-btn ds-btn--tint ds-btn--sm" data-act="member">Cari <span class="kbd">F5</span></button>`;
+    : `Umum<button class="ds-btn ds-btn--tint ds-btn--sm" data-act="member">Cari <span class="kbd">⇧5</span></button>`;
   return `<div class="mon">
     <p class="mon-k"><span>Total</span><span>${t.pcs ? t.pcs + ' pcs' : ''}</span></p>
     <p class="mon-v"><span class="cur">Rp</span><span>${fmt(t.grand)}</span></p>
@@ -2209,7 +2314,7 @@ function moneyView(t) {
       ${t.manual ? `<div><dt>Diskon</dt><dd class="num" style="color:var(--ok-fg)">${rp(-t.manual)}</dd></div>` : ''}
       ${m ? `<div><dt>Poin</dt><dd class="num">${fmt(m.points)}${t.points ? ` <span class="ok">+${fmt(t.points)}</span>` : ''}</dd></div>` : ''}
     </dl>
-    <button class="ds-btn ds-btn--primary mon-pay" data-act="pay"${t.pcs ? '' : ' disabled'}><span>Bayar</span><span class="kbd">F12</span></button>
+    <button class="ds-btn ds-btn--primary mon-pay" data-act="pay"${t.pcs ? '' : ' disabled'}><span>Bayar</span><span class="kbd">↵</span></button>
   </div>`;
 }
 /* RFID reads every tag on the counter by itself, so there is no "last item"
@@ -2218,7 +2323,7 @@ function heroView(t, withPay, withMember = true, withTotal = true) {
   const m = S.member;
   const member = m
     ? `<button class="t-ell t-mname" data-act="member">${esc(m.name)}</button><button class="t-x" data-act="memberClear" aria-label="Hapus member">${I.x}</button>`
-    : `Umum<button class="ds-btn ds-btn--tint ds-btn--sm" data-act="member">Cari <span class="kbd">F5</span></button><button class="ds-btn ds-btn--tint ds-btn--sm" data-act="key7" data-arg="register">Daftar <span class="kbd">⇧F5</span></button>`;
+    : `Umum<button class="ds-btn ds-btn--tint ds-btn--sm" data-act="member">Cari <span class="kbd">⇧5</span></button><button class="ds-btn ds-btn--tint ds-btn--sm" data-act="key7" data-arg="register">Daftar <span class="kbd">⇧F5</span></button>`;
   const rdFact = (t.rd ? `<div class="t-fact"><span class="k">Tukar poin</span><span class="v ok num">${rp(-t.rd)}</span></div>` : '') +
     (S.exchange && !S.ret ? `<div class="t-fact"><span class="k">Return · ${rcNo(S.exchange.no)}</span><span class="v num"><span class="ok">${rp(-(t.xc || 0))}</span></span></div>` : '');
   const label = S.ret ? `${t.grand ? 'Bayar selisih' : 'Selisih'}${S.ret.back.length ? ` · kembali ${rp(S.exchange.value)}` : ''}` : `Total${t.pcs ? ` · ${pcsText(t.pcs)}` : ''}${t.disc ? ` · <span class="ok">${rp(-t.disc)}</span>` : ''}`;
@@ -2228,41 +2333,166 @@ function heroView(t, withPay, withMember = true, withTotal = true) {
       ${t.promos.length ? `<div class="t-fact"><span class="k">Promo</span><span class="v">${promoButton(t)}</span></div>` : ''}${rdFact}
     </div>
     ${withTotal ? `<div class="t-total"><p class="t-total-k">${label}</p><p class="t-total-fig"><span class="cur">Rp</span><span class="big">${fmt(t.grand)}</span></p></div>` : ''}
-    ${withPay ? `<button class="ds-btn ds-btn--primary t-pay" data-act="pay"${t.pcs ? '' : ' disabled'}><span>Bayar</span><span class="kbd">F12</span></button>` : ''}
+    ${withPay ? `<button class="ds-btn ds-btn--primary t-pay" data-act="pay"${t.pcs ? '' : ' disabled'}><span>Bayar</span><span class="kbd">↵</span></button>` : ''}
   </div>`;
 }
 /* One button for every offer on the sale: applied ones say what they took off,
    a members-only one waiting for a card says so. Opens the list. */
 /* Kantong at the left, Bayar at the right, floating over the list (client). */
 function floatView(t) {
+  if (S.list && !S.ret) return listFoot();
   const f = S.foot || 'B';
+  /* Batal return stays beside the finishing button on both steps (Hari, 30 Oct 2026). */
+  const retCancel = S.ret ? `<button class="ds-btn ds-btn--destructive t-big" data-act="key7" data-arg="cancel">Batal return <span class="kbd">⇧7</span></button>` : '';
+  /* Return step 1: how many came back and their worth, then on to the replacements. */
+  if (S.ret && S.ret.step === 'back') {
+    const n = S.ret.back.length;
+    return `<div class="t-float fB"><span class="sp"></span><div class="tf-total"><span class="tf-k">Kembali${n ? ` · ${pcsText(n)}` : ''}</span><span class="tf-v"><span class="cur">Rp</span><b>${fmt(S.exchange.value)}</b></span></div>
+      ${retCancel}<button class="ds-btn ds-btn--primary t-pay" data-act="retNext"${n ? '' : ' disabled'}><span>Pilih pengganti</span><span class="kbd">↵</span></button></div>`;
+  }
   const label = S.ret ? `${t.grand ? 'Bayar selisih' : 'Selisih'}${S.ret.back.length ? ` · kembali ${rp(S.exchange.value)}` : ''}` : `Total${t.pcs ? ` · ${pcsText(t.pcs)}` : ''}${t.disc ? ` · <span class="ok">${rp(-t.disc)}</span>` : ''}`;
   const total = `<div class="tf-total"><span class="tf-k">${label}</span><span class="tf-v"><span class="cur">Rp</span><b>${fmt(t.grand)}</b></span></div>`;
-  const pay = `<button class="ds-btn ds-btn--primary t-pay" data-act="pay"${(S.ret ? S.ret.back.length && t.pcs : t.pcs) ? '' : ' disabled'}><span>${S.ret ? (t.grand ? 'Bayar selisih' : 'Selesaikan return') : 'Bayar'}</span><span class="kbd">F12</span></button>`;
-  const bags = `<button class="ds-btn ds-btn--primary t-big t-bags" data-act="bags" data-pop="bags">${I.bag}<span>Kantong</span><span class="kbd">F6</span></button>`;
+  /* One button (Hari, 28 Oct 2026): a replacement is scanned or not; the
+     button finishes the return, or takes the difference to Bayar. */
+  const pay = `<button class="ds-btn ds-btn--primary t-pay" data-act="pay"${(S.ret ? S.ret.back.length : t.pcs) ? '' : ' disabled'}><span>${S.ret ? (t.grand ? 'Bayar selisih' : 'Selesaikan return') : 'Bayar'}</span><span class="kbd">↵</span></button>`;
+  const bags = `<button class="ds-btn ds-btn--primary t-big t-bags" data-act="bags" data-pop="bags">${I.bag}<span>Kantong</span><span class="kbd">⇧6</span></button>`;
   if (f === 'C') return `<div class="t-float fC">${bags}<span class="sp"></span><div class="tf-card">${total}${pay}</div></div>`;
   if (f === 'B') {
-    const ret = S.ret ? `<span class="tf-chip"><span class="mute">Return</span><b class="num">${rcNo(S.ret.no)}</b><span class="id-tag warn">${S.ret.back.length} kembali · ${S.lines.filter(l => l.repFor !== undefined).length} pengganti${S.lines.some(l => l.repFor === undefined) ? ` · ${S.lines.filter(l => l.repFor === undefined).length} baru` : ''}</span></span>` : '';
-    return `<div class="t-float fB">${bags}${ret}<span class="sp"></span>${total}${pay}</div>`;
+    const ret = S.ret ? `<button class="ds-btn ds-btn--primary t-big" data-act="retStep" data-arg="back">Ubah jumlah return <span class="kbd">Esc</span></button>` : '';
+    return `<div class="t-float fB">${ret}${bags}<span class="sp"></span>${total}${retCancel}${pay}</div>`;
   }
   return `<div class="t-float">${bags}<span class="sp"></span>${total}${pay}</div>`;
+}
+function listFoot() {
+  const back = (label, key = 'Esc') => `<button class="ds-btn ds-btn--primary t-big" data-act="listBack">${label} <span class="kbd">${key}</span></button>`;
+  const r = S.list === 'receipts' && S.rcView ? S.receipts.find(x => x.no === S.rcView) : null;
+  if (r) {
+    /* A return note never comes back again (Hari, 28 Oct 2026). */
+    const paid = r.status === 'paid' && !r.back, main = S.listFor;
+    const total = `<div class="tf-total"><span class="tf-k">Struk · ${pcsText(r.pcs)}</span><span class="tf-v"><span class="cur">Rp</span><b>${fmt(r.total)}</b></span></div>`;
+    const btn = (id, cls, label, act) => `<button class="ds-btn ${cls} ${main === id ? 't-pay' : 't-big'}" data-act="${act}"${paid || id === 'print' ? '' : ' disabled'}><span>${label}</span>${main === id ? '<span class="kbd">Enter</span>' : ''}</button>`;
+    /* No Void at the till (Hari, 28 Oct 2026): a paid struk only comes back by Return. */
+    const acts = btn('return', 'ds-btn--primary', 'Return', 'rcReturn');
+    return `<div class="t-float fB">${back('Daftar struk')}<span class="sp"></span>${total}${acts}</div>`;
+  }
+  const h = S.list === 'held' ? heldPicked() : null;
+  if (!h) return `<div class="t-float fB">${back('Kembali ke penjualan')}<span class="sp"></span></div>`;
+  const chk = S.heldChk && S.heldChk.id === h.id ? S.heldChk : null, mine = h.by === S.who.name || S.freezeOpen === h.id;
+  const total = `<div class="tf-total"><span class="tf-k">Tunda · ${pcsText(h.pcs)}</span><span class="tf-v"><span class="cur">Rp</span><b>${fmt(h.total)}</b></span></div>`;
+  if (chk) return `<div class="t-float fB">${back('Kembali')}<span class="sp"></span>${total}<button class="ds-btn ds-btn--destructive t-pay" data-act="heldCloseGo"${chk.ticks.length === h.lines.length ? '' : ' disabled'}><span>Tutup tunda · ${chk.ticks.length}/${h.lines.length}</span><span class="kbd">Enter</span></button></div>`;
+  return `<div class="t-float fB">${back('Daftar tunda')}<span class="sp"></span>${total}<button class="ds-btn ds-btn--destructive t-big" data-act="heldCloseStart">Tutup tunda</button><button class="ds-btn ds-btn--primary t-pay" data-act="heldResume"${mine ? '' : ' disabled'}><span>Lanjutkan</span><span class="kbd">Enter</span></button></div>`;
 }
 function promoButton(t) {
   const on = t.promos.filter(r => r.applied), waiting = t.promos.length - on.length;
   return `<button class="t-promo" data-act="promos" data-pop="promos">${on.length ? `<span class="ok num">${rp(-t.promoCut)}</span><span class="mute">· ${on.length}</span>` : '<span class="mute">Belum ada</span>'}${waiting ? `<span class="t-wait">${waiting} menunggu</span>` : ''}${I.chevDown}</button>`;
 }
 function tagCount() { return S.lines.reduce((a, l) => a + (l.item.kind === 'bag' || (l.src && l.src.k !== 'other') ? 0 : l.qty), 0); }
-/* What the counter is doing, above the table (Hari, 24 Oct 2026). */
+/* What the counter is doing (Hari, 24 Oct 2026). Penjualan and Return must
+   never look alike (client, 30 Oct 2026: "kasir bingung ini di screen
+   penjualan atau return"): Sekarang · A Judul · B Pita · C Bingkai · D Warna penuh. */
+const MODE_LOOKS = [['now', 'Sekarang'], ['A', 'Judul'], ['B', 'Pita ★'], ['C', 'Bingkai'], ['D', 'Warna penuh']];
+function modeOf() {
+  const R = S.ret;
+  if (R) {
+    const st = (k, n, w, c) => `<button class="r-st${R.step === k ? ' on' : ''}" data-act="retStep" data-arg="${k}"${k === 'new' && !R.back.length ? ' disabled' : ''}><span class="n">${n}</span>${w}<b>${c}</b></button>`;
+    return { name: 'Return', tone: 'ret', sub: `Struk ${rcNo(R.no)}`, extra: `<span class="r-steps">${st('back', 1, 'Jumlah kembali', R.back.length)}<span class="r-arrow">→</span>${st('new', 2, 'Pengganti', S.lines.reduce((a, l) => a + l.qty, 0))}</span>` };
+  }
+  if (S.list === 'held') { const h = heldPicked(); return { name: 'Tunda', tone: 'held', sub: h ? `${hm(h.at)} · ${esc(h.by)}` : pl(S.held.length, 'transaksi'), extra: '' }; }
+  if (S.list === 'receipts') {
+    const ret = S.listFor === 'return';
+    return { name: ret ? 'Return' : 'Struk', tone: ret ? 'ret' : 'list', sub: S.rcView ? `C11-JLC-26-10-${String(S.rcView).padStart(5, '0')}` : '',
+      extra: S.rcView ? '' : `<label class="t-find in-mode">${I.search}<input data-bind="find" data-focus="find" value="${esc(S.find)}" placeholder="Scan atau ketik no. struk" autocomplete="off"></label>` };
+  }
+  if (S.list === 'check') return { name: 'Cek', tone: 'list', sub: '', extra: `<label class="t-find in-mode">${I.search}<input data-bind="pq" data-focus="pq" value="${esc(S.price.q)}" placeholder="SKU, voucher, kupon atau member" autocomplete="off" spellcheck="false"></label>` };
+  return { name: 'Penjualan', tone: 'sale', sub: '', extra: '' };
+}
 function modeFlag() {
-  return S.ret
-    ? `<div class="t-mode"><span class="mode-flag ret">Return</span><span class="mute num">${rcNo(S.ret.no)}</span></div>`
-    : '<div class="t-mode"><span class="mode-flag">Penjualan</span></div>';
+  const m = modeOf(), look = S.modeLook || 'B';
+  const sub = m.sub ? `<span class="mh-sub num">${m.sub}</span>` : '';
+  if (look === 'now') return `<div class="t-mode"><span class="mode-flag${m.tone === 'ret' || m.tone === 'held' ? ' ' + m.tone : ''}">${m.name}</span>${m.sub ? `<span class="mute num">${m.sub}</span>` : ''}${m.extra}</div>`;
+  if (look === 'B') return `<div class="t-band tone-${m.tone}"><b>${m.name}</b>${sub}${m.extra}</div>`;
+  return `<div class="t-mode mh tone-${m.tone}"><h1>${m.name}</h1>${sub}${m.extra}</div>`;
+}
+/* Tunda and Struk open in the item list, never a pop-up or a sheet (client,
+   25 Oct 2026: "kurangi sheet"). F9 lists the held sales; one picked shows
+   its pieces, continued by its own cashier or closed after the head ticks
+   every piece. */
+function heldListGrid() {
+  const rows = S.held.map((h, i) => `<tr data-act="heldPick" data-arg="${h.id}">
+      <td class="mute num">${i + 1}</td><td class="num">${hm(h.at)}</td><td>${esc(h.by)}</td><td>${h.member ? esc(h.member.name) : '<span class="faint">—</span>'}</td>
+      <td class="c num">${h.pcs}</td><td class="r b">${fmt(h.total)}</td><td class="r">${holdLeftTag(h)}</td></tr>`).join('');
+  return `<div class="t-grid" data-scroll="grid"><table><colgroup><col style="width:64px"><col style="width:120px"><col><col><col style="width:104px"><col style="width:150px"><col style="width:190px"></colgroup>
+    <thead><tr><th></th><th>Ditunda</th><th>Kasir</th><th>Member</th><th class="c">Jumlah</th><th class="r">Total</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+function heldGrid(h) {
+  const chk = S.heldChk && S.heldChk.id === h.id ? S.heldChk : null;
+  const mine = h.by === S.who.name || S.freezeOpen === h.id;
+  const late = holdAge(h) >= HOLD_WARN
+    ? `<p class="hold-warn${holdAge(h) >= HOLD_MAX ? ' over' : ''}">${holdAge(h) >= HOLD_MAX ? 'Lewat 30 menit · selesaikan tunda ini dulu' : `Sisa <b data-hold-left="${h.id}">${mmss(holdLeft(h))}</b> · lewat 30 menit kasir terkunci`}</p>` : '';
+  const sup = chk ? '<p class="hp-sup">Supervisor wajib cek barang sebagai berikut, barang yang akan dibatalkan:</p>' : '';
+  const note = !chk && !mine ? `<p class="hp-note">Hanya ${esc(h.by)} yang bisa melanjutkan tunda ini.</p>` : '';
+  const rows = h.lines.map((l, i) => {
+    const on = chk && chk.ticks.includes(i);
+    return `<tr class="${on ? 'sel' : ''}"${chk ? ` data-act="heldTick" data-arg="${i}"` : ''}>
+      ${chk ? `<td class="c"><span class="hp-box">${on ? I.check : ''}</span></td>` : `<td class="mute num">${i + 1}</td>`}
+      <td><div class="nm-2"><div class="nm-w"><span class="nm-t">${esc(l.item.name)}</span><span class="nm-v">${esc(variant(l.item))}</span></div></div></td>
+      <td class="c num">${l.qty}</td><td class="r">${fmt(l.item.price)}</td><td class="r b">${fmt(gross(l))}</td></tr>`;
+  }).join('');
+  return `<div class="t-grid" data-scroll="held-${h.id}">${late || sup || note ? `<div class="hg-band">${late}${sup}${note}</div>` : ''}
+    <table><colgroup><col style="width:64px"><col><col style="width:104px"><col style="width:140px"><col style="width:150px"></colgroup>
+    <thead><tr><th></th><th>Barang</th><th class="c">Jumlah</th><th class="r">Harga</th><th class="r">Subtotal</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+/* A receipt opened from the list: its pieces in the item list, then Cetak
+   ulang, Void or Return from the bar below. */
+function receiptGrid(r) {
+  const st = r.status === 'voided' ? '<span class="ds-status ds-status--bad">Void</span>' : r.status === 'returned' ? '<span class="ds-status ds-status--warn">Di-return</span>' : r.back ? '<span class="ds-status ds-status--warn">Return</span>' : '<span class="ds-status ds-status--ok">Lunas</span>';
+  const pays = r.pays.map(p => `${methodName(p.m)}${p.mach ? ' ' + machineOf(p.m, p.mach).name : ''} ${fmt(p.amount)}`).join(' · ');
+  const backRows = (r.back || []).map(b => `<tr class="rg-back"><td class="mute num">−</td>
+      <td><div class="nm-2"><div class="nm-w"><span class="nm-t">${esc(b.item.name)}</span><span class="nm-v">${esc(variant(b.item))}</span></div></div></td>
+      <td class="c num">−1</td><td class="r">${fmt(b.unit)}</td><td class="r faint">—</td><td class="r b">−${fmt(b.unit)}</td></tr>`).join('');
+  const rows = backRows + r.lines.map((l, i) => {
+    const d = gross(l) - net(l);
+    return `<tr><td class="mute num">${r.back ? '+' : i + 1}</td>
+      <td><div class="nm-2"><div class="nm-w"><span class="nm-t">${esc(l.item.name)}</span><span class="nm-v">${esc(variant(l.item))}</span></div></div></td>
+      <td class="c num">${l.qty}</td><td class="r">${fmt(l.item.price)}</td><td class="r${d ? ' disc' : ' faint'}">${d ? `−${fmt(d)}` : '—'}</td><td class="r b">${fmt(net(l))}</td></tr>`;
+  }).join('');
+  return `<div class="t-grid" data-scroll="rc-${r.no}"><div class="hg-band"><p class="rg-facts">${st}<span>${r.at.getDate()} ${BULAN[r.at.getMonth()].slice(0, 3)} · ${hm(r.at)}</span><span>${esc(r.cashier)}</span>${r.from ? `<span>Return dari <b class="num">${rcNo(r.from)}</b></span>` : ''}${r.returnedIn ? `<span>Di-return di <b class="num">${rcNo(r.returnedIn)}</b></span>` : ''}<span>${r.back ? (r.total ? `Bayar ${fmt(r.total)}` : 'Kembali 0') : pays}</span>${r.change ? `<span>Kembali ${fmt(r.change)}</span>` : ''}</p></div>
+    <table><colgroup><col style="width:64px"><col><col style="width:104px"><col style="width:140px"><col style="width:120px"><col style="width:150px"></colgroup>
+    <thead><tr><th></th><th>Barang</th><th class="c">Jumlah</th><th class="r">Harga</th><th class="r">Diskon</th><th class="r">Subtotal</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+/* F2 Cek in the item list: an item's price and stock, or what a voucher,
+   coupon or member card holds. Nothing is added to the sale. */
+function checkGrid() {
+  const hit = checkCard();
+  if (hit) return `<div class="t-grid"><div class="hg-band">${hit}</div></div>`;
+  const list = priceMatches();
+  if (!list.length) return `<div class="t-grid"><div class="t-empty"><p>Tidak ada yang cocok dengan “${esc(S.price.q.trim())}”</p></div></div>`;
+  const rows = list.map(it => `<tr><td class="mute num">${skuText(it.sku)}</td>
+      <td><div class="nm-2"><div class="nm-w"><span class="nm-t">${esc(it.name)}</span><span class="nm-v">${esc(variant(it))}</span></div></div></td>
+      <td class="r">${it.price ? fmt(it.price) : 'Gratis'}</td><td class="r b">${STOCK[it.sku] || 0}</td></tr>`).join('');
+  return `<div class="t-grid" data-scroll="grid"><table><colgroup><col style="width:190px"><col><col style="width:150px"><col style="width:120px"></colgroup>
+    <thead><tr><th>SKU</th><th>Barang</th><th class="r">Harga</th><th class="r">Stok</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+/* F10: every receipt, an old one too, by printed number or total. */
+function receiptsGrid() {
+  const list = receiptMatches();
+  if (!S.find.trim()) return `<div class="t-grid"><div class="t-empty">${I.receipt}<p>Scan atau ketik nomor struk</p></div></div>`;
+  if (!list.length) return `<div class="t-grid"><div class="t-empty"><p>Tidak ada struk “${esc(S.find.trim())}”</p></div></div>`;
+  const rows = list.map(r => {
+    const st = r.status === 'voided' ? '<span class="ds-status ds-status--bad">Void</span>' : r.status === 'returned' ? '<span class="ds-status ds-status--warn">Di-return</span>' : r.back ? '<span class="ds-status ds-status--warn">Return</span>' : '<span class="ds-status ds-status--ok">Lunas</span>';
+    return `<tr data-act="rcOpen" data-arg="${r.no}"><td class="num"><span class="mute">C11-JLC-26-10-</span>${String(r.no).padStart(5, '0')}</td>
+      <td class="num">${r.at.getDate()} ${BULAN[r.at.getMonth()].slice(0, 3)} · ${hm(r.at)}</td><td>${r.method}</td><td class="c num">${r.pcs}</td><td class="r b">${fmt(r.total)}</td><td class="r">${st}</td></tr>`;
+  }).join('');
+  return `<div class="t-grid" data-scroll="grid"><table><colgroup><col style="width:260px"><col style="width:160px"><col><col style="width:104px"><col style="width:150px"><col style="width:130px"></colgroup>
+    <thead><tr><th>No. struk</th><th>Tanggal</th><th>Bayar</th><th class="c">Jumlah</th><th class="r">Total</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 function scanView() {
+  /* Return step 1 scans nothing: the receipt already lists what can come back. */
+  if (S.ret && S.ret.step === 'back') return '';
   const tags = tagCount();
   return `<div class="t-scan">
     <div class="t-rfid${S.reading ? ' on' : ''}" role="status" aria-live="polite"><span class="t-rfid-dot"></span><span class="t-rfid-t"><b>RFID</b><span>${S.reading ? 'Membaca…' : tags ? pl(tags, 'tag') : 'Siap'}</span></span></div>
-    <label class="t-scanbox${S.scanErr ? ' bad' : ''}">${I.search}<input data-bind="scan" data-focus="scan" value="${esc(S.scanVal)}" placeholder="SKU (3*SKU untuk jumlah), kupon atau nama barang" autocomplete="off" spellcheck="false" autocapitalize="off" aria-label="SKU, kupon atau nama barang">${S.scanErr ? `<span class="t-scanerr" role="alert">${esc(S.scanErr)}${S.unk ? `<button class="ds-btn ds-btn--tint ds-btn--sm" data-act="unkOpen">Barang tak dikenal <span class="kbd">Enter</span></button>` : ''}</span>` : ''}<span class="kbd">F2</span></label>
+    <label class="t-scanbox${S.scanErr ? ' bad' : ''}">${I.search}<input data-bind="scan" data-focus="scan" value="${esc(S.scanVal)}" placeholder="${S.ret ? 'Scan tag atau ketik SKU barang pengganti' : 'SKU (3*SKU untuk jumlah), kupon atau nama barang'}" autocomplete="off" spellcheck="false" autocapitalize="off" aria-label="SKU, kupon atau nama barang">${S.scanErr ? `<span class="t-scanerr" role="alert">${esc(S.scanErr)}${S.unk ? `<button class="ds-btn ds-btn--tint ds-btn--sm" data-act="unkOpen">Barang tak dikenal <span class="kbd">Enter</span></button>` : ''}</span>` : ''}<span class="kbd">⇧2</span></label>
 
   </div>`;
 }
@@ -2289,7 +2519,11 @@ function marks(l) {
   return `<span style="display:inline-flex;gap:6px;flex-wrap:nowrap;overflow:hidden">${m.join('')}</span>`;
 }
 function gridView() {
-  if (!S.lines.length && !(S.ret && S.ret.back.length)) return `<div class="t-grid"><div class="t-empty">${I.rfidBig}<p>${S.ret ? 'Scan tag barang yang dikembalikan' : 'Taruh barang di reader'}</p></div></div>`;
+  if (S.ver === 'D' && !S.ret && S.list === 'held') { const h = heldPicked(); return h ? heldGrid(h) : heldListGrid(); }
+  if (S.ver === 'D' && !S.ret && S.list === 'receipts') { const r = S.rcView && S.receipts.find(x => x.no === S.rcView); return r ? receiptGrid(r) : receiptsGrid(); }
+  if (S.ver === 'D' && !S.ret && S.list === 'check') return checkGrid();
+  if (S.ret && S.ret.step === 'back') return retQtyGrid(gridCols());
+  if (!S.lines.length && !(S.ret && S.ret.back.length)) return `<div class="t-grid"><div class="t-empty">${I.rfidBig}<p>Taruh barang di reader</p></div></div>`;
   const c = gridCols();
   const cols = (c.sku ? '<col style="width:156px">' : '') + '<col>' + (c.split ? '<col style="width:132px"><col style="width:96px">' : '') +
     '<col style="width:132px"><col style="width:104px">' + (c.disc ? '<col style="width:96px">' : '') + '<col style="width:116px"><col style="width:210px"><col style="width:48px">';
@@ -2328,7 +2562,7 @@ function retGrid(c, cols, head, ncols, lineRow, table) {
   const backRow = (b, j, o = {}) => `<tr class="rb-${look}${R.sel === j ? ' rsel' : ''}${o.cls ? ' ' + o.cls : ''}" data-act="retSel" data-arg="${j}">
       ${c.sku ? `<td class="mute num">${skuText(b.item.sku)}</td>` : ''}<td><div class="nm-2"><div class="nm-w">${o.pre || ''}<span class="nm-t">${esc(b.item.name)}</span>${c.split ? '' : `<span class="nm-v">${esc(variant(b.item))}</span>`}</div>${itemSub(b.item) ? `<span class="nm-sub">${esc(itemSub(b.item))}</span>` : ''}</div></td>${c.split ? `<td>${esc(b.item.colour)}</td><td>${esc(b.item.size)}</td>` : ''}
       <td class="c num">−1</td><td class="r">${fmt(b.unit)}</td>${c.disc ? '<td class="r faint">—</td>' : ''}<td class="r b rb-sub">−${fmt(b.unit)}</td>
-      <td class="t-notec">${o.note || ''}</td><td class="c">${R.sel === j ? `<button class="t-rm" data-act="retDrop" data-arg="${j}" aria-label="Batalkan barang kembali ini">${I.trash}</button>` : ''}</td></tr>`;
+      <td class="t-notec">${o.note || ''}</td><td></td></tr>`;
   const pick = (i, l, text) => `<button class="rep-pick" data-act="repCycle" data-arg="${i}" title="Pindahkan ke barang lain">${text} ▾</button>`;
   if (look === 'B') {
     const backs = R.back.reduce((a, b) => a + b.unit, 0), news = S.lines.reduce((a, l) => a + net(l), 0);
@@ -2348,9 +2582,14 @@ function retGrid(c, cols, head, ncols, lineRow, table) {
       <thead><tr><th></th><th>Dikembalikan</th><th></th><th>Pengganti</th><th class="r">Selisih</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }
   if (look === 'D') {
-    return table(R.back.map((b, j) => backRow(b, j, { note: '<span class="mute">Dikembalikan</span>' })
-      + reps(j).map(x => lineRow(x.l, x.i, { pre: '<span class="rep-arrow">↳</span>', note: pick(x.i, x.l, `ganti ${esc(short(b.item.name))}`) })).join('')).join('')
-      + loose.map(x => lineRow(x.l, x.i, { note: pick(x.i, x.l, 'Barang baru') })).join(''));
+    /* One list, no groups (Hari, 28 Oct 2026): what came back in minus, one
+       row per receipt line with its count from step 1, then the replacements,
+       the way the struk prints them. */
+    const backs = retLines().filter(x => R.qty[x.li]).map(x => `<tr class="rb-D">
+      ${c.sku ? `<td class="mute num">${skuText(x.l.item.sku)}</td>` : ''}<td><div class="nm-2"><div class="nm-w"><span class="nm-t">${esc(x.l.item.name)}</span>${c.split ? '' : `<span class="nm-v">${esc(variant(x.l.item))}</span>`}</div>${itemSub(x.l.item) ? `<span class="nm-sub">${esc(itemSub(x.l.item))}</span>` : ''}</div></td>${c.split ? `<td>${esc(x.l.item.colour)}</td><td>${esc(x.l.item.size)}</td>` : ''}
+      <td class="c num">−${R.qty[x.li]}</td><td class="r">${fmt(x.unit)}</td>${c.disc ? '<td class="r faint">—</td>' : ''}<td class="r b rb-sub">−${fmt(R.qty[x.li] * x.unit)}</td>
+      <td class="t-notec"><span class="r-tag back">Kembali</span></td><td></td></tr>`).join('');
+    return table(backs + S.lines.map((l, i) => lineRow(l, i, { note: '<span class="r-tag new">Pengganti</span>' })).join(''));
   }
   /* A · Pasangan: each returned piece and its replacements are one framed group */
   return table(R.back.map((b, j) => {
@@ -2360,63 +2599,91 @@ function retGrid(c, cols, head, ncols, lineRow, table) {
       + `<tr class="pg-gap"><td colspan="${ncols}"></td></tr>`;
   }).join('') + loose.map(x => lineRow(x.l, x.i)).join(''));
 }
+/* Return step 1: the receipt's list, a count per line. A click on a row puts
+   the cursor in its count; + and − step it, a typed number sets it. */
+function retQtyGrid(c) {
+  const R = S.ret;
+  const rows = retLines().map((x, k) => {
+    const n = R.qty[x.li] || 0, sub = itemSub(x.l.item);
+    return `<tr class="rq${n ? ' got' : ''}${k === R.sel ? ' sel' : ''}" data-act="rqSel" data-arg="${k}">
+      ${c.sku ? `<td class="mute num">${skuText(x.l.item.sku)}</td>` : ''}
+      <td><div class="nm-2"><div class="nm-w"><span class="nm-t">${esc(x.l.item.name)}</span><span class="nm-v">${esc(variant(x.l.item))}</span></div>${sub ? `<span class="nm-sub">${esc(sub)}</span>` : ''}</div></td>
+      <td class="c num">${x.l.qty}</td>
+      <td class="r">${fmt(x.unit)}</td>
+      <td class="c"><span class="rq-step"><button data-act="rqQty" data-arg="${x.li}:-1" aria-label="Kurangi satu"${n ? '' : ' disabled'}>−</button><input class="num" data-bind="rq" data-arg="${x.li}" data-focus="rq${x.li}" value="${n}" inputmode="numeric" autocomplete="off" aria-label="Jumlah ${esc(x.l.item.name)} yang kembali"><button data-act="rqQty" data-arg="${x.li}:1" aria-label="Tambah satu"${n >= x.l.qty ? ' disabled' : ''}>+</button></span></td>
+      <td class="r b">${n ? `−${fmt(n * x.unit)}` : '—'}</td></tr>`;
+  }).join('');
+  return `<div class="t-grid" data-scroll="grid"><table><colgroup>${c.sku ? '<col style="width:156px">' : ''}<col><col style="width:104px"><col style="width:132px"><col style="width:188px"><col style="width:150px"></colgroup>
+    <thead><tr>${c.sku ? '<th>SKU</th>' : ''}<th>Barang</th><th class="c">Dibeli</th><th class="r">Harga</th><th class="c">Kembali</th><th class="r">Subtotal</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
 function sideHead() {
-  return `<div class="t-side-head"><h2>Struk terakhir</h2></div>`;
+  /* Find any receipt, an old one too (client, 25 Oct 2026): paste or type its
+     number; empty, the last three as before. */
+  return `<div class="t-side-head"><h2>Cari struk</h2></div>
+    <label class="t-find">${I.search}<input data-bind="find" data-focus="find" value="${esc(S.find)}" placeholder="Scan atau ketik no. struk" autocomplete="off"></label>`;
 }
-function receiptMatches() {
-  const q = S.find.trim().toLowerCase().replace(/\./g, '');
-  return S.receipts.filter(r => !q || rcNo(r.no).toLowerCase().includes(q) || String(r.total).includes(q));
+/* The cashier never browses receipts — not the day's book, not the last
+   three (Hari, 28 Oct 2026): a receipt shows only when its whole number is
+   scanned or typed. */
+function rcFind(raw) {
+  const q = raw.trim().toUpperCase().replace(/[\s.]/g, '');
+  if (!q) return null;
+  return S.receipts.find(r => rcNo(r.no) === q || `C11-JLC-26-10-${String(r.no).padStart(5, '0')}` === q || String(r.no).padStart(5, '0') === q.padStart(5, '0')) || null;
 }
-/* The cashier sees the last three receipts, never the day's book: enough
-   to reprint the one just handed over, or return or void it. */
+function receiptMatches() { const r = rcFind(S.find); return r ? [r] : []; }
 function sideList() {
-  const list = S.receipts.slice(0, 3);
+  const searching = S.find.trim() !== '';
+  const list = receiptMatches();
   const pick = list.find(r => r.no === S.pick) || list[0] || null;
   const rows = list.map(r => {
-    const st = r.status === 'voided' ? '<span class="ds-status ds-status--bad">Void</span>' : r.status === 'returned' ? '<span class="ds-status ds-status--warn">Return</span>' : '<span class="ds-status ds-status--ok">Lunas</span>';
-    return `<button class="t-rc${pick === r ? ' on' : ''}" data-act="pick" data-arg="${r.no}">
+    const st = r.status === 'voided' ? '<span class="ds-status ds-status--bad">Void</span>' : r.status === 'returned' ? '<span class="ds-status ds-status--warn">Di-return</span>' : r.back ? '<span class="ds-status ds-status--warn">Return</span>' : '<span class="ds-status ds-status--ok">Lunas</span>';
+    return `<button class="t-rc${pick === r && !heldPicked() ? ' on' : ''}" data-act="pick" data-arg="${r.no}">
       <span class="no">${S.lastPaid === r.no ? '<i class="newdot"></i>' : ''}<span class="rc-pre">C11-JLC-26-10-</span>${String(r.no).padStart(5, '0')}</span><span class="rc-amt">${fmt(r.total)}</span>
-      <span class="sub">${hm(r.at)} · ${r.method}</span><span class="st">${st}</span></button>`;
+      <span class="sub">${r.at.toDateString() === now().toDateString() ? '' : `${r.at.getDate()} ${BULAN[r.at.getMonth()].slice(0, 3)} · `}${hm(r.at)} · ${r.method}</span><span class="st">${st}</span></button>`;
   }).join('');
-  const held = S.held.map(h => `<button class="t-rc" data-act="held" data-arg="${h.id}">
-      <span class="no">Ditunda · ${hm(h.at)}</span><span class="rc-amt">${fmt(h.total)}</span>
-      <span class="sub">${h.pcs} pcs${h.member ? ' · ' + esc(h.member.name) : ''}</span><span class="st"><span class="ds-btn ds-btn--tint ds-btn--sm">Lanjutkan</span></span></button>`).join('');
+  /* Tunda in the list, never a pop-up (client, 25 Oct 2026): a row opens the
+     sale's pieces below, where it is continued or closed. */
+  /* While the head ticks the pieces, the list keeps only that sale. */
+  const checking = S.heldChk ? S.held.filter(h => h.id === S.heldChk.id) : null;
+  const held = (checking || S.held).map(h => `<button class="t-rc held${S.pickHeld === h.id ? ' on' : ''}" data-act="heldPick" data-arg="${h.id}">
+      <span class="no">Ditunda · ${hm(h.at)} · ${esc(h.by.split(' ')[0])}</span><span class="rc-amt">${fmt(h.total)}</span>
+      <span class="sub">${h.pcs} pcs${h.member ? ' · ' + esc(h.member.name) : ''}</span><span class="st">${holdLeftTag(h)}</span></button>`).join('');
   return `<div class="t-list" data-scroll="side">
-      ${S.held.length ? `<p class="t-group">Ditunda <span class="num">${S.held.length}</span></p>${held}<p class="t-group">Struk terakhir</p>` : ''}
-      ${rows || '<p class="t-none">Belum ada struk</p>'}
-    </div>${slipView(pick)}`;
+      ${checking ? held : `${S.held.length && !searching ? `<p class="t-group">Ditunda <span class="num">${S.held.length}</span></p>${held}` : ''}
+      ${rows || (searching ? `<p class="t-none">Tidak ada struk “${esc(S.find.trim())}”</p>` : '')}`}
+    </div>${heldPicked() ? heldPreview(heldPicked()) : slipView(pick)}`;
 }
 /* The picked receipt as the printer prints it, under the list as in 7Soft.
    The paper is Indonesian like the closing paper; it opens the receipt. */
 function slipView(r) {
   if (!r) return '';
-  const row = (k, v, cls = '') => `<p class="sl-row${cls}"><span>${k}</span><span>${v}</span></p>`;
+  const row = thRow;
   const paid = ms => r.pays.filter(p => ms.includes(p.m)).reduce((a, p) => a + p.amount, 0);
   const g = r.lines.reduce((a, l) => a + gross(l), 0);
   const d = r.at;
-  const items = r.lines.map(l => `<div class="sl-item"><p class="sl-nm">${esc(l.item.name.toUpperCase())}</p>${row(`${l.qty} × ${fmt(l.item.price)}`, fmt(gross(l)))}${lineDisc(l) ? row('Disc', '−' + fmt(lineDisc(l)), ' sl-mute') : ''}</div>`).join('');
+  const items = r.lines.map(l => `<div class="th-item"><p class="th-nm">${esc(l.item.name.toUpperCase())}</p>${row(`${l.qty} × ${fmt(l.item.price)}`, fmt(gross(l)))}${lineDisc(l) ? row('Disc', '−' + fmt(lineDisc(l)), ' th-mute') : ''}</div>`).join('');
   const qris = paid(['qris']), voucher = paid(['voucher']);
   return `<div class="t-prev">
     <div class="t-slip" data-act="rcOpen" data-arg="${r.no}" data-scroll="slip-${r.no}" role="button" aria-label="Buka ${rcNo(r.no)}">
-      <div class="slip">
-        <p class="sl-c sl-b">${STORE.company}</p><p class="sl-c">${STORE.code} ${STORE.name}</p>
-        <hr class="sl-hr">
-        ${row('No. Nota', rcNo(r.no))}${row('Kasir', esc(r.cashier.toUpperCase()))}${row('Tanggal', `${p2(d.getDate())}/${p2(d.getMonth() + 1)}/${String(d.getFullYear()).slice(2)} ${hm(d)}`)}
-        <hr class="sl-hr">
+      <div class="th-wrap"><div class="thermal">
+        <div class="th-logo"><b>CENTRAL</b><i>Fashion Store</i></div><p class="th-c">Jl. Diponegoro 456</p><p class="th-c">Kalierang - Bumiayu</p>
+        <hr class="th-hr">
+        ${row('No. Nota', rcNo(r.no))}${row('Kasir', `${esc(r.cashier.split(' ')[0].toUpperCase())} ${STORE.code}`)}${row('Tanggal', `${p2(d.getDate())}/${p2(d.getMonth() + 1)}/${String(d.getFullYear()).slice(2)} ${hm(d)}`)}
+        <hr class="th-hr">
         ${items}
-        <hr class="sl-hr">
-        ${row(`Total Item · ${fmt(r.pcs)} Pcs`, fmt(g))}${row('Total Disc', fmt(g - r.total))}${row('Setelah Disc', fmt(r.total), ' sl-b')}
-        ${row('Bayar dengan Cash', fmt(paid(['cash'])))}${row('Bayar dengan Kartu', fmt(paid(['debit', 'credit'])))}${qris ? row('Bayar dengan QRIS', fmt(qris)) : ''}${voucher ? row('Bayar dengan Voucher', fmt(voucher)) : ''}${row('Kembali', fmt(r.change))}
-      </div>
+        <hr class="th-hr">
+        ${row(`Total Item · ${fmt(r.pcs)} Pcs`, fmt(g))}${row('Total Disc', fmt(g - r.total))}${row('Setelah Disc', fmt(r.total), ' th-b')}
+        ${row('Tunai', fmt(paid(['cash'])))}${paid(['debit']) ? row('EDC Debit', fmt(paid(['debit']))) : ''}${paid(['credit']) ? row('EDC Kredit', fmt(paid(['credit']))) : ''}${qris ? row('QRIS', fmt(qris)) : ''}${voucher ? row('Voucher', fmt(voucher)) : ''}${row('Kembali', fmt(r.change))}
+      </div></div>
     </div>
-    <div class="t-prev-foot"><button class="ds-btn ds-btn--tint" data-act="rcOpen" data-arg="${r.no}">Detail</button><span class="sp"></span><button class="ds-btn ds-btn--tint" data-act="rcPrint" data-arg="${r.no}">${I.printer}Cetak</button></div>
+    <div class="t-prev-foot"><button class="ds-btn ds-btn--tint" data-act="rcOpen" data-arg="${r.no}">Detail</button></div>
   </div>`;
 }
 function receiptsView() {
   return `<div class="veil side${A('ov', 'm-veil')}" data-act="veil">
     <aside class="sheet${A('ov', 'm-sheet')}" data-act="stop" role="dialog" aria-label="Struk" style="width:420px">
-      <div class="sheet-head"><div><p class="ttl">Struk</p><p class="cap">${STORE.till} · hari ini · ${S.receipts.length}</p></div><button class="x-btn" data-act="closeOv" aria-label="Tutup">${I.x17}</button></div>
-      <div class="t-sidein">${sideList()}</div>
+      <div class="sheet-head"><div><p class="ttl">Struk</p><p class="cap">${STORE.till}</p></div><button class="x-btn" data-act="closeOv" aria-label="Tutup">${I.x17}</button></div>
+      <div class="t-sidein">${S.heldChk ? '' : `<label class="t-find">${I.search}<input data-bind="find" data-focus="find" value="${esc(S.find)}" placeholder="Scan atau ketik no. struk" autocomplete="off"></label>`}${sideList()}</div>
     </aside></div>`;
 }
 
@@ -2515,10 +2782,9 @@ function payView() {
     d(4), d(5), d(6), n(100000, DENOMS[0].c), n(50000, DENOMS[1].c),
     d(1), d(2), d(3), n(20000, DENOMS[2].c), n(10000, DENOMS[3].c),
     d(0), d('00'), d('000'), n(5000, DENOMS[4].c), n(2000, DENOMS[5].c)].join('');
-  const done = ps.paid >= t.grand;
   return `<div class="veil${A('ov', 'm-veil')}" data-act="veil">
     <div class="pay${A('ov', 'm-pop')}" data-act="stop" role="dialog" aria-label="Bayar">
-      <div class="pay-head"><div><p class="ttl">Bayar</p><p class="cap">${rcNo(S.seq)} · ${t.pcs} pcs${S.member ? ' · ' + esc(S.member.name) + (t.points ? ` · +${fmt(t.points)} poin` : '') : ''}</p></div><button class="x-btn" data-act="closeOv" aria-label="Tutup">${I.x17}</button></div>
+      <div class="pay-head"><div><p class="ttl">Bayar</p><p class="cap">${rcNo(S.seq)}${S.member ? ' · ' + esc(S.member.name) + (t.points ? ` · +${fmt(t.points)} poin` : '') : ''}</p></div><button class="x-btn" data-act="closeOv" aria-label="Tutup">${I.x17}</button></div>
       <div class="pay-l">
         <div class="bill">
           ${t.disc || t.xc ? `<span class="k">Total</span><span class="v">${rp(t.gross)}</span>` : ''}
@@ -2527,18 +2793,41 @@ function payView() {
           <span class="gk">Total bayar</span><span class="gv">${rp(t.grand)}</span>
         </div>
         <div class="methods">${METHODS.map(m => payRow(m, p)).join('')}</div>
-        <div class="paybox">
-          <span class="k">Dibayar</span><span class="v">${rp(ps.paid)}</span>
-          <span class="ck">${done ? 'Kembalian' : 'Kurang'}</span><span class="cv${done ? '' : ' due'}">${rp(done ? ps.change : ps.due)}</span>
-          ${payMiss(p) ? `<p class="pay-err" role="alert">${payMiss(p)}</p>` : p.note ? `<p class="pay-note" role="status">${p.note}</p>` : ''}
-        </div>
+        ${payBox(t, ps, payMiss(p) ? `<p class="pay-err" role="alert">${payMiss(p)}</p>` : p.note ? `<p class="pay-note" role="status">${p.note}</p>` : '')}
       </div>
       <div class="pay-r">
         <div class="quick">${quick}</div>
         <div class="keys">${keys}</div>
-        <div style="display:flex;gap:8px;margin-top:auto"><button class="ds-btn ds-btn--tint hold-red" data-act="payHold" style="height:40px;padding:0 12px;align-self:center">Tunda <span class="kbd">F9</span></button><button class="ds-btn ds-btn--primary pay-go" data-act="doPay" style="flex:1"${ps.ok ? '' : ' disabled'}><span>Pembayaran diterima</span><span class="kbd">Enter</span></button></div>
+        ${paySums(t, ps, p.amt.cash, [['EDC', p.amt.debit + p.amt.credit], ['QRIS', p.amt.qris]].filter(([, v]) => v > 0))}
+        <div style="display:flex;gap:8px;margin-top:auto"><button class="ds-btn ds-btn--tint hold-red" data-act="payHold" style="height:40px;padding:0 12px;align-self:center">Tunda <span class="kbd">⇧9</span></button><button class="ds-btn ds-btn--primary pay-go" data-act="doPay" style="flex:1"${ps.ok ? '' : ' disabled'}><span>Pembayaran diterima</span><span class="kbd">Enter</span></button></div>
       </div>
     </div></div>`;
+}
+/* The foot of Bayar, on a band and big: the pieces and the money taken (once
+   there is any). The bill, EDC, cash and what is still owed sit on the right
+   under the keypad toggle — never the change (Hari, 28 Oct 2026). */
+/* What the cashier tells the shopper before taking the money (Hari, 28 Oct
+   2026): only the pieces that may not be exchanged. A return
+   never comes back again, so its replacements may not either. */
+function payTell() {
+  const pieces = S.lines.filter(l => l.item.kind !== 'bag');
+  if (!pieces.length) return '';
+  const nope = S.ret ? pieces : pieces.filter(l => l.item.final);
+  const all = nope.length === pieces.length;
+  if (!nope.length) return '';
+  return `<div class="pay-tell"><p class="pt-no">${all ? 'Barang tidak bisa ditukar' : `Tidak bisa ditukar: ${[...new Set(nope.map(l => esc(l.item.name)))].join(', ')}`}</p></div>`;
+}
+function payBox(t, ps, said) {
+  return `<div class="paybox">
+      ${said}${payTell()}
+      <div class="tally"><span class="tk">Total Belanja</span><span class="tv">${t.pcs} Pcs</span>${ps.paid > 0 ? `<span class="tk">Uang Diterima</span><span class="tv">${fmt(ps.paid)}</span>` : ''}</div>
+    </div>`;
+}
+/* `edcs`: [machine, amount] for each machine that took money — one line each. */
+function paySums(t, ps, cash, edcs) {
+  /* A line at Rp 0 is not shown (Hari, 28 Oct 2026). */
+  const edc = edcs.filter(([, v]) => v > 0).map(([name, v]) => `<span class="k">Total ${name}</span><span class="v">${rp(v)}</span>`).join('');
+  return `<div class="sums"><span class="k">Total transaksi</span><span class="v">${rp(t.grand)}</span>${edc}${cash > 0 ? `<span class="k">Total cash</span><span class="v">${rp(cash)}</span>` : ''}${ps.due > 0 ? `<span class="k">Kurang bayar</span><span class="v due">${rp(ps.due)}</span>` : ''}</div>`;
 }
 function payMiss(p) {
   if (p.miss === 'debit' || p.miss === 'credit') return `Pilih On us atau Off us untuk ${methodName(p.miss)}`;
@@ -2565,7 +2854,7 @@ function payRow(m, p) {
 /* ── Pay, four ways to name the machine without a dropdown (23 Oct) ────
    Hari: the Debit dropdown is ugly, a split payment has no home, and the
    cash amounts should be suggested. Every look keeps the Pay dialog (bill
-   left, keys right), suggests amounts on F1–F4, and takes a split — two
+   left, keys right), suggests amounts on Shift+1–4, and takes a split — two
    cards on two machines included:
      A Chips     today's rows, the machines as chips in the row; + adds a card row
      B Rows      one row per machine, nothing to pick
@@ -2725,7 +3014,7 @@ function pay2Digit(k) {
   pay2Set(line, n, true); p.fresh = false;
 }
 /* Suggested amounts: what is due, then the next 10K, 50K and 100K above it.
-   A card, QRIS or voucher takes only the rest. F1–F4. */
+   A card, QRIS or voucher takes only the rest. Shift+1–4. */
 function pay2Quick() {
   const line = pay2Target();
   if (!line) return [];
@@ -2836,14 +3125,10 @@ function pay2View() {
     ? `<div class="methods m2${p.look === 'B' ? ' many' : ''}">${p.lines.map((l, i) => pay2Row(l, i)).join('')}</div>`
     : `<div class="led"><p class="led-k">Pembayaran</p>${p.lines.length ? p.lines.map((l, i) => `<div class="led-row"><span class="led-n">${lineName(l)}${l.onus ? ` <span class="mute">· ${l.onus}</span>` : ''}</span><span class="led-v">${fmt(l.amount)}</span><button class="t-x" data-act="p2rm" data-arg="${i}" aria-label="Hapus ${lineName(l)}">${I.x}</button></div>`).join('') : '<p class="t-none" style="padding:6px 0">Belum ada pembayaran</p>'}</div>`;
   const miss = p.miss ? (p.miss.edc ? edcAskText(p.miss) : `Jawab dulu: kartu ${machineOf(p.miss.m, p.miss.mach).name} atau bank lain? (Y / T)`) : null;
-  const box = `<div class="paybox">
-      <span class="k">Dibayar</span><span class="v">${rp(ps.paid)}</span>
-      <span class="ck">${ps.paid >= t.grand ? 'Kembalian' : 'Kurang'}</span><span class="cv${ps.paid >= t.grand ? '' : ' due'}">${rp(ps.paid >= t.grand ? ps.change : ps.due)}</span>
-      ${miss ? `<p class="pay-err" role="alert">${miss}</p>` : p.note ? `<p class="pay-note" role="status">${p.note}</p>` : ''}
-    </div>`;
+  const box = payBox(t, ps, miss ? `<p class="pay-err" role="alert">${miss}</p>` : p.note ? `<p class="pay-note" role="status">${p.note}</p>` : '');
   return `<div class="veil${A('ov', 'm-veil')}" data-act="veil">
     <div class="pay p2${A('ov', 'm-pop')}" data-act="stop" role="dialog" aria-label="Bayar">
-      <div class="pay-head"><div><p class="ttl">Bayar</p><p class="cap">${rcNo(S.seq)} · ${t.pcs} pcs${S.member ? ' · ' + esc(S.member.name) : ''}</p></div><button class="x-btn" data-act="closeOv" aria-label="Tutup">${I.x17}</button></div>
+      <div class="pay-head"><div><p class="ttl">Bayar</p><p class="cap">${rcNo(S.seq)}${S.member ? ' · ' + esc(S.member.name) : ''}</p></div><button class="x-btn" data-act="closeOv" aria-label="Tutup">${I.x17}</button></div>
       <div class="pay-l">${bill}${left}${box}</div>
       <div class="pay-r">${rowsLook() ? pay2Right(ps) : pay2Steps(ps)}</div>
     </div></div>`;
@@ -2914,7 +3199,7 @@ function edcMid(l, i) {
 }
 function pay2QuickView() {
   const q = pay2Quick();
-  return q.length ? `<div class="q2">${q.map((x, i) => `<button class="q2b" data-act="p2quick" data-arg="${i}"><span class="k7-k">F${i + 1}</span><b class="num">${fmt(x.v)}</b><span class="q2s">${x.label}</span></button>`).join('')}</div>` : '';
+  return q.length ? `<div class="q2">${q.map((x, i) => `<button class="q2b" data-act="p2quick" data-arg="${i}"><span class="k7-k">Shift+${i + 1}</span><b class="num">${fmt(x.v)}</b><span class="q2s">${x.label}</span></button>`).join('')}</div>` : '';
 }
 /* The keypad is for touch; the counter types. Hidden until asked for, and the
    till remembers the choice (client, 24 Oct 2026). */
@@ -2924,14 +3209,17 @@ function pay2Pad() {
   const d = k => `<button class="key" data-act="p2key" data-arg="${k}">${k}</button>`;
   /* 7Soft's "Ribuan": each key adds that many thousand to the amount. */
   const rib = [500, 100, 50, 10, 5, 1].map(n => `<button class="key rib-k" data-act="p2plus" data-arg="${n * 1000}">+${n}</button>`).join('');
-  if (!padShown()) return `<button class="ds-btn ds-btn--tint pad-tog" data-act="padToggle">Tampilkan keypad <span class="kbd">F8</span></button>`;
-  return `<button class="ds-btn ds-btn--tint pad-tog" data-act="padToggle">Sembunyikan keypad <span class="kbd">F8</span></button><div class="keys k2">${[d(7), d(8), d(9), `<button class="key fn" data-act="p2key" data-arg="del" aria-label="Hapus">${I.del}</button>`, d(4), d(5), d(6), `<button class="key fn" data-act="p2key" data-arg="clr">C</button>`, d(1), d(2), d(3), `<button class="key" data-act="p2key" data-arg="000">000<span class="kh">.</span></button>`, d(0), d('00')].join('')}</div>
+  if (!padShown()) return `<button class="ds-btn ds-btn--tint pad-tog" data-act="padToggle">Tampilkan keypad <span class="kbd">⇧8</span></button>`;
+  return `<button class="ds-btn ds-btn--tint pad-tog" data-act="padToggle">Sembunyikan keypad <span class="kbd">⇧8</span></button><div class="keys k2">${[d(7), d(8), d(9), `<button class="key fn" data-act="p2key" data-arg="del" aria-label="Hapus">${I.del}</button>`, d(4), d(5), d(6), `<button class="key fn" data-act="p2key" data-arg="clr">C</button>`, d(1), d(2), d(3), `<button class="key" data-act="p2key" data-arg="000">000<span class="kh">.</span></button>`, d(0), d('00')].join('')}</div>
     <div class="rib"><span class="rib-l">Ribuan</span>${rib}</div>`;
 }
 function pay2Right(ps) {
   const p = S.pay2;
-  return `${pay2QuickView()}${pay2Pad()}<span class="sp"></span>
-    <div style="display:flex;gap:8px"><button class="ds-btn ds-btn--tint hold-red" data-act="payHold" style="height:40px;padding:0 12px;align-self:center">Tunda <span class="kbd">F9</span></button>
+  const cash = p.lines.filter(l => l.m === 'cash').reduce((a, l) => a + l.amount, 0);
+  const edcs = new Map();
+  p.lines.filter(l => (CARDISH(l.m) || l.edc) && l.amount > 0).forEach(l => { const n = machineName(l.m, l.mach); edcs.set(n, (edcs.get(n) || 0) + l.amount); });
+  return `${pay2QuickView()}${pay2Pad()}${paySums(ps.t, ps, cash, [...edcs])}<span class="sp"></span>
+    <div style="display:flex;gap:8px"><button class="ds-btn ds-btn--tint hold-red" data-act="payHold" style="height:40px;padding:0 12px;align-self:center">Tunda <span class="kbd">⇧9</span></button>
     <button class="ds-btn ds-btn--primary pay-go" data-act="p2pay" style="flex:1"${ps.ok ? '' : ' disabled'}><span>Pembayaran diterima</span><span class="kbd">Enter</span></button></div>`;
 }
 function pay2Steps(ps) {
@@ -2939,9 +3227,9 @@ function pay2Steps(ps) {
   const opt = (n, title, sub, act, arg) => `<button class="stp" data-act="${act}" data-arg="${arg}"><span class="k7-k">${n}</span><span class="stp-t"><b>${title}</b>${sub ? `<span>${sub}</span>` : ''}</span></button>`;
   if (p.step === 'method' || p.step === 'pick') {
     if (ps.due <= 0) return `<div class="stp-done"><span class="stp-ok">${I.check}</span><b>Lunas</b><span>${ps.change ? `Kembalian ${rp(ps.change)}` : 'Tanpa kembalian'}</span></div>
-      <div style="display:flex;gap:8px;margin-top:auto"><button class="ds-btn ds-btn--tint hold-red" data-act="payHold" style="height:40px;padding:0 12px;align-self:center">Tunda <span class="kbd">F9</span></button><button class="ds-btn ds-btn--primary pay-go" data-act="p2pay" style="flex:1"${ps.ok ? '' : ' disabled'}><span>Pembayaran diterima</span><span class="kbd">Enter</span></button></div>`;
+      <div style="display:flex;gap:8px;margin-top:auto"><button class="ds-btn ds-btn--tint hold-red" data-act="payHold" style="height:40px;padding:0 12px;align-self:center">Tunda <span class="kbd">⇧9</span></button><button class="ds-btn ds-btn--primary pay-go" data-act="p2pay" style="flex:1"${ps.ok ? '' : ' disabled'}><span>Pembayaran diterima</span><span class="kbd">Enter</span></button></div>`;
     if (p.look === 'C') return `<p class="stp-k">Tambah pembayaran · kurang ${rp(ps.due)}</p><div class="stp-list">${TENDERS.map(([m, l], i) => opt(i + 1, l, m === 'cash' ? 'Ada kembalian' : CARDISH(m) ? machinesFor(m).map(x => x.name).join(' · ') : 'Kode dari kartu', 'p2meth', m)).join('')}</div>`;
-    return `<p class="stp-k">Mesin mana? · kurang ${rp(ps.due)}</p><div class="stp-grid">${TILES.map((x, i) => opt(i + 1, x.label, x.sub, 'p2tile', i)).join('')}</div><button class="ds-btn hold-red" data-act="payHold" style="height:40px;padding:0 12px;margin-top:auto;align-self:flex-start">Tunda <span class="kbd">F9</span></button>`;
+    return `<p class="stp-k">Mesin mana? · kurang ${rp(ps.due)}</p><div class="stp-grid">${TILES.map((x, i) => opt(i + 1, x.label, x.sub, 'p2tile', i)).join('')}</div><button class="ds-btn hold-red" data-act="payHold" style="height:40px;padding:0 12px;margin-top:auto;align-self:flex-start">Tunda <span class="kbd">⇧9</span></button>`;
   }
   if (p.step === 'kind') {
     const b = machineOf('debit', p.draft.mach).name;
@@ -2976,7 +3264,8 @@ function pay2Key(k, e, inField) {
   if (k === 'F8') { padToggle(); return true; }
   const p = S.pay2;
   if (k === 'Escape') { if (inField) { e.target.blur(); return true; } if (!rowsLook() && pay2Back()) return true; closeOv(); return true; }
-  if (/^F[1-4]$/.test(k)) { pay2ApplyQuick(Number(k[1]) - 1); return true; }
+  /* Suggested amounts on Shift+1…4, not F1–F4 (Hari, 28 Oct 2026). */
+  if (e.shiftKey && /^Digit[1-4]$/.test(e.code)) { pay2ApplyQuick(Number(e.code[5]) - 1); return true; }
   if (inField) {
     if (k === 'Enter') { e.target.blur(); if (rowsLook()) doPay2(); else pay2Add(); return true; }
     if ((k === 'ArrowDown' || k === 'ArrowUp') && rowsLook()) { e.target.blur(); pay2Focus(p.focus + (k === 'ArrowDown' ? 1 : -1)); return true; }
@@ -3049,23 +3338,24 @@ function strukView(rc) {
      them and the total is the sale's discount. */
   const sub = rc.lines.reduce((a, l) => a + gross(l), 0);
   const other = sub - rc.promos.reduce((a, x) => a + x.cut, 0) - rc.total;
-  const lines = rc.lines.map(l => `<div class="sk-item"><span class="sk-name">${esc(l.item.name)}</span>${row(`${l.qty} × ${fmt(l.item.price)}`, fmt(gross(l)))}</div>`).join('');
-  const pays = rc.pays.map(x => row(x.m === 'exchange' ? 'Return' : `${methodName(x.m)}${x.mach ? ' ' + machineOf(x.m, x.mach).name : ''}`, fmt(x.amount))).join('');
+  /* The middle as on the client's 7Soft struk (28 Oct 2026). */
+  const lines = rc.lines.map(l => `<div class="sk-item"><span class="sk-name">${l.item.sku} ${esc(l.item.name.toUpperCase())}</span>${row(`&nbsp;&nbsp;${l.qty} x ${fmt(l.item.price)}`, fmt(gross(l)))}</div>`).join('');
+  const pays = rc.pays.map(x => row(x.m === 'exchange' ? 'Return' : `${x.m === 'cash' ? 'Tunai' : x.mach ? machineName(x.m, x.mach) : methodName(x.m)}`, fmt(x.amount))).join('');
   return `<div class="sk-paper" aria-label="Struk ${rcNo(rc.no)}">
-    <p class="sk-c sk-b">${STORE.company}</p><p class="sk-c">${STORE.code} ${STORE.name}</p>
+    <div class="th-logo"><b>CENTRAL</b><i>Fashion Store</i></div><p class="sk-c">Jl. Diponegoro 456</p><p class="sk-c">Kalierang - Bumiayu</p>
     <hr>
-    ${row('No.', `<b>${rcNo(rc.no)}</b>`)}${row(day(rc.at), hm(rc.at))}${row('Kasir', esc(rc.cashier.split(' ')[0]) + ' · ' + STORE.till)}
+    ${row(`No Nota&nbsp;&nbsp;<b>${rcNo(rc.no)}</b>`, `${p2(rc.at.getDate())}/${p2(rc.at.getMonth() + 1)}/${String(rc.at.getFullYear()).slice(2)}`)}${row(`Kasir&nbsp;&nbsp;${esc(rc.cashier.split(' ')[0].toUpperCase())} ${STORE.code}`, hm(rc.at))}
     <hr>
     ${lines}
     <hr>
-    ${row(`Subtotal · ${rc.pcs} pcs`, fmt(sub))}
-    ${rc.promos.map(x => row(esc(x.name), fmt(-x.cut))).join('')}${other > 0 ? row('Diskon', fmt(-other)) : ''}
-    ${row('Total', fmt(rc.total), 'sk-b')}
+    ${row(`Total Item: ${rc.pcs} Pcs`, fmt(sub))}
+    ${rc.promos.map(x => row(esc(x.name), fmt(-x.cut))).join('')}${row('Total Disc', fmt(other > 0 ? other : 0))}
+    ${row('Setelah Disc.', fmt(rc.total), 'sk-b')}
     ${pays}
-    ${row('Kembalian', fmt(rc.change))}
+    ${row('Kembali', fmt(rc.change))}
     ${rc.member ? `<hr>${row(esc(rc.member.name), `+${fmt(rc.points || 0)} poin`)}` : ''}
     <hr>
-    <p class="sk-c">Terima kasih</p>
+    <p class="sk-c">Terima Kasih atas Kunjungan Anda</p><p class="sk-c">Kritik dan saran hubungi</p><p class="sk-c">TLP. (0289) 4403336</p>
   </div>`;
 }
 function changeView() {
@@ -3082,7 +3372,7 @@ function changeView() {
       ${c.change ? `<p class="chg-k">Kembalian</p><p class="chg-v num">${rp(c.change)}</p><div class="chg-notes">${notes}</div>` : `<p class="chg-k">Uang pas</p>`}
       ${c.points ? `<p class="chg-sub ok" style="margin-top:4px">+${fmt(c.points)} poin · ${esc(c.member.name)}</p>` : ''}
       <p class="chg-print${c.printed ? ' ok' : ''}">${c.printed ? I.check + `Struk ${rcNo(c.no)} tercetak` : '<span class="spin"></span>Mencetak struk…'}</p>
-      <div class="chg-acts">${c.member ? '' : '<button class="ds-btn ds-btn--tint" data-act="chgMember">Tambah member <span class="kbd">F5</span></button>'}<button class="ds-btn ds-btn--primary chg-go" data-act="newSale"><span>Transaksi baru</span><span class="kbd">Enter</span></button></div>
+      <div class="chg-acts">${c.member ? '' : '<button class="ds-btn ds-btn--tint" data-act="chgMember">Tambah member <span class="kbd">⇧5</span></button>'}<button class="ds-btn ds-btn--primary chg-go" data-act="newSale"><span>Transaksi baru</span><span class="kbd">Enter</span></button></div>
       </div>
     </div></div>`;
 }
@@ -3144,11 +3434,10 @@ function floatDeposit() {
 }
 function faddGo() {
   const v = Number(S.fadd.v || 0); if (!v) return;
-  askSupervisor('Tambah modal kasir', () => {
-    S.shift.float += v;
-    S.slip = { kind: 'modal', no: 'TM-' + String(3 + (S.slipSeq = (S.slipSeq || 0) + 1)).padStart(4, '0'), at: now(), amount: v, from: SUPERVISOR.name, to: S.who.name };
-    S.fadd = null; S.ov = 'slip'; S.anim.ov = true;
-  }, `${rp(v)} · diserahkan ${SUPERVISOR.name}`);
+  /* No finger (Hari, 28 Oct 2026): the signed slip is the proof. */
+  S.shift.float += v;
+  S.slip = { kind: 'modal', no: 'TM-' + String(3 + (S.slipSeq = (S.slipSeq || 0) + 1)).padStart(4, '0'), at: now(), amount: v, from: SUPERVISOR.name, to: S.who.name };
+  S.fadd = null; S.ov = 'slip'; S.anim.ov = true;
 }
 /* The printed slip: tambah modal or setoran sementara, signed by both. */
 function slipPaperView() {
@@ -3160,10 +3449,69 @@ function slipPaperView() {
   return `<div class="veil${A('ov', 'm-veil')}" data-act="stop">
     <div class="dlg${A('ov', 'm-pop')}" role="dialog" aria-label="${title}">
       <div class="dlg-head"><p class="ttl">${title}</p></div>
-      <div class="dlg-body"><div class="slip"><h4>${head}</h4>
-        No. ${p.no}<br>${STORE.code} ${STORE.name} · ${STORE.till}<br>${dayTime(p.at)}<br>Kasir: ${esc(modal ? p.to : p.from)}<br>${p.amount ? `Jumlah: ${rp(p.amount)}` : 'Jumlah: ____________'}
-        <div class="sg"><div>Diserahkan oleh<br><br><span>${esc(p.from)}</span></div><div>Diterima oleh<br><br><span>${esc(p.to)}</span></div></div></div></div>
+      <div class="dlg-body"><div class="th-wrap"><div class="thermal">
+        <div class="th-logo"><b>CENTRAL</b><i>Fashion Store</i></div><p class="th-c">Jl. Diponegoro 456</p><p class="th-c">Kalierang - Bumiayu</p>
+        <hr class="th-hr"><p class="th-c th-b">${head}</p><hr class="th-hr">
+        ${thRow('No.', p.no)}${thRow('Tanggal', `${p2(p.at.getDate())}/${p2(p.at.getMonth() + 1)}/${String(p.at.getFullYear()).slice(2)} ${hm(p.at)}`)}${thRow('Kasir', `${esc((modal ? p.to : p.from).toUpperCase())} ${STORE.code}`)}
+        <hr class="th-hr">${thRow('Jumlah', p.amount ? fmt(p.amount) : '____________', ' th-b')}
+        <div class="th-sign"><div>Diserahkan<span class="line"></span>${esc(p.from)}</div><div>Diterima<span class="line"></span>${esc(p.to)}</div></div>
+      </div></div></div>
       <div class="dlg-foot"><button class="ds-btn ds-btn--tint" data-act="slipPrint">Cetak lagi</button><span class="sp"></span><button class="ds-btn ds-btn--primary" data-act="slipDone"><span>Selesai</span><span class="kbd">Enter</span></button></div>
+    </div></div>`;
+}
+/* ── Tunda (client, 25 Oct 2026) ──────────────────────────────────────────────
+   At most 30 minutes; the last five count down; past them the till is locked
+   until the Kepala toko or an Admin opens it and settles that sale. Only the
+   cashier who held a sale continues it. Closing one is the Kepala toko's, and
+   only after ticking every piece that goes back. */
+const HOLD_MAX = 30 * 60e3, HOLD_WARN = 25 * 60e3;
+const holdAge = h => now() - h.at;
+const holdLeft = h => Math.max(0, HOLD_MAX - holdAge(h));
+const mmss = ms => `${Math.floor(ms / 60e3)}:${p2(Math.floor(ms / 1e3) % 60)}`;
+function holdLeftTag(h) {
+  if (holdAge(h) >= HOLD_MAX) return '<span class="ds-status ds-status--bad">Lewat 30 menit</span>';
+  if (holdAge(h) < HOLD_WARN) return '<span class="ds-status ds-status--warn">Tunda</span>';
+  return `<span class="hold-left" data-hold-left="${h.id}">Sisa ${mmss(holdLeft(h))}</span>`;
+}
+function heldPicked() { return S.pickHeld ? S.held.find(h => h.id === S.pickHeld) || null : null; }
+function heldFrozen() { return S.held.find(h => holdAge(h) >= HOLD_MAX && S.freezeOpen !== h.id) || null; }
+function heldPreview(h) {
+  const chk = S.heldChk && S.heldChk.id === h.id ? S.heldChk : null;
+  const mine = h.by === S.who.name || S.freezeOpen === h.id;
+  const left = holdAge(h) >= HOLD_WARN
+    ? `<p class="hold-warn${holdAge(h) >= HOLD_MAX ? ' over' : ''}">${holdAge(h) >= HOLD_MAX ? 'Lewat 30 menit · selesaikan tunda ini dulu' : `Sisa <b data-hold-left="${h.id}">${mmss(holdLeft(h))}</b> · lewat 30 menit kasir terkunci`}</p>` : '';
+  const lines = h.lines.map((l, i) => {
+    const on = chk && chk.ticks.includes(i);
+    return chk
+      ? `<button class="hp-line chk${on ? ' on' : ''}" data-act="heldTick" data-arg="${i}"><span class="hp-box">${on ? I.check || '✓' : ''}</span><span class="hp-nm">${esc(l.item.name)}</span><span class="hp-q num">${l.qty} pcs</span><span class="hp-v num">${fmt(gross(l))}</span></button>`
+      : `<div class="hp-line"><span class="hp-nm">${esc(l.item.name)}</span><span class="hp-q num">${l.qty} × ${fmt(l.item.price)}</span><span class="hp-v num">${fmt(gross(l))}</span></div>`;
+  }).join('');
+  const all = chk && chk.ticks.length === h.lines.length;
+  return `<div class="t-prev hp">
+    <div class="hp-body" data-scroll="held-${h.id}">
+      <div class="hp-head"><b>Ditunda ${hm(h.at)}</b><span class="mute">${esc(h.by)} · ${pcsText(h.pcs)} · ${rp(h.total)}</span></div>
+      ${left}
+      ${chk ? '<p class="hp-sup">Supervisor wajib cek barang sebagai berikut, barang yang akan dibatalkan:</p>' : ''}
+      <div class="hp-lines">${lines}</div>
+      ${!chk && !mine ? `<p class="hp-note">Hanya ${esc(h.by)} yang bisa melanjutkan tunda ini.</p>` : ''}
+    </div>
+    <div class="t-prev-foot">${chk
+      ? `<button class="ds-btn ds-btn--tint" data-act="heldCloseCancel">Kembali</button><span class="sp"></span><button class="ds-btn ds-btn--destructive" data-act="heldCloseGo"${all ? '' : ' disabled'}>Tutup tunda · ${chk.ticks.length}/${h.lines.length}</button>`
+      : `<button class="ds-btn ds-btn--destructive" data-act="heldCloseStart">Tutup tunda</button><span class="sp"></span><button class="ds-btn ds-btn--primary" data-act="heldResume"${mine ? '' : ' disabled'}>Lanjutkan</button>`}</div>
+  </div>`;
+}
+/* The till locked by a Tunda past 30 minutes: only the Kepala toko or an Admin
+   opens it, and then that sale is settled before anything else. */
+function freezeView() {
+  const h = heldFrozen();
+  return `<div class="veil m-veil" data-act="stop">
+    <div class="dlg freeze-dlg m-pop" role="dialog" aria-label="Kasir terkunci">
+      <div class="dlg-body" style="align-items:center;text-align:center;gap:10px;padding:32px 28px">
+        <span class="fz-seal">${I.lock || '🔒'}</span>
+        <p class="ttl">Kasir terkunci</p>
+        <p class="mute">Tunda ${esc(h.by)} · ${hm(h.at)} · ${rp(h.total)} sudah lewat 30 menit.<br>Kepala toko atau admin membuka kasir dan menyelesaikan tunda ini dulu.</p>
+        <button class="ds-btn ds-btn--primary" style="height:44px;margin-top:8px" data-act="freezeOpen" data-arg="${h.id}">Buka · kepala toko</button>
+      </div>
     </div></div>`;
 }
 function heldView() {
@@ -3294,17 +3642,13 @@ function registerMember() {
   memberChosen(m);
 }
 
-/* F1 Void and F8 Return start from a receipt: scanned off the paper, or one of
-   the last three. A number has to be whole to be found; nothing is browsed. */
+/* F8 Return starts from a receipt scanned off the paper or typed.
+   A number has to be whole to be found; nothing is browsed. */
 /* Penjualan / Return / Void on every receipt list (client, 23 Oct 2026). */
-const kindPill = r => { const k = r.status === 'voided' ? 'Void' : r.status === 'returned' || r.method === 'Tukar' ? 'Return' : 'Penjualan'; return `<span class="kind-pill kind-${k.toLowerCase()}">${k}</span>`; };
-function pickMatch() {
-  const q = S.pk.q.trim().toUpperCase().replace(/\s/g, '');
-  if (!q) return null;
-  return S.receipts.find(r => rcNo(r.no) === q || String(r.no).padStart(5, '0') === q) || null;
-}
+const kindPill = r => { const k = r.status === 'voided' ? 'Void' : r.back || r.status === 'returned' || r.method === 'Tukar' ? 'Return' : 'Penjualan'; return `<span class="kind-pill kind-${k.toLowerCase()}">${k}</span>`; };
+function pickMatch() { return rcFind(S.pk.q); }
 function pickView() {
-  const k = S.pk, hit = pickMatch(), last = S.receipts.slice(0, 3);
+  const k = S.pk, hit = pickMatch();
   const ex = k.mode === 'return';
   const title = ex ? 'Return' : 'Void struk';
   const r = ex && k.no ? S.receipts.find(x => x.no === k.no) : null;
@@ -3327,15 +3671,14 @@ function pickView() {
     </div></div>`;
   }
   const row = (r, on) => `<button class="mem${on ? ' on' : ''}" data-act="pkGo" data-arg="${r.no}"><span class="av">${I.receipt}</span><span><b>${rcNo(r.no)} ${kindPill(r)}</b><span>${hm(r.at)} · ${r.method} · ${pcsText(r.pcs)}</span></span><span class="pts">${rp(r.total)}</span></button>`;
-  const list = hit ? row(hit, true) : last.map((r, i) => row(r, i === k.i)).join('');
+  const list = hit ? row(hit, true) : '';
   return `<div class="veil${A('ov', 'm-veil')}" data-act="veil">
     <div class="dlg wide${A('ov', 'm-pop')}" data-act="stop" role="dialog" aria-label="${title}">
       <div class="dlg-head"><p class="ttl">${title}</p>${shut}</div>
       <div class="dlg-body">
         <input class="field" data-bind="pkq" data-focus="pkq" value="${esc(k.q)}" placeholder="Scan atau ketik nomor struk" autocomplete="off" spellcheck="false" aria-label="Nomor struk">
         ${k.q.trim() && !hit ? `<p class="mem-err">Struk ${esc(k.q.trim())} tidak ada</p>` : ''}
-        <p class="mem-k">${hit ? 'Struk' : 'Struk terakhir'}</p>
-        <div class="mem-list">${list || '<p class="t-none" style="padding:8px 12px">Belum ada struk</p>'}</div>
+        ${hit ? `<p class="mem-k">Struk</p><div class="mem-list">${list}</div>` : ''}
       </div>
     </div></div>`;
 }
@@ -3343,16 +3686,12 @@ function pickView() {
    confirmation (owner, 23 Oct 2026: "simplify, jangan step"). Tukar: the
    receipt opens its items in the same dialog. */
 function pkGo(no) {
-  const k = S.pk, last = S.receipts.slice(0, 3);
-  const r = no ? S.receipts.find(x => x.no === Number(no)) : (pickMatch() || last[k.i]);
+  const k = S.pk;
+  const r = no ? S.receipts.find(x => x.no === Number(no)) : pickMatch();
   if (!r) return;
   if (r.status !== 'paid') { toast('info', `${rcNo(r.no)} sudah ${r.status === 'voided' ? 'di-void' : 'ditukar'}`); return; }
   S.pick = r.no;
-  if (k.mode === 'void') { S.pk = null; S.ov = null; voidAsk(r); return; }
   Object.assign(k, { no: r.no, q: '', back: r.lines.map(() => 0) }); S.focus = 'exq';
-}
-function voidAsk(r) {
-  askSupervisor(`Void ${rcNo(r.no)} · ${rp(r.total)}`, () => { r.status = 'voided'; toast('ok', 'Struk di-void', `${rcNo(r.no)} · barang kembali ke stok`); });
 }
 const exValue = () => { const k = S.pk, r = S.receipts.find(x => x.no === k.no); return r ? r.lines.reduce((a, l, i) => a + Math.round(net(l) / l.qty) * (k.back[i] || 0), 0) : 0; };
 /* A tag scanned back: the first line that still has a piece to give back. */
@@ -3390,7 +3729,15 @@ const xNew = () => S.xc.add.reduce((a, x) => a + x.item.price * x.qty, 0);
 const xNewPcs = () => S.xc.add.reduce((a, x) => a + x.qty, 0);
 function openExchange(ptr) {
   if (S.lines.length) { toast('info', 'Selesaikan atau tunda transaksi dulu', `${totals().pcs} pcs di keranjang`); return; }
-  S.xc = { no: null, i: 0, back: [], add: [], q: '', sel: 0 }; S.ov = 'exchange'; S.anim.ov = ptr; S.pop = null; S.focus = 'xq';
+  S.xc = { no: null, i: 0, back: [], add: [], q: '', sel: 0 };
+  if (S.ver === 'D') { openList('receipts', 'return'); return; }
+  S.ov = 'exchange'; S.anim.ov = ptr; S.pop = null; S.focus = 'xq';
+}
+/* The item list becomes Tunda, Struk (for Void or Return too) or Cek. */
+function openList(kind, purpose = null) {
+  Object.assign(S, { list: kind, listFor: purpose, rcView: null, pickHeld: null, heldChk: null, freezeOpen: null, find: '', pop: null });
+  if (kind === 'check' && !S.price) S.price = { q: '', i: 0 };
+  S.focus = kind === 'receipts' ? 'find' : kind === 'check' ? 'pq' : 'scan';
 }
 /* A sold tag read back: the next piece of the receipt not yet picked. */
 function xReadSold() {
@@ -3421,55 +3768,91 @@ function xScan() {
   if (it) xReadStock(it); else toast('info', `SKU ${q} tidak ada`);
 }
 function xPick(no) {
-  const x = S.xc, last = S.receipts.slice(0, 3);
+  const x = S.xc;
   const q = x.q.trim().toUpperCase();
-  const r = no ? S.receipts.find(y => y.no === Number(no)) : (q ? S.receipts.find(y => rcNo(y.no) === q || String(y.no).padStart(5, '0') === q) : last[x.i]);
+  const r = no ? S.receipts.find(y => y.no === Number(no)) : rcFind(x.q);
   if (!r) { if (q) toast('info', `Struk ${q} tidak ada`); return; }
+  if (r.back) { toast('info', `${rcNo(r.no)} struk return`, 'Barang hasil tukar tidak bisa ditukar lagi'); return; }
   if (r.status !== 'paid') { toast('info', `${rcNo(r.no)} sudah ${r.status === 'voided' ? 'di-void' : 'di-return'}`); return; }
   startReturn(r);
 }
-/* Return (client, 23 Oct 2026): the same till screen, marked Return. The pieces
-   that came back are read by RFID and listed with a minus; each replacement is
-   scanned under the piece it replaces, so the screen shows which for which. */
+/* Return (Hari, 30 Oct 2026): two steps on the same till screen. 1 · the
+   receipt's own list, the cashier types how many of each came back — nothing
+   is scanned for them. 2 · only the replacements are scanned or typed. */
 function startReturn(r) {
-  resetSale(); S.xc = null; S.ov = null; S.pop = null;
-  S.ret = { no: r.no, back: [], sel: 0 };
+  resetSale(); S.xc = null; S.ov = null; S.pop = null; S.list = null; S.listFor = null; S.rcView = null;
+  S.ret = { no: r.no, back: [], qty: {}, sel: 0, step: 'back' };
   S.exchange = { no: r.no, value: 0 };
-  S.focus = 'scan';
-  toast('ok', `Return · ${rcNo(r.no)}`, 'Scan tag barang yang dikembalikan, lalu barang penggantinya');
+  const first = retLines()[0];
+  if (first) { S.focus = 'rq' + first.li; S.selectAll = true; }
 }
-function retReadSold() {
-  const R = S.ret, rc = R && S.receipts.find(x => x.no === R.no); if (!rc) return;
-  const used = i => R.back.filter(b => b.li === i).length;
-  const i = rc.lines.findIndex((l, j) => used(j) < l.qty && l.item.kind !== 'bag');
-  if (i < 0) { toast('info', `Semua barang struk ${rcNo(R.no)} sudah dikembalikan`); return; }
-  const l = rc.lines[i];
-  R.back.push({ li: i, item: l.item, unit: Math.round(net(l) / l.qty) }); R.sel = R.back.length - 1;
+/* The receipt's lines a customer can bring back: every one but the bags. */
+function retLines() {
+  const R = S.ret, rc = R && S.receipts.find(x => x.no === R.no);
+  return rc ? rc.lines.map((l, li) => ({ l, li, unit: Math.round(net(l) / l.qty) })).filter(x => x.l.item.kind !== 'bag') : [];
+}
+/* One count per receipt line; R.back keeps one entry per piece, so the
+   Return looks and retFinish read it as before. */
+function retSetQty(li, n) {
+  const R = S.ret, x = R && retLines().find(y => y.li === li); if (!x) return;
+  R.qty[li] = Math.max(0, Math.min(x.l.qty, n || 0));
+  R.back = retLines().flatMap(y => Array.from({ length: R.qty[y.li] || 0 }, () => ({ li: y.li, item: y.l.item, unit: y.unit })));
+  S.lines.forEach(l => { delete l.repFor; });
   S.exchange.value = R.back.reduce((a, b) => a + b.unit, 0);
 }
+function retReadSold() {
+  const R = S.ret; if (!R) return;
+  const x = retLines().find(y => (R.qty[y.li] || 0) < y.l.qty);
+  if (!x) { toast('info', `Semua barang struk ${rcNo(R.no)} sudah dikembalikan`); return; }
+  retSetQty(x.li, (R.qty[x.li] || 0) + 1);
+}
+function retNext() {
+  const R = S.ret; if (!R || !R.back.length) return;
+  R.step = 'new'; S.scanErr = null; S.focus = 'scan';
+}
+/* Step 1 keys: ↑↓ row, + − or a number for its count, Enter to the replacements. */
+function retQtyKey(k, inField) {
+  const R = S.ret, rows = retLines(), x = rows[R.sel];
+  const to = n => { retSetQty(x.li, n); S.focus = 'rq' + x.li; S.selectAll = true; return true; };
+  if ((k === 'ArrowDown' || k === 'ArrowUp') && rows.length) {
+    R.sel = Math.max(0, Math.min(rows.length - 1, R.sel + (k === 'ArrowDown' ? 1 : -1)));
+    S.focus = 'rq' + rows[R.sel].li; S.selectAll = true; S.scrollSel = true; return true;
+  }
+  if (!x) return false;
+  if (k === '+' || k === '=') return to((R.qty[x.li] || 0) + 1);
+  if (k === '-' || k === '−') return to((R.qty[x.li] || 0) - 1);
+  if (!inField && /^\d$/.test(k)) return to(Number(k));
+  if (k === 'Enter') { retNext(); return true; }
+  return false;
+}
+function retBack() {
+  const R = S.ret; if (!R) return;
+  R.step = 'back'; S.scanErr = null; S.scanVal = '';
+  const x = retLines()[R.sel] || retLines()[0];
+  if (x) { S.focus = 'rq' + x.li; S.selectAll = true; }
+}
 function retFinish() {
-  const R = S.ret; if (!R || !R.back.length || !S.lines.length) return;
+  const R = S.ret; if (!R || !R.back.length) return;
   const t = totals();
-  askSupervisor(`Return ${R.back.length} → ${t.pcs} barang · ${rcNo(R.no)}`, () => {
-    const rc = S.receipts.find(x => x.no === R.no); if (rc) rc.status = 'returned';
+  askSupervisor(`Return ${R.back.length} → ${S.lines.length ? `${t.pcs} barang` : 'tanpa pengganti'} · ${rcNo(R.no)}`, () => {
+    const rc = S.receipts.find(x => x.no === R.no); if (rc) { rc.status = 'returned'; rc.returnedIn = S.seq; }
+    /* No replacement (Hari, 28 Oct 2026): the pieces go back to stock and the
+       return is done — no sale, nothing to pay. */
+    if (!S.lines.length) { const n = R.back.length, value = S.exchange.value; completeSale({ ...t, grand: 0, pcs: 0, promos: [], points: 0 }, [{ m: 'exchange', amount: 0 }], 0, 0, true); toast('ok', 'Return selesai', `${n} barang kembali ke stok · sisa ${rp(value)} hangus`); return; }
     if (t.grand > 0) { openPay(false, true); return; }
     const back = S.exchange.value, add = S.lines.reduce((a, l) => a + net(l), 0);
     completeSale({ ...t, grand: add }, [{ m: 'exchange', amount: add }], 0, 0, false);
-    if (back > add) toast('ok', 'Return selesai · tanpa bayar', `Selisih ${rp(back - add)} tidak dikembalikan`);
+    if (back > add) toast('ok', 'Return selesai · tanpa bayar', `Sisa ${rp(back - add)} hangus · tidak diuangkan`);
   });
 }
 function exchangeView() {
   const x = S.xc;
   if (!x.no) {
-    const last = S.receipts.slice(0, 3);
-    const rows = last.map((r, i) => `<button class="mem${i === x.i ? ' on' : ''}" data-act="xPick" data-arg="${r.no}"><span class="kbd">${i + 1}</span><span><b>${rcNo(r.no)} ${kindPill(r)}</b><span>${hm(r.at)} · ${r.method} · ${pcsText(r.pcs)}</span></span><span class="pts">${rp(r.total)}</span></button>`).join('');
     return `<div class="veil${A('ov', 'm-veil')}" data-act="veil">
     <div class="dlg xch${A('ov', 'm-pop')}" data-act="stop" role="dialog" aria-label="Return">
       <div class="dlg-head"><p class="ttl">Return</p><button class="x-btn" data-act="closeOv" aria-label="Tutup">${I.x17}</button></div>
       <div class="dlg-body">
         <label class="t-scanbox xc-scan">${I.search}<input data-bind="xq" data-focus="xq" value="${esc(x.q)}" placeholder="Scan atau ketik nomor struk" autocomplete="off" spellcheck="false" aria-label="Nomor struk"></label>
-        <p class="mem-k">Struk terakhir</p>
-        <div class="mem-list">${rows || '<p class="t-none" style="padding:8px 12px">Belum ada struk</p>'}</div>
       </div>
     </div></div>`;
   }
@@ -3565,7 +3948,7 @@ function receiptView() {
     : `<div class="ds-kpi"><p class="ds-kpi-label">Total</p><p class="ds-kpi-value">${rp(r.total)}</p></div><div class="ds-kpi"><p class="ds-kpi-label">Dibayar dengan</p><p class="ds-kpi-value">${r.method}</p></div><div class="ds-kpi"><p class="ds-kpi-label">Kembalian</p><p class="ds-kpi-value">${rp(r.change)}</p></div>`;
   const foot = ret
     ? `<span class="sp"></span><button class="ds-btn ds-btn--ghost" data-act="retCancel">Batal</button><button class="ds-btn ds-btn--primary" data-act="retDo"${refund ? '' : ' disabled'}>Retur ${refund ? rp(refund) : 'barang'}</button>`
-    : `<button class="ds-btn ds-btn--ghost" data-act="printCopy">${I.printer}Cetak salinan</button><span class="sp"></span>${r.status === 'paid' ? '<button class="ds-btn ds-btn--tint-bad" data-act="void">Void struk</button><button class="ds-btn ds-btn--tint" data-act="exFrom">Return</button>' : ''}`;
+    : `<span class="sp"></span>${r.status === 'paid' ? '<button class="ds-btn ds-btn--tint" data-act="exFrom">Return</button>' : ''}`;
   return `<div class="veil side${A('ov', 'm-veil')}" data-act="veil">
     <aside class="sheet${A('ov', 'm-sheet')}" data-act="stop" role="dialog" aria-label="Struk ${rcNo(r.no)}">
       <div class="sheet-head"><div><div class="row"><p class="ttl">${rcNo(r.no)}</p>${pill}</div><p class="cap">${dayTime(r.at)} · ${r.cashier}</p></div><button class="x-btn" data-act="closeOv" aria-label="Tutup">${I.x17}</button></div>
@@ -3615,7 +3998,7 @@ function popView() {
     const t = totals();
     const rows = t.promos.map(r => {
       const hint = r.applied ? (r.more ? `<span class="pr-hint">Tambah ${r.more} lagi, gratis</span>` : '') : `<span class="pr-hint">${esc(r.reason || 'Belum')}</span>`;
-      const act = !r.applied && r.reason === 'Khusus member' ? `<button class="ds-btn ds-btn--tint ds-btn--sm" data-act="member">Cari member <span class="kbd">F5</span></button>`
+      const act = !r.applied && r.reason === 'Khusus member' ? `<button class="ds-btn ds-btn--tint ds-btn--sm" data-act="member">Cari member <span class="kbd">⇧5</span></button>`
         : r.code ? `<button class="t-x" data-act="couponRemove" data-arg="${r.code}" aria-label="Hapus kupon ${r.code}">${I.x}</button>` : '';
       return `<div class="pr-row${r.applied ? '' : ' idle'}"><span class="pr-t"><b>${esc(r.p.name)}${r.code ? ` <span class="mute">· ${r.code}</span>` : ''}</b><span>${esc(r.p.what)}</span>${hint}</span><span class="pr-v">${r.applied ? `−${fmt(r.cut)}` : ''}${act}</span></div>`;
     }).join('');
@@ -3643,7 +4026,7 @@ function popView() {
   if (p.kind === 'person') {
     return `<div class="pop pop-menu right${anim}" data-act="stop" role="menu" aria-label="${S.who.name}">
       <button class="menu-row" data-act="lock">${I.lock}<span>Kunci</span></button>
-      <button class="menu-row" data-act="tool" data-arg="close">${I.banknote}<span>Tutup kasir</span><span class="kbd">F4</span></button>
+      <button class="menu-row" data-act="tool" data-arg="close">${I.banknote}<span>Tutup kasir</span><span class="kbd">⇧4</span></button>
     </div>`;
   }
   return '';
@@ -3664,12 +4047,6 @@ function placePop() {
 function dlg2View() {
   const d = S.dlg2;
   const anim = A('dlg2', 'm-pop');
-  if (d.kind === 'void') {
-    const r = S.receipts.find(x => x.no === d.no);
-    return `<div class="veil top${A('dlg2', 'm-veil')}" data-act="dlgNo"><div class="cfm${anim}" data-act="stop" role="alertdialog">
-      <p class="ttl">Void ${rcNo(r.no)}?</p><p>${rp(r.total)} dikembalikan tunai ke pelanggan.</p>
-      <div class="cfm-act"><button class="ds-btn ds-btn--ghost" data-act="dlgNo">Jangan</button><button class="ds-btn ds-btn--destructive" data-act="dlgYes">Void struk</button></div></div></div>`;
-  }
   if (d.kind === 'closeCash') {
     return `<div class="veil top${A('dlg2', 'm-veil')}" data-act="dlgNo"><div class="cfm${anim}" data-act="stop" role="alertdialog">
       <p class="ttl">Tutup kasir dengan ${rp(countTotal())}?</p><p>${floatLeft() ? `Modal ${rp(floatLeft())} belum disetor · ` : ''}${STORE.till} tertutup sampai shift berikutnya dibuka.</p>
@@ -3699,65 +4076,64 @@ function toast(tone, title, desc) {
 
 /* ── Close cash and the paper ─────────────────────────────────────────── */
 const countTotal = () => S.count.pcs.reduce((a, n, i) => a + n * DENOMS[i].v, 0);
-const COUNT_ORDER = DENOMS.map((_, i) => i).reverse();   // Rp 100 first
-/* Before the count, as on the 23 Oct video: every EDC that took a Debit or
-   Credit payment this shift is settled on the machine, and its slip total is
-   typed here. QRIS settles by itself. */
+const COUNT_ORDER = DENOMS.map((_, i) => i);   // Rp 100.000 first (Hari, 28 Oct 2026)
+/* Before the count, each EDC machine that took a payment this shift: the
+   cashier types how many slips it printed (client, 25 Oct 2026: "harus tulis
+   berapa struk masing-masing mesin"). A count, not a settlement total (owner,
+   23 Oct: "edc settlement jg hapus saat closing"). QRIS runs on the bank's
+   machine, so its slips count there. */
 function edcBook() {
   return MACHINES.card.map(m => {
-    const pays = S.receipts.filter(r => r.status !== 'voided').flatMap(r => r.pays).filter(p => (p.m === 'debit' || p.m === 'credit') && p.mach === m.id);
-    return { id: m.id, name: `EDC ${m.name}`, n: pays.length, till: pays.reduce((a, p) => a + p.amount, 0), slip: 0 };
+    const q = MACHINES.qris.find(x => x.name === m.name);
+    const pays = S.receipts.filter(r => r.status !== 'voided' && r.at >= S.shift.opened).flatMap(r => r.pays)
+      .filter(p => ((p.m === 'debit' || p.m === 'credit') && p.mach === m.id) || (p.m === 'qris' && q && p.mach === q.id));
+    return { id: m.id, name: `EDC ${m.name}`, n: pays.length, cnt: 0 };
   }).filter(m => m.n);
 }
-/* No EDC settlement at closing (owner, 23 Oct 2026: "edc settlement jg hapus
-   saat closing"): Tutup kasir is the cash count alone. */
 function newCount() {
-  return { stage: 'cash', edc: [], efocus: 0, efresh: true, pcs: DENOMS.map(() => 0), focus: COUNT_ORDER[0], fresh: true, note: '' };
+  const edc = edcBook();
+  return { stage: edc.length ? 'edc' : 'cash', edc, efocus: 0, efresh: true, pcs: DENOMS.map(() => 0), focus: COUNT_ORDER[0], fresh: true, note: '' };
 }
-const slipsTotal = () => S.count.edc.reduce((a, m) => a + m.slip, 0);
-const slipsDone = () => S.count.edc.every(m => m.slip > 0);
+const slipsTotal = () => S.count.edc.reduce((a, m) => a + m.cnt, 0);
+const slipsDone = () => S.count.edc.every(m => m.cnt > 0);
 function moneyChip(d) {
   if (d.kind === 'coin') return `<span class="coin-chip" style="--c:${d.c}"></span>`;
   if (d.kind === 'both') return `<span class="duo"><span class="note-chip" style="--c:${d.c}"></span><span class="coin-chip" style="--c:${d.c2}"></span></span>`;
   return `<span class="note-chip" style="--c:${d.c}"></span>`;
 }
+/* One form (Hari, 28 Oct 2026): the slips of each EDC machine on top, then the
+   notes and coins from the largest down; `stage` only says which part holds
+   the cursor. Tutup kasir waits for every machine's slips and some money. */
 function closeView() {
   const c = S.count, edc = c.stage === 'edc', two = c.edc.length > 0;
-  const cap = `${two ? `Langkah ${edc ? 1 : 2} dari 2 · ` : ''}${STORE.till} · ${STORE.code} ${STORE.name}`;
-  const back = edc || !two ? 'Kembali ke penjualan' : 'Kembali ke EDC';
-  let list, sum, go;
-  if (edc) {
-    list = `<p class="cc-sec ed"><span></span><b>Mesin</b><span class="r">Total slip</span><span></span></p>` + c.edc.map((m, i) => {
-      /* Blind, as in 7Soft: the cashier never sees what the till expects. */
-      const on = i === c.efocus;
-      return `<div class="cc-row ed${on ? ' on' : ''}" data-act="eRow" data-arg="${i}">
+  const cap = `${STORE.till} · ${STORE.code} ${STORE.name}`;
+  const back = 'Kembali ke penjualan';
+  const tot = countTotal(), ready = tot > 0 && slipsDone();
+  /* Blind, as in 7Soft: the cashier never sees how many slips the till expects. */
+  const slips = two ? `<p class="cc-sec ed"><span></span><b>Struk EDC</b><span class="r">Jumlah struk</span><span></span></p>` + c.edc.map((m, i) => {
+    const on = edc && i === c.efocus;
+    return `<div class="cc-row ed${on ? ' on' : ''}" data-act="eRow" data-arg="${i}">
         <span class="cc-chip"><span class="edc-chip">${I.card}</span></span>
-        <span class="cc-mach"><b>${m.name}</b><span>${pl(m.n, 'transaksi')}</span></span>
-        <span class="cc-slip${m.slip ? '' : ' zero'}"><span class="cur">Rp</span>${fmt(m.slip)}</span>
+        <span class="cc-mach"><b>${m.name}</b></span>
+        <span class="cc-slip cnt${m.cnt ? '' : ' zero'}">${fmt(m.cnt)}<span class="cur u">struk</span></span>
         <span></span>
       </div>`;
-    }).join('');
-    const done = c.edc.filter(m => m.slip > 0).length;
-    sum = `<div class="cc-sum"><p class="k">Settlement</p><p class="v">${rp(slipsTotal())}</p><p class="s">${done} dari ${pl(c.edc.length, 'mesin')}</p></div>`;
-    go = `<button class="ds-btn ds-btn--primary cc-go" data-act="eNext"${slipsDone() ? '' : ' disabled'}><span>Hitung uang</span><span class="kbd">F4</span></button>`;
-  } else {
-    const tot = countTotal();
-    /* Counted from the smallest coin up, as 7Soft's Closing Cashier and the cashier on the video do. */
-    list = `<p class="cc-sec"><span></span><b>Uang kertas &amp; koin</b><span class="c">Jumlah</span><span class="r">Nilai</span></p>` + COUNT_ORDER.map(i => {
-      const d = DENOMS[i], n = c.pcs[i], on = i === c.focus;
-      return `<div class="cc-row${on ? ' on' : ''}" data-act="cRow" data-arg="${i}">
+  }).join('') : '';
+  const money = `<p class="cc-sec"><span></span><b>Uang kertas &amp; koin</b><span class="c">Jumlah</span><span class="r">Nilai</span></p>` + COUNT_ORDER.map(i => {
+    const d = DENOMS[i], n = c.pcs[i], on = !edc && i === c.focus;
+    return `<div class="cc-row${on ? ' on' : ''}" data-act="cRow" data-arg="${i}">
         <span class="cc-chip">${moneyChip(d)}</span>
         <span class="cc-val">${rp(d.v)}</span>
         <span class="cc-step"><button data-act="cStep" data-arg="${i}:-1" aria-label="Kurangi satu ${fmt(d.v)}">−</button><span class="cc-pcs${n ? '' : ' zero'}">${n}</span><button data-act="cStep" data-arg="${i}:1" aria-label="Tambah satu ${fmt(d.v)}">+</button></span>
         <span class="cc-amt${n ? '' : ' zero'}">${n ? rp(n * d.v) : '—'}</span>
       </div>`;
-    }).join('');
-    sum = `<div class="cc-sum"><p class="k">Terhitung</p><p class="v">${rp(tot)}</p></div>`;
-    go = `<button class="ds-btn ds-btn--primary cc-go" data-act="cClose"${tot > 0 ? '' : ' disabled'}><span>Tutup kasir</span><span class="kbd">F4</span></button>`;
-  }
+  }).join('');
+  const list = slips + money;
+  const sum = `${two ? `<div class="cc-sum"><p class="k">Struk EDC</p><p class="v">${fmt(slipsTotal())}</p><p class="s">${c.edc.filter(m => m.cnt > 0).length} dari ${pl(c.edc.length, 'mesin')}</p></div>` : ''}<div class="cc-sum"><p class="k">Terhitung</p><p class="v">${rp(tot)}</p></div>`;
+  const go = `<button class="ds-btn ds-btn--primary cc-go" data-act="cClose"${ready ? '' : ' disabled'}><span>Tutup kasir</span><span class="kbd">⇧4</span></button>`;
   return `<div class="close"><div class="cc${A('close', 'm-pop')}">
     <div class="cc-l">
-      <div class="cc-head"><div><p class="ttl">${edc ? 'Settlement EDC' : 'Tutup kasir'}</p><p class="cap">${cap}</p></div><button class="ds-btn ds-btn--ghost" data-act="cBack">${back} <span class="kbd">Esc</span></button></div>
+      <div class="cc-head"><div><p class="ttl">Tutup kasir</p><p class="cap">${cap}</p></div><button class="ds-btn ds-btn--ghost" data-act="cBack">${back} <span class="kbd">Esc</span></button></div>
       <div class="cc-list${A('stage', 'm-swap')}" data-scroll="cc">${list}</div>
     </div>
     <div class="cc-r">
@@ -3766,17 +4142,16 @@ function closeView() {
         <div><dt>Shift dibuka</dt><dd>${dayTime(S.shift.opened)}</dd></div>${S.shift.by ? `<div><dt>Dibukakan</dt><dd>${S.shift.by.name}</dd></div>` : ''}
         <div><dt>Saldo awal</dt><dd>${rp(S.shift.float)}</dd></div>
         ${S.shift.deposited ? `<div><dt>Modal disetor</dt><dd>${rp(S.shift.deposited)} · ${SUPERVISOR.name.split(' ')[0]}</dd></div>` : ''}
-        ${two && !edc ? `<div><dt>Settlement EDC</dt><dd>${rp(slipsTotal())}</dd></div>` : ''}
-      </dl>
+              </dl>
       ${sum}
-      <div class="cc-acts"><button class="ds-btn ds-btn--tint" data-act="floatDeposit"${floatLeft() ? '' : ' disabled'}>Setor modal <span class="kbd">F2</span></button><button class="ds-btn ds-btn--tint" data-act="floatAdd">Tambah modal <span class="kbd">F3</span></button></div>
+      <div class="cc-acts"><button class="ds-btn ds-btn--tint" data-act="floatDeposit"${floatLeft() ? '' : ' disabled'}>Setor modal <span class="kbd">⇧2</span></button><button class="ds-btn ds-btn--tint" data-act="floatAdd">Tambah modal <span class="kbd">⇧3</span></button></div>
       ${go}
     </div>
   </div></div>`;
 }
 function paperView() {
   const p = S.paper;
-  const rows = DENOMS.map((d, i) => `<tr><td>Rp ${fmt(d.v)}</td><td>${p.pcs[i] || '-'}</td><td>${p.pcs[i] ? fmt(p.pcs[i] * d.v) : '-'}</td></tr>`).join('');
+  const rows = DENOMS.map((d, i) => p.pcs[i] ? thRow(`${fmt(d.v).padStart(7)} x ${String(p.pcs[i]).padStart(3)}`, fmt(p.pcs[i] * d.v)) : '').join('');
   const total = p.pcs.reduce((a, n, i) => a + n * DENOMS[i].v, 0);
   const name = p.who.toUpperCase();
   return `<div class="paperwrap">
@@ -3786,27 +4161,19 @@ function paperView() {
       <button class="ds-btn ${p.done ? 'ds-btn--ghost' : 'ds-btn--primary'}" data-act="pPrint"><span style="display:flex;align-items:center;gap:8px">${I.printer}${p.prints ? 'Cetak lagi' : 'Cetak'}</span>${p.done ? '' : '<span class="kbd">Enter</span>'}</button>
       <button class="ds-btn ${p.done ? 'ds-btn--primary' : 'ds-btn--ghost'}" data-act="pDone"><span>Selesai</span>${p.done ? '<span class="kbd">Enter</span>' : ''}</button>
     </div>
-    <article class="paper${A('paper', 'm-pop')}" aria-label="Tutup kasir">
-      <p class="pp-co">${STORE.company}</p>
-      <p class="pp-date">${p.printed.getDate()} ${BULAN[p.printed.getMonth()]} ${p.printed.getFullYear()}</p>
-      <p class="pp-title">TUTUP KASIR</p>
-      <dl class="pp-facts">
-        <dt>Nama Kasir</dt><dd>${name}</dd>
-        <dt>Kasir</dt><dd>${STORE.till.toUpperCase()} · ${STORE.code} ${STORE.name.toUpperCase()}</dd>
-        <dt>Tanggal</dt><dd>${xlTime(p.opened)}</dd>
-        <dt>Saldo Kas Awal</dt><dd>Rp. ${fmt(p.float)}</dd>
-        ${p.floatBack ? `<dt>Modal Disetor</dt><dd>Rp. ${fmt(p.deposited)} · ${esc(p.floatBack.toUpperCase())}</dd>` : ''}
-        <dt>Tanggal Cetak</dt><dd>${xlTime(p.printed)}</dd>
-        <dt>Status</dt><dd>TUTUP</dd>
-        <dt>Cetak Ke</dt><dd>${Math.max(1, p.prints)}</dd>
-      </dl>
-      <p class="pp-sec">Rincian Uang</p>
-      <table class="pp-t"><tbody>${rows}</tbody></table>
-      <p class="pp-tot"><span>${fmt(total)}</span></p>
-      ${p.note ? `<p style="margin-top:10px">Catatan: ${esc(p.note)}</p>` : ''}
-      <div class="pp-sign"><div><span>Kasir</span><span class="line"></span><span>${p.who}</span></div><div><span>${p.floatBack ? 'Penerima' : 'Admin'}</span><span class="line"></span><span>${p.floatBack ? esc(p.floatBack) : '&nbsp;'}</span></div></div>
-      <p class="pp-by">dicetak oleh : ${name}</p>
-    </article>
+    <div class="th-wrap${A('paper', 'm-pop')}"><article class="thermal" aria-label="Tutup kasir">
+      <div class="th-logo"><b>CENTRAL</b><i>Fashion Store</i></div><p class="th-c">Jl. Diponegoro 456</p><p class="th-c">Kalierang - Bumiayu</p>
+      <hr class="th-hr"><p class="th-c th-b">TUTUP KASIR</p><hr class="th-hr">
+      ${thRow('Kasir', `${name} ${STORE.code}`)}${thRow('Dibuka', xlTime(p.opened).slice(0, 17))}${thRow('Ditutup', xlTime(p.printed).slice(0, 17))}${thRow('Saldo Awal', fmt(p.float))}
+      ${p.edc.map(m => thRow(`Struk ${esc(m.name.replace('EDC ', '').toUpperCase())}`, fmt(m.cnt))).join('')}
+      ${p.floatBack ? thRow('Modal Disetor', fmt(p.deposited)) + thRow('Penerima', esc(p.floatBack.toUpperCase())) : ''}
+      <hr class="th-hr"><p class="th-b">RINCIAN UANG</p>
+      ${rows}
+      <hr class="th-hr">${thRow('TOTAL', fmt(total), ' th-b')}
+      ${p.note ? `<hr class="th-hr"><p>Catatan: ${esc(p.note)}</p>` : ''}
+      <div class="th-sign"><div>Kasir<span class="line"></span>${esc(p.who)}</div><div>${p.floatBack ? 'Penerima' : 'Admin'}<span class="line"></span>${p.floatBack ? esc(p.floatBack) : '&nbsp;'}</div></div>
+    </article></div>
+    <div class="cuts">${DENOMS.map((d, i) => p.pcs[i] ? `<div class="th-wrap"><div class="thermal"><p class="lab-k">${esc(p.who)}</p><p class="lab-k">${p2(p.printed.getDate())}/${p2(p.printed.getMonth() + 1)}/${p.printed.getFullYear()} ${hm(p.printed)}</p><p class="lab-v sm">${p.pcs[i]} x ${fmt(d.v)}</p><p class="lab-v">Rp ${fmt(p.pcs[i] * d.v)}</p></div></div>` : '').join('')}</div>
   </div>`;
 }
 
@@ -3882,7 +4249,7 @@ function openShift() {
 
 function addItem(it, src) {
   const same = l => l.item.sku === it.sku && !l.disc && !l.note && (l.src ? !!src && l.src.k === src.k && src.k !== 'unknown' && l.src.from === src.from : !src);
-  if (S.ret && it.kind !== 'bag') { if (!S.ret.back.length) { S.scanErr = 'Scan dulu barang yang dikembalikan'; return; } S.lines.push({ item: it, qty: 1, disc: null, ...(S.ret.sel >= 0 ? { repFor: S.ret.sel } : {}) }); S.sel = S.lines.length - 1; S.last = it; S.scanErr = null; S.scrollSel = true; return; }
+  if (S.ret && it.kind !== 'bag') { if (S.ret.step === 'back') return; S.lines.push({ item: it, qty: 1, disc: null }); S.sel = S.lines.length - 1; S.last = it; S.scanErr = null; S.scrollSel = true; return; }
   const i = S.lines.findIndex(same);
   if (i >= 0) { S.lines[i].qty += 1; S.sel = i; }
   else { S.lines.push({ item: it, qty: 1, disc: null, ...(src ? { src } : {}) }); S.sel = S.lines.length - 1; }
@@ -3892,6 +4259,7 @@ function scan(raw) {
   let code = raw.trim(), many = 1;
   S.scanVal = '';
   if (!code) return;
+  if (S.list) { S.list = null; S.listFor = null; S.rcView = null; S.pickHeld = null; S.heldChk = null; S.freezeOpen = null; S.find = ''; }
   const qm = code.match(/^(\d{1,3})\s*[*xX]\s*(\S+)$/) || code.match(/^(\S+?)\s*[*xX]\s*(\d{1,3})$/);
   if (qm) { const a = /^\d{1,3}$/.test(qm[1]) && qm[2].length > 3; many = Number(a ? qm[1] : qm[2]); code = a ? qm[2] : qm[1]; }
   const digits = code.replace(/[·.\s-]/g, '');
@@ -3946,7 +4314,11 @@ function holdSale() {
 function resumeHeld(id) {
   const h = S.held.find(x => x.id === id);
   if (!h) return;
+  if (h.by !== S.who.name && S.freezeOpen !== h.id) { toast('info', `Hanya ${h.by} yang bisa melanjutkan`, 'Tunda tidak bisa dilanjutkan kasir lain'); return; }
+  if (S.freezeOpen === h.id) S.freezeOpen = null;
+  S.pickHeld = null; S.heldChk = null;
   S.held = S.held.filter(x => x !== h);
+  S.list = null; S.focus = 'scan';
   if (S.lines.length) holdSale();
   S.lines = h.lines;   /* what was typed into Bayar is not kept */ S.member = h.member; S.saleDisc = h.saleDisc; S.redeem = h.redeem || null; S.coupons = h.coupons || []; S.last = h.last; S.sel = S.lines.length - 1; S.scrollSel = true;
   toast('ok', 'Transaksi dilanjutkan', `${h.pcs} pcs · ${rp(h.total)}`);
@@ -3992,7 +4364,9 @@ function doPay() {
 }
 /* The sale is paid: its receipt, then the change (or a toast when there is none). */
 function completeSale(t, pays, change, cashIn, quiet) {
-  const rc = { no: S.seq, at: now(), lines: S.lines.map(l => ({ ...l })), total: t.grand, pcs: t.pcs, pays, cashier: S.who.name, member: S.member, status: 'paid', method: pays.length > 1 ? 'Split' : pays[0].m === 'exchange' ? 'Tukar' : methodName(pays[0].m), promos: [...t.promos.filter(r => r.applied).map(r => ({ name: r.p.name, cut: r.cut, code: r.code })), ...(t.rd ? [{ name: 'Tukar poin', cut: t.rd, code: S.redeem.code }] : []), ...(t.xc ? [{ name: 'Return', cut: t.xc, code: rcNo(S.exchange.no) }] : [])], points: t.points, change };
+  /* A return keeps what came back and the struk it came from (Hari, 28 Oct 2026). */
+  const back = S.ret ? S.ret.back.map(b => ({ ...b })) : null, from = S.ret ? S.ret.no : S.exchange ? S.exchange.no : null;
+  const rc = { no: S.seq, at: now(), lines: S.lines.map(l => ({ ...l })), back, from, total: t.grand, pcs: t.pcs, pays, cashier: S.who.name, member: S.member, status: 'paid', method: pays.length > 1 ? 'Split' : pays[0].m === 'exchange' ? 'Tukar' : methodName(pays[0].m), promos: [...t.promos.filter(r => r.applied).map(r => ({ name: r.p.name, cut: r.cut, code: r.code })), ...(t.rd ? [{ name: 'Tukar poin', cut: t.rd, code: S.redeem.code }] : []), ...(t.xc ? [{ name: 'Return', cut: t.xc, code: rcNo(S.exchange.no) }] : [])], points: t.points, change };
   S.receipts.unshift(rc); S.lastPaid = rc.no; S.pick = rc.no; S.seq += 1;
   resetSale();
   S.pay = null; S.pay2 = null;
@@ -4030,23 +4404,22 @@ function openClose(ptr) {
 }
 function slipInput(k) {
   const c = S.count, m = c.edc[c.efocus];
-  if (/^\d$/.test(k)) { const n = Number((c.efresh ? '' : String(m.slip)) + k); if (String(n).length > 11) return; m.slip = n; c.efresh = false; }
-  else if (k === 'del') { m.slip = Math.floor(m.slip / 10); c.efresh = false; }
+  if (/^\d$/.test(k)) { const n = Number((c.efresh ? '' : String(m.cnt)) + k); if (n > 9999) return; m.cnt = n; c.efresh = false; }
+  else if (k === 'del') { m.cnt = Math.floor(m.cnt / 10); c.efresh = false; }
 }
-function slipMove(dir) { const c = S.count; c.efocus = Math.max(0, Math.min(c.edc.length - 1, c.efocus + dir)); c.efresh = true; }
-function settleEdc(ptr) {
-  if (!slipsDone()) { S.count.efocus = Math.max(0, S.count.edc.findIndex(m => !m.slip)); S.count.efresh = true; return; }
-  S.count.stage = 'cash'; S.anim.stage = ptr;
-}
+function slipMove(dir) { const c = S.count; if (dir > 0 && c.efocus === c.edc.length - 1) { toMoney(); return; } c.efocus = Math.max(0, Math.min(c.edc.length - 1, c.efocus + dir)); c.efresh = true; }
+/* The cursor leaves the last machine for the largest note, and back. */
+function toMoney() { const c = S.count; c.stage = 'cash'; c.focus = COUNT_ORDER[0]; c.fresh = true; }
+function toSlips() { const c = S.count; c.stage = 'edc'; c.efocus = c.edc.length - 1; c.efresh = true; }
 function countInput(k) {
   const c = S.count, i = c.focus;
   if (/^\d$/.test(k)) { const s = (c.fresh ? '' : String(c.pcs[i])) + k; const n = Number(s); if (n > 9999) return; c.pcs[i] = n; c.fresh = false; }
   else if (k === 'del') { c.pcs[i] = Math.floor(c.pcs[i] / 10); c.fresh = false; }
 }
-function countMove(dir) { const c = S.count, at = COUNT_ORDER.indexOf(c.focus); c.focus = COUNT_ORDER[Math.max(0, Math.min(COUNT_ORDER.length - 1, at + dir))]; c.fresh = true; }
+function countMove(dir) { const c = S.count, at = COUNT_ORDER.indexOf(c.focus); if (dir < 0 && at === 0 && c.edc.length) { toSlips(); return; } c.focus = COUNT_ORDER[Math.max(0, Math.min(COUNT_ORDER.length - 1, at + dir))]; c.fresh = true; }
 function finishClose() {
   const c = S.count;
-  S.paper = { pcs: c.pcs.slice(), note: c.note.trim(), who: S.who.name, opened: S.shift.opened, float: S.shift.float, floatBack: S.shift.deposited ? SUPERVISOR.name : null, deposited: S.shift.deposited || 0, printed: now(), done: false, prints: 0 };
+  S.paper = { pcs: c.pcs.slice(), edc: c.edc.map(m => ({ name: m.name, cnt: m.cnt })), note: c.note.trim(), who: S.who.name, opened: S.shift.opened, float: S.shift.float, floatBack: S.shift.deposited ? SUPERVISOR.name : null, deposited: S.shift.deposited || 0, printed: now(), done: false, prints: 0 };
   S.screen = 'paper'; S.anim.paper = true;
 }
 function signOutAfterClose() {
@@ -4076,7 +4449,7 @@ function act(name, arg, ptr, el) {
     case 'openShift': openShift(); return;
     /* till */
     case 'tool': case 'key7': keyAct(arg, ptr); break;
-    case 'pay': if (S.ret) retFinish(); else openPay(ptr); break;
+    case 'pay': if (S.ret) { if (S.ret.step === 'back') retNext(); else retFinish(); } else openPay(ptr); break;
     case 'member': keyAct('member', ptr); break;
     case 'memberPick': memberChosen(MEMBERS[Number(arg)]); break;
     case 'memNew': memNew(); break;
@@ -4094,9 +4467,8 @@ function act(name, arg, ptr, el) {
     case 'row': S.sel = Number(arg); break;
     case 'noteAt': S.sel = Number(arg); S.focus = 'lnote'; break;
     case 'rm': askRemove(Number(arg)); break;
-    case 'pick': S.pick = Number(arg); break;
-    case 'rcOpen': S.pick = Number(arg); S.sheet = { no: Number(arg), mode: 'view', ret: [] }; S.ov = 'receipt'; S.anim.ov = ptr; break;
-    case 'rcPrint': S.pick = Number(arg); toast('ok', 'Mencetak salinan', rcNo(S.pick)); break;
+    case 'pick': S.pick = Number(arg); S.pickHeld = null; S.heldChk = null; break;
+    case 'rcOpen': if (S.ver === 'D') { if (S.list !== 'receipts') openList('receipts'); S.rcView = Number(arg); S.ov = null; S.sheet = null; S.focus = 'scan'; break; } S.pick = Number(arg); S.sheet = { no: Number(arg), mode: 'view', ret: [] }; S.ov = 'receipt'; S.anim.ov = ptr; break;
     case 'held': resumeHeld(arg); if (S.ov === 'receipts') { S.ov = null; S.focus = 'scan'; } break;
     /* pay */
     case 'prow': focusRow(arg); break;
@@ -4146,11 +4518,13 @@ function act(name, arg, ptr, el) {
     case 'qtyUp': keyAct('new', false); break;
     case 'retSel': if (S.ret) S.ret.sel = S.ret.sel === Number(arg) ? -1 : Number(arg); break;
     case 'retNew': if (S.ret) S.ret.sel = -1; break;
-    case 'retDrop': {
-      const R = S.ret, j = Number(arg); if (!R || !R.back[j]) break;
-      R.back.splice(j, 1);
-      S.lines.forEach(l => { if (l.repFor === j) delete l.repFor; else if (l.repFor > j) l.repFor -= 1; });
-      R.sel = Math.min(R.sel, R.back.length - 1); S.exchange.value = R.back.reduce((a, b) => a + b.unit, 0);
+    case 'retStep': if (arg === 'back') retBack(); else retNext(); break;
+    case 'retNext': retNext(); break;
+    case 'rqSel': { const x = S.ret && retLines()[Number(arg)]; if (x) { S.ret.sel = Number(arg); S.focus = 'rq' + x.li; S.selectAll = true; } break; }
+    case 'rqQty': {
+      const [li, d] = String(arg).split(':').map(Number), R = S.ret; if (!R) break;
+      retSetQty(li, (R.qty[li] || 0) + d);
+      R.sel = Math.max(0, retLines().findIndex(x => x.li === li)); S.focus = 'rq' + li; S.selectAll = true;
       break;
     }
     case 'repCycle': { const l = S.lines[Number(arg)]; if (S.ret && l) { const n = l.repFor === undefined ? 0 : l.repFor + 1; if (n < S.ret.back.length) l.repFor = n; else delete l.repFor; } break; }
@@ -4170,6 +4544,37 @@ function act(name, arg, ptr, el) {
       break;
     }
     case 'benClear': { const l = S.pay2.lines[Number(arg)]; if (l) { l.ben = null; l.amount = 0; pay2Focus(Number(arg)); } break; }
+    case 'heldPick': if (S.freezeOpen && S.freezeOpen !== arg) S.freezeOpen = null; S.pickHeld = S.pickHeld === arg && !S.freezeOpen && S.ver !== 'D' ? null : arg; S.heldChk = null; break;
+    /* One step back: the ticks, the held sale, then the sale. Left unresolved,
+       a late Tunda locks the till again. */
+    case 'rcReturn': {
+      const r = S.receipts.find(x => x.no === S.rcView);
+      if (!r || r.status !== 'paid' || r.back) break;
+      if (S.lines.length) { toast('info', 'Selesaikan atau tunda transaksi dulu', `${totals().pcs} pcs di keranjang`); break; }
+      startReturn(r); break;
+    }
+    case 'listBack':
+      if (S.list === 'receipts' && S.rcView) { S.rcView = null; S.focus = 'find'; }
+      else if (S.list === 'held' && S.heldChk) S.heldChk = null;
+      else if (S.list === 'held' && S.pickHeld) { S.pickHeld = null; S.freezeOpen = null; }
+      else { S.list = null; S.listFor = null; S.rcView = null; S.pickHeld = null; S.heldChk = null; S.freezeOpen = null; S.find = ''; S.focus = 'scan'; }
+      break;
+    case 'heldResume': { const h = heldPicked(); if (h) resumeHeld(h.id); break; }
+    case 'heldCloseStart': { const h = heldPicked(); if (h) S.heldChk = { id: h.id, ticks: [] }; break; }
+    case 'heldTick': { const c = S.heldChk, i = Number(arg); if (c) c.ticks = c.ticks.includes(i) ? c.ticks.filter(x => x !== i) : c.ticks.concat(i); break; }
+    case 'heldCloseCancel': S.heldChk = null; break;
+    case 'heldCloseGo': {
+      const h = heldPicked();
+      if (!h || !S.heldChk || S.heldChk.ticks.length !== h.lines.length) break;
+      askSupervisor('Tutup tunda', () => {
+        S.held = S.held.filter(x => x !== h); S.pickHeld = null; S.heldChk = null;
+        if (S.freezeOpen === h.id) S.freezeOpen = null;
+        if (!S.held.length) { S.list = null; S.focus = 'scan'; }
+        toast('ok', 'Tunda ditutup', `${pcsText(h.pcs)} · ${rp(h.total)} · barang dicek supervisor`);
+      }, `${hm(h.at)} · ${h.by} · ${pcsText(h.pcs)} · ${rp(h.total)}`);
+      break;
+    }
+    case 'freezeOpen': askSupervisor('Buka kasir terkunci', () => { S.freezeOpen = arg; S.pickHeld = arg; S.heldChk = null; S.list = 'held'; toast('info', 'Selesaikan tunda ini dulu', 'Lanjutkan & bayar, atau tutup tunda'); }, 'Tunda lewat 30 menit'); break;
     case 'heldGo': { const h = S.held[Number(arg)]; if (h) { S.ov = null; S.hl = null; resumeHeld(h.id); } break; }
     case 'heldDel': { const h = S.held[Number(arg)]; if (h) askSupervisor('Hapus transaksi tunda', () => { S.held = S.held.filter(x => x !== h); if (!S.held.length) { S.ov = null; S.hl = null; } toast('ok', 'Transaksi tunda dihapus', `${h.pcs} pcs · ${rp(h.total)}`); }, `${hm(h.at)} · ${h.by} · ${rp(h.total)}`); break; }
     case 'payHold': S.ov = null; S.pay = null; S.pay2 = null; holdSale(); S.focus = 'scan'; break;
@@ -4181,8 +4586,6 @@ function act(name, arg, ptr, el) {
     case 'dClear': if (S.disc.target === 'line' && S.lines[S.sel]) S.lines[S.sel].disc = null; else S.saleDisc = null; S.ov = null; S.disc = null; break;
     case 'cancelSale': resetSale(); S.ov = null; toast('info', 'Transaksi dibatalkan'); break;
     /* receipt */
-    case 'printCopy': toast('ok', 'Mencetak salinan', rcNo(S.sheet.no)); break;
-    case 'void': { const r = S.receipts.find(x => x.no === S.sheet.no); S.ov = null; S.sheet = null; voidAsk(r); break; }
     case 'exFrom': S.sheet = null; S.ov = null; openExchange(ptr); break;
     case 'xQty': { const [i, d] = arg.split(':').map(Number); xQty(i, d); S.focus = 'xq'; break; }
     case 'xTap': { S.xc.sel = Number(arg); S.focus = 'xbq'; break; }
@@ -4208,14 +4611,15 @@ function act(name, arg, ptr, el) {
     case 'supFinger': supFinger(arg); return;
     case 'supCancel': S.sup = null; break;
     /* close cash */
-    case 'cRow': if (S.count.focus !== Number(arg)) { S.count.focus = Number(arg); S.count.fresh = true; } break;
+    case 'cRow': S.count.stage = 'cash'; if (S.count.focus !== Number(arg)) { S.count.focus = Number(arg); S.count.fresh = true; } break;
     case 'cStep': { const [i, d] = arg.split(':').map(Number); S.count.pcs[i] = Math.max(0, Math.min(9999, S.count.pcs[i] + d)); S.count.focus = i; S.count.fresh = true; break; }
     case 'cBack':
-      if (S.count.stage === 'cash' && S.count.edc.length) { S.count.stage = 'edc'; S.anim.stage = ptr; break; }
       S.screen = 'sell'; S.count = null; S.focus = 'scan'; break;
-    case 'eRow': if (S.count.efocus !== Number(arg)) { S.count.efocus = Number(arg); S.count.efresh = true; } break;
-    case 'eNext': settleEdc(ptr); break;
-    case 'cClose': if (countTotal() > 0) { S.dlg2 = { kind: 'closeCash' }; S.anim.dlg2 = ptr; } break;
+    case 'eRow': S.count.stage = 'edc'; if (S.count.efocus !== Number(arg)) { S.count.efocus = Number(arg); S.count.efresh = true; } break;
+    case 'cClose':
+      /* A machine without its slips: the cursor goes there first. */
+      if (!slipsDone()) { S.count.stage = 'edc'; S.count.efocus = Math.max(0, S.count.edc.findIndex(m => !m.cnt)); S.count.efresh = true; break; }
+      if (countTotal() > 0) { S.dlg2 = { kind: 'closeCash' }; S.anim.dlg2 = ptr; } break;
     case 'floatDeposit': floatDeposit(); break;
     case 'pPrint': S.paper.done = true; S.paper.prints += 1; S.paper.printed = now(); toast('ok', 'Mencetak kertas tutup kasir', `Cetak ke ${S.paper.prints} · ${rp(S.paper.pcs.reduce((a, n, i) => a + n * DENOMS[i].v, 0))}`); break;
     case 'pDone': signOutAfterClose(); break;
@@ -4229,17 +4633,18 @@ function keyAct(id, ptr) {
   if (S.screen !== 'sell') return;
   const none = !S.lines.length;
   switch (id) {
+    /* Every receipt, an old one too, found by number or total (client, 25 Oct 2026). */
+    case 'receipts': if (S.ver !== 'D') { S.focus = 'find'; break; } if (S.list === 'receipts' && !S.listFor) { act('listBack'); break; } openList('receipts'); break;
     /* 7Soft's Baru: a fresh sale; the one on the counter is held, never lost. */
     case 'new': if (S.lines[S.sel] && S.lines[S.sel].item.kind !== 'bag') { S.lines[S.sel].qty += 1; } break;
     case 'minus': if (S.lines[S.sel]) { if (S.lines[S.sel].qty > 1) S.lines[S.sel].qty -= 1; else askRemove(S.sel); } break;
-    case 'void': S.pk = { mode: id, q: '', i: 0, no: null, back: [] }; S.ov = 'pick'; S.anim.ov = ptr; S.pop = null; break;
     case 'return': openExchange(ptr); break;
-    case 'check': S.price = { q: '', i: 0 }; S.ov = 'price'; S.anim.ov = ptr; S.pop = null; break;
+    case 'check': S.price = { q: '', i: 0 }; if (S.ver === 'D') { if (S.list === 'check') act('listBack'); else openList('check'); break; } S.ov = 'price'; S.anim.ov = ptr; S.pop = null; break;
     case 'drawer': S.pop = S.pop && S.pop.kind === 'drawer' ? null : { key: 'drawer', kind: 'drawer' }; S.anim.pop = ptr; break;
     case 'close':
       if (!none) { toast('info', 'Selesaikan atau tunda transaksi dulu', `${totals().pcs} pcs di keranjang`); break; }
       /* No closing with a held sale (client): pay it, or a supervisor deletes it. */
-      if (S.held.length) { toast('info', `Masih ada ${pl(S.held.length, 'transaksi tunda')}`, 'Bayar atau hapus (supervisor) dulu'); S.hl = { i: 0 }; S.ov = 'held'; break; }
+      if (S.held.length) { toast('info', `Masih ada ${pl(S.held.length, 'transaksi tunda')}`, 'Lanjutkan atau tutup tunda (supervisor) dulu'); S.pickHeld = S.held[0].id; break; }
       openClose(ptr); break;
     /* Member is asked at Bayar; F5 registers a member, with or without a struk
        (Hari, 24 Oct 2026). A struk number ties that sale and its points to them. */
@@ -4247,11 +4652,12 @@ function keyAct(id, ptr) {
     case 'register': S.mem = { q: '', i: 0, mode: 'new', phone: '', name: '', err: null, direct: true }; S.ov = 'member'; S.anim.ov = ptr; S.pop = null; break;
     case 'bags': S.pop = S.pop && S.pop.kind === 'bags' ? null : { key: 'bags', kind: 'bags', i: 0 }; S.anim.pop = ptr; break;
     /* Hold parks the sale; on an empty counter it brings back the last one parked. */
-    case 'hold': if (S.ret) { toast('info', 'Return tidak bisa ditunda'); break; } if (S.held.length) { S.hl = { i: 0 }; S.ov = 'held'; S.anim.ov = ptr; S.pop = null; } break;
+    case 'hold': if (S.ret) { toast('info', 'Return tidak bisa ditunda'); break; } if (S.ver === 'D') { if (S.list === 'held') act('listBack'); else if (S.held.length) { S.list = 'held'; S.pickHeld = null; S.heldChk = null; S.pop = null; } break; }
+      if (S.held.length) { S.pickHeld = S.held[0].id; S.heldChk = null; S.pop = null; } break;
     case 'discount': if (!none) { S.pop = S.pop && S.pop.kind === 'promos' ? null : { key: 'promos', kind: 'promos' }; S.anim.pop = ptr; } break;
     case 'cancel': if (S.ret) { resetSale(); toast('info', 'Return dibatalkan'); break; } if (!none) { S.ov = 'cancel'; S.anim.ov = ptr; } break;
     case 'redeem': S.rd = { q: '', found: null, err: null }; S.ov = 'redeem'; S.anim.ov = ptr; S.pop = null; break;
-    case 'pay': if (S.ret) retFinish(); else openPay(ptr); break;
+    case 'pay': if (S.ret) { if (S.ret.step === 'back') retNext(); else retFinish(); } else openPay(ptr); break;
   }
 }
 function applyDiscount() {
@@ -4270,10 +4676,7 @@ function closeOv() {
 function dlgYes() {
   const d = S.dlg2;
   S.dlg2 = null;
-  if (d.kind === 'void') {
-    const r = S.receipts.find(x => x.no === d.no);
-    askSupervisor(`Void ${rcNo(r.no)}`, () => { r.status = 'voided'; toast('ok', 'Struk di-void', `${rcNo(r.no)} · ${rp(r.total)} dikembalikan tunai`); });
-  } else if (d.kind === 'closeCash') finishClose();
+  if (d.kind === 'closeCash') finishClose();
   render();
 }
 
@@ -4320,6 +4723,7 @@ frame.addEventListener('input', e => {
     case 'exq': S.pk.q = v; break;
     case 'xq': S.xc.q = v; S.xc.stage = 'add'; break;
     case 'xbq': S.xc.bq = v; S.xc.stage = 'back'; break;
+    case 'rq': { const li = Number(el.dataset.arg), R = S.ret; if (!R) break; retSetQty(li, Number(v.replace(/\D/g, '').slice(-3) || 0)); R.sel = Math.max(0, retLines().findIndex(x => x.li === li)); S.focus = 'rq' + li; render(); break; }
     case 'rdq': S.rd.q = v; S.rd.found = null; S.rd.err = null; render(); break;
     case 'pq': S.price.q = v; S.price.i = 0; render(); break;
     case 'cnote': S.count.note = v; break;
@@ -4335,15 +4739,22 @@ frame.addEventListener('input', e => {
 const FKEYS = ['F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12'];
 window.addEventListener('keydown', e => {
   if (e.target.closest && e.target.closest('#chrome')) return;
-  /* Ctrl+P reprint the last receipt, Ctrl+L lock, Ctrl+M the menu. */
+  /* Ctrl+L lock, Ctrl+M the menu. A struk is never printed again (Hari, 28 Oct 2026). */
   if (e.ctrlKey && !e.altKey && !e.metaKey && S.screen === 'sell' && !S.ov && !S.sup && !S.dlg2) {
     const c = e.key.toLowerCase();
-    if (c === 'p' && S.receipts[0]) { e.preventDefault(); toast('ok', 'Mencetak salinan', rcNo(S.receipts[0].no)); render(); return; }
     if (c === 'l') { e.preventDefault(); act('lock'); return; }
   }
   if (e.metaKey || e.ctrlKey || e.altKey) return;
-  const k = e.key;
-  if (FKEYS.includes(k)) e.preventDefault();
+  /* No F-keys (Hari, 28 Oct 2026): Shift+2…9 do what F2…F9 did, Shift+0 is F10;
+     Bayar keeps Shift+1…4 for its quick amounts. The F-row itself does nothing. */
+  if (FKEYS.includes(e.key)) { e.preventDefault(); return; }
+  let k = e.key;
+  const sd = e.shiftKey && /^Digit\d$/.test(e.code) ? Number(e.code[5]) : null;
+  if (sd !== null && !(S.ov === 'pay' && sd >= 1 && sd <= 4)) {
+    e.preventDefault();
+    if (sd === 1) return;
+    k = sd === 0 ? 'F10' : 'F' + sd;
+  }
   if (k === '`') { e.preventDefault(); toggleBar(); return; }
   const inField = !!(e.target.matches && e.target.matches('input, textarea'));
   const handled = route(k, e, inField);
@@ -4507,7 +4918,7 @@ function ovKey(k, e, inField) {
       return false;
     case 'receipts': {
       if (k === 'Escape') { if (S.find) { S.find = ''; return true; } closeOv(); return true; }
-      if (k === 'F8') { closeOv(); return true; }
+      if (k === 'F8' || k === 'F10') { closeOv(); return true; }
       if (k === 'Enter') { const r = receiptMatches()[0]; if (r) { S.sheet = { no: r.no, mode: 'view', ret: [] }; S.ov = 'receipt'; } return true; }
       return false;
     }
@@ -4554,8 +4965,10 @@ function screenKey(k, e, inField) {
     const target = e.target.dataset ? e.target.dataset.focus : null;
     /* The F-row, then numpad + and − (7Soft's Baru and Hapus), from anywhere,
        the scan field included. */
-    const FK = { F1: 'void', F2: 'check', F3: 'drawer', F4: 'close', F5: 'member', F6: 'bags', F7: 'cancel', F8: 'return', F9: 'hold', F12: 'pay' };
+    const FK = { F2: 'check', F3: 'drawer', F4: 'close', F5: 'member', F6: 'bags', F7: 'cancel', F8: 'return', F9: 'hold', F10: 'receipts', F12: 'pay' };
     if (FK[k]) { keyAct(FK[k], false); return true; }
+    if (S.ret && S.ret.step === 'back') return retQtyKey(k, inField);
+    if (S.ret && k === 'Escape' && !(target === 'scan' ? e.target.value : S.scanVal).trim()) { retBack(); return true; }
     if (target !== 'lnote' && e.code === 'NumpadAdd') { keyAct('new', false); return true; }
     if (target !== 'lnote' && e.code === 'NumpadSubtract') { keyAct('minus', false); return true; }
     /* The main keyboard's + and − too, while the scan field is empty
@@ -4569,12 +4982,27 @@ function screenKey(k, e, inField) {
       return false;
     }
     if (target === 'find') {
-      if (k === 'Escape') { S.find = ''; S.focus = 'scan'; return true; }
+      if (k === 'Escape' && S.list === 'receipts' && !S.find) { act('listBack'); return false; }
+      if (k === 'Enter' && S.list === 'receipts') { const r = receiptMatches()[0]; if (r) act('rcOpen', String(r.no)); return false; }
+      if (k === 'Escape') { S.find = ''; S.focus = S.list === 'receipts' ? 'find' : 'scan'; return true; }
       if (k === 'Enter') { const r = receiptMatches()[0]; if (r) { S.sheet = { no: r.no, mode: 'view', ret: [] }; S.ov = 'receipt'; } return true; }
       return false;
     }
+    if (target === 'pq') {
+      if (k === 'Escape') { if (S.price.q) { S.price.q = ''; return true; } act('listBack'); return false; }
+      return false;
+    }
+    if (S.list) {
+      const empty = !(target === 'scan' ? e.target.value : S.scanVal).trim();
+      if (k === 'Enter' && empty && S.list === 'receipts' && S.rcView && S.listFor) { act('rcReturn'); return false; }
+      if (k === 'Escape') { act('listBack'); return false; }
+      if (k === 'Enter' && empty && S.list === 'held' && heldPicked()) { act(S.heldChk ? 'heldCloseGo' : 'heldResume'); return false; }
+    }
     if (k === 'Enter' && S.unk && !(target === 'scan' ? e.target.value : S.scanVal).trim()) { openUnknown(S.unk); return true; }
-    if (k === 'Enter') { const v = target === 'scan' ? e.target.value : S.scanVal; scan(v); S.focus = S.ov ? null : 'scan'; return true; }
+    if (k === 'Enter') {
+      const v = target === 'scan' ? e.target.value : S.scanVal;
+      scan(v); S.focus = S.ov ? null : 'scan'; return true;
+    }
     if (k === 'Escape') { S.scanVal = ''; S.scanErr = null; S.unk = null; S.focus = 'scan'; return true; }
     if (k === 'ArrowDown' && S.lines.length) { S.sel = Math.min(S.lines.length - 1, S.sel + 1); S.scrollSel = true; return true; }
     if (k === 'ArrowUp' && S.lines.length) { S.sel = Math.max(0, S.sel - 1); S.scrollSel = true; return true; }
@@ -4583,17 +5011,13 @@ function screenKey(k, e, inField) {
     return false;
   }
   if (S.screen === 'close' && S.count.stage === 'edc') {
-    if (k === 'F4') { settleEdc(false); return true; }
+    if (k === 'F4') { act('cClose', null, false); return false; }
+    if (k === 'F2') { if (floatLeft()) act('floatDeposit', null, false); return false; }
+    if (k === 'F3') { act('floatAdd', null, false); return false; }
     if (k === 'Escape') { act('cBack'); return false; }
     if (/^\d$/.test(k)) { slipInput(k); return true; }
     if (k === 'Backspace') { slipInput('del'); return true; }
-    if (k === 'Enter') {
-      const c = S.count;
-      if (c.efocus < c.edc.length - 1) slipMove(1);
-      else settleEdc(false);
-      return true;
-    }
-    if (k === 'ArrowDown' || (k === 'Tab' && !e.shiftKey)) { slipMove(1); return true; }
+    if (k === 'Enter' || k === 'ArrowDown' || (k === 'Tab' && !e.shiftKey)) { slipMove(1); return true; }
     if (k === 'ArrowUp' || (k === 'Tab' && e.shiftKey)) { slipMove(-1); return true; }
     return false;
   }
@@ -4621,7 +5045,7 @@ function screenKey(k, e, inField) {
 /* ── Prototype chrome ─────────────────────────────────────────────────── */
 const STEPS = [
   ['signin', 'Jari'], ['head', 'Kepala toko'], ['welcome', 'Selamat datang'], ['float', 'Saldo awal'], ['sell', 'Jual'], ['basket', 'Keranjang'],
-  ['promo', 'Promo'], ['untagged', 'Stok minus'], ['held', 'Tunda'], ['pay', 'Bayar tunai'], ['debit', 'Bayar split'], ['change', 'Kembalian'], ['receipt', 'Struk'], ['void', 'Void'], ['returnpick', 'Return'], ['exchange', 'Return + bayar'], ['exchange2', 'Return tanpa bayar'], ['close', 'Tutup kasir'], ['paper', 'Kertas closing'],
+  ['promo', 'Promo'], ['untagged', 'Stok minus'], ['held', 'Tunda'], ['heldclose', 'Tutup tunda'], ['heldfreeze', 'Tunda lewat 30 menit'], ['pay', 'Bayar tunai'], ['debit', 'Bayar split'], ['change', 'Kembalian'], ['receipt', 'Struk'], ['check', 'Cek'], ['returnpick', 'Return'], ['retqty', 'Return jumlah'], ['exchange', 'Return + bayar'], ['exchange2', 'Return tanpa bayar'], ['edc', 'Struk EDC'], ['close', 'Tutup kasir'], ['paper', 'Kertas closing'],
 ];
 /* "full" fills the screen it is on, as the till does on the counter's PC. */
 const SIZES = { full: null, '1366': [1366, 768], '1920': [1920, 1080], '1024': [1024, 768] };
@@ -4645,7 +5069,7 @@ function currentStep() {
 function baseShift() {
   S.who = PEOPLE.andi; S.locked = false;
   S.shift = { opened: new Date(2026, 9, 21, 8, 58, 6), float: 500000 };
-  S.receipts = seedReceipts(); S.seq = 2766; S.lastPaid = null; S.pick = null; S.held = []; S.find = '';
+  S.receipts = seedReceipts(); S.seq = 2766; S.lastPaid = null; S.pick = null; S.held = []; S.find = ''; S.list = null; S.listFor = null; S.rcView = null; S.pickHeld = null; S.heldChk = null; S.freezeOpen = null;
   setClock(10, 59, 11);
 }
 function promoBasket() {
@@ -4661,7 +5085,7 @@ function untaggedBasket() {
   S.sel = S.lines.length - 1; S.scrollSel = true;
 }
 function photoBasket() { S.lines = PHOTO.map(([i, q]) => ({ item: ITEMS[i], qty: q, disc: null })); S.sel = S.lines.length - 1; S.last = ITEMS[6]; S.scrollSel = true; }
-function slipsMatch() { S.count.edc.forEach(m => { m.slip = m.till; }); S.count.efocus = S.count.edc.length - 1; S.count.efresh = true; }
+function slipsMatch() { S.count.edc.forEach(m => { m.cnt = m.n; }); S.count.efocus = S.count.edc.length - 1; S.count.efresh = true; }
 function goStep(id) {
   clearTimers();
   Object.assign(S, { open: null, ov: null, pay: null, chg: null, disc: null, mem: null, sheet: null, price: null, reading: false, coupons: [], pop: null, dlg2: null, sup: null, count: null, paper: null, toasts: [], scanVal: '', scanErr: null, fp: 'idle', fpMsg: null, locked: false, by: null, bi: 0, pw: { user: '', pass: '' }, anim: {} });
@@ -4675,7 +5099,6 @@ function goStep(id) {
     case 'welcome': S.screen = 'door'; S.who = PEOPLE.andi; S.shift = null; S.door = 'welcome'; S.anim.rise = true; setClock(8, 58, 6); render(); later(afterWelcome, 2050); return;
     case 'float': S.screen = 'door'; S.who = PEOPLE.andi; S.shift = null; S.receipts = []; S.door = 'float'; S.float = FLOAT_DEFAULT; S.floatFresh = true; setClock(8, 58, 8); break;
     /* Stills of the key map's dialogs. */
-    case 'kvoid': baseShift(); S.screen = 'sell'; photoBasket(); keyAct('void', false); break;
     case 'kcheck': baseShift(); S.screen = 'sell'; photoBasket(); keyAct('check', false); S.price.q = 'GC-7Y3K-22QD'; break;
     case 'kreg': baseShift(); S.screen = 'sell'; photoBasket(); keyAct('member', false); S.mem.q = '081299887766'; memNew(); S.mem.name = 'Rani Putri'; break;
     case 'kredeem': baseShift(); S.screen = 'sell'; photoBasket(); keyAct('redeem', false); S.rd.q = 'RD-4821'; rdGo(); break;
@@ -4683,7 +5106,9 @@ function goStep(id) {
     case 'basket': baseShift(); S.screen = 'sell'; photoBasket(); break;
     case 'promo': baseShift(); S.screen = 'sell'; promoBasket(); break;
     case 'untagged': baseShift(); S.screen = 'sell'; untaggedBasket(); break;
-    case 'held': baseShift(); S.screen = 'sell'; photoBasket(); holdSale(); promoBasket(); holdSale(); S.held[0].by = 'Rizky Pratama'; S.hl = { i: 0 }; S.ov = 'held'; break;
+    case 'held': baseShift(); S.screen = 'sell'; photoBasket(); holdSale(); promoBasket(); holdSale(); S.held[0].by = 'Rizky Pratama'; S.held[1].at = new Date(now() - 26 * 60e3 - 20e3); S.pickHeld = S.ver === 'D' ? null : S.held[1].id; S.list = 'held'; break;
+    case 'heldclose': baseShift(); S.screen = 'sell'; photoBasket(); holdSale(); S.pickHeld = S.held[0].id; S.heldChk = { id: S.held[0].id, ticks: [0] }; S.list = 'held'; break;
+    case 'heldfreeze': baseShift(); S.screen = 'sell'; promoBasket(); holdSale(); S.held[0].at = new Date(now() - 31 * 60e3); break;
     case 'pay': baseShift(); S.screen = 'sell'; photoBasket(); openPay(false, true); if (!S.pay2) { S.pay.amt.cash = 1150000; S.pay.fresh = false; } break;
     case 'debit': baseShift(); S.screen = 'sell'; photoBasket(); openPay(false, true); if (S.pay2) { S.pay2 = newPay2(S.payLook); pay2Preset(true); break; } S.pay.amt.debit = 1122000; S.pay.focus = 'debit'; S.pay.mach.debit = 'mandiri'; S.pay.onus.debit = 'On us'; S.pay.fresh = true; break;
     case 'change': {
@@ -4691,11 +5116,12 @@ function goStep(id) {
       if (S.chg) S.chg.printed = true;
       break;
     }
-    case 'receipt': baseShift(); S.screen = 'sell'; S.sheet = { no: 2765, mode: 'view', ret: [] }; S.ov = 'receipt'; break;
-    case 'void': baseShift(); S.screen = 'sell'; keyAct('void', false); break;
+    case 'receipt': baseShift(); S.screen = 'sell'; if (S.ver === 'D') { openList('receipts'); S.rcView = 2765; S.focus = 'scan'; break; } S.sheet = { no: 2765, mode: 'view', ret: [] }; S.ov = 'receipt'; break;
+    case 'check': baseShift(); S.screen = 'sell'; keyAct('check', false); break;
     case 'returnpick': baseShift(); S.screen = 'sell'; openExchange(false); break;
-    case 'exchange': baseShift(); S.screen = 'sell'; openExchange(false); xPick(2765); retReadSold(); retReadSold(); S.ret.sel = 0; addItem(ITEMS[4]); S.ret.sel = 1; addItem(ITEMS[0]); break;
-    case 'exchange2': baseShift(); S.screen = 'sell'; openExchange(false); xPick(2765); retReadSold(); addItem(ITEMS[10]); break;
+    case 'retqty': baseShift(); S.screen = 'sell'; openExchange(false); xPick(2765); break;
+    case 'exchange': baseShift(); S.screen = 'sell'; openExchange(false); xPick(2765); retReadSold(); retReadSold(); S.ret.step = 'new'; addItem(ITEMS[4]); addItem(ITEMS[0]); break;
+    case 'exchange2': baseShift(); S.screen = 'sell'; openExchange(false); xPick(2765); retReadSold(); S.ret.step = 'new'; addItem(ITEMS[10]); break;
     case 'edc': baseShift(); setClock(17, 1, 20); S.screen = 'close'; S.count = newCount(); break;
     case 'close': baseShift(); setClock(17, 4, 52); S.screen = 'close'; S.count = newCount(); slipsMatch(); S.count.stage = 'cash'; S.count.pcs = EXCEL_COUNT.slice(); break;
     case 'paper': baseShift(); setClock(17, 5, 40); S.count = newCount(); slipsMatch(); S.count.pcs = EXCEL_COUNT.slice(); finishClose(); break;
@@ -4710,14 +5136,15 @@ function simButtons() {
   if (S.screen === 'door' && S.door === 'headpw') return `${b('Isi BIMA C011', 'hpw')}<span class="c-lbl" style="margin-left:6px">Username kasir ditolak · Enter lanjut · Esc kembali</span>`;
   if (S.screen === 'door' && S.door === 'behalf') return `<span class="c-lbl">↑↓ atau 1–3 pilih nama · Enter buka · Esc batal</span>`;
   if (step === 'welcome' || step === 'float') return `${b('Ulangi selamat datang', 'replay')}<span class="c-lbl" style="margin-left:6px">Angka mengubah saldo awal · Enter buka kasir</span>`;
-  if (S.ret) return `<span class="c-lbl">Reader</span>${b('Barang kembali (tag terjual)', 'xSold')}${b('Barang pengganti / baru', 'xStock')}${b('Scan berikut = barang baru', 'retNewSim')}<span class="c-lbl" style="margin-left:6px">Klik barang kembali = scan berikut jadi penggantinya (klik lagi = barang baru) · ▾ pindahkan · tong sampah = batalkan barang kembali · F7 batalkan return · F12 selesaikan</span>`;
-  if (step === 'sell' || step === 'basket' || step === 'untagged') return `<span class="c-lbl">RFID reader</span>${b('3 barang di reader', 'read3')}${b('Satu tag lagi', 'read1')}${b('Seperti foto', 'fill')}${b('Kupon HEMAT50', 'scanCoupon')}${b('2 Kiddo Polo', 'readKiddo')}${b('Ketik 3*SKU', 'scanPrice')}${b('Tag dari Cikupa', 'readOther')}${b('SKU stok 0', 'typeUnid')}${b('Barang tanpa label', 'scanBad', true)}<span class="c-lbl" style="margin-left:6px">+ baru · − hapus · F1 void · F2 cek · F3 laci · F4 tutup kasir · F5 daftar member · F6 kantong · F8 return · F9 daftar tunda · F12 bayar · Ctrl+P cetak ulang · Ctrl+L kunci</span>`;
-  if ((step === 'pay' || step === 'debit') && S.pay2) return `<span class="c-lbl">${S.payLook === 'E' ? 'Tunai: ketik langsung · EDC: 1–3 mesin, lalu ←→ ganti mesin · D Debit / K Kredit / Q QRIS · Y kartu sama / T bank lain · Backspace batalkan pilihan · + tambah EDC (dari baris mana pun) · . = 000 · F9 tunda · Enter pembayaran diterima' : S.payLook === 'A' ? '↑↓ baris · ←→ mesin · Y/T kartu bank mesin? · + kartu lain · F1–F4 saran · . = 000 · Enter bayar' : S.payLook === 'B' ? '↑↓ baris · Spasi On us/Off us · F1–F4 saran · Enter bayar' : S.payLook === 'C' ? '1–5 cara bayar · 1–3 mesin · ←→ On us/Off us · F1–F4 saran · Enter tambah, lalu bayar · Esc kembali' : 'Angka: mesin → Debit / Kredit / QRIS → kartu sama atau beda → jumlah · F1–F4 saran · Enter tambah, lalu bayar · F9 tunda · Esc kembali'}</span>`;
+  if (S.ret && S.ret.step === 'back') return `${b('Satu barang kembali', 'xSold')}<span class="c-lbl" style="margin-left:6px">klik baris lalu ketik jumlah · ↑↓ baris · + − ubah jumlah · ↵ pilih pengganti · ⇧7 batal return</span>`;
+  if (S.ret) return `<span class="c-lbl">Reader</span>${b('Barang pengganti (tag stok)', 'xStock')}<span class="c-lbl" style="margin-left:6px">pengganti boleh discan atau tidak · Esc ubah jumlah return · ⇧7 batal return · ↵ selesaikan / bayar selisih</span>`;
+  if (step === 'sell' || step === 'basket' || step === 'untagged') return `<span class="c-lbl">RFID reader</span>${b('3 barang di reader', 'read3')}${b('Satu tag lagi', 'read1')}${b('Seperti foto', 'fill')}${b('Kupon HEMAT50', 'scanCoupon')}${b('2 Kiddo Polo', 'readKiddo')}${b('Ketik 3*SKU', 'scanPrice')}${b('Tag dari Cikupa', 'readOther')}${b('SKU stok 0', 'typeUnid')}${b('Barang tanpa label', 'scanBad', true)}<span class="c-lbl" style="margin-left:6px">+ baru · − hapus · ⇧2 cek · ⇧3 laci · ⇧4 tutup kasir · ⇧5 daftar member · ⇧6 kantong · ⇧8 return · ⇧9 daftar tunda · ⇧0 cari struk · ↵ bayar · Ctrl+L kunci</span>`;
+  if ((step === 'pay' || step === 'debit') && S.pay2) return `<span class="c-lbl">${S.payLook === 'E' ? 'Tunai: ketik langsung · EDC: 1–3 mesin, lalu ←→ ganti mesin · D Debit / K Kredit / Q QRIS · Y kartu sama / T bank lain · Backspace batalkan pilihan · + tambah EDC (dari baris mana pun) · . = 000 · ⇧9 tunda · Enter pembayaran diterima' : S.payLook === 'A' ? '↑↓ baris · ←→ mesin · Y/T kartu bank mesin? · + kartu lain · Shift+1–4 saran · . = 000 · Enter bayar' : S.payLook === 'B' ? '↑↓ baris · Spasi On us/Off us · Shift+1–4 saran · Enter bayar' : S.payLook === 'C' ? '1–5 cara bayar · 1–3 mesin · ←→ On us/Off us · Shift+1–4 saran · Enter tambah, lalu bayar · Esc kembali' : 'Angka: mesin → Debit / Kredit / QRIS → kartu sama atau beda → jumlah · Shift+1–4 saran · Enter tambah, lalu bayar · ⇧9 tunda · Esc kembali'}</span>`;
   if (step === 'pay' || step === 'debit') return `<span class="c-lbl">Pelanggan bayar</span>${b('Tunai Rp 1.150.000', 'payCash')}${b('Debit, pas', 'payDebit')}${b('Tunai 500 rb, lalu Debit', 'paySplit')}${b('Gift card GC-7Y3K-22QD', 'payVoucher')}${b('Kartu kelebihan', 'payOver', true)}<span class="c-lbl" style="margin-left:6px">Ketik angka · ↑↓ cara bayar · ← On us · → Off us · Enter bayar · Esc tutup</span>`;
   if (S.ov === 'exchange') return `<span class="c-lbl">Reader</span>${b('Barang kembali (tag terjual)', 'xSold')}${b('Barang pengganti (tag stok)', 'xStock')}<span class="c-lbl" style="margin-left:6px">Enter tukar · Esc batal</span>`;
-  if (step === 'receipt') return `${b('Buka struk yang di-void', 'rcVoided')}${b('Buka struk yang diretur', 'rcReturned')}`;
-  if (step === 'edc') return `<span class="c-lbl">Slip EDC</span>${b('Isi slip', 'eok')}${b('Kosongkan slip', 'eclear')}<span class="c-lbl" style="margin-left:6px">Ketik total slip · Enter berikutnya · F4 hitung uang</span>`;
-  if (step === 'close') return `${b('Isi seperti Excel', 'cxl')}${b('Kosongkan hitungan', 'cclear')}<span class="c-lbl" style="margin-left:6px">Ketik jumlah · Enter baris berikutnya · + − · F4 tutup kasir</span>`;
+  if (step === 'receipt') return `${b('Buka struk yang diretur', 'rcReturned')}`;
+  if (step === 'edc') return `<span class="c-lbl">Struk EDC</span>${b('Isi semua', 'eok')}${b('Kosongkan', 'eclear')}<span class="c-lbl" style="margin-left:6px">Ketik jumlah struk · Enter baris berikutnya, lalu uang dari Rp 100.000 · ⇧4 tutup kasir</span>`;
+  if (step === 'close') return `${b('Isi seperti Excel', 'cxl')}${b('Kosongkan hitungan', 'cclear')}<span class="c-lbl" style="margin-left:6px">Ketik jumlah · Enter baris berikutnya · + − · ⇧4 tutup kasir</span>`;
   return '';
 }
 function sim(name) {
@@ -4758,11 +5185,10 @@ function sim(name) {
     case 'retNewSim': if (S.ret) { S.ret.sel = -1; } break;
     case 'xSold': if (S.ret) { retReadSold(); break; } if (S.xc) { xReadSold(); S.focus = 'xq'; } break;
     case 'xStock': if (S.ret) { addItem(ITEMS[[4, 0, 10, 2][S.lines.length % 4]]); break; } if (S.xc) { xReadStock(); S.focus = 'xq'; } break;
-    case 'rcVoided': S.sheet = { no: 2758, mode: 'view', ret: [] }; S.ov = 'receipt'; break;
     case 'rcReturned': S.sheet = { no: 2757, mode: 'view', ret: [] }; S.ov = 'receipt'; break;
     case 'eok': if (S.count) slipsMatch(); break;
-    case 'eoff': if (S.count) { slipsMatch(); const m = S.count.edc.find(x => x.id === 'mandiri'); if (m) { m.slip = m.till - 94000; S.count.efocus = S.count.edc.indexOf(m); } } break;
-    case 'eclear': if (S.count) { S.count.edc.forEach(m => { m.slip = 0; }); S.count.efocus = 0; S.count.efresh = true; } break;
+    case 'eoff': if (S.count) { slipsMatch(); const m = S.count.edc.find(x => x.id === 'mandiri'); if (m) { m.cnt = Math.max(1, m.n - 1); S.count.efocus = S.count.edc.indexOf(m); } } break;
+    case 'eclear': if (S.count) { S.count.edc.forEach(m => { m.cnt = 0; }); S.count.efocus = 0; S.count.efresh = true; } break;
     case 'cxl': if (S.count) { S.count.pcs = EXCEL_COUNT.slice(); } break;
     case 'cclear': if (S.count) { S.count.pcs = DENOMS.map(() => 0); S.count.focus = COUNT_ORDER[0]; S.count.fresh = true; } break;
   }
@@ -4778,11 +5204,13 @@ function renderChrome() {
   const vers = VERSIONS.map(([k, l]) => `<button class="${S.ver === k ? 'on' : ''}" data-ver="${k}"><b>${k}</b>${l}</button>`).join('');
   const pays = PAY_LOOKS.map(([k, l]) => `<button class="${S.payLook === k ? 'on' : ''}" data-pay="${k}">${k === 'now' ? '' : `<b>${k}</b>`}${l}</button>`).join('');
   const foots = FOOTS.map(([k, l]) => `<button class="${(S.foot || 'A') === k ? 'on' : ''}" data-foot="${k}"><b>${k}</b>${l}</button>`).join('');
-  const sig = vers + pays + foots + steps + sizes + sims;
+  const modes = MODE_LOOKS.map(([k, l]) => `<button class="${(S.modeLook || 'B') === k ? 'on' : ''}" data-mode="${k}">${k === 'now' ? '' : `<b>${k}</b>`}${l}</button>`).join('');
+  const sig = vers + pays + modes + foots + steps + sizes + sims;
   if (sig === lastChrome) return;
   lastChrome = sig;
   document.getElementById('c-ver').innerHTML = vers;
   document.getElementById('c-pay').innerHTML = pays;
+  document.getElementById('c-mode').innerHTML = modes;
   document.getElementById('c-steps').innerHTML = steps;
   document.getElementById('c-size').innerHTML = sizes;
   const simRow = document.getElementById('c-sim');
@@ -4797,6 +5225,8 @@ document.getElementById('chrome').addEventListener('click', e => {
   const sz = e.target.closest('[data-size]');
   if (sz) { S.size = sz.dataset.size; lastChrome = ''; if (S.size === 'full') goFull(); layout(); render(); return; }
   const sm = e.target.closest('[data-sim]'); if (sm) { sim(sm.dataset.sim); return; }
+  const mo = e.target.closest('[data-mode]');
+  if (mo) { S.modeLook = mo.dataset.mode; lastChrome = ''; if (S.screen === 'sell') render(); else goStep('basket'); return; }
   const fo = e.target.closest('[data-foot]');
   if (fo) { S.foot = fo.dataset.foot; lastChrome = ''; if (S.screen === 'sell' && !S.ov) render(); else goStep('basket'); return; }
   const pl = e.target.closest('[data-pay]');
@@ -4845,6 +5275,13 @@ function layout() {
 }
 window.addEventListener('resize', () => { const was = frame.dataset.size; layout(); if (S.size === 'full' && frame.dataset.size !== was) render(); });
 
+/* A Tunda's last five minutes tick in place; crossing 30 minutes locks the till. */
+setInterval(() => {
+  frame.querySelectorAll('[data-hold-left]').forEach(el => { const h = S.held.find(x => x.id === el.dataset.holdLeft); if (h) el.textContent = (el.tagName === 'B' ? '' : 'Sisa ') + mmss(holdLeft(h)); });
+  const crossed = S.held.some(h => holdAge(h) >= HOLD_WARN && !h.warned) || (heldFrozen() && !frame.querySelector('.freeze-dlg'));
+  if (crossed) { S.held.forEach(h => { if (holdAge(h) >= HOLD_WARN) h.warned = true; }); render(); }
+}, 1000);
+
 /* The clock ticks in place: never a re-render, never animated. */
 setInterval(() => {
   const d = now();
@@ -4854,11 +5291,12 @@ setInterval(() => {
 const HASH = (location.hash || '').slice(1).split('.');
 if (VERSIONS.some(([k]) => k === HASH[0])) S.ver = HASH[0];
 const PAYH = HASH.find(x => /^pay[A-D]$/.test(x)); if (PAYH) S.payLook = PAYH.slice(3);
+const MODEH = HASH.find(x => /^mode[A-D]$/.test(x)); if (MODEH) S.modeLook = MODEH.slice(4);
 if (HASH.includes('bare')) { document.getElementById('chrome').classList.add('hidden'); document.body.classList.add('bare'); }
 const SIZEH = HASH.find(x => SIZES[x] !== undefined); if (SIZEH) S.size = SIZEH;
 /* .still: no motion at all, for a film that draws the screen frame by frame. */
 if (HASH.includes('still')) document.head.insertAdjacentHTML('beforeend', '<style>*,*::before,*::after{animation:none!important;transition:none!important}</style>');
-if (STEPS.some(([id]) => id === HASH[1]) || ['kvoid', 'kcheck', 'kreg', 'kredeem', 'headpw', 'behalf', 'byhead'].includes(HASH[1])) goStep(HASH[1]);
+if (STEPS.some(([id]) => id === HASH[1]) || ['kcheck', 'kreg', 'kredeem', 'headpw', 'behalf', 'byhead'].includes(HASH[1])) goStep(HASH[1]);
 else { S.anim.lift = true; render(); }
 layout();
 })();

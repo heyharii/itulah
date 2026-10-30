@@ -942,6 +942,20 @@ pub const DECLARED_BY_HANDLER: &[(&str, &str, Option<RecordKind>)] = &[
         "/api/v1/hire-proposals/{id}/employment",
         Some(RecordKind::Employee),
     ),
+    // A store's change names itself in the path; the act belongs to the
+    // person whose data it moves (1001).
+    (
+        "POST",
+        "/api/v1/data-updates/{id}/decision",
+        Some(RecordKind::Employee),
+    ),
+    (
+        "POST",
+        "/api/v1/data-updates/{id}/withdrawal",
+        Some(RecordKind::Employee),
+    ),
+    // A scan taken back belongs to the person, or to the proposal for one.
+    ("POST", "/api/v1/employee-documents/{id}/removal", None),
     ("POST", "/api/v1/finance/assets", Some(RecordKind::Asset)),
     ("POST", "/api/v1/finance/bills", Some(RecordKind::Bill)),
     ("POST", "/api/v1/finance/journal", Some(RecordKind::Journal)),

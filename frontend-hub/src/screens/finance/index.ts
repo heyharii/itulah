@@ -152,9 +152,9 @@ export const screens: ScreenMap = {
     (m) => m.Deposits
   ),
   "/finance/cash-bank/bank-reconciliation": lazyScreen(
-    "finance-lab-2/bank-reconciliation-list",
-    () => import("@/screens/finance-lab-2/bank-reconciliation-list"),
-    (m) => m.BankReconciliationList
+    "finance/bank-rec",
+    () => import("@/screens/finance/bank-rec"),
+    (m) => m.BankRec
   ),
   "/finance/cash-bank/bank-transactions": lazyScreen(
     "finance/bank-transactions",
@@ -232,6 +232,16 @@ export const screens: ScreenMap = {
     "finance/stores",
     () => import("@/screens/finance/stores"),
     (m) => m.StoresSales
+  ),
+  "/finance/stores/daily-close": lazyScreen(
+    "finance/daily-close",
+    () => import("@/screens/finance/daily-close"),
+    (m) => m.DailyClose
+  ),
+  "/finance/stores/store-cash": lazyScreen(
+    "finance/store-cash",
+    () => import("@/screens/finance/store-cash"),
+    (m) => m.StoreCash
   ),
   "/finance/stores/cash-on-hand": lazyScreen(
     "finance/stores-cash",
@@ -404,6 +414,12 @@ export const screens: ScreenMap = {
     (m) => m.PrepaidSchedules
   ),
 
+  "/finance/accounting/month-end": lazyScreen(
+    "finance/month-end",
+    () => import("@/screens/finance/month-end"),
+    (m) => m.MonthEnd
+  ),
+
   "/finance/period-close": lazyScreen(
     "finance-final/controls",
     () => import("@/screens/finance-final/controls"),
@@ -446,8 +462,8 @@ export const screens: ScreenMap = {
     (m) => m.DimensionResults
   ),
   "/finance/reports/laporan-accounting": lazyScreen(
-    "finance-final/reports/laporan-accounting",
-    () => import("@/screens/finance-final/reports/laporan-accounting"),
+    "finance/laporan-accounting",
+    () => import("@/screens/finance/laporan-accounting"),
     (m) => m.LaporanAccounting
   ),
   "/finance/reports/sales-by-division": lazyScreen(

@@ -26,6 +26,11 @@
 //! let in then would take the old shift's money as its own
 //! ([`refuse_while_shift_open`]).
 //!
+//! A warehouse PC (Central Gudang, `WAREHOUSE`, 25 Oct 2026) joins the same way
+//! and is labelled "Gudang N" by the same rule. It is never a till seat, it
+//! replaces only another warehouse PC, and it does not sell
+//! ([`warehouse_refusal`]).
+//!
 //! # Printers are recorded once
 //!
 //! A network printer is written down with its address ([`record_printer`]) and
@@ -61,8 +66,8 @@ use crate::security;
 use crate::sync::device::{
     self as wire, DeviceReport, DeviceStatusCommand, DeviceTestPrintCommand, JoinAnswer,
     JoinRequest, JoinStatus, JoinStatusRequest, NodeIdentity, TestPrintResult, TillRequest,
-    TillRequests, KIND_PRINTER, KIND_RFID_READER, KIND_TILL, STATUS_ACTIVE, STATUS_REVOKED,
-    STATUS_SUSPENDED,
+    TillRequests, KIND_PRINTER, KIND_RFID_READER, KIND_TILL, KIND_WAREHOUSE, STATUS_ACTIVE,
+    STATUS_REVOKED, STATUS_SUSPENDED,
 };
 use crate::sync::enrolment::is_key_digest;
 
@@ -212,9 +217,9 @@ pub fn begin_join(
         .filter(|kind| !kind.is_empty())
         .unwrap_or(KIND_TILL)
         .to_ascii_uppercase();
-    if kind != KIND_TILL {
+    if !wire::joins_by_code(&kind) {
         return Err(EdgeError::Validation(format!(
-            "a {kind} does not join a node this way; only a till does"
+            "a {kind} does not join a node this way; only a till or a warehouse PC does"
         )));
     }
     let machine_json = serde_json::to_string(&request.machine.clamped())
@@ -541,17 +546,29 @@ fn admit(
     now: DateTime<Utc>,
 ) -> Result<ApprovedTill, EdgeError> {
     let approver = approver.to_string();
-    let row: Option<(String, String, String, Option<String>)> = tx
+    let row: Option<(String, String, String, Option<String>, String)> = tx
         .query_row(
-            "SELECT code, key_sha256, machine_json, outcome FROM edge_device_join WHERE join_id=?1",
+            "SELECT code, key_sha256, machine_json, outcome, kind
+               FROM edge_device_join WHERE join_id=?1",
             params![join_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
         )
         .optional()
         .map_err(db)?;
-    let Some((code, key_sha256, machine_json, outcome)) = row else {
+    let Some((code, key_sha256, machine_json, outcome, kind)) = row else {
         return Err(EdgeError::NotFound(format!("join request {join_id}")));
     };
+    // A till or a warehouse PC, as it asked: each takes its own kind of name
+    // and replaces only its own kind.
+    let kind = terminal_kind(&kind);
     if let Some(outcome) = outcome {
         return Err(EdgeError::Conflict(format!(
             "that request is already {}",
@@ -566,20 +583,27 @@ fn admit(
         .filter(|id| !id.is_empty())
     {
         Some(old_id) => {
-            let old: Option<(String, String)> = tx
+            let old: Option<(String, String, String)> = tx
                 .query_row(
-                    "SELECT label, status FROM edge_terminal WHERE terminal_id=?1",
+                    "SELECT label, status, kind FROM edge_terminal WHERE terminal_id=?1",
                     params![old_id],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                 )
                 .optional()
                 .map_err(db)?;
-            let Some((old_label, old_status)) = old else {
+            let Some((old_label, old_status, old_kind)) = old else {
                 return Err(EdgeError::NotFound(format!("till {old_id}")));
             };
             if old_status == STATUS_REVOKED {
                 return Err(EdgeError::Conflict(format!(
                     "{old_label} is already revoked; approve without replacing it"
+                )));
+            }
+            if terminal_kind(&old_kind) != kind {
+                return Err(EdgeError::Conflict(format!(
+                    "{old_label} is a {}, and this one is a {}; approve without replacing it",
+                    kind_word(terminal_kind(&old_kind)),
+                    kind_word(kind)
                 )));
             }
             refuse_while_shift_open(&tx, old_id, &old_label)?;
@@ -595,7 +619,7 @@ fn admit(
             record_event(
                 &tx,
                 old_id,
-                KIND_TILL,
+                kind,
                 "REPLACED",
                 &approver,
                 Some(reason.as_str()),
@@ -626,7 +650,7 @@ fn admit(
                 for row in rows {
                     taken.push(row.map_err(db)?);
                 }
-                wire::next_till_label(taken.iter().map(String::as_str))
+                wire::next_label(wire::label_prefix(kind), taken.iter().map(String::as_str))
             }
         },
     };
@@ -649,7 +673,7 @@ fn admit(
         "INSERT INTO edge_terminal
            (terminal_id,label,auth_key_sha256,active,last_sequence,paired_at,paired_by,updated_at,
             kind,status,join_id,replaces_terminal_id,machine_json,peripherals_json)
-         VALUES (?1,?2,?3,1,0,?4,?5,?4,'TILL','ACTIVE',?6,?7,?8,'{}')",
+         VALUES (?1,?2,?3,1,0,?4,?5,?4,?9,'ACTIVE',?6,?7,?8,'{}')",
         params![
             terminal_id,
             label,
@@ -658,7 +682,8 @@ fn admit(
             approver,
             join_id,
             replaced_id,
-            machine_json
+            machine_json,
+            kind
         ],
     )
     .map_err(db)?;
@@ -673,7 +698,7 @@ fn admit(
     record_event(
         &tx,
         &terminal_id,
-        KIND_TILL,
+        kind,
         "JOINED",
         &approver,
         Some(format!("joined with code {shown_code}").as_str()),
@@ -686,6 +711,192 @@ fn admit(
         approved_by: approver,
         approved_via: via.to_string(),
         replaced_terminal_id: replaced_id,
+    })
+}
+
+/// `edge_terminal.kind` and `edge_device_join.kind` as one of the two kinds
+/// that join by code. Anything else is a till: every row before warehouse PCs
+/// was one.
+pub fn terminal_kind(kind: &str) -> &'static str {
+    if kind == KIND_WAREHOUSE {
+        KIND_WAREHOUSE
+    } else {
+        KIND_TILL
+    }
+}
+
+fn kind_word(kind: &str) -> &'static str {
+    if kind == KIND_WAREHOUSE {
+        "warehouse PC"
+    } else {
+        "till"
+    }
+}
+
+/// The till or warehouse PC a request names in its `X-Terminal-Id` — the id a
+/// signed call carries, or the label ("Gudang 1") a session call carries — as
+/// its kind and status. The live one first, when a replaced machine left its
+/// label behind.
+pub fn terminal_named(
+    connection: &Connection,
+    name: &str,
+) -> Result<Option<(&'static str, String)>, EdgeError> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Ok(None);
+    }
+    let row: Option<(String, String)> = connection
+        .query_row(
+            "SELECT kind, status FROM edge_terminal
+              WHERE terminal_id=?1 OR label=?1
+              ORDER BY (status='REVOKED'), paired_at DESC
+              LIMIT 1",
+            params![name],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(db)?;
+    Ok(row.map(|(kind, status)| (terminal_kind(&kind), status)))
+}
+
+/// `POST /api/v1/store/warehouse/session`: the session a warehouse PC holds,
+/// tied to that PC.
+#[derive(Debug, Serialize)]
+pub struct BoundSession {
+    pub terminal_id: String,
+    /// "Gudang 1".
+    pub label: String,
+}
+
+/// Tie the session a warehouse PC signed in to that PC (Hari, 25 Oct 2026: a
+/// cashier at a warehouse PC receives and moves stock, which their rung alone
+/// does not allow).
+///
+/// What this relies on: one request that carries both the session's bearer
+/// token and the PC's signature over this path and body — the HMAC a claim
+/// carries, made with the key the PC minted when it joined, with its clock and
+/// its next sequence ([`fingerprint::verify_terminal`]). Only the machine
+/// holding that key can make the signature, and only someone holding the
+/// token can present the session, so a session tied here was in that
+/// machine's hands. It stays tied to it for as long as it lives; a session is
+/// never moved to another machine.
+pub fn bind_session(
+    connection: &mut Connection,
+    proof: &TerminalProof,
+    path: &str,
+    body_sha256: &str,
+    session_id: Uuid,
+) -> Result<BoundSession, EdgeError> {
+    let tx = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(db)?;
+    let terminal_id = fingerprint::verify_terminal(&tx, proof, "POST", path, body_sha256)?;
+    let (kind, label): (String, String) = tx
+        .query_row(
+            "SELECT kind, label FROM edge_terminal WHERE terminal_id=?1",
+            params![terminal_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(db)?;
+    if terminal_kind(&kind) != KIND_WAREHOUSE {
+        return Err(EdgeError::Forbidden(
+            "only a warehouse PC ties its session to itself".into(),
+        ));
+    }
+    let session_id = session_id.to_string();
+    let already: Option<String> = tx
+        .query_row(
+            "SELECT terminal_id FROM edge_session_device WHERE session_id=?1",
+            params![session_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(db)?;
+    match already {
+        Some(other) if other != terminal_id => {
+            return Err(EdgeError::Conflict(
+                "this session belongs to another machine; sign in again here".into(),
+            ));
+        }
+        Some(_) => {}
+        None => {
+            tx.execute(
+                "INSERT INTO edge_session_device (session_id, terminal_id, bound_at)
+                 VALUES (?1, ?2, ?3)",
+                params![session_id, terminal_id, stamp(Utc::now())],
+            )
+            .map_err(db)?;
+        }
+    }
+    tx.commit().map_err(db)?;
+    Ok(BoundSession { terminal_id, label })
+}
+
+/// The live warehouse PC `session_id` is tied to ([`bind_session`]), by its
+/// label — when the request also names that PC (`X-Terminal-Id`, its id or its
+/// label), and the PC is still active. `None` for every other session.
+pub fn warehouse_session(
+    connection: &Connection,
+    session_id: Uuid,
+    named: Option<&str>,
+) -> Result<Option<String>, EdgeError> {
+    let row: Option<(String, String)> = connection
+        .query_row(
+            "SELECT t.terminal_id, t.label
+               FROM edge_session_device s
+               JOIN edge_terminal t ON t.terminal_id = s.terminal_id
+              WHERE s.session_id=?1 AND t.kind=?2 AND t.status=?3 AND t.active=1",
+            params![session_id.to_string(), KIND_WAREHOUSE, STATUS_ACTIVE],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(db)?;
+    Ok(row
+        .filter(|(terminal_id, label)| {
+            named
+                .map(str::trim)
+                .is_some_and(|named| named == terminal_id || named == label)
+        })
+        .map(|(_, label)| label))
+}
+
+/// What a warehouse PC is refused (Central Gudang, 25 Oct 2026): every selling
+/// call — a sale, a checkout, a drawer, a held basket, a return — and, once
+/// head office has stopped or removed it, its own stock moves too. `None` for
+/// anything else, a till included.
+///
+/// Read off the name the request gives itself, not off a signature: the
+/// answer only ever takes something away, so a machine that names itself a
+/// warehouse PC can only refuse itself. The shell always names its machine
+/// (`pos-desktop/src-tauri/src/edge.rs`), and the session it holds never
+/// leaves it.
+///
+/// Said in Indonesian, as the counter's refusals are: it is read in Central
+/// Gudang.
+pub fn warehouse_refusal(
+    connection: &Connection,
+    name: &str,
+    selling: bool,
+) -> Result<Option<EdgeError>, EdgeError> {
+    let Some((kind, status)) = terminal_named(connection, name)? else {
+        return Ok(None);
+    };
+    if kind != KIND_WAREHOUSE {
+        return Ok(None);
+    }
+    if selling {
+        return Ok(Some(EdgeError::Forbidden(
+            "Komputer gudang tidak berjualan. Penjualan, laci dan shift hanya di POS kasir.".into(),
+        )));
+    }
+    Ok(match status.as_str() {
+        STATUS_ACTIVE => None,
+        STATUS_REVOKED => Some(EdgeError::Forbidden(
+            "Komputer gudang ini sudah dihapus kantor pusat.".into(),
+        )),
+        _ => Some(EdgeError::Forbidden(
+            "Komputer gudang ini dihentikan kantor pusat.".into(),
+        )),
     })
 }
 
@@ -767,7 +978,7 @@ pub fn waiting_joins(connection: &Connection) -> Result<Vec<wire::WaitingJoin>, 
     let mut statement = connection
         .prepare(
             "SELECT join_id, code, verification, machine_json, issued_at, expires_at,
-                    head_office_error
+                    head_office_error, kind
                FROM edge_device_join
               WHERE outcome IS NULL AND expires_at > ?1
               ORDER BY issued_at",
@@ -783,18 +994,20 @@ pub fn waiting_joins(connection: &Connection) -> Result<Vec<wire::WaitingJoin>, 
                 row.get::<_, String>(4)?,
                 row.get::<_, String>(5)?,
                 row.get::<_, Option<String>>(6)?,
+                row.get::<_, String>(7)?,
             ))
         })
         .map_err(db)?;
     let mut items = Vec::new();
     for row in rows {
-        let (join_id, code, verification, machine, issued_at, expires_at, error) =
+        let (join_id, code, verification, machine, issued_at, expires_at, error, kind) =
             row.map_err(db)?;
         let Ok(join_id) = Uuid::parse_str(&join_id) else {
             continue;
         };
         items.push(wire::WaitingJoin {
             join_id,
+            kind: terminal_kind(&kind).to_string(),
             code: wire::display_join_code(&code),
             verification,
             machine: serde_json::from_str(&machine).unwrap_or_default(),
@@ -914,16 +1127,16 @@ fn apply_status(
             "{status} is not a device status; say ACTIVE, SUSPENDED or REVOKED"
         )));
     }
-    let till: Option<String> = connection
+    let till: Option<(String, String)> = connection
         .query_row(
-            "SELECT status FROM edge_terminal WHERE terminal_id=?1",
+            "SELECT status, kind FROM edge_terminal WHERE terminal_id=?1",
             params![device_id],
-            |row| row.get(0),
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .optional()
         .map_err(db)?;
     let (kind, current) = match till {
-        Some(current) => (KIND_TILL, current),
+        Some((current, kind)) => (terminal_kind(&kind), current),
         None => {
             let printer: Option<String> = connection
                 .query_row(
@@ -951,7 +1164,7 @@ fn apply_status(
         )));
     }
     let now = stamp(at);
-    if kind == KIND_TILL {
+    if kind != KIND_PRINTER {
         // `active` is what a till's signature is checked against, so it moves
         // with the status in the same statement.
         connection
@@ -1033,8 +1246,8 @@ pub fn set_status(
         .map_err(db)?;
     if till {
         return Err(EdgeError::Forbidden(
-            "only head office stops, resumes or removes a till, from the store's Tills tab \
-             in the hub"
+            "only head office stops, resumes or removes a till or a warehouse PC, from the \
+             store's Tills tab in the hub"
                 .into(),
         ));
     }
@@ -1876,7 +2089,8 @@ pub fn list_devices(connection: &Connection) -> Result<Vec<DeviceReport>, EdgeEr
                         last_test_print_at, last_test_print_ok, last_test_print_error,
                         (SELECT r.request_id FROM edge_device_request r
                           WHERE r.device_id = edge_terminal.terminal_id AND r.status <> 'PENDING'
-                          ORDER BY r.completed_at DESC LIMIT 1)
+                          ORDER BY r.completed_at DESC LIMIT 1),
+                        kind
                    FROM edge_terminal
                   ORDER BY paired_at",
             )
@@ -1885,9 +2099,10 @@ pub fn list_devices(connection: &Connection) -> Result<Vec<DeviceReport>, EdgeEr
             .query_map([], |row| {
                 let peripherals = parse_json(row.get(10)?);
                 let machine = parse_json(row.get(11)?);
+                let kind: String = row.get(16)?;
                 Ok(DeviceReport {
                     device_id: row.get(0)?,
-                    kind: KIND_TILL.to_string(),
+                    kind: terminal_kind(&kind).to_string(),
                     label: row.get(1)?,
                     status: row.get(2)?,
                     last_seen_at: parse_time(row.get(3)?),

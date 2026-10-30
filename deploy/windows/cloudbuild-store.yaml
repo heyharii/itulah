@@ -1,0 +1,26 @@
+# Windows store server (store.exe + web/) on Cloud Build, no Windows PC needed.
+#   deploy/windows/stage-store.sh        stages the tree and submits this
+#   deploy/windows/fetch-store.sh <id>   downloads store.exe and web/ afterwards
+# Pushed as a scratch image (itulah/win-store:<build id>) because the Cloud
+# Build account cannot write to a bucket.
+steps:
+  - name: rust:1.98-bookworm
+    entrypoint: bash
+    args: ["deploy/windows/build-store.sh"]
+    env:
+      - VERSION=${_VERSION}
+      - CLOUD_URL=${_CLOUD_URL}
+      - SKIP_WEB=${_SKIP_WEB}
+  - name: gcr.io/cloud-builders/docker
+    args: ["build", "-t", "asia-southeast2-docker.pkg.dev/${PROJECT_ID}/itulah/win-store:${BUILD_ID}",
+           "-f", "deploy/windows/Dockerfile.store-out", "out"]
+images:
+  - asia-southeast2-docker.pkg.dev/${PROJECT_ID}/itulah/win-store:${BUILD_ID}
+options:
+  machineType: E2_HIGHCPU_32
+  logging: CLOUD_LOGGING_ONLY
+timeout: 3600s
+substitutions:
+  _VERSION: "0.2.0"
+  _CLOUD_URL: "https://osretail.site"
+  _SKIP_WEB: "0"

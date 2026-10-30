@@ -1,0 +1,18 @@
+# Central Store (the store app as a desktop app) installer on Cloud Build.
+#   deploy/windows/stage-store-app.sh        stages the tree and submits this
+#   deploy/windows/fetch-pos.sh <id> with REPO=win-store-app
+# The Cloud Build account cannot write to a bucket, so the installer is pushed
+# as a scratch image (itulah/win-store-app:<build id>) and fetched from the registry.
+steps:
+  - name: rust:1.98-bookworm
+    entrypoint: bash
+    args: ["deploy/windows/build-store-app.sh"]
+  - name: gcr.io/cloud-builders/docker
+    args: ["build", "-t", "asia-southeast2-docker.pkg.dev/${PROJECT_ID}/itulah/win-store-app:${BUILD_ID}",
+           "-f", "deploy/windows/Dockerfile.out", "out"]
+images:
+  - asia-southeast2-docker.pkg.dev/${PROJECT_ID}/itulah/win-store-app:${BUILD_ID}
+options:
+  machineType: E2_HIGHCPU_32
+  logging: CLOUD_LOGGING_ONLY
+timeout: 3600s

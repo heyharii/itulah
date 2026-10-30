@@ -54,6 +54,27 @@ pub(crate) fn ensure_session_reason(connection: &Connection) -> Result<(), EdgeE
     Ok(())
 }
 
+/// Add the finger's own lease (`edge_user.finger_valid_until`) and how a
+/// session was opened (`edge_auth_session.opened_by_finger`) once (`0095`),
+/// from the same two places as [`ensure_session_reason`] and for the same
+/// reason. One probe for both columns: the file adds them in one transaction.
+pub(crate) fn ensure_finger_lease(connection: &Connection) -> Result<(), EdgeError> {
+    let present: i64 = connection
+        .prepare_cached(
+            "SELECT COUNT(*) FROM pragma_table_info('edge_user')
+              WHERE name='finger_valid_until'",
+        )
+        .map_err(db)?
+        .query_row([], |row| row.get(0))
+        .map_err(db)?;
+    if present == 0 {
+        connection
+            .execute_batch(crate::edge::sqlite::FINGER_LEASE_SCHEMA)
+            .map_err(db)?;
+    }
+    Ok(())
+}
+
 #[derive(Clone, Debug)]
 pub struct EdgeAuthConfig {
     pub enabled: bool,
@@ -134,11 +155,11 @@ pub enum EdgePermission {
     /// enrol a finger directly. Head office's, an Admin's (owner, 24 Oct
     /// 2026: the store opens and closes its day and sets nothing up). Letting
     /// a till *in* is decided inside `edge::devices::approve_join`; a finger
-    /// recorded by the store head waits for head office
+    /// recorded by the store head is approved by her and sent to head office
     /// (`edge::fingerprint::submit`).
     DeviceAdmin,
-    /// Record a finger at the POS for head office to approve: the store
-    /// head's (`edge::fingerprint::submit`).
+    /// Record a finger at the POS, approved by recording it, which head
+    /// office can withdraw: the store head's (`edge::fingerprint::submit`).
     FingerRecord,
     AuthAdmin,
 }
@@ -264,6 +285,19 @@ struct SessionRow {
     expires_at: String,
 }
 
+/// Which of a person's two leases a door, and the session it opens, is held
+/// to (`0095`). A finger proves the person is standing at the till, so head
+/// office lets its lease outlive a store head's 24-hour password lease; a
+/// password, a PIN and head office's sign-on prove no such thing.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Lease {
+    /// `edge_user.valid_until`.
+    Password,
+    /// `edge_user.finger_valid_until`, or `valid_until` when head office sent
+    /// none.
+    Finger,
+}
+
 impl EdgeAuth {
     pub fn new(
         connection: Arc<Mutex<Connection>>,
@@ -280,6 +314,7 @@ impl EdgeAuth {
             let connection = auth.lock()?;
             connection.execute_batch(EDGE_SSO_SCHEMA).map_err(db)?;
             ensure_session_reason(&connection)?;
+            ensure_finger_lease(&connection)?;
         }
         auth.bootstrap_admin()?;
         Ok(auth)
@@ -458,6 +493,7 @@ impl EdgeAuth {
             auth_version,
             source,
             true,
+            Lease::Password,
         )
     }
 
@@ -470,7 +506,27 @@ impl EdgeAuth {
     /// active, not expired, and **not currently locked out**. An account shut
     /// after five wrong passwords must not be openable by pressing a thumb; the
     /// lockout is about the account, not about the keyboard.
+    ///
+    /// "Not expired" is the finger's lease (`0095`), which head office lets
+    /// outlive a store head's 24-hour password lease, and the session it opens
+    /// lives under that lease too.
     pub fn issue_for_fingerprint(&self, username: &str) -> Result<IssuedEdgeSession, EdgeError> {
+        self.issue_without_password(username, Lease::Finger)
+    }
+
+    /// Open a session for somebody a PIN identified (`edge::pin`, checked
+    /// against the password's lease there). The same door as a finger's, under
+    /// the password's lease: a PIN is typed, so it proves no more than a
+    /// password that the person is at the till.
+    pub fn issue_for_pin(&self, username: &str) -> Result<IssuedEdgeSession, EdgeError> {
+        self.issue_without_password(username, Lease::Password)
+    }
+
+    fn issue_without_password(
+        &self,
+        username: &str,
+        lease: Lease,
+    ) -> Result<IssuedEdgeSession, EdgeError> {
         if !self.config.enabled {
             return Err(EdgeError::Conflict(
                 "authentication is disabled on this Edge".into(),
@@ -491,12 +547,16 @@ impl EdgeAuth {
             Option<String>,
         )> = connection
             .prepare_cached(
+                // The lease this door is held to: a finger's own, falling
+                // back to the password's when head office sent none (`0095`).
                 "SELECT id,username,display_name,role,active,auth_version,source,
-                            valid_until,login_blocked_until
+                            CASE WHEN ?2 THEN COALESCE(finger_valid_until,valid_until)
+                                 ELSE valid_until END,
+                            login_blocked_until
                      FROM edge_user WHERE username=?1",
             )
             .map_err(db)?
-            .query_row(params![username], |row| {
+            .query_row(params![username, lease == Lease::Finger], |row| {
                 Ok((
                     row.get(0)?,
                     row.get(1)?,
@@ -569,19 +629,22 @@ impl EdgeAuth {
             auth_version,
             source,
             false,
+            lease,
         )
     }
 
     /// Who a Kepala toko may open a till for ("buka atas nama", owner, 23 Oct
     /// 2026): every active cashier and supervisor here whose lease still runs,
     /// who is not locked out and whom head office has not stopped on the POS
-    /// — the same people a finger would let in.
+    /// — the same people a finger would let in, under the finger's lease
+    /// (`0095`).
     pub fn till_people(&self) -> Result<Vec<TillPerson>, EdgeError> {
         let connection = self.lock()?;
         let now = Utc::now();
         let mut statement = connection
             .prepare_cached(
-                "SELECT username,display_name,role,valid_until,login_blocked_until
+                "SELECT username,display_name,role,COALESCE(finger_valid_until,valid_until),
+                        login_blocked_until
                  FROM edge_user
                  WHERE active=1 AND role IN ('CASHIER','SUPERVISOR')
                  ORDER BY display_name COLLATE NOCASE",
@@ -779,6 +842,7 @@ impl EdgeAuth {
             auth_version,
             "CLOUD".into(),
             true,
+            Lease::Password,
         )?;
         transaction.commit().map_err(db)?;
         Ok(issued)
@@ -796,6 +860,8 @@ impl EdgeAuth {
     /// finger and a terminal's credential instead of a password.
     ///
     /// `supersede` is the one-device rule: see [`Self::write_session`].
+    /// `lease` is the one the session lives under, as the door it came
+    /// through was held to.
     #[allow(clippy::too_many_arguments)]
     fn start_session(
         &self,
@@ -807,6 +873,7 @@ impl EdgeAuth {
         auth_version: i64,
         source: String,
         supersede: bool,
+        lease: Lease,
     ) -> Result<IssuedEdgeSession, EdgeError> {
         let transaction = connection.transaction().map_err(db)?;
         let issued = self.write_session(
@@ -818,6 +885,7 @@ impl EdgeAuth {
             auth_version,
             source,
             supersede,
+            lease,
         )?;
         transaction.commit().map_err(db)?;
         Ok(issued)
@@ -831,6 +899,10 @@ impl EdgeAuth {
     /// `cloud/postgres/users.rs::create_session`. In the caller's transaction,
     /// so two sign-ins racing each other cannot both survive: SQLite has one
     /// writer, and whichever commits second revokes the first.
+    ///
+    /// The row says whether a finger opened it (`opened_by_finger`, `0095`),
+    /// so [`Self::authenticate`] holds it to the finger's lease rather than
+    /// the password's.
     #[allow(clippy::too_many_arguments)]
     fn write_session(
         &self,
@@ -842,6 +914,7 @@ impl EdgeAuth {
         auth_version: i64,
         source: String,
         supersede: bool,
+        lease: Lease,
     ) -> Result<IssuedEdgeSession, EdgeError> {
         let now = Utc::now();
         let user_id = Uuid::parse_str(&id)
@@ -873,8 +946,8 @@ impl EdgeAuth {
             .execute(
                 "INSERT INTO edge_auth_session
                      (session_id,token_sha256,csrf_token_sha256,user_id,auth_version,
-                      created_at,last_seen_at,expires_at)
-                 VALUES(?1,?2,?3,?4,?5,?6,?6,?7)",
+                      created_at,last_seen_at,expires_at,opened_by_finger)
+                 VALUES(?1,?2,?3,?4,?5,?6,?6,?7,?8)",
                 params![
                     session_id.to_string(),
                     security::sha256_hex(&token),
@@ -882,7 +955,8 @@ impl EdgeAuth {
                     id,
                     auth_version,
                     time_text(now),
-                    time_text(expires_at)
+                    time_text(expires_at),
+                    lease == Lease::Finger
                 ],
             )
             .map_err(db)?;
@@ -934,8 +1008,13 @@ impl EdgeAuth {
         let connection = self.lock()?;
         let row: Option<SessionRow> = connection
             .prepare_cached(
+                // A session lives under the lease of the door it came through
+                // (`0095`): a finger's own, else the password's.
                 "SELECT s.session_id,u.id,u.username,u.display_name,u.role,u.source,
-                        u.auth_version,s.csrf_token_sha256,s.last_seen_at,u.valid_until,
+                        u.auth_version,s.csrf_token_sha256,s.last_seen_at,
+                        CASE WHEN s.opened_by_finger=1
+                             THEN COALESCE(u.finger_valid_until,u.valid_until)
+                             ELSE u.valid_until END,
                         s.expires_at
                  FROM edge_auth_session s JOIN edge_user u ON u.id=s.user_id
                  WHERE s.token_sha256=?1 AND s.revoked_at IS NULL AND s.expires_at>?2
@@ -1398,5 +1477,61 @@ mod tests {
             auth.exchange_cloud_ticket(&ticket),
             Err(EdgeError::Unauthorized(_))
         ));
+    }
+
+    #[test]
+    fn a_store_heads_finger_outlives_her_password_lease() {
+        let auth = auth();
+        let now = Utc::now();
+        let password_hash = security::hash_password("head-password-1", MIN_PASSWORD_LENGTH)
+            .unwrap_or_else(|error| panic!("hash: {error}"));
+        auth.lock()
+            .unwrap_or_else(|error| panic!("connection: {error}"))
+            .execute(
+                "INSERT INTO edge_user
+                     (id,username,display_name,password_hash,role,active,auth_version,source,
+                      policy_version,valid_until,finger_valid_until,created_at,updated_at)
+                 VALUES(?1,'head.07','Head 07',?2,'SUPERVISOR',1,1,'CLOUD',1,?3,?4,?5,?5)",
+                params![
+                    Uuid::new_v4().to_string(),
+                    password_hash,
+                    time_text(now + Duration::hours(24)),
+                    time_text(now + Duration::days(7)),
+                    time_text(now),
+                ],
+            )
+            .unwrap_or_else(|error| panic!("store head: {error}"));
+        let by_password = auth
+            .login("head.07", "head-password-1")
+            .unwrap_or_else(|error| panic!("password: {error}"));
+        let by_finger = auth
+            .issue_for_fingerprint("head.07")
+            .unwrap_or_else(|error| panic!("finger: {error}"));
+        let expire = |column: &str| {
+            auth.lock()
+                .unwrap_or_else(|error| panic!("connection: {error}"))
+                .execute(
+                    &format!("UPDATE edge_user SET {column}=?1 WHERE username='head.07'"),
+                    params![time_text(Utc::now() - Duration::seconds(1))],
+                )
+                .unwrap_or_else(|error| panic!("expire {column}: {error}"));
+        };
+
+        // More than a day without head office: the password's lease is over.
+        expire("valid_until");
+        assert!(auth.login("head.07", "head-password-1").is_err());
+        assert!(auth.issue_for_pin("head.07").is_err());
+        assert!(auth.authenticate(&by_password.token, false).is_err());
+        auth.authenticate(&by_finger.token, false)
+            .unwrap_or_else(|error| panic!("finger session: {error}"));
+        // Opening another session also forgets the one just remembered, so
+        // the last check below reads the table.
+        auth.issue_for_fingerprint("head.07")
+            .unwrap_or_else(|error| panic!("finger after a day: {error}"));
+
+        // And once the finger's lease is over too, nothing lets her in.
+        expire("finger_valid_until");
+        assert!(auth.issue_for_fingerprint("head.07").is_err());
+        assert!(auth.authenticate(&by_finger.token, false).is_err());
     }
 }

@@ -44,7 +44,6 @@ import { maintenanceNav, serviceScheduleNav } from "@/screens/maintenance/nav"
 import { projectsNav } from "@/screens/projects/nav"
 import { vendorsNav } from "@/screens/vendors/nav"
 import { chatNav, discussionsNav, libraryNav } from "@/screens/workplace/nav"
-import { gaOverviewNav } from "@/screens/ga/nav"
 import { gaLocationsNav } from "@/screens/locations/nav"
 import { gaSuppliesNav } from "@/screens/supplies/nav"
 
@@ -333,7 +332,6 @@ export const modules: readonly AppModule[] = [
   financeNav,
   peopleNav,
   lettersNav,
-  gaOverviewNav,
   vendorsNav,
   gaLocationsNav,
   contractsNav,
@@ -538,25 +536,25 @@ const allDomains: readonly AppDomain[] = [
     label: "GA",
     icon: MessagesSquare,
     // One row per place, in the order of how often it is opened (owner,
-    // 2026-09-27, when the menu was cut from eighteen rows to ten): what wants
-    // looking at; the day's work — what the places ask for, what broke, what
-    // is due for a service; the registers — what we own, what we have agreed,
-    // where we operate from, who we deal with; and the documents — the
+    // 2026-09-27, when the menu was cut from eighteen rows to ten; the overview
+    // was dropped 2026-10-26, and objects now come before work): the objects —
+    // where we operate from, what we own and run out of, who we deal with,
+    // what we have agreed; the work on them — what broke, what is due for a
+    // service, what is being built; and the documents — the
     // letters that go out and the files the company keeps (moved here from the
     // icon strip on the owner's word, 2026-09-26). The hairlines between the
-    // four are each group's first module's `divider`.
+    // groups are each group's first module's `divider`.
     //
     // Conversations stay on the strip (`asides`) with their routes untouched.
     modules: [
-      "ga-overview",
+      "ga-locations",
+      "ga-assets",
       "ga-supplies",
+      "contracts",
+      "vendors",
       "maintenance",
       "maintenance-schedule",
       "projects",
-      "ga-assets",
-      "contracts",
-      "ga-locations",
-      "vendors",
       "letters",
       "library",
     ],
@@ -821,7 +819,6 @@ const SECTION_OF_MODULE: Readonly<Record<string, SectionCode>> = {
   operations: "operations",
   finance: "finance",
   people: "people",
-  "ga-overview": "ga",
   "ga-supplies": "ga",
   maintenance: "ga",
   "maintenance-schedule": "ga",

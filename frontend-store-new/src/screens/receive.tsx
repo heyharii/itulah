@@ -1,4 +1,3 @@
-import { useQuery } from "@tanstack/react-query"
 import { useMemo, useState } from "react"
 import { toast } from "sonner"
 
@@ -18,14 +17,8 @@ import {
 import { describe } from "@/lib/errors"
 import { count, dateText, day, pcs } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
-import {
-  fetchInboundScan,
-  fetchOnHold,
-  isoDay,
-  onHoldKey,
-} from "@/lib/queries"
+import { fetchInboundScan, isoDay } from "@/lib/queries"
 import { DeliverySheet } from "@/screens/stock/delivery-sheet"
-import { OnHold } from "@/screens/stock/on-hold"
 import {
   byArrival,
   fromName,
@@ -51,25 +44,23 @@ import type { StoreInboundDelivery } from "@itulah/contract"
 /// down until it is tapped.
 ///
 /// **Laid out as the hub's Ops receiving list** (owner, 20 Oct 2026): the three
-/// figures, tabs To receive / Received (/ On hold), and a calm table — No. ·
+/// figures, tabs To receive / Received, and a calm table — No. ·
 /// Delivery note · From · Departed · Koli · Count receive — that is cards on a
 /// phone (tabs are then the dock's chip). A delivery is a row — its surat jalan number, the
 /// cartons (or, once counted, the pieces) as the one figure, and in the foot
 /// when it left beside Receive, or its verdict once it is in — and opens as a
 /// sheet over the list (`?delivery=`). The list polls, so a count finished at
 /// another till shows up here without anybody touching this one.
-type View = "IN_TRANSIT" | "RECEIVED" | "HOLD"
+///
+/// **No On hold tab** (owner, 25 Oct 2026): what was counted beyond a
+/// delivery is already said where it is dealt with — the delivery's own sheet
+/// while MD reviews it, and Stock › To be returned › Over delivery.
+type View = "IN_TRANSIT" | "RECEIVED"
 
 const DAY_MS = 24 * 60 * 60_000
 
 export function Receive() {
   const inbound = useInbound()
-  /// What the shop counted and could not book: set aside until MD answers.
-  const onHold = useQuery({
-    queryKey: onHoldKey(),
-    queryFn: ({ signal }) => fetchOnHold(signal),
-    refetchInterval: 15_000,
-  })
   const record = useOpenRecord("delivery")
   const phone = useLayout() === "phone"
   /// The koli a scanned label named, unfolded in the sheet that opens.
@@ -90,7 +81,6 @@ export function Receive() {
   const deliveries = inbound.data?.deliveries
   const rows = useMemo(() => deliveries ?? [], [deliveries])
   const checkedAt = inbound.dataUpdatedAt
-  const holdLines = onHold.data ?? []
   /// Null until somebody picks: then the screen opens where the work is — on
   /// what is still coming when anything is, on what arrived when not.
   const [chosen, setChosen] = useState<View | null>(null)
@@ -98,8 +88,7 @@ export function Receive() {
   const sorted = useMemo(() => [...rows].sort(byArrival), [rows])
   const inTransit = sorted.filter((one) => one.status === "IN_TRANSIT")
   const received = sorted.filter((one) => one.status === "RECEIVED")
-  const picked = chosen ?? (inTransit.length > 0 ? "IN_TRANSIT" : "RECEIVED")
-  const view = picked === "HOLD" && holdLines.length === 0 ? "RECEIVED" : picked
+  const view = chosen ?? (inTransit.length > 0 ? "IN_TRANSIT" : "RECEIVED")
   const shown = view === "IN_TRANSIT" ? inTransit : received
 
   // "Today" and "the last thirty days" as of the answer on screen, not the
@@ -126,7 +115,6 @@ export function Receive() {
   )
   const missing = sum(recent, (one) => resultOf(one)?.missing_units ?? 0)
 
-  const holdPcs = holdLines.reduce((total, one) => total + one.on_hold, 0)
   const tabs = [
     {
       value: "IN_TRANSIT" as const,
@@ -134,9 +122,6 @@ export function Receive() {
       count: inTransit.length,
     },
     { value: "RECEIVED" as const, label: "Received", count: received.length },
-    ...(holdLines.length > 0
-      ? [{ value: "HOLD" as const, label: "On hold", count: holdPcs }]
-      : []),
   ]
 
   const columns: ListColumn<StoreInboundDelivery>[] = [
@@ -266,24 +251,20 @@ export function Receive() {
             plainCount
           />
 
-          {view === "HOLD" ? (
-            <OnHold lines={holdLines} />
-          ) : (
-            <Card className="overflow-hidden max-md:overflow-visible">
-              <ListTable
-                rows={shown}
-                columns={columns}
-                rowKey={(one) => one.delivery_id}
-                onOpen={(one) => record.open(one.delivery_id)}
-                roomy
-                empty={
-                  view === "IN_TRANSIT"
-                    ? "Nothing is on its way to this shop right now."
-                    : "Nothing has been received yet."
-                }
-              />
-            </Card>
-          )}
+          <Card className="overflow-hidden max-md:overflow-visible">
+            <ListTable
+              rows={shown}
+              columns={columns}
+              rowKey={(one) => one.delivery_id}
+              onOpen={(one) => record.open(one.delivery_id)}
+              roomy
+              empty={
+                view === "IN_TRANSIT"
+                  ? "Nothing is on its way to this shop right now."
+                  : "Nothing has been received yet."
+              }
+            />
+          </Card>
         </>
       )}
 

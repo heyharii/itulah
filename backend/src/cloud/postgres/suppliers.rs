@@ -937,9 +937,8 @@ pub async fn list_supplier_options(
     let limit = limit
         .unwrap_or(SUPPLIER_DEFAULT_LIMIT)
         .clamp(1, SUPPLIER_MAX_LIMIT);
-    let rows = sqlx::query(
-        &format!(
-            "WITH kept AS NOT MATERIALIZED (
+    let rows = sqlx::query(&format!(
+        "WITH kept AS NOT MATERIALIZED (
              SELECT s.*, {account},
                     (CASE WHEN s.status = 'ACTIVE' THEN '0' ELSE '1' END)
                       || ' ' || lower(COALESCE(s.name, '')) AS house_key
@@ -954,9 +953,8 @@ pub async fn list_supplier_options(
                 )
           ORDER BY house_key, supplier_id
           LIMIT $3",
-            account = account_name("s"),
-        ),
-    )
+        account = account_name("s"),
+    ))
     .bind(status)
     .bind(cursor.as_ref().map(|c| c.supplier_id))
     .bind(limit)
@@ -2615,6 +2613,15 @@ pub struct CatalogPurchaseOrderReceipt {
     pub gross_minor: i64,
     pub discount_minor: i64,
     pub net_minor: i64,
+    /// The order's version once this request was through (1002): what the
+    /// next edit sends back as `If-Match`. A receipt stored before versions
+    /// existed replays as 1, which is what every order was when they began.
+    #[serde(default = "first_order_version")]
+    pub version: i64,
+}
+
+const fn first_order_version() -> i64 {
+    1
 }
 
 #[derive(Debug)]
@@ -2829,14 +2836,17 @@ pub async fn create_catalog_purchase_order(
     };
 
     let purchase_order_id = Uuid::new_v4();
-    sqlx::query(
+    // The version the order starts at is the column's, read back rather than
+    // assumed here.
+    let version: i64 = sqlx::query_scalar(
         "INSERT INTO purchase_order
              (purchase_order_id, po_number, supplier_id, supplier_name,
               supplier_ref_id, supplier_code_snapshot, supplier_name_snapshot,
               destination_site_id, origin_kind, order_status, currency, notes,
               discount_minor, created_by, issued_at, payment_terms_code, discount_bps,
               terms_and_conditions, payment_method)
-         VALUES ($1,$2,$3,$4,$5,$3,$4,$6,'DIRECT','ISSUED','IDR',$7,$9,$8,now(),$10,$11,$12,$13)",
+         VALUES ($1,$2,$3,$4,$5,$3,$4,$6,'DIRECT','ISSUED','IDR',$7,$9,$8,now(),$10,$11,$12,$13)
+         RETURNING version",
     )
     .bind(purchase_order_id)
     .bind(&po_number)
@@ -2851,7 +2861,7 @@ pub async fn create_catalog_purchase_order(
     .bind(request.discount_bps)
     .bind(&terms_and_conditions)
     .bind(&payment_method)
-    .execute(&mut *transaction)
+    .fetch_one(&mut *transaction)
     .await
     .map_err(|error| map_catalog_purchase_error(error, &po_number))?;
 
@@ -2942,6 +2952,7 @@ pub async fn create_catalog_purchase_order(
         gross_minor,
         discount_minor,
         net_minor: gross_minor - discount_minor,
+        version,
     };
     complete_idempotent(
         &mut transaction,
@@ -3114,8 +3125,7 @@ fn validate_catalog_lines(lines: &[CatalogPurchaseLineRequest]) -> Result<(), Ap
                 }
                 if variant.image_urls.iter().any(|url| {
                     let url = url.trim();
-                    url.len() > 2048
-                        || !(url.starts_with("https://") || url.starts_with("http://"))
+                    url.len() > 2048 || !(url.starts_with("https://") || url.starts_with("http://"))
                 }) {
                     return Err(AppError::Validation(format!(
                         "line {}: a variant's photograph is not a link",
@@ -4027,8 +4037,11 @@ pub async fn cancel_purchase_order(
             })?
     };
 
+    // A cancel is a person's change like an edit (1002): the version moves
+    // with it, so an edit opened before it is told the order changed.
     sqlx::query(
-        "UPDATE purchase_order SET order_status = 'CANCELLED' WHERE purchase_order_id = $1",
+        "UPDATE purchase_order SET order_status = 'CANCELLED', version = version + 1
+          WHERE purchase_order_id = $1",
     )
     .bind(purchase_order_id)
     .execute(&mut *transaction)
@@ -4110,9 +4123,16 @@ struct HeldLine {
 /// be removed, repriced, or cut below what has already arrived. The DC gets
 /// the whole order again as a `purchase.order.revise` command — the same shape
 /// it was activated with — and it keeps any line it has already counted.
+///
+/// `expected_version` is the version the editor opened the order at (the
+/// request's `If-Match`). When given and the order has moved since, the edit
+/// is refused naming who changed it and when; a retry of a request that
+/// already went through still answers with its first receipt. Absent, the
+/// edit is taken as before versions existed (1002).
 pub async fn revise_catalog_purchase_order(
     pool: &PgPool,
     purchase_order_id: Uuid,
+    expected_version: Option<i64>,
     request: CatalogPurchaseOrderRevision,
     actor: &str,
     idempotency_key: &str,
@@ -4143,13 +4163,24 @@ pub async fn revise_catalog_purchase_order(
     // on the lines between the checks below and the rewrite.
     let header = sqlx::query(
         "SELECT po_number, supplier_id, supplier_name, supplier_ref_id, destination_site_id,
-                notes, discount_minor, created_by, payment_terms_code, terms_and_conditions
+                notes, discount_minor, created_by, payment_terms_code, terms_and_conditions,
+                version
            FROM purchase_order WHERE purchase_order_id = $1 FOR UPDATE",
     )
     .bind(purchase_order_id)
     .fetch_optional(&mut *transaction)
     .await?
     .ok_or_else(|| AppError::NotFound("purchase order".into()))?;
+    // Compared under the lock above and after the replay check: two edits
+    // opened at the same version queue on the row, and the second reads the
+    // version the first left behind, so only one of them goes through. A
+    // retry of an edit that went through has already been answered.
+    if let Some(expected) = expected_version {
+        let current: i64 = header.try_get("version")?;
+        if current != expected {
+            return Err(stale_purchase_order_error(&mut transaction, purchase_order_id).await);
+        }
+    }
     if let Some(reason) = purchase_order_edit_blocker(&mut *transaction, purchase_order_id).await? {
         return Err(AppError::Conflict(reason));
     }
@@ -4450,11 +4481,15 @@ pub async fn revise_catalog_purchase_order(
     .bind(purchase_order_id)
     .execute(&mut *transaction)
     .await?;
-    sqlx::query(
+    // The version moves on every save, the same as the log below is written
+    // on every save: whoever opened the order before this one must reopen it.
+    let version: i64 = sqlx::query_scalar(
         "UPDATE purchase_order SET notes = $2, discount_minor = $3, payment_terms_code = $4,
                 discount_bps = $5, terms_and_conditions = $6,
-                payment_method = COALESCE($7, payment_method)
-          WHERE purchase_order_id = $1",
+                payment_method = COALESCE($7, payment_method),
+                version = version + 1
+          WHERE purchase_order_id = $1
+          RETURNING version",
     )
     .bind(purchase_order_id)
     .bind(&notes)
@@ -4463,7 +4498,7 @@ pub async fn revise_catalog_purchase_order(
     .bind(request.discount_bps)
     .bind(&terms_and_conditions)
     .bind(&payment_method)
-    .execute(&mut *transaction)
+    .fetch_one(&mut *transaction)
     .await?;
 
     let mut wire_lines = Vec::with_capacity(snapshots.len());
@@ -4561,6 +4596,7 @@ pub async fn revise_catalog_purchase_order(
         gross_minor,
         discount_minor,
         net_minor,
+        version,
     };
     complete_idempotent(
         &mut transaction,
@@ -4570,6 +4606,118 @@ pub async fn revise_catalog_purchase_order(
     .await?;
     transaction.commit().await?;
     Ok(receipt)
+}
+
+/// The refusal for an edit opened at a version the order has since left.
+///
+/// Names the last person to change the order and when, read from what each
+/// of those changes already records: the edit and cancel log, a line closed
+/// short, and a price approved for the rest of the order. Shown as the
+/// person's name where head office knows one, and in Jakarta time, the
+/// business's own. Nothing recorded, it says only that the order changed.
+async fn stale_purchase_order_error(
+    transaction: &mut Transaction<'_, Postgres>,
+    purchase_order_id: Uuid,
+) -> AppError {
+    let last = sqlx::query(
+        "SELECT COALESCE(NULLIF(btrim(u.display_name), ''), initcap(c.who)) AS who,
+                to_char(c.at AT TIME ZONE 'Asia/Jakarta', 'HH24:MI \"on\" FMDD Mon YYYY')
+                    AS at_text
+           FROM (SELECT r.revised_by AS who, r.revised_at AS at
+                   FROM purchase_order_revision r
+                  WHERE r.purchase_order_id = $1
+                 UNION ALL
+                 SELECT l.closed_short_by, l.closed_short_at
+                   FROM purchase_order_line l
+                  WHERE l.purchase_order_id = $1 AND l.closed_short_at IS NOT NULL
+                 UNION ALL
+                 SELECT a.decided_by, a.decided_at
+                   FROM purchase_price_amendment a
+                   JOIN purchase_order_line l ON l.po_line_id = a.po_line_id
+                  WHERE l.purchase_order_id = $1 AND a.scope = 'REMAINING') c
+           LEFT JOIN app_user u ON lower(u.username) = lower(c.who)
+          ORDER BY c.at DESC
+          LIMIT 1",
+    )
+    .bind(purchase_order_id)
+    .fetch_optional(&mut **transaction)
+    .await;
+    let named = match last {
+        Ok(Some(row)) => {
+            match (
+                row.try_get::<Option<String>, _>("who"),
+                row.try_get::<Option<String>, _>("at_text"),
+            ) {
+                (Ok(Some(who)), Ok(Some(at))) => Some((who, at)),
+                _ => None,
+            }
+        }
+        Ok(None) => None,
+        Err(error) => return AppError::Database(error),
+    };
+    AppError::Conflict(match named {
+        Some((who, at)) => format!(
+            "This order was changed by {who} at {at} since you opened it. Reopen it to see the change."
+        ),
+        None => "This order was changed since you opened it. Reopen it to see the change.".into(),
+    })
+}
+
+/// Move an order's version on after a person closed one of its lines short.
+///
+/// The close itself is written elsewhere (`close_purchase_line_short`) in a
+/// transaction of its own, so this is a second statement after it: an edit
+/// opened before the close is then told the order changed. The revise path's
+/// line guards refuse to undo a close either way; this is what lets the
+/// buyer hear about it.
+pub async fn bump_purchase_order_version_for_line(
+    pool: &PgPool,
+    po_line_id: Uuid,
+) -> Result<(), AppError> {
+    sqlx::query(
+        "UPDATE purchase_order SET version = version + 1
+          WHERE purchase_order_id =
+                (SELECT purchase_order_id FROM purchase_order_line WHERE po_line_id = $1)",
+    )
+    .bind(po_line_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Move an order's version on after head office approved a price for the
+/// rest of it — the one answer to a price query that rewrites the order's
+/// line. A second statement after the decision, for the same reason as
+/// [`bump_purchase_order_version_for_line`].
+pub async fn bump_purchase_order_version_for_price_amendment(
+    pool: &PgPool,
+    request_id: Uuid,
+) -> Result<(), AppError> {
+    sqlx::query(
+        "UPDATE purchase_order SET version = version + 1
+          WHERE purchase_order_id =
+                (SELECT l.purchase_order_id
+                   FROM purchase_price_amendment a
+                   JOIN purchase_order_line l ON l.po_line_id = a.po_line_id
+                  WHERE a.request_id = $1)",
+    )
+    .bind(request_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// The order's version as it stands, for the order sheet to send back as
+/// `If-Match` with its next edit.
+pub async fn purchase_order_version(
+    pool: &PgPool,
+    purchase_order_id: Uuid,
+) -> Result<i64, AppError> {
+    sqlx::query_scalar::<_, i64>("SELECT version FROM purchase_order WHERE purchase_order_id = $1")
+        .bind(purchase_order_id)
+        .fetch_optional(pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound("purchase order".into()))
 }
 
 /// Replace a line's colour-and-size breakdown with the one given.

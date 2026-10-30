@@ -153,7 +153,12 @@ impl ExplorerGroup {
     fn reads_months(self) -> bool {
         matches!(
             self,
-            Self::Article | Self::Division | Self::Tag | Self::Supplier | Self::Po | Self::Store
+            Self::Article
+                | Self::Division
+                | Self::Tag
+                | Self::Supplier
+                | Self::Po
+                | Self::Store
                 | Self::Month
                 | Self::Sku
                 | Self::Colour
@@ -227,12 +232,7 @@ impl ExplorerGroup {
     fn reads_article_stock(self) -> bool {
         matches!(
             self,
-            Self::Article
-                | Self::Division
-                | Self::Tag
-                | Self::Supplier
-                | Self::Po
-                | Self::Store
+            Self::Article | Self::Division | Self::Tag | Self::Supplier | Self::Po | Self::Store
         )
     }
 
@@ -584,7 +584,10 @@ fn compare_window(
         None | Some("none") => Ok(None),
         Some("previous") => {
             let days = (to - from).num_days() + 1;
-            Ok(Some((from - Duration::days(days), from - Duration::days(1))))
+            Ok(Some((
+                from - Duration::days(days),
+                from - Duration::days(1),
+            )))
         }
         Some("year") => {
             let back = |d: NaiveDate| {
@@ -616,7 +619,11 @@ fn split_months(
         }
         .unwrap_or(first)
     };
-    let first_whole = if from.day() == 1 { from } else { next_month(from) };
+    let first_whole = if from.day() == 1 {
+        from
+    } else {
+        next_month(from)
+    };
     let after_to = to + Duration::days(1);
     let last_whole = if after_to.day() == 1 {
         first_of(to)
@@ -749,7 +756,11 @@ impl Filters {
                 .push("::text[]");
         }
         let sku = format!("{t}.sku_code");
-        self.push_item_filters(b, &format!("{t}.article_id"), has_sku.then_some(sku.as_str()));
+        self.push_item_filters(
+            b,
+            &format!("{t}.article_id"),
+            has_sku.then_some(sku.as_str()),
+        );
     }
 
     /// Filters on what an article or SKU is (supplier, colour, size, search):
@@ -795,7 +806,9 @@ impl Filters {
         if let Some(q) = &self.q {
             let pattern = format!(
                 "%{}%",
-                q.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
+                q.replace('\\', "\\\\")
+                    .replace('%', "\\%")
+                    .replace('_', "\\_")
             );
             b.push(format!(
                 " AND {article} IN (SELECT a.id FROM article a
@@ -822,7 +835,9 @@ impl Filters {
                  WHERE true",
         );
         if !self.stores.is_empty() {
-            b.push(" AND x.site_id = ANY(").push_bind(self.stores.clone()).push(")");
+            b.push(" AND x.site_id = ANY(")
+                .push_bind(self.stores.clone())
+                .push(")");
         }
         if !self.divisions.is_empty() {
             b.push(" AND k.article_id IN (SELECT a.id FROM article a WHERE a.division_code = ANY(")
@@ -989,7 +1004,11 @@ async fn transaction_groups(
         .sort
         .as_deref()
         .filter(|s| !s.is_empty())
-        .unwrap_or(if group == ExplorerGroup::Session { "key" } else { "sales" })
+        .unwrap_or(if group == ExplorerGroup::Session {
+            "key"
+        } else {
+            "sales"
+        })
         .to_string();
     let by_sales = matches!(sort.as_str(), "sales" | "qty" | "sold");
     let desc = !matches!(query.dir.as_deref(), Some("asc"));
@@ -1045,7 +1064,9 @@ async fn transaction_groups(
         let mut compare = std::collections::BTreeMap::<String, (i64, i64)>::new();
         if let Some((cf, ct)) = compare_window(query.compare.as_deref(), query.from, query.to)? {
             for row in window(cf, ct).await? {
-                let entry = compare.entry(row.try_get::<String, _>("method")?).or_default();
+                let entry = compare
+                    .entry(row.try_get::<String, _>("method")?)
+                    .or_default();
                 entry.0 += row.try_get::<i64, _>("receipts")?;
                 entry.1 += row.try_get::<i64, _>("amount")?;
             }
@@ -1070,7 +1091,11 @@ async fn transaction_groups(
             } else {
                 a.label.cmp(&b.label)
             };
-            if desc && sort != "key" { order.reverse() } else { order }
+            if desc && sort != "key" {
+                order.reverse()
+            } else {
+                order
+            }
         });
         out.rows_total = i64::try_from(rows.len()).unwrap_or(0);
         out.rows = rows;
@@ -1099,7 +1124,9 @@ async fn transaction_groups(
             .map(|q| {
                 format!(
                     "%{}%",
-                    q.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
+                    q.replace('\\', "\\\\")
+                        .replace('%', "\\%")
+                        .replace('_', "\\_")
                 )
             });
         let rows = sqlx::query(&format!(
@@ -1151,7 +1178,11 @@ async fn transaction_groups(
             let label = format!(
                 "{} · {} · {}",
                 store.clone().unwrap_or_else(|| site_id.clone()),
-                if key.is_empty() { "No session".to_string() } else { terminal.unwrap_or_else(|| "Till".into()) },
+                if key.is_empty() {
+                    "No session".to_string()
+                } else {
+                    terminal.unwrap_or_else(|| "Till".into())
+                },
                 day.format("%-d %b %Y")
             );
             let detail = if key.is_empty() {
@@ -1162,11 +1193,19 @@ async fn transaction_groups(
                     (Some(o), None) => Some(format!("{o}–open")),
                     _ => None,
                 };
-                let text = [cashier, span].into_iter().flatten().collect::<Vec<_>>().join(" · ");
+                let text = [cashier, span]
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>()
+                    .join(" · ");
                 (!text.is_empty()).then_some(text)
             };
             items.push(ExplorerRow {
-                key: if key.is_empty() { format!("{day}|{site_id}|") } else { key },
+                key: if key.is_empty() {
+                    format!("{day}|{site_id}|")
+                } else {
+                    key
+                },
                 label,
                 detail,
                 image_url: None,
@@ -1195,14 +1234,22 @@ async fn sales_explorer_items(
     can_see_cost: bool,
 ) -> Result<SalesExplorer, AppError> {
     if query.to < query.from {
-        return Err(AppError::Validation("the period ends before it starts".into()));
+        return Err(AppError::Validation(
+            "the period ends before it starts".into(),
+        ));
     }
     if (query.to - query.from).num_days() > 3 * 366 {
-        return Err(AppError::Validation("a period is at most three years".into()));
+        return Err(AppError::Validation(
+            "a period is at most three years".into(),
+        ));
     }
     let group = ExplorerGroup::parse(query.group.as_deref().unwrap_or("article"))?;
     let (default_sort, default_desc) = group.default_sort();
-    let sort = query.sort.as_deref().filter(|s| !s.is_empty()).unwrap_or(default_sort);
+    let sort = query
+        .sort
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .unwrap_or(default_sort);
     let desc = match query.dir.as_deref() {
         Some("asc") => false,
         Some("desc") => true,
@@ -1212,7 +1259,9 @@ async fn sales_explorer_items(
     let limit = query.limit.unwrap_or(100).clamp(1, 1000);
     let offset = query.offset.unwrap_or(0).max(0);
     let cmp = compare_window(query.compare.as_deref(), query.from, query.to)?;
-    let want_stock = query.stock.unwrap_or(false) || query.unsold.unwrap_or(false) || matches!(sort, "stock" | "stock_value" | "sell_through");
+    let want_stock = query.stock.unwrap_or(false)
+        || query.unsold.unwrap_or(false)
+        || matches!(sort, "stock" | "stock_value" | "sell_through");
     let with_stock = want_stock && group.has_stock();
     let matrix = query.matrix.unwrap_or(false);
     let by_month = !matrix && query.months.unwrap_or(false);
@@ -1240,7 +1289,6 @@ async fn sales_explorer_items(
         super::sales_rollup_catch_up(pool, cf, ct, 60).await?;
     }
 
-
     // One statement: the window once, then the rows, the page's cells and
     // the totals as kinds of one result.
     let base = group.base();
@@ -1255,7 +1303,10 @@ async fn sales_explorer_items(
     let months = if group.reads_months() {
         if !filters.colours.is_empty()
             || !filters.sizes.is_empty()
-            || matches!(group, ExplorerGroup::Sku | ExplorerGroup::Colour | ExplorerGroup::Size)
+            || matches!(
+                group,
+                ExplorerGroup::Sku | ExplorerGroup::Colour | ExplorerGroup::Size
+            )
         {
             Months::Sku
         } else {
@@ -1294,8 +1345,16 @@ async fn sales_explorer_items(
                FROM sums s
                LEFT JOIN arts a ON a.p_key = s.p_key AND a.period = s.period
          )",
-        article = if keeps_article { "w.article_id" } else { "NULL::uuid" },
-        count_articles = if keeps_article && wants_articles { "true" } else { "false" },
+        article = if keeps_article {
+            "w.article_id"
+        } else {
+            "NULL::uuid"
+        },
+        count_articles = if keeps_article && wants_articles {
+            "true"
+        } else {
+            "false"
+        },
         // By month the month stands where the store would: the cells and the
         // column totals are then read exactly as the store matrix's are.
         site = if by_month {
@@ -1808,7 +1867,9 @@ async fn sales_explorer_items(
                     row.try_get::<Option<i64>, _>("rank")?.unwrap_or(0),
                     ExplorerRow {
                         key: row.try_get::<Option<String>, _>("key")?.unwrap_or_default(),
-                        label: row.try_get::<Option<String>, _>("label")?.unwrap_or_default(),
+                        label: row
+                            .try_get::<Option<String>, _>("label")?
+                            .unwrap_or_default(),
                         detail: row.try_get("detail")?,
                         image_url: row.try_get("image_url")?,
                         figures: figures(row)?,
@@ -1823,8 +1884,9 @@ async fn sales_explorer_items(
             }
             "cell" => {
                 let key: String = row.try_get::<Option<String>, _>("key")?.unwrap_or_default();
-                let site_id: String =
-                    row.try_get::<Option<String>, _>("site_id")?.unwrap_or_default();
+                let site_id: String = row
+                    .try_get::<Option<String>, _>("site_id")?
+                    .unwrap_or_default();
                 cells.entry(key).or_default().push(ExplorerCell {
                     site_id,
                     figures: figures(row)?,
@@ -1843,8 +1905,9 @@ async fn sales_explorer_items(
                 }
             }
             "store_total" if period == 0 => {
-                let site_id: String =
-                    row.try_get::<Option<String>, _>("site_id")?.unwrap_or_default();
+                let site_id: String = row
+                    .try_get::<Option<String>, _>("site_id")?
+                    .unwrap_or_default();
                 store_totals.insert(site_id, figures(row)?);
             }
             "stock" => {
@@ -1854,8 +1917,9 @@ async fn sales_explorer_items(
                 ));
             }
             "store_stock" => {
-                let site_id: String =
-                    row.try_get::<Option<String>, _>("site_id")?.unwrap_or_default();
+                let site_id: String = row
+                    .try_get::<Option<String>, _>("site_id")?
+                    .unwrap_or_default();
                 store_stock.insert(
                     site_id,
                     (
@@ -1875,12 +1939,12 @@ async fn sales_explorer_items(
     if with_stock && !by_month {
         for store in &stores {
             let (on_hand, cost) = store_stock.get(&store.site_id).copied().unwrap_or((0, 0));
-            let entry = store_totals.entry(store.site_id.clone()).or_insert_with(|| {
-                ExplorerFigures {
+            let entry = store_totals
+                .entry(store.site_id.clone())
+                .or_insert_with(|| ExplorerFigures {
                     cost_minor: can_see_cost.then_some(0),
                     ..ExplorerFigures::default()
-                }
-            });
+                });
             entry.stock = Some(on_hand);
             entry.stock_cost_minor = can_see_cost.then_some(cost);
         }
@@ -1934,7 +1998,6 @@ async fn sales_explorer_items(
             row
         })
         .collect();
-
 
     Ok(SalesExplorer {
         from: query.from,

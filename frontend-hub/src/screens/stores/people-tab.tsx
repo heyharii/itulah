@@ -33,10 +33,13 @@ import { saying } from "@/screens/system/units"
 /// the fingers recorded at the store's POS, waiting for head office, and the
 /// team that signs in there.
 ///
-/// Every finger recorded at a store waits for head office — the store head
-/// records her own after signing in with her password, and the team's after
-/// her. An Admin approves it, and it is the person's from then on: at every POS
-/// of the store, and for attendance. Refusing says why at the POS, beside the
+/// The store head records her own finger after signing in with her password,
+/// and the team's after her, and recording one is her approval (owner, 24 Oct
+/// 2026 for the team, 25 Oct for her own): it arrives approved under her name
+/// and is the person's at once — at every POS of the store, and for
+/// attendance — and an Admin can withdraw it from the person's Fingerprints.
+/// What waits here is a finger from a store server that predates that, which
+/// an Admin approves or refuses; refusing says why at the POS, beside the
 /// finger. The card is there only while something waits; the team is under it,
 /// each row saying whether the person is on a shift, stopped or last active,
 /// and opening their sheet (`?person=`, `person-sheet.tsx`).

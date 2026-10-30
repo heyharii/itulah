@@ -395,9 +395,17 @@ impl EdcBanks {
             ))
         })
         .collect::<Result<BTreeMap<_, _>, AppError>>()?;
-        let banks = sqlx::query_scalar::<_, String>("SELECT upper(code) FROM bank WHERE active")
-            .fetch_all(pool)
-            .await?;
+        // Only the banks this shop actually has a machine for. A QRIS tender
+        // that names some other bank, or a wallet provider, must not be
+        // trusted just because the company has a ledger account somewhere;
+        // it falls back to the terminal the POS paid on, and otherwise waits.
+        let banks = sqlx::query_scalar::<_, String>(
+            "SELECT DISTINCT upper(bank_code) FROM edc_terminal
+              WHERE site_id = $1 AND active",
+        )
+        .bind(site_id)
+        .fetch_all(pool)
+        .await?;
         let accounts = sqlx::query(
             "SELECT bank_code, max(debit_account) AS debit_account,
                     max(credit_account) AS credit_account, max(qris_account) AS qris_account
@@ -427,20 +435,74 @@ impl EdcBanks {
 }
 
 /// The bank a QRIS tender settles through (owner decision 25 Sep: QRIS rides
-/// the EDC of a bank). The acquirer the POS sent when it is a bank; otherwise
-/// the bank of the terminal it was paid on; otherwise nothing, which sends the
-/// bucket to the exception queue. Every other method passes through.
+/// the EDC of a bank; owner 2026: which machine, which bank).
+///
+/// The terminal the POS paid on wins when it names one, because that is the
+/// machine whose account the money reaches. Otherwise the acquirer the POS
+/// sent is used — but only when it is one of THIS shop's EDC banks; a QRIS
+/// provider that happens to have a ledger account elsewhere is not evidence
+/// of where this sale settled. When neither answers, the bucket is left empty
+/// and waits in the exception queue rather than guessing a bank.
 fn qris_bank(method: &str, acquirer: String, terminal: Option<&str>, edc: &EdcBanks) -> String {
     if method != "QRIS" {
         return acquirer;
     }
+    if let Some(bank) = terminal
+        .map(|t| t.trim().to_ascii_uppercase())
+        .and_then(|t| edc.terminals.get(&t).cloned())
+    {
+        return bank;
+    }
     if edc.banks.iter().any(|bank| *bank == acquirer) {
         return acquirer;
     }
-    terminal
-        .map(|t| t.trim().to_ascii_uppercase())
-        .and_then(|t| edc.terminals.get(&t).cloned())
-        .unwrap_or_default()
+    String::new()
+}
+
+#[cfg(test)]
+mod qris_edc_tests {
+    use super::*;
+
+    fn shop() -> EdcBanks {
+        EdcBanks {
+            terminals: BTreeMap::from([
+                ("T-BNI-01".to_string(), "BNI".to_string()),
+                ("T-BCA-01".to_string(), "BCA".to_string()),
+            ]),
+            banks: vec!["BCA".to_string(), "BNI".to_string()],
+            accounts: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn qris_follows_the_edc_machine_it_was_paid_on() {
+        let edc = shop();
+        // A QRIS provider named as the acquirer does not override the machine.
+        assert_eq!(
+            qris_bank("QRIS", "GOPAY".into(), Some("T-BNI-01"), &edc),
+            "BNI"
+        );
+        // With no terminal id, the shop's own EDC bank is believed.
+        assert_eq!(qris_bank("QRIS", "BNI".into(), None, &edc), "BNI");
+        assert_eq!(qris_bank("QRIS", "BCA".into(), None, &edc), "BCA");
+    }
+
+    #[test]
+    fn qris_with_no_machine_or_unrelated_bank_waits_rather_than_guesses() {
+        let edc = shop();
+        assert_eq!(qris_bank("QRIS", "GOPAY".into(), None, &edc), "");
+        assert_eq!(qris_bank("QRIS", "MANDIRI".into(), None, &edc), "");
+        assert_eq!(qris_bank("QRIS", "".into(), None, &edc), "");
+        // A terminal the shop does not have says nothing either.
+        assert_eq!(qris_bank("QRIS", "GOPAY".into(), Some("T-OTHER"), &edc), "");
+    }
+
+    #[test]
+    fn every_other_method_keeps_the_acquirer_it_was_sent() {
+        let edc = shop();
+        assert_eq!(qris_bank("CARD", "BCA".into(), None, &edc), "BCA");
+        assert_eq!(qris_bank("CASH", "".into(), None, &edc), "");
+    }
 }
 
 #[derive(Default)]
@@ -1386,13 +1448,21 @@ pub async fn sales_posting_exception_resolve(
         "QRIS"
     };
     // The day happened at the shop; its takings are in the books of the unit
-    // that owns it.
+    // that owns it. QRIS, though, was taken on an EDC and the money is in the
+    // bank the person just named — so it debits Cash in Bank at head office,
+    // exactly as a QRIS line the day could place for itself. Only an e-wallet
+    // stays on the provider receivable.
     let unit = super::sites::unit_of_site(pool, &site_id).await?;
+    let head_office = super::sites::head_office_unit_id(pool).await?;
+    let (asset_key, asset_unit) = if method == "QRIS" {
+        ("bank_giro", posting_unit(&unit, "bank_giro", &head_office))
+    } else {
+        ("card_receivable_debit", unit.clone())
+    };
     let memo = format!("{label} {bank} takings (exception resolved)");
     let lines = vec![
         {
-            let mut line =
-                PostingLine::debit("card_receivable_debit", &unit, net).with_qualifier(&bank);
+            let mut line = PostingLine::debit(asset_key, &asset_unit, net).with_qualifier(&bank);
             line.memo = Some(memo.clone());
             line
         },
@@ -1408,32 +1478,34 @@ pub async fn sales_posting_exception_resolve(
         posting_date: business_date,
         source_kind: "SALE_DAY_EXCEPTION".into(),
         source_id: Some(exception_id.to_string()),
-        rule_version: "sale_day_exception/1".into(),
+        rule_version: "sale_day_exception/2".into(),
         currency,
         memo: Some(format!("{memo} {site_id} {business_date}")),
         lines,
     };
     let mut tx = pool.begin().await?;
     let posted = post(&mut tx, &intent, None, actor).await?;
-    let side = LedgerSide {
-        semantic_key: "card_receivable_debit",
-        qualifier: bank.clone(),
-        debit_minor: net,
-        credit_minor: 0,
-        memo,
-        account_code: None,
-    };
-    sales_posting_open_receivables(
-        &mut tx,
-        posting_id,
-        &format!("EXCEPTION_{exception_id}"),
-        &unit,
-        business_date,
-        posted.entry_id,
-        std::slice::from_ref(&side),
-        actor,
-    )
-    .await?;
+    if asset_key == "card_receivable_debit" {
+        let side = LedgerSide {
+            semantic_key: asset_key,
+            qualifier: bank.clone(),
+            debit_minor: net,
+            credit_minor: 0,
+            memo,
+            account_code: None,
+        };
+        sales_posting_open_receivables(
+            &mut tx,
+            posting_id,
+            &format!("EXCEPTION_{exception_id}"),
+            &asset_unit,
+            business_date,
+            posted.entry_id,
+            std::slice::from_ref(&side),
+            actor,
+        )
+        .await?;
+    }
     sqlx::query(
         "UPDATE sales_posting_exception
             SET status = 'RESOLVED', resolved_bank = $2, journal_entry_id = $3,

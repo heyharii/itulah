@@ -258,7 +258,11 @@ fn browse(listen: Duration) -> Result<Vec<Heard>, String> {
                     .collect();
                 // IPv4 first: a URL with a scoped IPv6 literal is one a proxy
                 // and a person both get wrong, and every shop LAN has IPv4.
-                addresses.sort_by_key(|address| (!address.is_ipv4(), *address));
+                // The shop's LAN before anything else: a node on a PC that
+                // also runs Tailscale advertises its 100.64/10 address too,
+                // and a till that kept that one stops finding its server
+                // the day Tailscale is off (riza-1, 30 Oct 2026).
+                addresses.sort_by_key(|address| (!address.is_ipv4(), overlay(address), *address));
                 addresses.dedup();
                 heard.insert(
                     service.get_fullname().to_string(),
@@ -287,6 +291,15 @@ fn browse(listen: Duration) -> Result<Vec<Heard>, String> {
 }
 
 /// Try each address one advertisement gave until one answers as our node.
+/// An overlay network's address — Tailscale's carrier-grade NAT range,
+/// 100.64.0.0/10 — which a shop's other machines may not share.
+fn overlay(address: &IpAddr) -> bool {
+    match address {
+        IpAddr::V4(v4) => v4.octets()[0] == 100 && (v4.octets()[1] & 0xC0) == 64,
+        IpAddr::V6(_) => false,
+    }
+}
+
 fn confirm(heard: &Heard) -> FoundNode {
     let mut bases: Vec<String> = heard
         .addresses

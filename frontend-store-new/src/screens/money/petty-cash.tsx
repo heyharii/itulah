@@ -16,6 +16,7 @@ import { useShopPeople } from "@/lib/queries/shop-people"
 import { queryState } from "@/lib/query-state"
 import { useNodeIdentity } from "@/lib/session"
 import { cn } from "@/lib/utils"
+import { BOX, TD, TH } from "@/screens/money/declaration-words"
 import { signed } from "@/screens/money/format"
 import { Rows } from "@/screens/money/parts"
 import {
@@ -230,47 +231,134 @@ function Passbook({
       {queryState(book, {
         loading: "Reading the book…",
         render: (page) => (
-          <Rows
-            rows={rows}
-            columns={COLUMNS}
-            rowKey={(row) => row.voucher.id}
-            empty="No BKM or BKK yet."
-            onOpen={(row) => onOpen(row.voucher)}
-            card={({ voucher }) => ({
-              title: forOf(voucher),
-              code: voucher.no,
-              lines: [
-                voucher.party === ""
-                  ? voucher.lines[0].word
-                  : `${voucher.lines[0].word} · ${voucher.party}`,
-              ],
-              lead: {
-                figure: (
-                  <span className={cn(voucher.kind === "BKM" && "text-ok-fg")}>
-                    {signed(effectOf(voucher))}
-                  </span>
-                ),
-                caption: day(voucher.at),
-              },
-              foot:
-                voucher.kind === "BKK"
-                  ? {
-                      info: clock(voucher.at),
-                      status: <NoNota id={voucher.id} />,
-                    }
-                  : { info: clock(voucher.at) },
-            })}
-            foot={
-              page.next_cursor === null ? undefined : (
-                <p className="border-t border-hairline px-4 py-2.5 text-meta text-body max-md:mt-3 max-md:border-t-0 max-md:px-1">
-                  Showing the latest {units(vouchers.length)} vouchers.
-                </p>
-              )
-            }
-          />
+          <>
+            <div className="max-md:hidden">
+              <Statement
+                rows={rows}
+                balanceNow={position.balance_minor}
+                onOpen={onOpen}
+              />
+            </div>
+            <div className="md:hidden">
+              <Rows
+                rows={rows}
+                columns={COLUMNS}
+                rowKey={(row) => row.voucher.id}
+                empty="No BKM or BKK yet."
+                onOpen={(row) => onOpen(row.voucher)}
+                card={({ voucher }) => ({
+                  title: forOf(voucher),
+                  code: voucher.no,
+                  lines: [
+                    voucher.party === ""
+                      ? voucher.lines[0].word
+                      : `${voucher.lines[0].word} · ${voucher.party}`,
+                  ],
+                  lead: {
+                    figure: (
+                      <span
+                        className={cn(voucher.kind === "BKM" && "text-ok-fg")}
+                      >
+                        {signed(effectOf(voucher))}
+                      </span>
+                    ),
+                    caption: day(voucher.at),
+                  },
+                  foot:
+                    voucher.kind === "BKK"
+                      ? {
+                          info: clock(voucher.at),
+                          status: <NoNota id={voucher.id} />,
+                        }
+                      : { info: clock(voucher.at) },
+                })}
+                foot={
+                  page.next_cursor === null ? undefined : (
+                    <p className="border-t border-hairline px-4 py-2.5 text-meta text-body max-md:mt-3 max-md:border-t-0 max-md:px-1">
+                      Showing the latest {units(vouchers.length)} vouchers.
+                    </p>
+                  )
+                }
+              />
+            </div>
+          </>
         ),
       })}
     </>
+  )
+}
+
+/// The book read like a bank statement, on a desk: oldest first, the opening
+/// balance on top, the balance after every voucher, the closing balance at the
+/// foot. The same vouchers as the cards a phone gets.
+function Statement({
+  rows,
+  balanceNow,
+  onOpen,
+}: {
+  rows: readonly BookRow[]
+  balanceNow: number
+  onOpen: (voucher: Voucher) => void
+}) {
+  if (rows.length === 0)
+    return <EmptyState art={null}>No BKM or BKK yet.</EmptyState>
+  const oldest = [...rows].reverse()
+  const opening = oldest[0].balanceMinor - effectOf(oldest[0].voucher)
+  const edge = (when: string, words: string, balance: number) => (
+    <tr className="bg-soft">
+      <td className={cn(TD, "font-medium")}>{day(when)}</td>
+      <td className={cn(TD, "font-medium")}>{words}</td>
+      <td className={TD} />
+      <td className={TD} />
+      <td className={TD} />
+      <td className={cn(TD, "text-right font-medium")}>{money(balance)}</td>
+    </tr>
+  )
+  return (
+    <div className={BOX}>
+      <table className="w-full table-auto border-collapse">
+        <thead>
+          <tr>
+            <th className={TH}>Date</th>
+            <th className={TH}>Description</th>
+            <th className={TH}>Voucher</th>
+            <th className={cn(TH, "text-right")}>Debit</th>
+            <th className={cn(TH, "text-right")}>Credit</th>
+            <th className={cn(TH, "text-right")}>Balance</th>
+          </tr>
+        </thead>
+        <tbody>
+          {edge(oldest[0].voucher.at, "Opening Balance", opening)}
+          {oldest.map(({ voucher, balanceMinor }) => (
+            <tr
+              key={voucher.id}
+              tabIndex={0}
+              onClick={() => onOpen(voucher)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") onOpen(voucher)
+              }}
+              className="cursor-pointer hover:bg-soft"
+            >
+              <td className={TD}>{day(voucher.at)}</td>
+              <td className={TD}>{forOf(voucher)}</td>
+              <td className={cn(TD, "text-mute")}>{voucher.no}</td>
+              <td className={cn(TD, "text-right")}>
+                {voucher.kind === "BKM" ? money(voucher.totalMinor) : null}
+              </td>
+              <td className={cn(TD, "text-right")}>
+                {voucher.kind === "BKK" ? money(voucher.totalMinor) : null}
+              </td>
+              <td className={cn(TD, "text-right")}>{money(balanceMinor)}</td>
+            </tr>
+          ))}
+          {edge(
+            oldest[oldest.length - 1].voucher.at,
+            "Closing Balance",
+            balanceNow,
+          )}
+        </tbody>
+      </table>
+    </div>
   )
 }
 

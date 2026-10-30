@@ -20,9 +20,12 @@
 //! the recruitment the shop runs, performance, training and benefits — plus
 //! the person's own notifications and the shop's own General Affairs (its
 //! place, its assets, its contracts, its repairs, its supply requests), and
-//! nothing else: no payroll, no pay agreement, no personal data, no fingerprint
-//! enrolment, no grievance queue, no head-office rule-setting, no finance, no
-//! stock. A path missing from this list is refused by the store node before it
+//! nothing else: no payroll, no pay agreement, no fingerprint enrolment, no
+//! grievance queue, no head-office rule-setting, no finance, no stock. Personal
+//! data crosses only as a person's papers (1001, owner 2026-10-25): the store
+//! reads its own people's file and keys in a new hire's dossier or a change,
+//! which head office takes or refuses — the decision and the scans' bytes stay
+//! on head office's side. A path missing from this list is refused by the store node before it
 //! leaves the shop *and* by the cloud when it arrives, so a node that forgot to
 //! check, or a caller holding a stolen node key, still meets the same wall.
 //!
@@ -58,6 +61,14 @@ pub const RELAY_USER_HEADER: &str = "x-relay-user";
 /// under `/api/v1/`.
 pub const STORE_RELAY_PREFIX: &str = "/api/v1/store/central";
 
+/// The one relayed call whose body is not a JSON form: a scan's bytes, on
+/// their way to a person's papers (1001). The store node passes its body and
+/// content type through as they came, up to [`RELAY_UPLOAD_MAX_BODY`].
+pub const RELAY_UPLOAD_PATH: &str = "/api/v1/files";
+
+/// The largest scan the relay carries — the centre's own attachment ceiling.
+pub const RELAY_UPLOAD_MAX_BODY: usize = 8 * 1024 * 1024;
+
 /// Every (method, path) a relayed call may take. `{}` is exactly one id-shaped
 /// segment — see [`is_relayable`] for what that admits.
 ///
@@ -79,6 +90,10 @@ pub const HR_RELAY_ALLOWLIST: &[(&str, &str)] = &[
     ("GET", "/api/v1/employees"),
     ("GET", "/api/v1/employees/{}"),
     ("GET", "/api/v1/employees/{}/profile"),
+    // Who a person reports to, so the shop can draw its own chart (owner,
+    // 30 Oct 2026). Read only: a new boss is a change proposal head office
+    // decides, never a placement written from a shop.
+    ("GET", "/api/v1/employees/{}/placements"),
     ("GET", "/api/v1/org/positions"),
     ("GET", "/api/v1/people-policy"),
     ("GET", "/api/v1/payroll/components"),
@@ -161,6 +176,19 @@ pub const HR_RELAY_ALLOWLIST: &[(&str, &str)] = &[
     ("POST", "/api/v1/recruitment/interviews/{}/result"),
     ("GET", "/api/v1/hire-proposals"),
     ("POST", "/api/v1/hire-proposals"),
+    // ── a person's papers, keyed in for head office to take (1001) ─────
+    //
+    // The file reads one place's people (`Reach` bounded to the node); the
+    // two filings wait on head office. A scan goes up as a file first — the
+    // one raw body the relay carries (`RELAY_UPLOAD_PATH`) — and is then
+    // named in a filing. Taking a change, and the scans' bytes, are absent.
+    ("GET", "/api/v1/employees/{}/dossier"),
+    ("POST", "/api/v1/employees/{}/data-updates"),
+    ("POST", "/api/v1/data-updates/{}/withdrawal"),
+    ("GET", "/api/v1/hire-proposals/{}/dossier"),
+    ("PUT", "/api/v1/hire-proposals/{}/dossier"),
+    ("POST", "/api/v1/employee-documents/{}/removal"),
+    ("POST", "/api/v1/files"),
     // ── performance and training ───────────────────────────────────────
     ("GET", "/api/v1/performance/templates"),
     ("GET", "/api/v1/performance/scores"),
@@ -278,6 +306,18 @@ mod tests {
         assert!(is_relayable("GET", "/api/v1/employees"));
         assert!(is_relayable("GET", "/api/v1/employees/EMP-0007"));
         assert!(is_relayable("GET", "/api/v1/payroll/adjustments"));
+        assert!(is_relayable("GET", "/api/v1/employees/EMP-0007/dossier"));
+        assert!(is_relayable(
+            "POST",
+            "/api/v1/employees/EMP-0007/data-updates"
+        ));
+        assert!(is_relayable("PUT", "/api/v1/hire-proposals/hp_1/dossier"));
+        assert!(is_relayable("POST", "/api/v1/files"));
+        assert!(!is_relayable("POST", "/api/v1/data-updates/edu_1/decision"));
+        assert!(!is_relayable(
+            "GET",
+            "/api/v1/employee-documents/edoc_1/content"
+        ));
         for verb in ["approve", "reject", "withdraw"] {
             assert!(is_relayable(
                 "POST",

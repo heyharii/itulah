@@ -138,7 +138,7 @@ export function CancelSale({
   // what should end up written down.
   const reason = typed.trim() !== "" ? typed.trim() : picked
 
-  // The card takes the caret when it opens (F7), so 1–4 pick a reason and
+  // The card takes the caret when it opens (⇧7), so 1–4 pick a reason and
   // nothing typed here reaches the scan field behind it.
   const card = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -816,7 +816,7 @@ export function ReceiptPreview({
                 </span>
               </div>
               <div className="kv">
-                <span className="muted">Kembalian</span>
+                <span className="muted">Kembali</span>
                 <span className="num">
                   <Money value={doc.changeMinor} currency={currency} />
                 </span>

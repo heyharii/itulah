@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { Link, type LinkProps } from "@tanstack/react-router"
-import { Plus } from "lucide-react"
+import { Download, Plus } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
@@ -116,6 +116,22 @@ export function StoresSidebar() {
         <p className="px-2.5 pt-2 text-[0.9375rem] text-mute">
           No store matches
         </p>
+      )}
+
+      {search.trim() === "" && (
+        <div className="mt-[1.375rem] flex flex-col gap-px">
+          <span className="mb-1 ml-1.5 h-[1.5rem] self-start rounded-[0.375rem] bg-soft-2 px-2 text-[0.9375rem] leading-[1.5rem] font-semibold whitespace-nowrap text-mute">
+            Install
+          </span>
+          <Link
+            to={"/stores/apps" as LinkProps["to"]}
+            activeOptions={{ includeSearch: false }}
+            className={ROW}
+          >
+            <span className="min-w-0 flex-1 truncate">Desktop apps</span>
+            <Download className="size-4 shrink-0 text-mute" />
+          </Link>
+        </div>
       )}
     </>
   )

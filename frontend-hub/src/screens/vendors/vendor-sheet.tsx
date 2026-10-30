@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Handshake, Plug, Repeat } from "lucide-react"
+import { Repeat } from "lucide-react"
 import { useState } from "react"
 
 import {
@@ -8,7 +8,6 @@ import {
 } from "@/components/suppliers/panels"
 import { Button } from "@/components/ui/button"
 import { Field, Input, Select } from "@/components/ui/field"
-import { Choices } from "@/components/ui/form"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { Pill, Status } from "@/components/ui/pill"
 import {
@@ -89,7 +88,6 @@ const DEFAULT_ACCOUNTS: readonly { code: string; label: string }[] = [
 /// exists instead of.
 export const BOOK_WORDS: Readonly<Record<string, string>> = {
   EXPENSE: "Operating",
-  AFFILIATE: "Affiliate",
   MERCHANDISE: "Merchandise",
 }
 
@@ -145,38 +143,6 @@ function VendorFields({
   const listed = DEFAULT_ACCOUNTS.some((one) => one.code === account)
   return (
     <div className="flex flex-col gap-5">
-      <Field label="Type">
-        <Choices
-          label="Type"
-          columns={2}
-          value={draft.category}
-          onChange={(category) => set({ category })}
-          options={[
-            {
-              value: "EXPENSE" as SupplierCategory,
-              label: BOOK_WORDS.EXPENSE,
-              icon: Plug,
-            },
-            {
-              value: "AFFILIATE" as SupplierCategory,
-              label: BOOK_WORDS.AFFILIATE,
-              icon: Handshake,
-            },
-            // A supplier already filed as merchandise keeps its type visible
-            // rather than reading as unset.
-            ...(draft.category === "MERCHANDISE"
-              ? [
-                  {
-                    value: "MERCHANDISE" as SupplierCategory,
-                    label: BOOK_WORDS.MERCHANDISE,
-                    icon: Plug,
-                  },
-                ]
-              : []),
-          ]}
-        />
-      </Field>
-
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
         <Field label="Code" required>
           <Input
@@ -297,8 +263,8 @@ export function AddVendorSheet({
     <Sheet
       open={open}
       onOpenChange={(next) => !next && onClose()}
-      context="Suppliers"
-      title="Add supplier"
+      context="Vendors"
+      title="Add vendor"
       size="rail"
       stack
       dirty={dirty}
@@ -306,7 +272,7 @@ export function AddVendorSheet({
         <SheetFooter
           onCancel={onClose}
           primary={{
-            label: "Add supplier",
+            label: "Add vendor",
             pending: save.isPending,
             disabled: !ready,
             onClick: () => save.mutate(),
@@ -449,9 +415,9 @@ export function VendorSheet({
           setEdit(null)
           onClose()
         }}
-        context="Suppliers"
+        context="Vendors"
         title={
-          supplier === undefined ? "Supplier" : supplierDisplayName(supplier)
+          supplier === undefined ? "Vendor" : supplierDisplayName(supplier)
         }
         id={supplier?.supplier_code}
         badge={

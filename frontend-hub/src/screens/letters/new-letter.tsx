@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Plus, X } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Field, Input } from "@/components/ui/field"
@@ -27,6 +27,7 @@ import {
   type WrittenForm,
   type WrittenItem,
 } from "@/screens/letters/forms"
+import type { LetterPreset } from "@/screens/letters/preset"
 import type { LetterTemplate } from "@itulah/contract"
 
 /// New letter: a template, a few details, then the letter itself.
@@ -44,10 +45,13 @@ export function NewLetterSheet({
   open,
   onClose,
   onDrafted,
+  preset = null,
 }: {
   open: boolean
   onClose: () => void
   onDrafted: (id: string) => void
+  /// A form to open on, with its details already filled in.
+  preset?: LetterPreset | null
 }) {
   const client = useQueryClient()
   const nameOf = useNameOfLogin()
@@ -71,6 +75,17 @@ export function NewLetterSheet({
     setValues({ ...kept, letter_date: dayIndonesian(new Date()) })
     setItems(next.items ? [newItem()] : [])
   }
+
+  // Asked for by another screen: open on that form with what it knows.
+  useEffect(() => {
+    if (!open || preset === null) return
+    const asked = writtenForm(preset.form)
+    if (asked === undefined) return
+    setForm(asked)
+    setPattern(null)
+    setValues({ letter_date: dayIndonesian(new Date()), ...preset.values })
+    setItems(asked.items ? [newItem()] : [])
+  }, [open, preset])
 
   const back = () => {
     setForm(null)

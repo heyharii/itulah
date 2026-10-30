@@ -71,8 +71,13 @@ const KIND_ORDER: Readonly<Record<string, number>> = {
   DISK: 6,
 }
 
-/// Tills first among the devices, then the printer, then the rest.
-const DEVICE_ORDER: Readonly<Record<string, number>> = { TILL: 0, PRINTER: 1 }
+/// Tills first among the devices, then warehouse PCs and the printer, then the
+/// rest.
+const DEVICE_ORDER: Readonly<Record<string, number>> = {
+  TILL: 0,
+  WAREHOUSE: 1,
+  PRINTER: 1,
+}
 
 function orderOf(component: FleetComponent): number {
   const kind = KIND_ORDER[component.kind] ?? 9

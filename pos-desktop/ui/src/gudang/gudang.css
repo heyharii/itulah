@@ -1,0 +1,104 @@
+/* ── Central Gudang (client, 25 Oct 2026; warehouse-app-prototype.html).
+   The till's own screen — till-d.css supplies the header, the scan row, the
+   mode row, the table, the floating foot and the status strip — so this file
+   holds only what a stock list adds to it. Scoped under .tilld.gud so it never
+   reaches the till itself. ── */
+
+/* The key that is pressed wears the accent (the till's tile only greys). */
+.tilld.gud .k7.on{background:var(--accent-bg)}
+.tilld.gud .k7.on .k7-k{background:var(--accent);color:#fff;box-shadow:none}
+.tilld.gud .k7.on .k7-l{color:var(--accent);font-weight:600}
+
+/* Every button here has a word, so none of them folds into a keycap at 1024. */
+.tilld.gud .t-big{width:auto;padding:0 14px}
+
+/* "Dari" and the reason: icon radios, the chips pay-d.css draws for Bayar. */
+.tilld.gud .mchips{display:inline-flex;flex:0 1 auto;flex-wrap:wrap;gap:4px;min-width:0}
+.tilld.gud .mchip{height:34px;padding:0 10px;border-radius:8px;box-shadow:inset 0 0 0 1px var(--hairline-2);background:#fff;font-weight:500;white-space:nowrap;transition:background-color 150ms ease,color 150ms ease,scale var(--t-press) var(--ease-out)}
+.tilld.gud .mchip:active:not(:disabled){scale:.96}
+.tilld.gud .mchip.on{background:var(--accent);color:#fff;box-shadow:none}
+@media (hover:hover) and (pointer:fine){.tilld.gud .mchip:not(.on):not(:disabled):hover{background:var(--soft-2)}}
+.tilld.gud .wh-from{display:flex;align-items:center;gap:8px;margin-left:12px}
+.tilld.gud .wh-from .mute{white-space:nowrap}
+.tilld.gud .wh-why{display:inline-flex;gap:4px}
+.tilld.gud .wh-why .mchip{height:30px;padding:0 9px}
+
+/* A route: Gudang → Toko. */
+.tilld.gud .wh-route{display:inline-flex;align-items:center;gap:8px;font-weight:600}
+.tilld.gud .wh-route svg{color:var(--line-ico)}
+
+/* Short of stock in red, a count that differs from the surat jalan in amber. */
+.tilld.gud .t-grid td.wh-short{color:var(--bad-fg);font-weight:600}
+.tilld.gud .t-grid td.wh-diff{color:var(--warn-fg);font-weight:600}
+.tilld.gud .wh-need{color:var(--warn-fg)}
+
+/* The quantity: a plain box, no steppers. Tab or a click selects the number. */
+.tilld.gud .wh-qty{width:72px;height:38px;border-radius:var(--r-inner);background:#fff;box-shadow:inset 0 0 0 1px var(--hairline-2);text-align:center;font-size:17px;font-weight:600;font-variant-numeric:tabular-nums;transition:box-shadow 120ms ease}
+.tilld.gud .wh-qty:focus{outline:none;box-shadow:inset 0 0 0 1px var(--accent),var(--shadow-focus)}
+
+/* The figure at the foot reads "15 pcs": the unit follows it. */
+.tilld.gud .tf-v .cur{margin:0 0 0 6px}
+
+/* A move done, said for a moment at the foot of the screen. */
+.tilld.gud .wh-toasts{position:absolute;right:24px;bottom:128px;align-items:flex-end;z-index:60;display:flex;flex-direction:column;gap:8px;pointer-events:none}
+.tilld.gud .wh-toast{display:flex;align-items:flex-start;gap:10px;width:356px;max-width:100%;padding:12px 14px;border:1px solid var(--hairline);border-radius:var(--r-card);background:#fff;box-shadow:var(--shadow-pop);pointer-events:auto;animation:whToast 200ms var(--ease-out)}
+.tilld.gud .wh-toast svg{margin-top:2px}
+.tilld.gud .wh-toast.ok svg{color:var(--ok-fg)}
+.tilld.gud .wh-toast.info svg{color:var(--accent)}
+.tilld.gud .wh-toast.bad svg{color:var(--bad-fg)}
+.tilld.gud .wh-toast-text{display:flex;flex-direction:column;gap:2px;min-width:0}
+.tilld.gud .wh-toast-title{font-weight:500;color:var(--ink)}
+.tilld.gud .wh-toast-desc{color:var(--body)}
+@keyframes whToast{from{opacity:0;transform:translateY(8px)}}
+@media (prefers-reduced-motion:reduce){.tilld.gud .wh-toast{animation:none}}
+
+/* Kosongkan, as the till's Kantong: icon, word, key. */
+.tilld.gud .t-clear svg{color:#fff}
+
+/* The quantity card a typed SKU opens (QtyAsk). */
+.overlay-card.wh-ask{width:420px;align-items:stretch;text-align:left;gap:16px}
+.wh-ask .nm-t{white-space:normal}
+.wh-ask-held{color:var(--body)}
+.wh-ask-held b{color:var(--ink);font-size:20px}
+.wh-ask-qty{height:47px;padding:0 14px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);font-size:20px;font-weight:600;color:var(--ink)}
+.wh-ask-qty:focus{outline:none;border-color:var(--accent);box-shadow:var(--shadow-focus)}
+.overlay-card.wh-ask{position:relative;padding-top:44px}
+.wh-ask-x{position:absolute;top:10px;right:10px;display:grid;place-items:center;width:36px;height:36px;border-radius:var(--r-inner);color:var(--ink)}
+.wh-ask-x:hover{background:var(--soft-2)}
+.tilld .wh-ask-go{justify-content:space-between;margin:0}
+.wh-ask-err{color:var(--bad-fg)}
+.wh-ask-facts{display:flex;gap:24px;color:var(--body)}
+.wh-ask-facts b{color:var(--ink);font-weight:600}
+
+/* Narrow windows (a phone, a small tab): nothing runs off to the right. The
+   list keeps the article and its quantity; colour and size sit under the name. */
+.wh-vsub{display:none}
+.wh-ask .wh-vsub{display:none!important}
+@media (max-width:760px){
+  .tilld.gud{grid-template-rows:auto minmax(0,1fr) 36px}
+  .tilld.gud .wh-vsub{display:block}
+  .tilld.gud .t-top{flex-wrap:wrap;row-gap:4px;padding:6px 12px}
+  .tilld.gud .t-keys7{order:3;flex:1 0 100%;flex-wrap:wrap;justify-content:center}
+  .tilld.gud .k7{height:44px;min-width:0;padding:0 6px}
+  .tilld.gud .k7-gap{display:none}
+  .tilld.gud .t-person{margin-left:auto}
+  .tilld.gud .t-grid{overflow-x:hidden}
+  .tilld.gud .wh-table{width:100%;table-layout:fixed}
+  .tilld.gud .wh-table col:is(:nth-child(1),:nth-child(3),:nth-child(4)){display:none}
+  .tilld.gud .wh-table col:nth-child(2){width:auto!important}
+  .tilld.gud .wh-table col:is(:nth-child(5),:nth-child(6)){width:68px!important}
+  .tilld.gud .wh-table th{white-space:normal;line-height:1.15}
+  .tilld.gud .wh-table col:nth-child(7){width:auto!important}
+  .tilld.gud .wh-table col:last-child{width:44px!important}
+  .tilld.gud .wh-table :is(th,td){padding-left:8px;padding-right:8px}
+  .tilld.gud .wh-qty{width:100%;min-width:0}
+  .tilld.gud .wh-table :is(th,td):nth-child(1),
+  .tilld.gud .wh-table :is(th,td):nth-child(3),
+  .tilld.gud .wh-table :is(th,td):nth-child(4){display:none}
+  .tilld.gud .wh-why{flex-wrap:wrap}
+  .tilld.gud .t-float{flex-wrap:wrap;gap:8px}
+  .tilld.gud .t-float .t-pay{flex:1 1 100%;margin:0}
+  .tilld.gud .t-status{gap:6px;padding:0 12px}
+  .tilld.gud .wh-toasts{left:12px;right:12px;bottom:150px}
+  .tilld.gud .wh-toast{width:100%}
+}

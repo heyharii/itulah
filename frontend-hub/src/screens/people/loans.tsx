@@ -84,6 +84,26 @@ export function LoanCard({
   })
   const state = loanState(loan)
   const running = !loan.stopped && loan.outstanding_minor > 0
+  const taken = new Set(
+    loan.repayments.filter((one) => one.kind === "PAYROLL").map((one) => one.period)
+  )
+  const plan =
+    loan.instalment_minor > 0 && /^\d{4}-\d{2}$/.test(loan.first_period)
+      ? Array.from(
+          { length: Math.ceil(loan.amount_minor / loan.instalment_minor) },
+          (_, i) => {
+            const at = new Date(
+              Date.UTC(Number(loan.first_period.slice(0, 4)), Number(loan.first_period.slice(5, 7)) - 1 + i, 1)
+            )
+            const period = at.toISOString().slice(0, 7)
+            return {
+              period,
+              amount: Math.min(loan.instalment_minor, loan.amount_minor - i * loan.instalment_minor),
+              taken: taken.has(period),
+            }
+          }
+        )
+      : []
 
   return (
     <div className="rounded-card border border-hairline p-4">
@@ -114,6 +134,21 @@ export function LoanCard({
           ` · ${loan.instalments_left} instalment${loan.instalments_left === 1 ? "" : "s"} to go`}
       </KeyValue>
       <KeyValue term="Granted by">{loan.granted_by}</KeyValue>
+
+      {/* The plan month by month, so what has come off pay and what is still to
+          come read at a glance. Worked out from the instalment, as the server
+          takes it; a month is marked once payroll has taken it. */}
+      {plan.length > 0 && (
+        <div className="mt-3">
+          <SubHead>Plan</SubHead>
+          {plan.map((row) => (
+            <KeyValue key={row.period} term={monthYear(row.period)}>
+              {money(row.amount)}
+              {row.taken ? " · taken" : ""}
+            </KeyValue>
+          ))}
+        </div>
+      )}
 
       {loan.repayments.length > 0 && (
         <div className="mt-3">

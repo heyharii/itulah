@@ -7,6 +7,9 @@ mod acquirer;
 /// sent; the Gudang moves back what MD took out.
 mod allotment_amend;
 mod allotment_close_short;
+/// Allotments the Gudang server holds once the pen has moved: MD's edit
+/// forwarded, and the server's facts that are Central's read copy.
+mod allotment_node;
 mod allotment_store_review;
 mod allotments;
 mod article_history;
@@ -61,6 +64,7 @@ mod devices;
 mod discipline;
 mod discussion;
 mod documents;
+mod dossier;
 mod eligibility;
 mod employment;
 mod enrolment;
@@ -153,6 +157,10 @@ mod queries;
 mod receipts;
 mod received_shipments;
 mod records;
+/// The return promise: a fleet-wide window, an exception for a division, a
+/// tag or an article, and the sentence a receipt prints. See 1005.
+mod point_policy;
+mod return_policy;
 /// Head office told, once, what is about to lapse: GA contracts, filed papers,
 /// supplier bills and tax months. Claimed through the same run ledger as the
 /// HR nudges; the bands are `domain::reminder`'s.
@@ -194,24 +202,15 @@ mod ga_accounts;
 /// build's fields and the appended history. See the module for why it is not
 /// `postgres::assets`.
 mod ga_assets;
+/// GA's insurance claims: damage to a covered thing, claimed under its policy,
+/// and the repair it pays for (0975).
+mod ga_claims;
 /// GA's contracts: the deals with a window, their meters, and the pointers
 /// Finance's recurring bills keep back at them.
 mod ga_contracts;
 /// GA's operating expenses: fuel, tyres, oil, genset fuel — recorded by GA,
 /// handed to Finance as a draft bill or linked to the bill/BKK it already has.
 mod ga_expenses;
-/// GA's insurance claims: damage to a covered thing, claimed under its policy,
-/// and the repair it pays for (0975).
-mod ga_claims;
-/// A vehicle's odometer over time: typed, from a receipt, or read at a service
-/// (0975). The latest reading drives km-based service.
-mod ga_odometer;
-/// Projects, GA's half: a store opening or a renovation, its tasks counted
-/// back from the opening day, and the records it holds (0997).
-mod ga_projects;
-/// Projects, Finance's half: the cost lines a project gathered, and placing
-/// them when it is capitalised (0997).
-mod project_costs;
 /// GA's places: the site register read as a list of places, the one-to-one
 /// facilities detail beside it, and the hub that reads every reference back at
 /// a place. See the module for why a site without a detail still appears.
@@ -219,23 +218,36 @@ mod ga_locations;
 /// GA's upkeep: the schedule, the walk-round, the repair, the swap and the
 /// disposal. The four facts between "we own this" and "Finance priced it".
 mod ga_maintenance;
+/// A vehicle's odometer over time: typed, from a receipt, or read at a service
+/// (0975). The latest reading drives km-based service.
+mod ga_odometer;
 /// GA's papers: a document filed before it is scanned, its physical original,
 /// and every handover of that original (BPKB in the safe, lent to Samsat).
 mod ga_papers;
+/// Projects, GA's half: a store opening or a renovation, its tasks counted
+/// back from the opening day, and the records it holds (0997).
+mod ga_projects;
 /// GA's supplies: the ask a place files, the seven categories it is filed
 /// under, and the ladder it walks to a bill Finance pays.
 mod ga_supplies;
 mod invitations;
 mod job_roles;
+/// Head office stops a till, a cashier or a whole store on the POS, and
+/// removes a store that closed for good (0990). See the module.
+mod pos_access;
+mod pos_joins;
 mod prepaid;
 mod principal;
+/// Projects, Finance's half: the cost lines a project gathered, and placing
+/// them when it is capitalised (0997).
+mod project_costs;
 /// Goods beyond an order going back to the supplier (0710).
 mod purchase_returns;
 /// The 7Soft "Summary Penjualan per Divisi by HPP rata-rata" report, and the
 /// same figures by tag.
 mod sales_by_division;
-mod sales_posting;
 mod sales_explorer;
+mod sales_posting;
 mod sales_rollup;
 mod saved_reports;
 mod segments;
@@ -250,18 +262,12 @@ mod store_actions;
 /// Store exceptions: the needs-attention list of what goes wrong in stores
 /// (0646-0648). See the module.
 mod store_exceptions;
-mod store_money;
-/// A shop's own Send of its reject: the return allotment it stands on.
-mod store_reject_return;
-/// Sales the till could not take from its own stock, matched at head office.
-mod unmatched_sales;
-/// Head office stops a till, a cashier or a whole store on the POS, and
-/// removes a store that closed for good (0990). See the module.
-mod pos_access;
-mod pos_joins;
 /// Opening a store: its readiness checks, head office's decision, and
 /// installing its server from the store's page. See the module.
 mod store_fingers;
+mod store_money;
+/// A shop's own Send of its reject: the return allotment it stands on.
+mod store_reject_return;
 mod stores;
 mod supplier_banks;
 mod supplier_contacts;
@@ -275,6 +281,8 @@ mod time_machine;
 mod transaction_categories;
 mod unit_register;
 mod units;
+/// Sales the till could not take from its own stock, matched at head office.
+mod unmatched_sales;
 mod users;
 mod vocabulary;
 mod vouchers;
@@ -321,7 +329,6 @@ pub use commercial::*;
 pub use company_banks::*;
 pub use components::*;
 pub use contractor_projects::*;
-pub use project_costs::*;
 pub use control::*;
 pub use corrections::*;
 pub use counts::*;
@@ -335,6 +342,7 @@ pub use devices::*;
 pub use discipline::*;
 pub use discussion::*;
 pub use documents::*;
+pub use dossier::*;
 pub use eligibility::*;
 pub use employment::*;
 pub use enrolment::*;
@@ -399,6 +407,7 @@ pub use poster::*;
 pub use price_changes::*;
 pub use price_history::*;
 pub use pricing::*;
+pub use project_costs::*;
 pub use punch::*;
 pub use push::*;
 pub use queries::*;
@@ -408,6 +417,8 @@ pub use records::*;
 pub use reminders::*;
 pub use reports::*;
 pub use reserves::*;
+pub use point_policy::*;
+pub use return_policy::*;
 pub use returns::*;
 pub use rollout::*;
 pub use roster::*;
@@ -431,20 +442,22 @@ pub use ga_assets::*;
 pub use ga_claims::*;
 pub use ga_contracts::*;
 pub use ga_expenses::*;
-pub use ga_odometer::*;
-pub use ga_projects::*;
 pub use ga_locations::*;
 pub use ga_maintenance::*;
+pub use ga_odometer::*;
 pub use ga_papers::*;
+pub use ga_projects::*;
 pub use ga_supplies::*;
 pub use invitations::*;
 pub use job_roles::*;
+pub use pos_access::*;
+pub use pos_joins::*;
 pub use prepaid::*;
 pub use principal::*;
 pub use purchase_returns::*;
 pub use sales_by_division::*;
-pub use sales_posting::*;
 pub use sales_explorer::*;
+pub use sales_posting::*;
 pub use sales_rollup::*;
 pub use saved_reports::*;
 pub use segments::*;
@@ -455,12 +468,9 @@ pub use stock_card::*;
 pub use stock_ledger::*;
 pub use store_actions::*;
 pub use store_exceptions::*;
+pub use store_fingers::*;
 pub use store_money::*;
 pub use store_reject_return::*;
-pub use unmatched_sales::*;
-pub use pos_access::*;
-pub use pos_joins::*;
-pub use store_fingers::*;
 pub use stores::*;
 pub use supplier_banks::*;
 pub use supplier_contacts::*;
@@ -474,6 +484,7 @@ pub use time_machine::*;
 pub use transaction_categories::*;
 pub use unit_register::*;
 pub use units::*;
+pub use unmatched_sales::*;
 pub use users::*;
 pub use vocabulary::*;
 pub use vouchers::*;

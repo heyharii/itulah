@@ -126,6 +126,10 @@ class Api(@Volatile var config: Config) {
      * SQLite transaction. There is no server-side cart to leave half-open on a
      * flaky link, and a retry of this exact key returns the original sale
      * rather than selling the garments twice.
+     *
+     * Called by the outbox and nobody else: the key, the cashier and the time
+     * are what was written down when the sale was rung ([Outbox]), not what is
+     * true when this attempt happens to be made.
      */
     fun sale(
         epcs: List<String>,
@@ -133,6 +137,8 @@ class Api(@Volatile var config: Config) {
         coupons: List<String>,
         customerId: String?,
         idempotencyKey: String,
+        actorId: String = config.cashier,
+        takenAt: String? = null,
     ): SaleResult {
         val body = JSONObject()
             .put("epcs", JSONArray(epcs))
@@ -140,10 +146,14 @@ class Api(@Volatile var config: Config) {
             // Overwritten by the node from the bearer. Sent because the
             // contract requires it, and because a request that travelled
             // through a queue should say who rang it up.
-            .put("actor_id", config.cashier)
+            .put("actor_id", actorId)
             .put("coupon_codes", JSONArray(coupons))
             .put("customer_id", customerId ?: JSONObject.NULL)
             .put("idempotency_key", idempotencyKey)
+        // When the till rang it, so a sale that waited in the outbox is judged
+        // by when it was rung and not by when it arrived (the node reads it as
+        // now when it is absent, or not believable).
+        if (takenAt != null) body.put("taken_at", takenAt)
         return SaleResult.from(request("/api/v1/store/sales", "POST", body))
     }
 

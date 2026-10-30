@@ -781,7 +781,11 @@ async fn sales_by_tag_counts_an_article_under_its_tags_of_the_day(pool: PgPool) 
     assert_eq!(explorer.total.uncosted_minor, 100_000);
     assert_eq!(explorer.total.profit_minor, Some(110_000));
     let keys: Vec<&str> = explorer.rows.iter().map(|row| row.key.as_str()).collect();
-    assert_eq!(keys, ["T_PRIA", "T_WANITA"], "sold rows only, stock beside them");
+    assert_eq!(
+        keys,
+        ["T_PRIA", "T_WANITA"],
+        "sold rows only, stock beside them"
+    );
     assert_eq!(explorer.rows[1].label, "Divisi Wanita");
     assert_eq!(explorer.rows[1].figures.sales_minor, 180_000);
     assert_eq!(explorer.rows[1].cells.len(), 1);
@@ -886,7 +890,11 @@ async fn sales_by_tag_counts_an_article_under_its_tags_of_the_day(pool: PgPool) 
         .unwrap_or_else(|error| panic!("by article: {error}"));
     assert_eq!(articles.rows[0].code, "TW-001");
     assert_eq!(
-        articles.rows.iter().filter(|row| row.net_minor != 0).count(),
+        articles
+            .rows
+            .iter()
+            .filter(|row| row.net_minor != 0)
+            .count(),
         3,
         "three sold; the demo shelves' articles follow with stock only"
     );

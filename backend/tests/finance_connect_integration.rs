@@ -472,14 +472,25 @@ async fn synced_sale(
 async fn a_mixed_day_posts_once_and_parks_what_it_cannot_place(pool: PgPool) {
     open_september(&pool).await;
     bank_account(&pool, "1005", "ho", "BCA", "8880012345").await;
+    bank_account(&pool, "1008", "ho", "BNI", "8880012346").await;
     sqlx::query(
-        "INSERT INTO edc_terminal (site_id, terminal_id, bank_code, created_by)
-         VALUES ($1, 'T-BNI-01', 'BNI', 'test')",
+        "INSERT INTO edc_terminal
+             (site_id, terminal_id, bank_code, takes_debit, takes_credit, takes_qris, created_by)
+         VALUES ($1, 'T-BNI-01', 'BNI', true, true, true, 'test')",
     )
     .bind(SITE)
     .execute(&pool)
     .await
     .unwrap_or_else(|error| panic!("terminal: {error}"));
+    // The settlement half below still needs one acquirer that pays later;
+    // BCA's debit cards are that bank here. QRIS on BNI's machine is direct
+    // (0722/1004), which is the rule this test also proves.
+    sqlx::query(
+        "UPDATE payment_method SET settlement_mode = 'VIA_RECEIVABLE' WHERE code = 'DEBIT_BCA'",
+    )
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("debit BCA receivable: {error}"));
 
     synced_sale(&pool, 1_110_000, 90_000, 111_000, "CASH", None, None, None).await;
     synced_sale(
@@ -539,16 +550,23 @@ async fn a_mixed_day_posts_once_and_parks_what_it_cannot_place(pool: PgPool) {
         .unwrap_or_else(|error| panic!("post: {error}"));
     assert_eq!(posted.posting.status, "POSTED");
 
-    // QRIS BNI landed on the debit-card pair with BCA's debit card.
+    // BCA's debit card is the one that still settles later; QRIS on BNI's
+    // machine and the VISA credit taken there land in BNI's bank account.
+    assert_eq!(balance(&pool, "1021", Some(SITE)).await, 2_220_000);
+    assert_eq!(balance(&pool, "1020", Some(SITE)).await, 0);
     assert_eq!(
-        balance(&pool, "1021", Some(SITE)).await,
-        2_220_000 + 555_000
+        balance(&pool, "1008", Some("ho")).await,
+        3_330_000 + 555_000,
+        "VISA credit + QRIS on BNI's EDC into BNI"
     );
     assert!(
         balance(&pool, "4006", Some(SITE)).await < 0,
         "BNI debit-card sales carry the QRIS"
     );
-    assert_eq!(balance(&pool, "1020", Some(SITE)).await, 3_330_000);
+    assert!(
+        balance(&pool, "4007", Some(SITE)).await < 0,
+        "the VISA credit is still credited to 4007"
+    );
     // The free voucher is a discount; the promotion is not — it is inside the
     // price charged (owner decision 25 Sep 2026), so 4012 holds the voucher only.
     assert_eq!(balance(&pool, "4012", Some(SITE)).await, 200_000);
@@ -581,7 +599,13 @@ async fn a_mixed_day_posts_once_and_parks_what_it_cannot_place(pool: PgPool) {
     assert!(resolved.exceptions.iter().any(|x| x.status == "RESOLVED"));
     assert_eq!(
         balance(&pool, "1021", Some(SITE)).await,
-        2_220_000 + 555_000 + 444_000
+        2_220_000,
+        "the resolved QRIS does not open a debit-card receivable"
+    );
+    assert_eq!(
+        balance(&pool, "1005", Some("ho")).await,
+        444_000,
+        "the resolved QRIS on BCA's EDC goes into BCA"
     );
     // The online line cannot be resolved by naming a bank.
     let online = posted
@@ -1226,4 +1250,70 @@ async fn payroll_accrues_by_component_and_payment_clears_the_payable(pool: PgPoo
         "petty cash received and spent"
     );
     every_unit_balances_in_its_own_books(&pool).await;
+}
+
+// ---------------------------------------------------------------------------
+// A newly added bank's EDC takings go to its own account (1004)
+// ---------------------------------------------------------------------------
+
+/// "Tambah bank" and a method saved without a mode must start on
+/// DIRECT_TO_BANK. 0722 fixed the rows that existed on 1 Oct 2026; the two
+/// creation paths did not, so a new bank's cards landed on Piutang.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_new_bank_takes_its_cards_into_the_bank(pool: PgPool) {
+    cloud::add_bank(
+        &pool,
+        &cloud::AddBankRequest {
+            bank_code: "BSI".into(),
+            bank_name: "BSI".into(),
+            giro: true,
+            savings: false,
+            debit_card: true,
+            account_no: None,
+            account_holder: None,
+            account_unit_id: None,
+            terminals: Vec::new(),
+        },
+        ACTOR,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("add bank: {error}"));
+
+    let modes: Vec<(String, String)> = sqlx::query_as(
+        "SELECT code, settlement_mode FROM payment_method
+          WHERE bank_code = 'BSI' ORDER BY code",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("methods: {error}"));
+    assert_eq!(
+        modes,
+        vec![
+            ("DEBIT_BSI".into(), "DIRECT_TO_BANK".into()),
+            ("QRIS_BSI".into(), "DIRECT_TO_BANK".into()),
+        ],
+        "a new bank's cards and QRIS start on the bank"
+    );
+
+    let saved = cloud::save_payment_method(
+        &pool,
+        &cloud::SavePaymentMethodRequest {
+            code: "CREDIT_AMEX".into(),
+            name: "Kartu kredit AMEX".into(),
+            tender_type: "CREDIT_CARD".into(),
+            bank_code: "AMEX".into(),
+            settlement_mode: None,
+            mdr_bps: 0,
+            point_value_minor: None,
+            is_active: true,
+            note: None,
+        },
+        ACTOR,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("save method: {error}"));
+    assert_eq!(
+        saved.settlement_mode, "DIRECT_TO_BANK",
+        "a card saved without a mode lands in the bank"
+    );
 }

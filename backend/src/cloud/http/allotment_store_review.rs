@@ -58,7 +58,11 @@ async fn plan(
             &s.db,
             dispatch_id,
             &query.decision,
-            query.store.as_deref().map(str::trim).filter(|one| !one.is_empty()),
+            query
+                .store
+                .as_deref()
+                .map(str::trim)
+                .filter(|one| !one.is_empty()),
             s.clock.now(),
         )
         .await?,

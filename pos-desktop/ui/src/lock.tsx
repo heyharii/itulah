@@ -246,7 +246,7 @@ export function LockScreen({
   // Nothing behind this card may be typed at, tabbed into, or clicked.
   //
   // The till is still mounted and its shortcuts are still bound, so without
-  // this a locked counter could still be paid off with F10 — and it would be
+  // this a locked counter could still be paid off with ⇧0 — and it would be
   // paid off from inside this very password field, which is a field, which is
   // exactly where `shortcuts.ts` lets a function key through. So no keystroke
   // goes further than this card, whichever half of the screen it was aimed at.

@@ -30,11 +30,12 @@
 
 import { useEffect, useId, useRef, useState, type CSSProperties, type FormEvent } from "react"
 
-import { authMethods, me, pairTerminal, tillPeople, type StepUp, type TillPerson } from "@/api"
-import { isWeb } from "@/edition"
+import { authMethods, me, pairTerminal, tillPeople, tillStanding, warmCatalogue, type StepUp, type TillPerson } from "@/api"
+import { isGudang, isWeb } from "@/edition"
+import { warmStock } from "@/gudang/api"
 import { Icon } from "@/icons"
-import { siteTitle } from "@/joining"
-import { lastSignInProblem, NO_FINGER, useNodeConfig, useSession } from "@/session"
+import { identifyNode, siteTitle, type FoundNode } from "@/joining"
+import { lastSignInProblem, NO_FINGER, signedInNow, useNodeConfig, useSession } from "@/session"
 import { useFingerWatch, useScanner } from "@/scanner"
 import { EnrolFingerScreen } from "@/screens/fingerprint-enrol"
 import { PeripheralsScreen } from "@/screens/peripherals"
@@ -54,7 +55,8 @@ import { kasirLabel, Topbar } from "@/till"
 /// session already has somebody in it who is not the one who will sell.
 ///
 /// Two more doors open from her list, both with her session held: "Daftarkan
-/// sidik jari" (`fingers`, any Kepala toko — she records, head office approves)
+/// sidik jari" (`fingers`, any Kepala toko — she records and approves, her own
+/// finger too; head office can withdraw one)
 /// and "Perangkat kasir" (`devices`, an Admin's alone). The store only opens
 /// and closes its day (owner, 24 Oct 2026); head office does the rest.
 type Door = "touch" | "head" | "headpw" | "behalf" | "welcome" | "fingers" | "devices"
@@ -67,6 +69,10 @@ const initials = (name: string) =>
 const UNKNOWN = "\u0000unknown"
 const NO_SCANNER_WEB = "Tidak ada pemindai jari di browser"
 const NO_SCANNER = "Pemindai sidik jari tidak terhubung"
+/// How long the welcome plays after a finger is read, bar and all: seven
+/// seconds on the till and the warehouse alike (Hari, 30 Oct 2026).
+const WELCOME_MS = 7_000
+
 const pause = (ms: number) => new Promise((done) => window.setTimeout(done, ms))
 const two = (n: number) => String(n).padStart(2, "0")
 const HARI = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"]
@@ -104,8 +110,9 @@ export function LoginScreen({
   /// True while the Kepala toko is signed in and has not handed the till over.
   onHold: (holding: boolean) => void
   /// Offered while this till holds no credential at its node: a new till's
-  /// first screen should say how it becomes a till.
-  onJoin?: () => void
+  /// first screen should say how it becomes a till. With a node, the one to
+  /// move to: a store server on this same PC.
+  onJoin?: (node?: FoundNode) => void
 }) {
   const { ready, problem, signIn, signInWithFinger, signOut, openFor } = useSession()
   const { config } = useNodeConfig()
@@ -127,13 +134,24 @@ export function LoginScreen({
   const [level, setLevel] = useState("")
   const [welcome, setWelcome] = useState<{ name: string; by: string | null } | null>(null)
   const [stepUp, setStepUp] = useState<StepUp | null>(null)
+  // Whether this till's own node answered at all: a till joined to a server
+  // that is gone needs a way to join another one from here (C015, 28 Oct).
+  const [reached, setReached] = useState<boolean | null>(null)
+  // A store server on this same PC that is not this till's shop: the laptop
+  // that is both, set up for a new store (prototype "Laptop install").
+  const [here, setHere] = useState<FoundNode | null>(null)
+  // Its node answers but does not know this till's pairing: the server was
+  // replaced, and the till must join the new one (riza-1, 30 Oct 2026).
+  const [unknown, setUnknown] = useState(false)
   const [now, setNow] = useState(() => new Date())
 
   useEffect(() => {
     let alive = true
     void (async () => {
       const reply = await authMethods()
-      if (alive) setStepUp(reply.ok ? (reply.body?.till_step_up ?? "NONE") : null)
+      if (!alive) return
+      setStepUp(reply.ok ? (reply.body?.till_step_up ?? "NONE") : null)
+      setReached(reply.ok)
     })()
     const tick = window.setInterval(() => setNow(new Date()), 10_000)
     return () => {
@@ -142,12 +160,38 @@ export function LoginScreen({
     }
   }, [])
 
+  useEffect(() => {
+    if (onJoin === undefined) return
+    let alive = true
+    void (async () => {
+      const found = await identifyNode("http://127.0.0.1:8082")
+      if (!alive || !found.ok || found.value.identity === null) return
+      const mine = config?.joined?.site_id ?? null
+      setHere(found.value.identity.site_id !== mine ? found.value : null)
+    })()
+    return () => {
+      alive = false
+    }
+  }, [config?.joined?.site_id, onJoin])
+
+  useEffect(() => {
+    if (onJoin === undefined || config === null || config.pairing_id === null) return
+    let alive = true
+    void (async () => {
+      const reply = await tillStanding(config.terminal_id, config.pairing_id)
+      if (alive) setUnknown(reply.ok && reply.body?.paired === false)
+    })()
+    return () => {
+      alive = false
+    }
+  }, [config?.terminal_id, config?.pairing_id, onJoin])
+
   // The scanner on this till, when the shell has one open: then a finger on
   // it signs in against the node's roster, and the simulated chips are gone.
   const scanner = useScanner()
   const realScanner = !isWeb && scanner === true
   const byFinger = realScanner || SIMULATED
-  const till = config === null ? "Kasir" : kasirLabel(config.terminal_id)
+  const till = config === null ? (isGudang ? "Gudang" : "Kasir") : kasirLabel(config.terminal_id)
   const site = config?.joined != null ? siteTitle(config.joined) : null
   const where = site !== null ? `${till} · ${site}` : till
   const clock = `${two(now.getHours())}:${two(now.getMinutes())}`
@@ -162,18 +206,21 @@ export function LoginScreen({
   function enter(name: string, by: string | null) {
     setWelcome({ name, by })
     setDoor("welcome")
+    // The screen behind the door reads the book and the stock as the
+    // welcome plays, not after it.
+    warmCatalogue()
+    if (isGudang) warmStock()
     sound.welcome()
     window.setTimeout(() => {
       onHold(false)
       onSignedIn(by)
-    }, 2050)
+    }, WELCOME_MS)
   }
 
   /// Whoever is signed in now: a cashier goes in; a Kepala toko is asked
   /// whose till she is opening.
   async function landed(fromHeadDoor: boolean) {
-    const who = await me()
-    const body = who.ok ? who.body : null
+    const body = signedInNow() ?? (await me().then((who) => (who.ok ? who.body : null)))
     if (body === null) return
     const name = body.display_name ?? body.username
     if (!headRole(body.role)) {
@@ -217,7 +264,7 @@ export function LoginScreen({
     }
     setRead("done")
     sound.ok()
-    await pause(760)
+    await pause(350)
     await landed(fromHeadDoor)
   }
 
@@ -297,10 +344,10 @@ export function LoginScreen({
       simulated = fromHeadDoor ? SIM_HEAD : SIM_FINGERS[0]
     }
     if (simulated === UNKNOWN) {
-      await pause(980)
+      await pause(450)
       refusal = "Jari tidak dikenali"
     } else if (simulated !== undefined) {
-      await pause(980)
+      await pause(450)
       if (await signIn(simulated, SIM_SECRET)) refusal = null
       else {
         // The node's own sentence when it is the day's rule ("… sudah tutup
@@ -309,7 +356,7 @@ export function LoginScreen({
         refusal = said !== null && /sudah tutup kasir|sedang dipakai/.test(said) ? said : "Jari tidak dikenali"
       }
     } else {
-      await pause(980)
+      await pause(450)
       refusal = isWeb ? NO_SCANNER_WEB : NO_SCANNER
     }
     await settle(fromHeadDoor, refusal)
@@ -440,7 +487,7 @@ export function LoginScreen({
             ? `Dibukakan ${welcome.by} · Kepala toko`
             : `${HARI[now.getDay()]}, ${now.getDate()} ${BULAN[now.getMonth()]} ${now.getFullYear()} · ${clock}`}
         </p>
-        <span className="d-progress run"><i /></span>
+        <span className="d-progress run"><i style={{ animationDuration: `${WELCOME_MS}ms` }} /></span>
       </div>
     )
   } else if (door === "behalf") {
@@ -558,6 +605,17 @@ export function LoginScreen({
 
   return (
     <div className="pdoor">
+      {onJoin !== undefined && here !== null && here.identity !== null && door === "touch" && (
+        <div className="d-move m-lift" style={{ marginTop: 0, marginBottom: 14 }}>
+          <span className="d-move-text">
+            <b>{siteTitle(here.identity)}</b>
+            <span>Server toko di PC ini</span>
+          </span>
+          <button className="btn primary" type="button" onClick={() => onJoin(here)}>
+            Pindah ke toko ini
+          </button>
+        </div>
+      )}
       <div className="d-card m-lift">{card}</div>
       <p className="d-status m-lift">
         <span className="live" />
@@ -580,9 +638,19 @@ export function LoginScreen({
           </button>
         </div>
       )}
-      {onJoin !== undefined && config !== null && config.pairing_id === null && door === "touch" && (
+      {onJoin !== undefined && here === null && config !== null && door === "touch" && (
         <div className="d-sims">
-          <button type="button" onClick={onJoin}>Gabungkan kasir ini ke server toko</button>
+          <button type="button" onClick={() => onJoin()}>
+            {config.pairing_id === null
+              ? isGudang
+                ? "Gabungkan PC gudang ini ke server toko"
+                : "Gabungkan kasir ini ke server toko"
+              : unknown
+                ? "Gabung lagi ke server toko"
+                : reached === false
+                  ? "Gabungkan ke server toko lain"
+                  : "Pindah server toko"}
+          </button>
         </div>
       )}
     </div>

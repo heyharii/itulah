@@ -116,6 +116,40 @@ pub trait SyncStore: Send + Sync {
 /// rather than guessing, which is the same conclusion for the same reason.
 pub const HANDSHAKE_UNSUPPORTED: &str = "this transport cannot negotiate a generation";
 
+/// The text a transport that cannot ask for a stock handover answers with.
+pub const STOCK_HANDOVER_UNSUPPORTED: &str = "this transport cannot ask for a stock handover";
+
+/// The `reference_type` of the movement a replacement server books its
+/// store's stock with. The centre already holds every piece of it, so it
+/// moves nothing when the fact comes back (`cloud::postgres::sync`).
+pub const STOCK_HANDOVER_REFERENCE: &str = "STOCK_HANDOVER";
+
+/// A server asking for the stock its store already holds at the centre: a
+/// replacement starts with an empty database, and the store's pieces are
+/// still the store's (C001, 30 Oct 2026).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct StockHandoverRequest {
+    pub origin_id: String,
+    pub generation: i64,
+}
+
+/// One piece, or one quantity, of the store's stock where the centre last
+/// saw it — under the subject id the centre knows it by, so the facts the
+/// new server writes about it later land on the same piece.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct StockHandoverLine {
+    pub subject_id: uuid::Uuid,
+    pub epc: Option<String>,
+    pub sku_code: Option<String>,
+    pub place_id: String,
+    pub quantity: i64,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct StockHandover {
+    pub lines: Vec<StockHandoverLine>,
+}
+
 /// The most one upload carries, counted as the JSON of its facts.
 ///
 /// A batch used to be bounded by count alone (`SYNC_BATCH_LIMIT`, 100). A
@@ -168,6 +202,15 @@ pub trait SyncTransport: Send + Sync {
     /// only direction that matters.
     async fn handshake(&self, _request: &HandshakeRequest) -> Result<HandshakeAgreement, String> {
         Err(HANDSHAKE_UNSUPPORTED.into())
+    }
+
+    /// Ask the centre for the stock this store holds there. Defaulted for the
+    /// same reason [`SyncTransport::handshake`] is.
+    async fn stock_handover(
+        &self,
+        _request: &StockHandoverRequest,
+    ) -> Result<StockHandover, String> {
+        Err(STOCK_HANDOVER_UNSUPPORTED.into())
     }
 }
 

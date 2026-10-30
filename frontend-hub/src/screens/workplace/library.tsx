@@ -19,6 +19,7 @@ import {
 } from "lucide-react"
 import { useMemo, useRef, useState } from "react"
 
+import type { GaOriginalRow } from "@/lib/queries/ga-records"
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
@@ -34,11 +35,13 @@ import {
   type CardSpec,
   PhoneCards,
 } from "@/components/ui/phone-cards"
+import { Status } from "@/components/ui/pill"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { useFilters } from "@/lib/filters"
-import { count, day } from "@/lib/format"
+import { count, day, EMPTY } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
+import { papersQuery } from "@/lib/queries/ga-records"
 import { useEveryEmployee, useNameOfLogin } from "@/lib/queries/hr-employees"
 import { queryState } from "@/lib/query-state"
 import {
@@ -51,9 +54,16 @@ import { tableSetup, type TableSetup } from "@/lib/table"
 import { cn } from "@/lib/utils"
 import { bytes } from "@/screens/workplace/lib"
 import {
+  OriginalSheet,
+  originalWords,
+  PaperSheet,
+  RecordPaperSheet,
+} from "@/screens/workplace/original-sheets"
+import {
   attention,
   fromAttachment,
   fromDocument,
+  fromPaper,
   kindOf,
   kindWord,
   placeOf,
@@ -109,7 +119,7 @@ import { FileThumb, StateWord, VaultTile } from "@/screens/workplace/vault-tile"
 const GRID = "grid grid-cols-[repeat(auto-fill,minmax(14.5rem,1fr))] gap-4"
 
 /// Where a row sits, as the chips split the drawer.
-type Where = "all" | "filed" | "chats"
+type Where = "all" | "filed" | "chats" | "copies"
 
 /// Type, Tags and Size stay columns so the Filter panel offers them, and are
 /// never drawn: on a drawer of contracts they were three columns of "—".
@@ -117,6 +127,39 @@ const HIDDEN: Record<string, boolean> = {
   kind: false,
   tags: false,
   byteSize: false,
+}
+
+/// The hard copy that tells the story of a file's paper: one that is late,
+/// else one that is out, else the first at home. Null when it has none.
+function custodyOf(row: VaultRow): GaOriginalRow | null {
+  const originals = row.paper?.originals ?? []
+  return (
+    originals.find((one) => one.overdue) ??
+    originals.find((one) => one.status === "OUT") ??
+    originals[0] ??
+    null
+  )
+}
+
+/// The hard copy as the column's filter names it.
+function copyKind(row: VaultRow): string {
+  const one = custodyOf(row)
+  if (one === null) return "None"
+  if (one.overdue) return "Overdue"
+  return one.status === "OUT" ? "Lent out" : "In storage"
+}
+
+/// The grey line under a file's name: what it is and how big, or — for a paper
+/// filed before it was scanned — what the paper is.
+function sublineOf(row: VaultRow): string {
+  if (row.paper != null && !row.paper.has_scan) {
+    return (
+      [row.paper.doc_type, row.paper.doc_number]
+        .filter((one) => one !== null && one !== "")
+        .join(" · ") || "Paper"
+    )
+  }
+  return `${kindWord(row)} · ${bytes(row.byteSize)}`
 }
 
 const columns: ColumnDef<TableSetup, VaultRow>[] = [
@@ -134,11 +177,30 @@ const columns: ColumnDef<TableSetup, VaultRow>[] = [
             {row.original.title}
           </span>
           <span className="block truncate text-mute">
-            {kindWord(row.original)} · {bytes(row.original.byteSize)}
+            {sublineOf(row.original)}
           </span>
         </span>
       </span>
     ),
+  },
+  {
+    id: "copy",
+    accessorFn: copyKind,
+    header: "Hard copy",
+    size: 280,
+    meta: { filter: { kind: "option" } },
+    cell: ({ row }) => {
+      const one = custodyOf(row.original)
+      if (one === null) return <span className="text-mute">{EMPTY}</span>
+      const words = originalWords(one)
+      return (
+        <Status tone={words.tone} className="max-w-full min-w-0">
+          <span className="truncate" title={words.word}>
+            {words.word}
+          </span>
+        </Status>
+      )
+    },
   },
   {
     id: "place",
@@ -174,7 +236,7 @@ const columns: ColumnDef<TableSetup, VaultRow>[] = [
     header: "Added",
     size: 140,
     meta: { filter: { kind: "date" } },
-    cell: ({ row }) => day(row.original.at),
+    cell: ({ row }) => (row.original.at === "" ? EMPTY : day(row.original.at)),
   },
   {
     id: "state",
@@ -242,6 +304,9 @@ export function Library() {
   const filed = useSheet("document")
   const attached = useSheet("file")
   const view = useSheet("view")
+  const paper = useSheet("paper")
+  const original = useSheet("original")
+  const [recording, setRecording] = useState(false)
   // The list first; the grid is the second view (owner, 17 Oct 2026).
   const grid = view.value === "grid"
 
@@ -258,12 +323,29 @@ export function Library() {
     queryKey: workplaceKeys.files(),
     queryFn: ({ signal }) => listFiles(200, signal),
   })
+  // The papers GA keeps. They are files with a hard copy, so they join the list
+  // rather than having a screen of their own; a store that may not read them
+  // simply sees none.
+  const papers = useQuery(papersQuery({}))
   const people = useEveryEmployee()
   const nameOf = useNameOfLogin()
 
   const rows = useMemo<VaultRow[]>(() => {
+    const paperOf = new Map(
+      (papers.data ?? []).map((one) => [one.document_id, one])
+    )
+    const filedRows = (documents.data ?? []).map((one) => {
+      const row = fromDocument(one)
+      const match = paperOf.get(one.document_id)
+      return match === undefined ? row : { ...row, paper: match }
+    })
+    const listed = new Set(filedRows.map((row) => row.id))
+    const unscanned = (papers.data ?? [])
+      .filter((one) => !listed.has(one.document_id))
+      .map(fromPaper)
     const all = [
-      ...(documents.data ?? []).map(fromDocument),
+      ...filedRows,
+      ...unscanned,
       ...(attachments.data ?? []).map(fromAttachment),
     ].map((row) => ({ ...row, by: nameOf(row.by) }))
     // Sorted here rather than left to the table, because the grid has no
@@ -275,16 +357,19 @@ export function Library() {
     // `nameOf` is a fresh closure over `people.data` on every render; the
     // employees it reads are the dependency.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [documents.data, attachments.data, people.data])
+  }, [documents.data, attachments.data, papers.data, people.data])
 
   const filedCount = rows.filter((row) => row.source === "FILED").length
+  const copiesCount = rows.filter((row) => row.paper != null).length
   const inTab = useMemo(
     () =>
       where === "all"
         ? rows
-        : rows.filter(
-            (row) => (row.source === "FILED") === (where === "filed")
-          ),
+        : where === "copies"
+          ? rows.filter((row) => row.paper != null)
+          : rows.filter(
+              (row) => (row.source === "FILED") === (where === "filed")
+            ),
     [rows, where]
   )
 
@@ -324,8 +409,18 @@ export function Library() {
     rows.find((row) => row.source !== "FILED" && row.id === attached.value) ??
     null
 
+  // A paper filed before it was scanned has no bytes to show, so it opens as
+  // the paper; every other file opens as a file, hard copy and all.
   const openRow = (row: VaultRow) =>
-    row.source === "FILED" ? filed.open(row.id) : attached.open(row.id)
+    row.paper != null && !row.paper.has_scan
+      ? paper.open(row.id)
+      : row.source === "FILED"
+        ? filed.open(row.id)
+        : attached.open(row.id)
+  const selectedRow = (row: VaultRow) =>
+    row.id === filed.value ||
+    row.id === attached.value ||
+    row.id === paper.value
 
   const closeSheet = () => {
     if (filed.value !== undefined) filed.close()
@@ -359,6 +454,7 @@ export function Library() {
     { value: "all", label: "All", count: rows.length },
     { value: "filed", label: "Filed", count: filedCount },
     { value: "chats", label: "In chats", count: rows.length - filedCount },
+    { value: "copies", label: "Hard copies", count: copiesCount },
   ]
 
   const clear = () => {
@@ -371,7 +467,15 @@ export function Library() {
       <PageContent>
         <PageHeader
           title="Files"
-          actions={!phone && <PickButton onFiles={setPicked} />}
+          actions={
+            <>
+              <Button variant="ghost" onClick={() => setRecording(true)}>
+                <Plus />
+                New hard copy
+              </Button>
+              {!phone && <PickButton onFiles={setPicked} />}
+            </>
+          }
         />
 
         {/* One line over the list: what narrows it at the left — the search,
@@ -464,9 +568,7 @@ export function Library() {
                     rowId={(row) => row.key}
                     spec={FILE_CARD}
                     onOpen={openRow}
-                    selected={(row) =>
-                      row.id === filed.value || row.id === attached.value
-                    }
+                    selected={selectedRow}
                   />
                 ) : grid ? (
                   <div className={GRID}>
@@ -481,12 +583,10 @@ export function Library() {
                 ) : (
                   <Card className="overflow-clip">
                     <DataTable<VaultRow>
-                      refresh={[documents, attachments]}
+                      refresh={[documents, attachments, papers]}
                       table={table}
                       onRowClick={openRow}
-                      isSelected={(row) =>
-                        row.id === filed.value || row.id === attached.value
-                      }
+                      isSelected={selectedRow}
                       empty="No file matches these filters."
                       summary={{
                         name: (
@@ -514,6 +614,21 @@ export function Library() {
 
         <VaultSheet row={open} onClose={closeSheet} />
         <PlaceSheet files={picked} onClose={() => setPicked([])} />
+        <RecordPaperSheet
+          open={recording}
+          onClose={() => setRecording(false)}
+          onSaved={(saved) => paper.open(saved.document_id)}
+        />
+        <PaperSheet
+          documentId={paper.value}
+          open={paper.isOpen}
+          onClose={paper.close}
+        />
+        <OriginalSheet
+          originalId={original.value}
+          open={original.isOpen}
+          onClose={original.close}
+        />
       </PageContent>
     </UploadZone>
   )
@@ -523,10 +638,19 @@ export function Library() {
 /// size, and — only when it is not ready — the state it is in.
 const FILE_CARD: CardSpec<VaultRow> = {
   title: (row) => <CardName name={row.title} />,
-  meta: [(row) => `${placeOf(row)} · ${day(row.at)}`],
-  lead: (row) => (
-    <CardFigure value={bytes(row.byteSize)} caption={kindWord(row)} />
-  ),
+  meta: [
+    (row) => (row.at === "" ? placeOf(row) : `${placeOf(row)} · ${day(row.at)}`),
+    (row) => {
+      const one = custodyOf(row)
+      return one === null ? null : originalWords(one).word
+    },
+  ],
+  lead: (row) =>
+    row.paper != null && !row.paper.has_scan ? (
+      <CardFigure value={EMPTY} caption="Paper" />
+    ) : (
+      <CardFigure value={bytes(row.byteSize)} caption={kindWord(row)} />
+    ),
   // Only a file that needs somebody earns the card a foot: "Reading" on every
   // card was a row of grey under each one.
   action: (row) =>

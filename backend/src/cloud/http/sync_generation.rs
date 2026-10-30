@@ -44,6 +44,7 @@ use serde_json::{json, Value};
 pub fn lane_s_routes(router: Router<AppState>) -> Router<AppState> {
     router
         .route("/api/v1/sync/handshake", post(sync_handshake))
+        .route("/api/v1/sync/stock-handover", post(sync_stock_handover))
         .route("/api/v1/sync/integrity-alerts", get(sync_alerts))
         .route(
             "/api/v1/sync/integrity-alerts/{id}/acknowledge",
@@ -103,6 +104,21 @@ async fn sync_handshake(
     authorize_origin(&s, &s.config, &headers, &request.origin_id).await?;
     let agreement = infrastructure::sync_negotiate_generation(&s.db, &request).await?;
     Ok(Json(serde_json::to_value(&agreement)?))
+}
+
+/// "I am the new server of this store: what does it hold?" — the store's
+/// stock where the centre last saw it, for a replacement to book. Proven by
+/// the store's own key, like the handshake, and answered only to the
+/// generation that is active now.
+async fn sync_stock_handover(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<crate::sync::port::StockHandoverRequest>,
+) -> Result<Json<crate::sync::port::StockHandover>, AppError> {
+    authorize_origin(&s, &s.config, &headers, &request.origin_id).await?;
+    Ok(Json(
+        infrastructure::stock_handover(&s.db, &request.origin_id, request.generation).await?,
+    ))
 }
 
 #[derive(Deserialize)]

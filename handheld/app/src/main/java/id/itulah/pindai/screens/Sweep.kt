@@ -36,6 +36,9 @@ import id.itulah.pindai.data.SweepRecord
 import id.itulah.pindai.data.RadioProfile
 import id.itulah.pindai.data.Settings
 import id.itulah.pindai.data.SyncOutcome
+import id.itulah.pindai.data.StoreCheck
+import id.itulah.pindai.data.Verify
+import id.itulah.pindai.data.VerifyStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -56,6 +59,8 @@ enum class Mode(val title: String, val verb: String) {
     PACKING("Packing", "Finish · open carton"),
     RECEIVING("Receive", "Finish · receive"),
     COUNT("Stock count", "Finish · submit"),
+    /** A store Packed sent, read koli by koli; on the Gudang only. See [VerifyState]. */
+    VERIFY("Verify", "Verify"),
 }
 
 /** One product line of a finished sweep: what it is, how many, and which units. */
@@ -132,6 +137,29 @@ data class InboundState(
     /** The lorry arrived before its announcement; received the old way. */
     val unannounced: Boolean = false,
     val receipt: InboundReceipt? = null,
+)
+
+/**
+ * Verify koli (owner, 25 Oct 2026): the stores Packed in Central sent, the one
+ * being read, and what Central made of the read.
+ *
+ * Verify is offered only on a [check] that [StoreCheck.matches], and Central
+ * reads the tags again before it saves. Nothing waits on it: a store goes on
+ * its trip verified or not.
+ */
+data class VerifyState(
+    val stores: List<VerifyStore> = emptyList(),
+    val loaded: Boolean = false,
+    val loading: Boolean = false,
+    /** Bumped every time a refresh ends. See [InboundState.refreshes]. */
+    val refreshes: Int = 0,
+    val note: String? = null,
+    val chosen: VerifyStore? = null,
+    /** Central's answer for the tags held now; null while none is asked or it is stale. */
+    val check: StoreCheck? = null,
+    val checking: Boolean = false,
+    /** The last store verified, said on the list it went back to. */
+    val done: String? = null,
 )
 
 /**
@@ -286,6 +314,7 @@ data class SweepState(
     /** DC or shop. Decides what Receive means; see [isStoreReceiving]. */
     val nodeRole: NodeRole = NodeRole.UNKNOWN,
     val inbound: InboundState = InboundState(),
+    val verify: VerifyState = VerifyState(),
     /** The Lab's SDK knobs. Bench only. */
     val knobs: KnobState = KnobState(),
 ) {
@@ -303,6 +332,10 @@ data class SweepState(
     /** A delivery has been picked (or declared unannounced) and is being swept. */
     val isReceivingDelivery: Boolean
         get() = isStoreReceiving && (inbound.chosen != null || inbound.unannounced)
+
+    /** A store has been chosen to verify, and its koli are being swept. */
+    val isVerifyingStore: Boolean
+        get() = mode == Mode.VERIFY && verify.chosen != null
 }
 
 /**
@@ -389,6 +422,8 @@ class SweepViewModel(
     /** The local catalogue is open, so there is something to keep current. */
     private var catalogueOpened = false
     private var inboundJob: Job? = null
+    private var verifyJob: Job? = null
+    private var checkJob: Job? = null
     private var roleJob: Job? = null
     /** Which node the role in state was asked of. A different node is a new question. */
     private var roleAskedOf: String? = null
@@ -664,15 +699,20 @@ class SweepViewModel(
         // sweep stays open across pulls until it is received.
         if (mode == state.value.mode) {
             if (mode == Mode.RECEIVING) enterReceiving()
+            if (mode == Mode.VERIFY && state.value.verify.chosen == null) loadVerifyStores()
             return true
         }
         val c = state.value.counts
         if (state.value.busy || (sweepOpen && (c.units > 0 || c.unknownUnits > 0))) {
             update {
                 it.copy(
-                    message = if (it.isReceivingDelivery)
-                        "Receive this delivery or discard the sweep before changing jobs"
-                    else "finish the current sweep before changing jobs",
+                    message = when {
+                        it.isReceivingDelivery ->
+                            "Receive this delivery or discard the sweep before changing jobs"
+                        it.mode == Mode.VERIFY ->
+                            "Verify this store or discard the sweep before changing jobs"
+                        else -> "finish the current sweep before changing jobs"
+                    },
                 )
             }
             return false
@@ -686,6 +726,7 @@ class SweepViewModel(
         }
         update { it.copy(mode = mode, message = null, failed = false) }
         if (mode == Mode.RECEIVING) enterReceiving()
+        if (mode == Mode.VERIFY) loadVerifyStores()
         return true
     }
 
@@ -838,7 +879,10 @@ class SweepViewModel(
                 update {
                     it.copy(
                         counts = ScanCounts(), lines = emptyList(), resultReady = false,
-                        failed = false, message = "Sweep discarded · its evidence stays filed",
+                        failed = false,
+                        message = if (it.mode == Mode.VERIFY) "Sweep discarded"
+                            else "Sweep discarded · its evidence stays filed",
+                        verify = it.verify.copy(check = null),
                     )
                 }
             }
@@ -1028,6 +1072,179 @@ class SweepViewModel(
             "Your sweep is kept — try again when the wifi is back."
     }
 
+    // ------------------------------------------------------------ verify koli
+
+    /**
+     * The stores Packed sent, read fresh from Central.
+     *
+     * Only the address is needed: these are an operator's calls on the bearer
+     * token, and none of them files evidence under the reader's own key.
+     */
+    fun loadVerifyStores() {
+        val settings = settings()
+        if (settings.baseUrl.isBlank()) {
+            update {
+                it.copy(verify = it.verify.copy(
+                    loaded = true, loading = false, refreshes = it.verify.refreshes + 1,
+                    note = "Settings are incomplete — this handheld does not know where Central is.",
+                ))
+            }
+            return
+        }
+        if (verifyJob?.isActive == true) return
+        update { it.copy(verify = it.verify.copy(loading = true)) }
+        verifyJob = viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    Verify.parseStores(Api(settings, connectTimeoutMs = COMMIT_CONNECT_MS).verifyStores())
+                }
+            }
+            update {
+                val verify = it.verify.copy(
+                    loaded = true, loading = false, refreshes = it.verify.refreshes + 1,
+                )
+                it.copy(
+                    verify = result.fold(
+                        onSuccess = { list -> verify.copy(stores = list, note = null) },
+                        // Keep what was on screen, as the delivery list does.
+                        onFailure = { e -> verify.copy(note = verifyReason(e).replaceFirstChar { c -> c.uppercaseChar() }) },
+                    ),
+                )
+            }
+        }
+    }
+
+    /** Read this store's koli. Tags already held are checked against it at once. */
+    fun chooseVerifyStore(store: VerifyStore) {
+        update {
+            it.copy(
+                verify = it.verify.copy(chosen = store, check = null, done = null),
+                message = null, failed = false,
+            )
+        }
+        val c = state.value.counts
+        if (c.units + c.unknownUnits > 0 && !state.value.sweeping) checkStore()
+    }
+
+    /** Back to the stores, keeping the tags: the usual reason is the wrong store. */
+    fun backToVerifyStores() {
+        if (state.value.sweeping || state.value.busy) return
+        checkJob?.cancel()
+        update {
+            it.copy(
+                verify = it.verify.copy(chosen = null, check = null, checking = false),
+                message = null, failed = false,
+            )
+        }
+        loadVerifyStores()
+    }
+
+    /** Leave the store just verified off the list's head. */
+    fun closeVerifyDone() = update { it.copy(verify = it.verify.copy(done = null)) }
+
+    /**
+     * What the tags held now come to against the chosen store, asked of
+     * Central — which knows every packed koli, so it can say whose a stray tag
+     * is. Saved nowhere; a later pull asks again.
+     */
+    fun checkStore() {
+        val store = state.value.verify.chosen ?: return
+        val settings = settings()
+        checkJob?.cancel()
+        checkJob = viewModelScope.launch {
+            val epcs = withContext(Dispatchers.Default) {
+                engine.allEpcs().filter { Epc.isOurs(it) }.sorted()
+            }
+            if (epcs.isEmpty()) {
+                update { it.copy(verify = it.verify.copy(check = null, checking = false)) }
+                return@launch
+            }
+            update { it.copy(verify = it.verify.copy(checking = true)) }
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    Verify.parseCheck(
+                        Api(settings, connectTimeoutMs = COMMIT_CONNECT_MS).checkStore(store.storeId, epcs),
+                    )
+                }
+            }
+            update { s ->
+                // Another store, or another pull, while Central answered: the
+                // answer is for tags no longer on screen.
+                if (s.verify.chosen?.storeId != store.storeId || s.sweeping || s.starting) {
+                    s.copy(verify = s.verify.copy(checking = false))
+                } else result.fold(
+                    onSuccess = { check ->
+                        s.copy(verify = s.verify.copy(check = check, checking = false))
+                    },
+                    onFailure = { e ->
+                        s.copy(
+                            verify = s.verify.copy(check = null, checking = false),
+                            failed = true, message = verifyReason(e),
+                        )
+                    },
+                )
+            }
+        }
+    }
+
+    /**
+     * Verify, only on a read that matches. Central reads the same tags again
+     * under the koli's locks before it saves, so a koli sealed or unpacked in
+     * the meantime is refused there rather than verified here.
+     */
+    fun verifyStore() {
+        viewModelScope.launch {
+            operationMutex.withLock {
+                val current = state.value
+                val store = current.verify.chosen ?: return@withLock
+                if (current.sweeping || current.busy || current.verify.check?.matches != true) {
+                    return@withLock
+                }
+                val settings = settings()
+                val epcs = withContext(Dispatchers.Default) {
+                    engine.allEpcs().filter { Epc.isOurs(it) }.sorted()
+                }
+                update { it.copy(busy = true, failed = false, message = null) }
+                val outcome = withContext(Dispatchers.IO) {
+                    runCatching {
+                        Api(settings, connectTimeoutMs = COMMIT_CONNECT_MS).verifyStore(store.storeId, epcs)
+                    }
+                }
+                outcome.onSuccess {
+                    settleEngine()
+                    engine.reset()
+                    sweepOpen = false
+                    val koli = current.verify.check?.koli?.size ?: store.koli.size
+                    val text = "${store.name} verified · $koli koli"
+                    update { s ->
+                        s.copy(
+                            busy = false, failed = false, message = null,
+                            counts = ScanCounts(), lines = emptyList(), resultReady = false,
+                            lastReceipt = text,
+                            verify = s.verify.copy(
+                                chosen = null, check = null, done = text,
+                                stores = s.verify.stores.filter { it.storeId != store.storeId },
+                            ),
+                        )
+                    }
+                    loadVerifyStores()
+                }.onFailure { e ->
+                    update { it.copy(busy = false, failed = true, message = verifyReason(e)) }
+                    // Most likely the koli changed under the read; show how.
+                    if ((e as? ApiError)?.isConflict == true) checkStore()
+                }
+            }
+        }
+    }
+
+    /** Central's refusal, or a dead socket, as a sentence. */
+    private fun verifyReason(e: Throwable): String = when {
+        e is ApiError && e.status == 401 -> "Central wants a signed-in operator. Sign in in Settings."
+        e is ApiError && e.status == 403 -> "This operator is not allowed to verify koli."
+        e is ApiError -> e.message ?: "Central refused"
+        else -> "Central could not be reached. Check the wifi and try again."
+    }
+
     /** A refusal or a dead socket, as a sentence rather than a stack trace. */
     private fun plainReason(e: Throwable, listing: Boolean): String = when {
         e is ApiError && e.status == 401 ->
@@ -1101,6 +1318,21 @@ class SweepViewModel(
                 update { it.copy(message = refusal, failed = true) }
                 return
             }
+        }
+        if (!s.sweeping && !s.starting && s.mode == Mode.VERIFY) {
+            // A sweep here is a store's koli, so it starts with the store — and
+            // with tags, because Central compares EPCs a label does not carry.
+            val refusal = when {
+                s.verify.chosen == null -> "Choose a store first"
+                s.labelMode -> "Koli are verified by their tags. Switch the trigger back to tags."
+                else -> null
+            }
+            if (refusal != null) {
+                update { it.copy(message = refusal, failed = true) }
+                return
+            }
+            // The answer was for the tags before this pull.
+            update { it.copy(verify = it.verify.copy(check = null)) }
         }
         if (state.value.labelMode) { scanLabel(); return }
         if (state.value.sweeping) stopSweep() else startSweep()
@@ -1336,7 +1568,8 @@ class SweepViewModel(
                     // missing. The sweep stays open until Finish · receive or an
                     // explicit discard, and it is written to the history once, when
                     // it is received — not once per koli as a running total.
-                    val holding = state.value.isReceivingDelivery
+                    // A store's koli are swept the same way (owner, 25 Oct 2026).
+                    val holding = state.value.isReceivingDelivery || state.value.isVerifyingStore
                     val finished = withContext(Dispatchers.IO) {
                         val lines = engine.lines()
                         val identities = catalog.lookup(lines.map { it.skuCode })
@@ -1419,6 +1652,10 @@ class SweepViewModel(
                     // exactly what failed all evening. The file costs a few
                     // kilobytes and is always the last sweep.
                     exportEpcs("last")
+
+                    // What a store's koli came to is Central's answer, asked
+                    // the moment the trigger is let go.
+                    if (state.value.isVerifyingStore) checkStore()
 
                     // Everything below is somebody else's problem, not the
                     // operator's: they have their answer on screen already.
@@ -2366,6 +2603,13 @@ class SweepViewModel(
      * home but RAM — in exactly the network conditions the spool exists for.
      */
     private suspend fun spoolEvidence() {
+        // Verify koli speaks to Central, which keeps no observation ledger:
+        // what was read is kept on each koli's check (0985) instead, and a
+        // batch spooled for Central would wait for a node that never takes it.
+        if (state.value.mode == Mode.VERIFY) {
+            while (engine.takeEvidence(MAX_OBSERVATIONS_PER_BATCH).isNotEmpty()) { }
+            return
+        }
         val settings = settings()
         if (!settings.isConfigured) return
         spoolMutex.withLock {
@@ -2745,7 +2989,8 @@ class SweepViewModel(
                     runCatching {
                         val api = Api(settings, connectTimeoutMs = COMMIT_CONNECT_MS)
                         when (current.mode) {
-                            Mode.SCAN -> null
+                            // Verify has a button of its own; see [verifyStore].
+                            Mode.SCAN, Mode.VERIFY -> null
                             Mode.PACKING -> packing(api, current)
                             Mode.RECEIVING -> receiving(api, current)
                             Mode.COUNT -> counting(api, current)

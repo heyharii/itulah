@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -19,6 +20,7 @@ import id.itulah.kasir.core.UsbReader
 import id.itulah.kasir.data.Api
 import id.itulah.kasir.data.Config
 import id.itulah.kasir.data.ConfigStore
+import id.itulah.kasir.data.Outbox
 import id.itulah.kasir.data.skuDisplay
 import id.itulah.kasir.pos.TillViewModel
 import id.itulah.kasir.ui.DeskScreen
@@ -37,6 +39,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
 /**
  * The till.
@@ -58,6 +61,16 @@ class MainActivity : ComponentActivity() {
     private val store by lazy { ConfigStore(applicationContext) }
     private val reader by lazy { UsbReader(applicationContext) }
 
+    /**
+     * Every sale rung on this tablet, written down before it is sent. In the
+     * app's private files, which survive the app being killed, the tablet being
+     * switched off and the node being unreachable for a week.
+     */
+    private val outbox by lazy { Outbox(File(filesDir, "outbox-v1.json")) }
+
+    /** Set by the composition while it is up; the app coming back to the front tries the outbox. */
+    private var onResumed: (() -> Unit)? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent { ItulahTheme { App() } }
@@ -70,9 +83,16 @@ class MainActivity : ComponentActivity() {
         val till: TillViewModel = viewModel(factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                TillViewModel(api, store) as T
+                TillViewModel(api, store, outbox) as T
         })
         val state by till.state.collectAsStateWithLifecycle()
+
+        // A tablet that was asleep, or in another app, may have the store server
+        // back. Whatever is owed goes now rather than at the next 15 s tick.
+        DisposableEffect(till) {
+            onResumed = till::flushNow
+            onDispose { onResumed = null }
+        }
 
         var where by remember {
             mutableStateOf(
@@ -149,6 +169,8 @@ class MainActivity : ComponentActivity() {
             // Leaving the payment screen abandons the payment: give back any
             // employee balance already spent on this basket.
             if (where == Where.TENDER) till.releaseBenefit()
+            // The sale just rung stays in the outbox whatever the screen does.
+            if (where == Where.RECEIPT) till.forgetRung()
             where = Where.DESK
         }
 
@@ -271,6 +293,9 @@ class MainActivity : ComponentActivity() {
                 onResume = till::resume,
                 onLastReceipt = {
                     state.lastSale?.let { sale ->
+                        // The last sale the node has, not the one that may still
+                        // be on its way.
+                        till.forgetRung()
                         till.loadReceipt(sale.saleId)
                         where = Where.RECEIPT
                     }
@@ -284,6 +309,8 @@ class MainActivity : ComponentActivity() {
             Where.SHIFT -> ShiftScreen(
                 shift = state.shift,
                 busy = state.busy,
+                unsent = state.outbox.unsent,
+                refused = state.outbox.refused,
                 onOpen = { float -> till.openShift(float) },
                 onMovement = { kind, amount, reason -> till.cashMovement(kind, amount, reason, null) },
                 onClose = { declared, note ->
@@ -335,18 +362,31 @@ class MainActivity : ComponentActivity() {
                 onBack = { where = Where.DESK },
             )
 
-            Where.RECEIPT -> ReceiptScreen(
-                // Only the receipt of the sale just made: until it has been
-                // fetched, `state.receipt` is still the one before.
-                receipt = state.receipt?.takeIf { it.saleId == state.lastSale?.saleId },
-                sale = state.lastSale,
-                hasPrinter = config.hasPrinter,
-                busy = state.busy,
-                // By the sale, not by the loaded receipt: that may still be the
-                // one before while the new one is on its way.
-                onPrint = { copy -> state.lastSale?.let { till.printReceipt(it.saleId, copy) } },
-                onBack = { where = Where.DESK },
-            )
+            Where.RECEIPT -> {
+                // The sale just rung, while the store server has not taken it:
+                // then there is no receipt, and nothing to print against.
+                val rung = state.rungEntry
+                val pending = rung?.takeIf { it.saleId == null || it.refused }
+                // Which sale's paper this is: the one just rung once the node has
+                // named it, else the last sale the node has (the "Last receipt"
+                // route, which forgets the rung first).
+                val named = rung?.saleId ?: state.lastSale?.saleId
+                ReceiptScreen(
+                    // Only the receipt of that sale: until it has been fetched,
+                    // `state.receipt` is still the one before.
+                    receipt = state.receipt?.takeIf { it.saleId == named },
+                    sale = state.lastSale?.takeIf { it.saleId == named },
+                    pending = pending,
+                    settling = rung != null && state.settlingId == rung.localId,
+                    storageProblem = state.outbox.storageProblem,
+                    hasPrinter = config.hasPrinter,
+                    busy = state.busy,
+                    // By the sale, not by the loaded receipt: that may still be the
+                    // one before while the new one is on its way.
+                    onPrint = { copy -> named?.let { till.printReceipt(it, copy) } },
+                    onBack = { till.forgetRung(); where = Where.DESK },
+                )
+            }
         }
         }
 
@@ -364,14 +404,13 @@ class MainActivity : ComponentActivity() {
                 onBenefitRelease = till::releaseBenefit,
                 onCancel = { till.releaseBenefit(); where = Where.DESK },
                 onConfirm = { tenders ->
-                    till.sell(tenders) { sale ->
-                        till.loadReceipt(sale.saleId)
-                        // Printing is fire-and-forget on purpose: a printer out
-                        // of paper must not hold up the next customer, and the
-                        // receipt can be reprinted from the sale at any time.
-                        if (config.hasPrinter) till.printReceipt(sale.saleId, copy = false)
-                        where = Where.RECEIPT
-                    }
+                    // Written down first, sent second: the receipt screen opens
+                    // as soon as the sale is on this tablet, whether or not the
+                    // store server has answered. Printing is fire-and-forget on
+                    // purpose (a printer out of paper must not hold up the next
+                    // customer, and the receipt can be reprinted from the sale at
+                    // any time) and happens only once the node has named the sale.
+                    till.sell(tenders, autoPrint = config.hasPrinter) { where = Where.RECEIPT }
                 },
             )
         }
@@ -442,6 +481,11 @@ class MainActivity : ComponentActivity() {
             val bad = state.note?.takeIf { it.bad }?.text
             if (approving != null && bad != null) approvalFailure = bad
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        onResumed?.invoke()
     }
 
     override fun onStop() {

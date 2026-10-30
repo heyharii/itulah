@@ -21,6 +21,7 @@
 /// refusing in `edge.ts`, because none of it can be done from here.
 
 import type { EdgeReply } from "@/edge"
+import { isGudang } from "@/edition"
 import type { NodeConfig } from "@/session"
 
 const TOKEN_KEY = "pos.web.token.v1"
@@ -54,16 +55,18 @@ const session = () => window.sessionStorage
 /// Without a number it is Kasir 1. A name minted the old way (`WEB-xxxx`) is
 /// not a kasir and is replaced.
 function terminalId(): string {
-  const asked = new URLSearchParams(window.location.search).get("kasir")
+  // Central Gudang in a browser is a warehouse PC, `GUDANG-N` (`?gudang=2`).
+  const kind = isGudang ? "GUDANG" : "KASIR"
+  const asked = new URLSearchParams(window.location.search).get(isGudang ? "gudang" : "kasir")
   if (asked !== null && /^\d+$/.test(asked) && Number(asked) > 0) {
-    const named = `KASIR-${Number(asked)}`
+    const named = `${kind}-${Number(asked)}`
     write(local, TERMINAL_KEY, named)
     return named
   }
   const held = read(local, TERMINAL_KEY)
-  if (held !== null && /^KASIR-\d+$/.test(held)) return held
-  write(local, TERMINAL_KEY, "KASIR-1")
-  return "KASIR-1"
+  if (held !== null && new RegExp(`^${kind}-\\d+$`).test(held)) return held
+  write(local, TERMINAL_KEY, `${kind}-1`)
+  return `${kind}-1`
 }
 
 type Printer = {

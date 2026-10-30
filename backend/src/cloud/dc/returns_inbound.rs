@@ -32,8 +32,8 @@ use crate::cloud::http::auth::Principal;
 use crate::cloud::{AppError, AppState};
 use crate::edge::inbound::{
     StoreInboundCountRequest, StoreInboundDelivery, StoreInboundDetail, StoreInboundLine,
-    StoreInboundList, StoreInboundManifestItem, StoreInboundReceiveRequest, StoreInboundResult, STATUS_IN_TRANSIT,
-    STATUS_RECEIVED, STORE_INBOUND_LIST_LIMIT, STORE_INBOUND_MAX_EPCS,
+    StoreInboundList, StoreInboundManifestItem, StoreInboundReceiveRequest, StoreInboundResult,
+    STATUS_IN_TRANSIT, STATUS_RECEIVED, STORE_INBOUND_LIST_LIMIT, STORE_INBOUND_MAX_EPCS,
 };
 use crate::sync::flow::{InboundReceivedLine, InboundReceivedPayload, FLOW_FACT_SCHEMA_VERSION};
 use axum::{
@@ -639,11 +639,10 @@ async fn receive_epcs(
     // the SKU, into the same landing pool. (key, sku, subject)
     let mut counted_extra: Vec<(String, String, Uuid)> = Vec::new();
     for (sku_code, quantity) in counted_extras {
-        let sku: Option<Uuid> =
-            sqlx::query_scalar("SELECT id FROM sku WHERE upper(sku_code) = $1")
-                .bind(sku_code)
-                .fetch_optional(&mut *tx)
-                .await?;
+        let sku: Option<Uuid> = sqlx::query_scalar("SELECT id FROM sku WHERE upper(sku_code) = $1")
+            .bind(sku_code)
+            .fetch_optional(&mut *tx)
+            .await?;
         let Some(sku) = sku else {
             return Err(AppError::Validation(format!(
                 "{sku_code} is not in the catalogue; count only what came off the lorry"
@@ -660,7 +659,11 @@ async fn receive_epcs(
             .bind(occurred_at)
             .execute(&mut *tx)
             .await?;
-            counted_extra.push((format!("COUNTED-{sku_code}-{}", index + 1), sku_code.clone(), subject));
+            counted_extra.push((
+                format!("COUNTED-{sku_code}-{}", index + 1),
+                sku_code.clone(),
+                subject,
+            ));
         }
     }
     for (index, chunk) in counted_extra.chunks(CHUNK).enumerate() {

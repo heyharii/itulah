@@ -625,6 +625,11 @@ function JournalsScreen({ first }: { first: Tab }) {
               value={needle}
               onChange={setNeedle}
               label="Search journals"
+              placeholder={
+                all
+                  ? "No, account or name"
+                  : "Jurnal no, referensi or keterangan"
+              }
             />
             <WindowControl range={range} />
             <UnitSelect

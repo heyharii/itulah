@@ -150,7 +150,11 @@ pub async fn read_item_photo(
     let kinds: Vec<(&'static str, &'static str)> = SIZE_KINDS
         .iter()
         .copied()
-        .filter(|(kind, _)| size_codes.iter().any(|(_, label)| size_kind(label) == *kind))
+        .filter(|(kind, _)| {
+            size_codes
+                .iter()
+                .any(|(_, label)| size_kind(label) == *kind)
+        })
         .collect();
 
     let mut questions = Map::new();
@@ -176,7 +180,10 @@ pub async fn read_item_photo(
             .collect();
         questions.insert(
             "size_kind".into(),
-            choice("What kind of sizes is the item in `photo` sold in?", &options),
+            choice(
+                "What kind of sizes is the item in `photo` sold in?",
+                &options,
+            ),
         );
     }
     for (index, (_, label)) in tags.iter().enumerate() {
@@ -208,7 +215,10 @@ pub async fn read_item_photo(
         .enumerate()
         .filter_map(|(index, (code, _))| {
             let probability = answers.get(format!("tag_{index}"))?.get("noul")?.as_f64()?;
-            Some(TagPick { code: code.clone(), probability })
+            Some(TagPick {
+                code: code.clone(),
+                probability,
+            })
         })
         .collect();
     tag_picks.sort_by(|a, b| b.probability.total_cmp(&a.probability));
@@ -222,7 +232,11 @@ pub async fn read_item_photo(
                 .collect();
             run_for(&state, &size_codes, &kind, &sure_tags)
                 .await?
-                .map(|codes| SizesPick { kind, codes, confidence })
+                .map(|codes| SizesPick {
+                    kind,
+                    codes,
+                    confidence,
+                })
         }
         None => None,
     };
@@ -281,11 +295,10 @@ pub async fn read_article_photo(
     let typed_name = typed(request.name.as_deref());
     let division = typed(request.division_code.as_deref());
 
-    let names: Vec<(String,)> = sqlx::query_as(
-        "SELECT name FROM article_name_suggestion WHERE active ORDER BY name",
-    )
-    .fetch_all(&state.db)
-    .await?;
+    let names: Vec<(String,)> =
+        sqlx::query_as("SELECT name FROM article_name_suggestion WHERE active ORDER BY name")
+            .fetch_all(&state.db)
+            .await?;
     // The articles most like this one by name, in its division when it has
     // one: the ones worth putting to Jev as possible duplicates.
     let candidates: Vec<(String, String, Option<String>)> = sqlx::query_as(
@@ -350,13 +363,19 @@ pub async fn read_article_photo(
     let name = picked(&answers, "name").and_then(|(option, confidence)| {
         let index: usize = option.strip_prefix("name_")?.parse().ok()?;
         let (name,) = names.get(index)?;
-        Some(NamePick { name: name.clone(), confidence })
+        Some(NamePick {
+            name: name.clone(),
+            confidence,
+        })
     });
     let mut similar: Vec<SimilarArticle> = candidates
         .iter()
         .enumerate()
         .filter_map(|(index, (code, name, _))| {
-            let probability = answers.get(format!("same_{index}"))?.get("noul")?.as_f64()?;
+            let probability = answers
+                .get(format!("same_{index}"))?
+                .get("noul")?
+                .as_f64()?;
             (probability >= DUPLICATE_LINE).then(|| SimilarArticle {
                 article_code: code.clone(),
                 name: name.clone(),
@@ -377,14 +396,19 @@ pub async fn read_article_photo(
 const SIZE_KINDS: [(&str, &str); 4] = [
     ("letters", "Clothing sizes in letters, such as S, M, L, XL"),
     ("shoe", "Shoe sizes in numbers, such as EU 37 to EU 41"),
-    ("one", "One size fits all, such as a bag, a hat or an accessory"),
+    (
+        "one",
+        "One size fits all, such as a bag, a hat or an accessory",
+    ),
     ("none", "Not sold in sizes at all"),
 ];
 
 /// Which kind a size in the master is, from its label.
 fn size_kind(label: &str) -> &'static str {
     let label = label.trim().to_ascii_uppercase();
-    let letters = ["XXS", "XS", "S", "M", "L", "XL", "XXL", "XXXL", "2XL", "3XL", "4XL"];
+    let letters = [
+        "XXS", "XS", "S", "M", "L", "XL", "XXL", "XXXL", "2XL", "3XL", "4XL",
+    ];
     if label.contains("NO SIZE") {
         "none"
     } else if label.contains("ONE SIZE") || label.contains("ALL SIZE") {
@@ -467,7 +491,11 @@ impl Photo {
         let format = match format.trim().to_ascii_lowercase().as_str() {
             "jpg" | "jpeg" => "jpg",
             "png" => "png",
-            _ => return Err(AppError::Validation("the photo must be a JPEG or a PNG".into())),
+            _ => {
+                return Err(AppError::Validation(
+                    "the photo must be a JPEG or a PNG".into(),
+                ))
+            }
         };
         let data = data.trim();
         if data.is_empty() || data.len() > MAX_PHOTO_BYTES / 3 * 4 + 4 {
@@ -485,7 +513,11 @@ impl Photo {
 
 /// One System One request with the photo in the state as `photo`, beside any
 /// other fields; the whole answer back.
-async fn ask(photo: &Photo, extra: Map<String, Value>, questions: Map<String, Value>) -> Result<Value, AppError> {
+async fn ask(
+    photo: &Photo,
+    extra: Map<String, Value>,
+    questions: Map<String, Value>,
+) -> Result<Value, AppError> {
     let config = jev();
     let key = config.key.clone().ok_or_else(|| {
         AppError::Configuration("photo reading is not configured on this node".into())

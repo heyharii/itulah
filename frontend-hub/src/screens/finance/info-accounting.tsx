@@ -211,6 +211,7 @@ function AccountsTab({ onOpen }: { onOpen: (account: PickedAccount) => void }) {
           value={needle}
           onChange={setNeedle}
           label="Search accounts"
+          placeholder="Account code or name"
         />
         <UnitSelect
           value={unit}
@@ -219,8 +220,11 @@ function AccountsTab({ onOpen }: { onOpen: (account: PickedAccount) => void }) {
           aria-label="Unit"
         />
         <Toolbar.Spacer />
+        {/* The prototype's own reading of the bar: the period (`202610`) to
+            today, not the day twice. */}
         <span className="text-[0.9375rem] text-mute">
-          {day(today)} · to {day(today)}
+          {today.slice(0, 4)}
+          {today.slice(5, 7)} · to {day(today)}
         </span>
       </Toolbar>
       {queryState(now, {

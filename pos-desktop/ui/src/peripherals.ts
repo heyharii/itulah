@@ -46,6 +46,13 @@ export type Peripherals = {
   /// The USB printer's name on this machine — the Windows printer or the CUPS
   /// queue — that receipts are sent to as a raw job.
   readonly usb_printer_name?: string | null
+  /// The language the USB printer reads: `ESCPOS` (receipt printer) or `TSPL`
+  /// (label printer, e.g. Xprinter XP-D4601B). Null: guessed from the model.
+  readonly receipt_language?: "ESCPOS" | "TSPL" | null
+  /// For a label printer: one label of the roll, in mm. Null: continuous paper.
+  readonly label_width_mm?: number | null
+  readonly label_height_mm?: number | null
+  readonly label_gap_mm?: number | null
   /// True while the node has not acknowledged this description.
   readonly unsent: boolean
   /// Unix seconds of the node's last acknowledgement.
@@ -69,6 +76,10 @@ export const DEFAULT_PERIPHERALS: Peripherals = {
   printer_label: null,
   usb_printer_model: null,
   usb_printer_name: null,
+  receipt_language: null,
+  label_width_mm: null,
+  label_height_mm: null,
+  label_gap_mm: null,
   unsent: false,
   reported_at: null,
 }

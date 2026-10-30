@@ -7,7 +7,8 @@ import {
 } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { useNavigate } from "@tanstack/react-router"
 
 import { CalendarClock, UserPlus } from "lucide-react"
 
@@ -33,7 +34,7 @@ import {
   SubHead,
 } from "@/components/ui/rows"
 import { Toolbar } from "@/components/ui/segmented"
-import { Fact, Facts, Sheet, type SheetTab } from "@/components/ui/sheet"
+import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { SheetFooter } from "@/components/ui/sheet-footer"
 import { EmptyState, ErrorState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
@@ -79,7 +80,6 @@ import {
   expiringContracts,
   peopleKeys,
   readContracts,
-  readEmployee,
   readDays,
   statusLabel,
   useReach,
@@ -96,19 +96,11 @@ import { tableSetup, type TableSetup } from "@/lib/table"
 import type {
   AccountBinding,
   EmployeeSummary,
-  EmployeeView,
   ProfileAmendmentView,
 } from "@itulah/contract"
 import { Quiet } from "@/screens/people/parts"
-import { ChecklistPanel } from "@/screens/people/checklist"
 import { ClaimBalances } from "@/screens/people/claim-benefits"
-import { DisciplinePanel } from "@/screens/people/discipline"
-import { FingerprintsPanel } from "@/screens/people/fingerprints"
 import { LeaveMoves } from "@/screens/people/leave-extras"
-import { LoansPanel } from "@/screens/people/loans"
-import { PayPanel } from "@/screens/people/pay"
-import { PlacementPanel } from "@/screens/people/placement"
-import { BenefitPanel } from "@/screens/people/benefit-page"
 import { ClaimSheet } from "@/screens/people/claims"
 import { AddEmployeeSheet } from "@/screens/people/add-employee"
 import { ImportExportSheet } from "@/screens/people/import-export"
@@ -134,7 +126,7 @@ import { ImportExportSheet } from "@/screens/people/import-export"
 /// taken on and not yet started is exactly that — a normal state for a
 /// fortnight and an alarming one for a year. `TERMINATED` is neutral rather
 /// than `bad`: a person leaving is not a fault.
-function statusTone(status: string): Tone {
+export function statusTone(status: string): Tone {
   switch (status) {
     case "ACTIVE":
       return "ok"
@@ -439,6 +431,22 @@ export function Directory() {
   const reach = useReach()
   const bounded = boundedTo(reach.data)
   const employee = useSheet("employee")
+  const navigate = useNavigate()
+  // A person is a full page now, not a sheet over the list; an old
+  // `/people?employee=…` link lands there with its hash.
+  const openEmployee = useCallback(
+    (id: string, replace = false) =>
+      void navigate({
+        to: "/people/employee",
+        search: { employee: id },
+        hash: window.location.hash.slice(1) || undefined,
+        replace,
+      } as never),
+    [navigate]
+  )
+  useEffect(() => {
+    if (employee.value !== undefined) openEmployee(employee.value, true)
+  }, [employee.value, openEmployee])
   const adding = useSheet("addEmployee")
   const porting = useSheet("importExport")
   const employer = usePeopleAudience() === "employer"
@@ -572,7 +580,7 @@ export function Directory() {
     })
   }, [fields, head])
 
-  const columns = useMemo(() => columnsOf(employee.open), [employee.open])
+  const columns = useMemo(() => columnsOf(openEmployee), [openEmployee])
   const table = useTable(
     useMemo(
       () => ({
@@ -598,8 +606,6 @@ export function Directory() {
       [rows, sorting, columns, phone]
     )
   )
-
-  const listed = rows.find((row) => row.employee_id === employee.value) ?? null
 
   // Asked of the server rather than derived from the rows on screen. The
   // client-side version could only ever see what the current filter had
@@ -630,9 +636,9 @@ export function Directory() {
               ? "medium"
               : "low") as "high" | "medium" | "low",
           icon: <CalendarClock className="size-4" />,
-          onOpen: () => employee.open(row.employee_id),
+          onOpen: () => openEmployee(row.employee_id),
         })),
-    [expiring.data, employee]
+    [expiring.data, openEmployee]
   )
 
   return (
@@ -725,8 +731,7 @@ export function Directory() {
               <DataTable<EmployeeSummary>
                 refresh={[people]}
                 table={table}
-                onRowClick={(row) => employee.open(row.employee_id)}
-                isSelected={(row) => row.employee_id === employee.value}
+                onRowClick={(row) => openEmployee(row.employee_id)}
                 more={people}
                 className="max-h-[calc(100dvh-14rem)]"
                 cardsApart
@@ -737,11 +742,6 @@ export function Directory() {
         })}
       </Card>
 
-      <EmployeeSheet
-        id={employee.value ?? null}
-        listed={listed}
-        onClose={employee.close}
-      />
       <ImportExportSheet open={porting.isOpen} onClose={porting.close} />
       <AddEmployeeSheet
         open={adding.isOpen}
@@ -757,297 +757,14 @@ export function Directory() {
         }
         onAdded={(id) => {
           adding.close()
-          employee.open(id)
+          openEmployee(id)
         }}
       />
     </PageContent>
   )
 }
 
-const TABS = [
-  { value: "record", label: "Record" },
-  { value: "fingerprints", label: "Fingerprints" },
-  { value: "leave", label: "Leave" },
-  { value: "claims", label: "Claims" },
-  { value: "contracts", label: "Contracts" },
-  { value: "position", label: "Position" },
-  { value: "checklist", label: "Checklist" },
-  { value: "discipline", label: "Discipline" },
-  { value: "pay", label: "Pay" },
-  { value: "loans", label: "Loans" },
-  { value: "benefit", label: "Benefit" },
-  { value: "exit", label: "Exit" },
-  { value: "change", label: "Change" },
-] as const
-
-/// The tabs this caller is actually offered.
-///
-/// Every form behind **Change** — employment status, posting, contract,
-/// employee number, the login, personal data — is an employer act, and every
-/// one of the six is `Role::Admin` on the server. A place manager was being
-/// shown the tab anyway, so the one screen a store opens daily carried six
-/// forms whose Save could only ever answer 403: an offer the app cannot keep.
-///
-/// Hiding it is not the permission — the routes stay the permission. This only
-/// stops the screen promising something it will be refused.
-///
-/// `null` from the audience hook means "not yet known", and that is read as
-/// "not offered": a tab that appears a moment late is better than one that is
-/// drawn and then taken away under the reader's cursor.
-///
-/// **Pay** is head office's the same way, and for a second reason: a shop
-/// manager who could read the team's salaries would know what everybody
-/// earns. It and **Uniforms** were screens of their own until 2026-09-27 —
-/// pick a person from a list, then read their pay or their uniform ledger —
-/// and a fact about one person belongs on that person's sheet.
-///
-/// The exit tab is a leaver's tab: an exit interview exists for somebody whose
-/// employment ended, so it is offered only when the record says TERMINATED —
-/// a tab beside an active record promises something that cannot exist.
-function tabsFor(
-  employer: boolean,
-  status?: string
-): readonly (typeof TABS)[number][] {
-  const base = employer
-    ? TABS
-    : TABS.filter(
-        (one) =>
-          one.value !== "change" &&
-          one.value !== "pay" &&
-          one.value !== "loans" &&
-          one.value !== "benefit" &&
-          one.value !== "position" &&
-          one.value !== "discipline"
-      )
-  return status === "TERMINATED"
-    ? base
-    : base.filter((one) => one.value !== "exit")
-}
-
-function EmployeeSheet({
-  id,
-  listed,
-  onClose,
-}: {
-  id: string | null
-  listed: EmployeeSummary | null
-  onClose: () => void
-}) {
-  const employer = usePeopleAudience() === "employer"
-
-  const detail = useQuery({
-    queryKey: peopleKeys.employee(id ?? ""),
-    queryFn: ({ signal }) => readEmployee(id!, signal),
-    enabled: id !== null,
-  })
-
-  // A link from another screen can land on a section
-  // (`/people?employee=…#change`). The hash is read when a record opens and
-  // dropped so the next person opened from the list starts at the top.
-  const [landing, setLanding] = useState<string | null>(null)
-  useEffect(() => {
-    if (id === null) return
-    const wanted = window.location.hash.slice(1)
-    setLanding(wanted === "" ? null : wanted)
-    if (wanted !== "")
-      window.history.replaceState(
-        window.history.state,
-        "",
-        window.location.pathname + window.location.search
-      )
-  }, [id])
-
-  const person = detail.data
-  return (
-    <Sheet
-      open={id !== null}
-      subject={id === null ? undefined : { kind: "employee", id }}
-      onOpenChange={(open) => !open && onClose()}
-      id={person?.employee_code ?? listed?.employee_code}
-      title={listed?.full_name ?? person?.employee_code ?? "Employee"}
-      badge={
-        person && (
-          <Pill tone={statusTone(person.status)}>
-            {statusLabel(person.status)}
-          </Pill>
-        )
-      }
-      tabs={person ? employeeSections(person, listed, employer) : undefined}
-      tab={person ? landing : null}
-    >
-      {queryState(detail, {
-        loading: "Loading the record…",
-        render: () => null,
-      })}
-    </Sheet>
-  )
-}
-
-/// One person's sections, once the record is in hand — ONE scroll, no tabs.
-///
-/// The Change forms are head office's, and the exit section belongs to a
-/// leaver — an exit interview exists for somebody whose employment ended, and
-/// showing it beside an active record promises something that cannot exist.
-/// Both facts arrive with the detail read, so the sections are computed here
-/// rather than in the sheet.
-function employeeSections(
-  person: EmployeeView,
-  listed: EmployeeSummary | null,
-  employer: boolean
-): readonly SheetTab[] {
-  const content: Record<string, React.ReactNode> = {
-    record: (
-      <div className="flex flex-col gap-5">
-        <div className="flex flex-wrap items-center gap-2 empty:hidden">
-          {!person.selectable && (
-            <Pill tone="neutral">Not available for new work</Pill>
-          )}
-          {person.status !== "ACTIVE" &&
-            person.status !== "CANDIDATE" &&
-            person.account !== null &&
-            person.account.active && (
-              // Ending or suspending employment closes the login as part of
-              // the same act, so this is either a binding made before that
-              // was true or a close that failed. Both are a working
-              // credential for somebody who is not working, which is the
-              // one thing on this sheet worth interrupting somebody about.
-              <Pill tone="bad">Login still open</Pill>
-            )}
-        </div>
-
-        <Facts>
-          <Fact term="Posted to">
-            {person.current_unit_name ?? person.current_unit_id ?? "—"}
-          </Fact>
-          <Fact term="Login">
-            {person.account === null ? (
-              "None"
-            ) : person.account.active ? (
-              person.account.username
-            ) : (
-              <span className="text-mute">
-                {person.account.username} · closed
-              </span>
-            )}
-          </Fact>
-          <Fact term="Job">{listed?.position ?? "—"}</Fact>
-          <Fact term="Registered">{day(person.created_at)}</Fact>
-        </Facts>
-
-        <div className="flex flex-col gap-5">
-          <div>
-            <SubHead>Employment</SubHead>
-            {person.history.length === 0 ? (
-              <Quiet>
-                Nothing has happened to this record yet — not even a hire.
-              </Quiet>
-            ) : (
-              <Timeline
-                events={person.history.map((event, index) => ({
-                  id: `${event.transition}-${event.at}-${index}`,
-                  title: `${event.transition} — ${event.from} → ${event.to}`,
-                  detail: `${event.actor} · ${event.reason}`,
-                  at: day(event.effective_on),
-                  state:
-                    index === person.history.length - 1 ? "current" : "done",
-                }))}
-              />
-            )}
-          </div>
-
-          <div>
-            <SubHead>Postings</SubHead>
-            {person.assignments.length === 0 ? (
-              <Quiet>Never posted anywhere.</Quiet>
-            ) : (
-              <MiniTable
-                head={["Place", { label: "From", align: "left" }, "Until"]}
-              >
-                {person.assignments.map((assignment) => (
-                  <MiniRow
-                    key={`${assignment.unit_id}-${assignment.valid_from}`}
-                  >
-                    <MiniCell>
-                      <span className="block text-[0.9375rem] text-ink">
-                        {assignment.unit_name ?? assignment.unit_id}
-                      </span>
-                      <span className="font-mono text-[0.9375rem] text-mute">
-                        {assignment.actor} · {assignment.reason}
-                      </span>
-                    </MiniCell>
-                    <MiniCell>{day(assignment.valid_from)}</MiniCell>
-                    <MiniCell align="right">
-                      {assignment.valid_to ? day(assignment.valid_to) : "open"}
-                    </MiniCell>
-                  </MiniRow>
-                ))}
-              </MiniTable>
-            )}
-          </div>
-
-          {person.code_history.length > 0 && (
-            <div>
-              <SubHead>Number corrections</SubHead>
-              <MiniTable
-                head={["Was", { label: "Became", align: "left" }, "By"]}
-              >
-                {person.code_history.map((correction, index) => (
-                  <MiniRow key={`${correction.from}-${index}`}>
-                    <MiniCell>
-                      <span className="font-mono text-id text-mute line-through">
-                        {correction.from}
-                      </span>
-                    </MiniCell>
-                    <MiniCell>
-                      <span className="font-mono text-id text-ink">
-                        {correction.to}
-                      </span>
-                    </MiniCell>
-                    <MiniCell align="right">{correction.actor}</MiniCell>
-                  </MiniRow>
-                ))}
-              </MiniTable>
-            </div>
-          )}
-        </div>
-      </div>
-    ),
-    fingerprints: (
-      <FingerprintsPanel
-        employeeId={person.employee_id}
-        name={listed?.full_name ?? person.employee_code}
-        employer={employer}
-        leaver={person.status === "TERMINATED"}
-      />
-    ),
-    leave: <LeaveTab employeeId={person.employee_id} />,
-    claims: <ClaimsTab employeeId={person.employee_id} />,
-    contracts: <Contracts employeeId={person.employee_id} />,
-    discipline: <DisciplinePanel employeeId={person.employee_id} />,
-    checklist: <ChecklistPanel employeeId={person.employee_id} />,
-    position: <PlacementPanel employeeId={person.employee_id} />,
-    pay: <PayPanel employeeId={person.employee_id} />,
-    loans: <LoansPanel employeeId={person.employee_id} />,
-    benefit: (
-      <BenefitPanel
-        employeeId={person.employee_id}
-        name={listed?.full_name ?? person.employee_code}
-        code={person.employee_code}
-      />
-    ),
-    exit: <ExitTab employeeId={person.employee_id} employer={employer} />,
-    change: (
-      <Changes employeeId={person.employee_id} account={person.account} />
-    ),
-  }
-  return tabsFor(employer, person.status).map((one) => ({
-    value: one.value,
-    label: one.label,
-    content: content[one.value],
-  }))
-}
-
-function Contracts({ employeeId }: { employeeId: string }) {
+export function Contracts({ employeeId }: { employeeId: string }) {
   const contracts = useQuery({
     queryKey: peopleKeys.contracts(employeeId),
     queryFn: ({ signal }) => readContracts(employeeId, signal),
@@ -1120,7 +837,7 @@ const ACTIONS = [
 /// Six forms stacked would be six ways to click the wrong Save in a panel
 /// 27.5rem wide. Picking the change first also makes the reason field mean
 /// something specific — it is recorded against that decision and no other.
-function Changes({
+export function Changes({
   employeeId,
   account,
 }: {
@@ -1166,7 +883,7 @@ function Changes({
 
 /// The submit row every change form ends with. One black CTA, and this sheet is
 /// the only place on the Directory screen that has one.
-function Submit({
+export function Submit({
   label,
   busy,
   disabled,
@@ -1189,7 +906,7 @@ function Submit({
   )
 }
 
-function Reason({
+export function Reason({
   value,
   onChange,
 }: {
@@ -2243,7 +1960,7 @@ function AmendmentForm({ employeeId }: { employeeId: string }) {
 /// as the certificate says, so "how many are left" is a malformed question
 /// rather than one whose answer is none — and `0` is a number somebody can
 /// refuse leave with.
-function LeaveTab({ employeeId }: { employeeId: string }) {
+export function LeaveTab({ employeeId }: { employeeId: string }) {
   const balances = useQuery({
     queryKey: leaveKeys.balances(employeeId),
     queryFn: ({ signal }) => leaveBalances(employeeId, signal),
@@ -2346,7 +2063,7 @@ function LeaveTab({ employeeId }: { employeeId: string }) {
 /// about who is holding money, and the narrowing to this one employee is the
 /// server's. The fold behind it carries every leg money has come back by,
 /// recovered-via-gaji included.
-function ClaimsTab({ employeeId }: { employeeId: string }) {
+export function ClaimsTab({ employeeId }: { employeeId: string }) {
   const claims = useQuery({
     queryKey: claimsKeys.of(employeeId),
     queryFn: ({ signal }) => claimsOf(employeeId, signal),
@@ -2499,7 +2216,7 @@ function ClaimsTab({ employeeId }: { employeeId: string }) {
 /// Reading statements needs `people.fnf.settle`, which is head office's; a
 /// place manager's tab shows the interview and stops there, rather than
 /// fetching a guaranteed refusal on every open.
-function ExitTab({
+export function ExitTab({
   employeeId,
   employer,
 }: {

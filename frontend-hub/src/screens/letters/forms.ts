@@ -101,6 +101,78 @@ function level(text: string): string {
   return number ? `${LEVEL_WORDS[number]} (SP ${number})` : or(text)
 }
 
+/// An employment contract, drafted from the details and then edited on the
+/// paper like any letter before it is printed and signed (owner, 2026-10-25).
+///
+/// No money is written into it: letters are read at the cashier rung, so pay is
+/// said to be "in the pay letter" and stays where payroll keeps it. The terms
+/// follow UU 13/2003 as amended by PP 35/2021: a fixed-term contract (PKWT) has
+/// no probation and ends with compensation; an open-ended one (PKWTT) may have
+/// up to three months of probation.
+function contractForm(kind: "pkwt" | "pkwtt"): WrittenForm {
+  const fixed = kind === "pkwt"
+  return {
+    key: kind,
+    group: "people",
+    name: fixed ? "Fixed-term contract" : "Permanent contract",
+    paper: fixed
+      ? "Perjanjian Kerja Waktu Tertentu"
+      : "Perjanjian Kerja Waktu Tidak Tertentu",
+    fields: [
+      [EMPLOYEE, ROLE],
+      fixed
+        ? [
+            { key: "start_date", label: "Starts" },
+            { key: "end_date", label: "Ends" },
+          ]
+        : [
+            { key: "start_date", label: "Starts" },
+            { key: "probation", label: "Probation" },
+          ],
+      [{ key: "place_to", label: "Place of work" }, DATE],
+    ],
+    head: [
+      { key: "employee", label: "Nama" },
+      { key: "role", label: "Jabatan" },
+      { key: "start_date", label: "Mulai bekerja" },
+      ...(fixed
+        ? [{ key: "end_date", label: "Berakhir" }]
+        : [{ key: "probation", label: "Masa percobaan", blank: "Probation" }]),
+      { key: "letter_date", label: "Tanggal" },
+    ],
+    signs: [
+      { caption: "Pihak Pertama (Perusahaan)", name: "author" },
+      { caption: "Pihak Kedua (Karyawan)", name: "employee", role: "role" },
+    ],
+    prose: (f) => [
+      `Yang bertanda tangan di bawah ini, ${COMPANY.name} (selanjutnya disebut Pihak Pertama), dan ${or(f.employee ?? "")} (selanjutnya disebut Pihak Kedua), sepakat membuat perjanjian kerja ${fixed ? "waktu tertentu" : "waktu tidak tertentu"} dengan ketentuan sebagai berikut.`,
+      "Pasal 1 – Jabatan dan tempat kerja",
+      `Pihak Kedua dipekerjakan sebagai ${or(f.role ?? "")} dan ditempatkan di ${or(f.place_to ?? "")}. Perusahaan dapat menempatkan Pihak Kedua di tempat lain sesuai kebutuhan, dengan pemberitahuan lebih dahulu.`,
+      "Pasal 2 – Jangka waktu",
+      fixed
+        ? `Perjanjian ini berlaku sejak ${or(f.start_date ?? "")} sampai dengan ${or(f.end_date ?? "")}. Perjanjian berakhir pada tanggal tersebut tanpa pemberitahuan lebih lanjut, kecuali diperpanjang secara tertulis sesuai peraturan perundang-undangan.`
+        : `Perjanjian ini berlaku sejak ${or(f.start_date ?? "")} untuk waktu yang tidak ditentukan. Masa percobaan: ${or(f.probation ?? "")}, paling lama tiga bulan, dan upah selama masa percobaan tidak boleh lebih rendah dari upah minimum yang berlaku.`,
+      "Pasal 3 – Upah dan tunjangan",
+      "Upah, tunjangan, dan tanggal pembayarannya ditetapkan dalam surat penetapan upah tersendiri yang bersifat rahasia dan menjadi bagian dari perjanjian ini. Perusahaan memotong pajak penghasilan dan iuran BPJS Kesehatan dan BPJS Ketenagakerjaan sesuai peraturan yang berlaku.",
+      "Pasal 4 – Jam kerja dan lembur",
+      "Jam kerja mengikuti jadwal yang ditetapkan perusahaan, dengan paling banyak 40 jam seminggu. Kerja lembur hanya dilakukan atas perintah atau persetujuan tertulis perusahaan dan dibayar sesuai peraturan.",
+      "Pasal 5 – Hak cuti",
+      "Pihak Kedua berhak atas cuti tahunan, cuti sakit, dan hari libur resmi sesuai peraturan perundang-undangan dan peraturan perusahaan.",
+      "Pasal 6 – Kewajiban dan kerahasiaan",
+      "Pihak Kedua wajib menjalankan tugas dengan jujur dan penuh tanggung jawab, menaati peraturan perusahaan, menjaga aset perusahaan, dan merahasiakan data dan informasi perusahaan, juga setelah hubungan kerja berakhir.",
+      "Pasal 7 – Berakhirnya hubungan kerja",
+      fixed
+        ? "Hubungan kerja berakhir saat jangka waktu perjanjian habis. Pihak Kedua menerima uang kompensasi sebesar satu bulan upah untuk setiap dua belas bulan masa kerja, dihitung proporsional untuk masa yang kurang dari dua belas bulan. Bila salah satu pihak mengakhiri perjanjian sebelum waktunya, ia wajib membayar ganti rugi sebesar upah sampai berakhirnya jangka waktu."
+        : "Hubungan kerja dapat berakhir karena pengunduran diri dengan pemberitahuan tertulis tiga puluh hari sebelumnya, atau karena pemutusan hubungan kerja menurut peraturan perundang-undangan, dengan hak-hak yang menyertainya.",
+      "Pasal 8 – Penyelesaian perselisihan",
+      "Perselisihan diselesaikan lebih dahulu dengan musyawarah. Bila tidak tercapai, perselisihan diselesaikan melalui mekanisme penyelesaian perselisihan hubungan industrial.",
+      "Perjanjian ini dibuat rangkap dua bermeterai cukup, masing-masing mempunyai kekuatan hukum yang sama, dan ditandatangani oleh kedua belah pihak.",
+    ],
+    reference: (f) => f.role ?? "",
+    recipient: (f) => f.employee ?? "",
+  }
+}
+
 export const WRITTEN_FORMS: readonly WrittenForm[] = [
   {
     key: "goods_out",
@@ -308,6 +380,8 @@ export const WRITTEN_FORMS: readonly WrittenForm[] = [
     reference: (f) => f.subject ?? "",
     recipient: (f) => f.employee ?? "",
   },
+  contractForm("pkwt"),
+  contractForm("pkwtt"),
   {
     key: "notice",
     group: "notices",
@@ -435,7 +509,9 @@ export function proseDocument(paragraphs: readonly string[]): JSONContent {
     content: paragraphs.map((text) =>
       text === ""
         ? { type: "paragraph" }
-        : { type: "paragraph", content: [{ type: "text", text }] }
+        : /^Pasal \d+ – /.test(text)
+          ? { type: "heading", attrs: { level: 3 }, content: [{ type: "text", text }] }
+          : { type: "paragraph", content: [{ type: "text", text }] }
     ),
   }
 }

@@ -365,13 +365,18 @@ async fn create_request(app: &axum::Router, pool: &PgPool, points: i64) -> Answe
             "the till was told the shopper's code: {:?}",
             asked.body
         );
-        let request_id = asked.body["request_id"].as_str().unwrap_or_default().to_owned();
-        sqlx::query("UPDATE member_redeem_request SET code_sha256 = $2 WHERE request_id::text = $1")
-            .bind(&request_id)
-            .bind(inventory_backend::security::sha256_hex(SHOPPERS_CODE))
-            .execute(pool)
-            .await
-            .unwrap_or_else(|e| panic!("set the shopper's code: {e}"));
+        let request_id = asked.body["request_id"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        sqlx::query(
+            "UPDATE member_redeem_request SET code_sha256 = $2 WHERE request_id::text = $1",
+        )
+        .bind(&request_id)
+        .bind(inventory_backend::security::sha256_hex(SHOPPERS_CODE))
+        .execute(pool)
+        .await
+        .unwrap_or_else(|e| panic!("set the shopper's code: {e}"));
         asked.body["code"] = json!(SHOPPERS_CODE);
     }
     asked
@@ -532,7 +537,10 @@ async fn the_shopper_approves_in_the_app_and_the_till_finds_the_voucher(pool: Pg
 
     let asked = create_request(&app, &pool, 200).await;
     assert_eq!(asked.status, StatusCode::OK, "{:?}", asked.body);
-    let request_id = asked.body["request_id"].as_str().unwrap_or_default().to_owned();
+    let request_id = asked.body["request_id"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
 
     let waiting = progress(&app, &request_id).await;
     assert_eq!(waiting.status, StatusCode::OK, "{:?}", waiting.body);
@@ -547,7 +555,12 @@ async fn the_shopper_approves_in_the_app_and_the_till_finds_the_voucher(pool: Pg
         Some(json!({})),
     )
     .await;
-    assert_eq!(approved.status, StatusCode::OK, "approve: {:?}", approved.body);
+    assert_eq!(
+        approved.status,
+        StatusCode::OK,
+        "approve: {:?}",
+        approved.body
+    );
     assert_eq!(approved.body["status"], json!("CONFIRMED"));
     assert_eq!(approved.body["approved_in_app"], json!(true));
 
@@ -555,10 +568,17 @@ async fn the_shopper_approves_in_the_app_and_the_till_finds_the_voucher(pool: Pg
     assert_eq!(found.status, StatusCode::OK, "{:?}", found.body);
     assert_eq!(found.body["request"]["status"], json!("CONFIRMED"));
     assert_eq!(found.body["voucher"]["points_spent"], json!(200));
-    assert!(found.body["voucher"]["voucher_code"].is_string(), "{:?}", found.body);
+    assert!(
+        found.body["voucher"]["voucher_code"].is_string(),
+        "{:?}",
+        found.body
+    );
     // Asked twice, still one voucher and one debit.
     let again = progress(&app, &request_id).await;
-    assert_eq!(found.body["voucher"]["voucher_id"], again.body["voucher"]["voucher_id"]);
+    assert_eq!(
+        found.body["voucher"]["voucher_id"],
+        again.body["voucher"]["voucher_id"]
+    );
     let balance: i64 =
         sqlx::query_scalar("SELECT balance_points FROM points_account WHERE customer_id = $1")
             .bind(CARD)
@@ -577,7 +597,10 @@ async fn a_declined_or_withdrawn_ask_spends_nothing(pool: PgPool) {
     seed_balance(&pool, CARD, 500).await;
 
     let asked = create_request(&app, &pool, 100).await;
-    let request_id = asked.body["request_id"].as_str().unwrap_or_default().to_owned();
+    let request_id = asked.body["request_id"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
     let declined = send(
         app.clone(),
         "POST",
@@ -591,7 +614,10 @@ async fn a_declined_or_withdrawn_ask_spends_nothing(pool: PgPool) {
     assert_eq!(heard.body["request"]["status"], json!("CANCELLED"));
 
     let asked = create_request(&app, &pool, 100).await;
-    let request_id = asked.body["request_id"].as_str().unwrap_or_default().to_owned();
+    let request_id = asked.body["request_id"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
     let withdrawn = send(
         app.clone(),
         "POST",
@@ -602,7 +628,12 @@ async fn a_declined_or_withdrawn_ask_spends_nothing(pool: PgPool) {
     .await;
     assert_eq!(withdrawn.status, StatusCode::OK, "{:?}", withdrawn.body);
     let too_late = lookup(&app, CARD, SHOPPERS_CODE).await;
-    assert_eq!(too_late.status, StatusCode::UNAUTHORIZED, "{:?}", too_late.body);
+    assert_eq!(
+        too_late.status,
+        StatusCode::UNAUTHORIZED,
+        "{:?}",
+        too_late.body
+    );
 
     let balance: i64 =
         sqlx::query_scalar("SELECT balance_points FROM points_account WHERE customer_id = $1")
@@ -907,6 +938,8 @@ async fn historical_redemption_replays_its_recorded_value_without_new_issuance(p
             expires_at: None,
             site_id: None,
             note: Some("Historical conversion".into()),
+            // A card that keeps its rest, not a paper voucher (postgres 1006).
+            single_use: Some(false),
         },
         "test",
         "historical-voucher",

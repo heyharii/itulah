@@ -53,7 +53,14 @@ mod payment;
 mod payment_ledger;
 mod period_close;
 mod place;
+/// How many member points a purchase earns from the point policy. Pure, like
+/// the return policy, so head office and a till agree.
+pub mod point_policy;
 mod record;
+/// How long a piece may come back and what "the same item" means. Pure, so
+/// head office's publication and a till's sale resolve one answer.
+pub mod receipt_header;
+pub mod return_policy;
 mod sales;
 mod settlement_report;
 mod statement_intake;
@@ -134,7 +141,12 @@ pub use payment_ledger::*;
 pub use people::*;
 pub use period_close::*;
 pub use place::*;
+pub use point_policy::{
+    PointArticle, PointPolicyRule, PointPolicySetting, PointPolicySnapshot, PointScopeKind,
+    MAX_SPEND_PER_POINT,
+};
 pub use record::*;
+pub use return_policy::*;
 pub use sales::*;
 pub use settlement_report::*;
 pub use statement_intake::*;

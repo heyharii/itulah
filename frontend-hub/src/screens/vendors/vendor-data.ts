@@ -41,7 +41,7 @@ export const vendorRegisterQuery = () =>
     queryKey: [...procurementKeys.suppliers(), "register"] as const,
     queryFn: async ({ signal }) => {
       const rows: Supplier[] = []
-      for (const category of ["EXPENSE", "AFFILIATE"] as const) {
+      for (const category of ["EXPENSE"] as const) {
         let cursor: string | undefined
         // Ten pages of a hundred a book: more than the department will ever
         // keep, and a bound so that a wrong cursor cannot loop for ever.

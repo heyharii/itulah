@@ -21,6 +21,7 @@ import { FLEET_PILL_TONE, FleetDot } from "@/screens/system/fleet-shared"
 
 const KIND_LABEL: Record<DeviceKind, string> = {
   TILL: "POS",
+  WAREHOUSE: "Warehouse PC",
   HANDHELD: "Handheld",
   RFID_READER: "RFID reader",
   PRINTER: "Printer",

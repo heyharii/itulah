@@ -81,9 +81,8 @@ const APP_TITLE: &str = "itulah Cloud Hub";
 /// node runs on, signed in as the VM's own service account. Fetched per
 /// question: it lasts an hour and a turn lasts seconds.
 async fn vertex_token() -> Result<String, AppError> {
-    let unavailable = |why: String| {
-        AppError::Configuration(format!("assistant cannot reach Vertex AI: {why}"))
-    };
+    let unavailable =
+        |why: String| AppError::Configuration(format!("assistant cannot reach Vertex AI: {why}"));
     let response = reqwest::Client::new()
         .get("http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token")
         .header("Metadata-Flavor", "Google")

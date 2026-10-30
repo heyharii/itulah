@@ -34,6 +34,5 @@ export const assetsNav: AppModule = {
   label: "Assets",
   icon: Boxes,
   home: "/assets",
-  divider: true,
   sections: [{ items: [{ path: "/assets", label: "Assets", icon: Boxes }] }],
 }

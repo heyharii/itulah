@@ -215,7 +215,10 @@ pub(crate) fn settings_file(app: &tauri::AppHandle, name: &str) -> Option<PathBu
 pub fn load(app: &tauri::AppHandle) -> NodeConfig {
     let mut config: NodeConfig = config_path(app)
         .and_then(|path| std::fs::read_to_string(path).ok())
-        .and_then(|text| serde_json::from_str(&text).ok())
+        // A file saved by Windows PowerShell or Notepad starts with a BOM, which
+        // serde_json refuses: the till then forgot its printer and every other
+        // setting without a word (30 Oct 2026). The BOM is dropped first.
+        .and_then(|text| serde_json::from_str(text.trim_start_matches('\u{feff}')).ok())
         .unwrap_or_default();
     crate::peripherals::apply_reader_recipe(&mut config.peripherals);
     config
@@ -587,6 +590,48 @@ fn signed_attempt(
     path: &str,
     body: Option<&serde_json::Value>,
 ) -> Attempt {
+    signed_attempt_as(app, node, method, path, body, false)
+}
+
+/// Where Central Gudang ties the session signed in here to this machine.
+const BIND_SESSION_PATH: &str = "/api/v1/store/warehouse/session";
+
+/// Central Gudang: tie the session signed in at this warehouse PC to it.
+///
+/// One request carrying both the session's bearer token and this terminal's
+/// signature, which only this machine can make: the node then lets a cashier
+/// signed in here receive and move stock (`edge::devices::bind_session`).
+/// Asked once after every sign-in; the token never leaves the shell for it.
+#[tauri::command]
+pub async fn edge_bind_session(app: tauri::AppHandle) -> EdgeReply {
+    in_the_background(move || {
+        let node = app.state::<Node>();
+        let _one_at_a_time = SIGNING.lock().unwrap_or_else(PoisonError::into_inner);
+        let body = serde_json::json!({});
+        with_refind(&app, || {
+            signed_attempt_as(
+                &app,
+                node.inner(),
+                "POST",
+                BIND_SESSION_PATH,
+                Some(&body),
+                true,
+            )
+        })
+    })
+    .await
+}
+
+/// A signed call, with the session's bearer token beside the signature when
+/// `with_session` — the one call that needs both is [`edge_bind_session`].
+fn signed_attempt_as(
+    app: &tauri::AppHandle,
+    node: &Node,
+    method: &str,
+    path: &str,
+    body: Option<&serde_json::Value>,
+    with_session: bool,
+) -> Attempt {
     let (config, sequence) = {
         let mut held = lock(node);
         held.pairing_sequence += 1;
@@ -637,6 +682,10 @@ fn signed_attempt(
         .set("X-Terminal-Timestamp", &timestamp.to_string())
         .set("X-Terminal-Sequence", &sequence.to_string())
         .set("X-Terminal-Signature", &signature);
+    let request = match config.token.as_deref().filter(|_| with_session) {
+        Some(token) => request.set("Authorization", &format!("Bearer {token}")),
+        None => request,
+    };
 
     let outcome = if payload.is_empty() {
         request.call()

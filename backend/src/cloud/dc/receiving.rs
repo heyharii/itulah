@@ -93,10 +93,7 @@ pub fn routes(router: Router<AppState>) -> Router<AppState> {
         )
         // Under the counting path on purpose: whoever may count may take their
         // count back (0950), and the path gate reads the prefix.
-        .route(
-            "/api/v1/dc/purchase-counts/recall",
-            post(recall_counts),
-        )
+        .route("/api/v1/dc/purchase-counts/recall", post(recall_counts))
         .route("/api/v1/dc/purchase-verifications", post(verify_purchase))
 }
 
@@ -841,13 +838,21 @@ async fn count_purchase_batch(
                 size.map(|code| code.trim().to_owned()),
             ));
         }
-        for entry in request.counts.iter().filter(|entry| !entry.variants.is_empty()) {
+        for entry in request
+            .counts
+            .iter()
+            .filter(|entry| !entry.variants.is_empty())
+        {
             for variant in &entry.variants {
                 let (colour, size) = variant_key(variant);
                 if !ordered_variants.contains(&(entry.po_line_id, colour.clone(), size.clone())) {
                     return Err(AppError::Validation(format!(
                         "{} was not ordered on this line; count those pieces as Not as Ordered",
-                        [colour, size].into_iter().flatten().collect::<Vec<_>>().join(" ")
+                        [colour, size]
+                            .into_iter()
+                            .flatten()
+                            .collect::<Vec<_>>()
+                            .join(" ")
                     )));
                 }
             }

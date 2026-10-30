@@ -8,6 +8,7 @@ use crate::cloud::postgres as infrastructure;
 use crate::cloud::{AppError, AppState};
 use axum::{
     extract::{Path, State},
+    http::StatusCode,
     routing::{get, post},
     Extension, Json, Router,
 };
@@ -25,10 +26,17 @@ async fn amend(
     Extension(principal): Extension<Principal>,
     Path(id): Path<Uuid>,
     Json(request): Json<infrastructure::AmendAllotmentRequest>,
-) -> Result<Json<infrastructure::AmendAllotmentResult>, AppError> {
-    Ok(Json(
-        infrastructure::amend_allotment(&s.db, id, request, &principal.flow_actor()).await?,
-    ))
+) -> Result<(StatusCode, Json<infrastructure::AmendAllotmentResult>), AppError> {
+    let result =
+        infrastructure::amend_allotment(&s.db, id, request, &principal.flow_actor()).await?;
+    // Forwarded to the Gudang server that holds the allotment: accepted, not
+    // done, as a cancel it has to carry out answers.
+    let status = if result.edge_amendment_status.as_deref() == Some("PENDING") {
+        StatusCode::ACCEPTED
+    } else {
+        StatusCode::OK
+    };
+    Ok((status, Json(result)))
 }
 
 /// Where the allotment's pieces stand, by stage.

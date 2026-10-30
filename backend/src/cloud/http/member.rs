@@ -400,9 +400,11 @@ pub async fn pair(
         Some(state.config.node_id.as_str()),
     )
     .await?;
-    session_response(&state, issued, |member, expires_at_epoch| MemberSessionResponse {
-        member,
-        expires_at_epoch,
+    session_response(&state, issued, |member, expires_at_epoch| {
+        MemberSessionResponse {
+            member,
+            expires_at_epoch,
+        }
     })
 }
 
@@ -492,9 +494,11 @@ pub async fn sign_in_by_code(
         infrastructure::open_member_session(&state.db, &phone, Some(state.config.node_id.as_str()))
             .await?;
     infrastructure::use_member_otp(&state.db, request.challenge_id).await?;
-    session_response(&state, issued, |member, expires_at_epoch| MemberSessionResponse {
-        member,
-        expires_at_epoch,
+    session_response(&state, issued, |member, expires_at_epoch| {
+        MemberSessionResponse {
+            member,
+            expires_at_epoch,
+        }
     })
 }
 
@@ -588,8 +592,7 @@ pub async fn approve_redeem_request(
     Path(request_id): Path<Uuid>,
 ) -> Result<Json<RedeemRequest>, AppError> {
     Ok(Json(
-        infrastructure::approve_redeem_request(&state.db, &principal.member_id, request_id)
-            .await?,
+        infrastructure::approve_redeem_request(&state.db, &principal.member_id, request_id).await?,
     ))
 }
 
@@ -600,8 +603,7 @@ pub async fn decline_redeem_request(
     Path(request_id): Path<Uuid>,
 ) -> Result<Json<RedeemRequest>, AppError> {
     Ok(Json(
-        infrastructure::decline_redeem_request(&state.db, &principal.member_id, request_id)
-            .await?,
+        infrastructure::decline_redeem_request(&state.db, &principal.member_id, request_id).await?,
     ))
 }
 

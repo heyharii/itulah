@@ -5,6 +5,7 @@ import { CENTRAL_KEY_PREFIX, cloud, relayAccess } from "@/lib/cloud"
 import { dateText } from "@/lib/format"
 import { useIdentity } from "@/lib/session"
 import type {
+  TeamCalendarView,
   ApplicantView,
   AttendanceRangeView,
   CalendarView,
@@ -25,6 +26,7 @@ import type {
   PerformanceTemplateView,
   PerformanceScoreView,
   PeriodView,
+  PlacementView,
   PolicyView,
   PositionView,
   PunchReadinessView,
@@ -172,6 +174,10 @@ export const hrKeys = {
     [CENTRAL_KEY_PREFIX, "hr", "employee", employee] as const,
   profile: (employee: string) =>
     [CENTRAL_KEY_PREFIX, "hr", "employee", employee, "profile"] as const,
+  /// Where somebody is placed and who they report to — one key per person,
+  /// because the line of report is read one person at a time.
+  placements: (employee: string) =>
+    [CENTRAL_KEY_PREFIX, "hr", "employee", employee, "placements"] as const,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -373,6 +379,32 @@ export function rosterQuery(place: string, from: string, to: string) {
   return queryOptions({
     queryKey: hrKeys.roster(place, from, to),
     queryFn: ({ signal }) => rosterAt(place, from, to, signal),
+  })
+}
+
+/// Who is away between two dates, approved or still waiting — the same read
+/// the hub's Schedule draws leave from. `GET /api/v1/team-calendar`
+export function teamCalendarQuery(from: string, to: string) {
+  return queryOptions({
+    queryKey: [CENTRAL_KEY_PREFIX, "hr", "team-calendar", from, to] as const,
+    queryFn: ({ signal }) =>
+      cloud.get<TeamCalendarView>(
+        `/api/v1/team-calendar?from=${from}&to=${to}`,
+        { signal },
+      ),
+  })
+}
+
+/// Overtime the worker agreed to, between two dates. Overtime is approved as a
+/// Request, so the Schedule only reads it. `GET /api/v1/overtime-orders`
+export function agreedOvertimeQuery(from: string, to: string) {
+  return queryOptions({
+    queryKey: [CENTRAL_KEY_PREFIX, "hr", "overtime-agreed", from, to] as const,
+    queryFn: ({ signal }) =>
+      cloud.get<OvertimeOrderView[]>(
+        `/api/v1/overtime-orders?state=AGREED&from=${from}&to=${to}`,
+        { signal },
+      ),
   })
 }
 
@@ -1367,6 +1399,52 @@ export function fileChangeProposal(input: {
       reason: input.reason,
     },
   )
+}
+
+/// Where somebody is placed — department, level, grade and **who they report
+/// to** — newest first. `GET /api/v1/employees/{id}/placements`
+///
+/// Read-only from a shop (`relay.rs`): a new boss is a change proposal head
+/// office decides, never a placement written here.
+export function placementsOf(
+  employeeId: string,
+  signal?: AbortSignal,
+): Promise<PlacementView[]> {
+  return cloud.get<PlacementView[]>(
+    `/api/v1/employees/${enc(employeeId)}/placements`,
+    { signal },
+  )
+}
+
+export function placementsQuery(employeeId: string) {
+  return queryOptions({
+    queryKey: hrKeys.placements(employeeId),
+    queryFn: ({ signal }) => placementsOf(employeeId, signal),
+    // A boss changes by a decision at head office, not by the hour.
+    staleTime: 60_000,
+  })
+}
+
+/// Ask head office to change who somebody reports to.
+///
+/// A `TRANSFER` row whose one prop is `reports_to`. The centre's body takes
+/// `field` and `to_text` only (`ChangePropBody`, unknown keys refused), so the
+/// new boss travels as their **employee id** — the id is what a placement
+/// stores, and a name is not unique. The shop reads it back as a name from its
+/// own team list.
+export function proposeReportsTo(input: {
+  employeeId: string
+  bossId: string
+  effectiveOn: string
+  reason: string
+}): Promise<ChangeProposalView> {
+  return fileChangeProposal({
+    employeeId: input.employeeId,
+    kind: "TRANSFER",
+    props: [{ field: "reports_to", toText: input.bossId }],
+    effectiveOn: input.effectiveOn,
+    reason: input.reason,
+  })
 }
 
 /// The pay components head office has defined. Ungated at the centre — a rate

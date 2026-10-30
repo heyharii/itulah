@@ -1,5 +1,4 @@
 import {
-  FileBadge,
   FolderOpen,
   MessageSquare,
   MessagesSquare,
@@ -100,36 +99,13 @@ export const libraryNav: AppModule = {
   // `/files` is what this screen itself answered at until the owner renamed
   // it on 2026-09-13 — and a rename that 404s the links people have already
   // sent each other is a rename that costs somebody their afternoon.
-  moved: ["/documents", "/files"],
+  moved: ["/documents", "/files", "/library/papers"],
   sections: [
     {
       items: [
-        // A door (owner, 17 Oct 2026): the drawer of files, and the papers GA
-        // keeps with or without a scan and their physical originals. One row
-        // in the sidebar, two tabs on the page.
-        {
-          path: "/library",
-          label: "Files",
-          icon: FolderOpen,
-          alsoLights: ["/library/papers"],
-          tabs: [
-            {
-              label: "Library",
-              views: [{ label: "Library", path: "/library" }],
-            },
-            {
-              label: "Papers & originals",
-              views: [{ label: "Papers & originals", path: "/library/papers" }],
-            },
-          ],
-        },
-        // The second tab's screen, routed and found by ⌘K under its own name.
-        {
-          path: "/library/papers",
-          label: "Papers & Originals",
-          icon: FileBadge,
-          hidden: true,
-        },
+        // One screen (owner, 26 Oct 2026): the papers GA keeps are files with a
+        // hard copy, so they are rows here and no longer a tab of their own.
+        { path: "/library", label: "Files", icon: FolderOpen },
       ],
     },
   ],

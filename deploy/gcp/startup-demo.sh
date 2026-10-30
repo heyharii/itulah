@@ -71,6 +71,11 @@ if [ -n "$public_domain" ]; then hub_extra=", $public_domain, www.$public_domain
 # `itulah-ctl caddy` asks again at once.
 pos_extra=""
 if [ -n "$public_domain" ]; then pos_extra=", pos.$public_domain"; fi
+# The shop's own back office answers at store.<domain> and its warehouse
+# screens at warehouse.<domain> (owner, 28 Oct 2026: "untuk mindah2in barang").
+# Same A record rule as pos: the owner adds it at the domain's DNS.
+warehouse_extra=""
+if [ -n "$public_domain" ]; then warehouse_extra=", warehouse.$public_domain"; fi
 # A self-hosted Next.js UI can sit on an explicit path without replacing the
 # existing Hub bundle or its API origin. Disabled unless a VM opts in.
 next_route=""
@@ -249,6 +254,25 @@ for n in dc store $extra_stores; do
     store) site=store-01; node=store-01; role=STORE; generation=1;;
     store-*) site=$n; node=$n; role=STORE; generation=1;;
   esac
+  # The seed above is for a fresh database; the file is the stream's history.
+  # After a replacement or a reset the cloud agrees a higher generation (the
+  # demo store-01 is at 5), and a smaller seed makes the node refuse to start
+  # ("sync generation cannot regress from 5 to 1") while the container loops.
+  # Read what the file holds and seed with that.
+  db="$state/$n/edge.sqlite3"
+  if [ -f "$db" ]; then
+    held=$(python3 - "$db" <<'PY' 2>/dev/null || true
+import sqlite3, sys
+try:
+    c = sqlite3.connect(sys.argv[1])
+    row = c.execute("select generation from sync_origin where singleton=1").fetchone()
+    print(row[0] if row else "")
+except Exception:
+    print("")
+PY
+)
+    if [ -n "$held" ]; then generation="$held"; fi
+  fi
   cat > "$state/$n.env" <<E2
 $common
 APP_BIN=${n%%-*}
@@ -312,7 +336,7 @@ fi
 
 site() {  # site <name> <api-block>   static bundle from $state/www/<name>
   cat <<E3
-$1.$domain, $1.$alias_domain$([ "$1" = hub ] && printf "%s" "$hub_extra")$([ "$1" = pos ] && printf "%s" "$pos_extra") {
+$1.$domain, $1.$alias_domain$([ "$1" = hub ] && printf "%s" "$hub_extra")$([ "$1" = pos ] && printf "%s" "$pos_extra")$([ "$1" = warehouse ] && printf "%s" "$warehouse_extra") {
   encode gzip
   log {
     output file /data/access.log {
@@ -413,6 +437,13 @@ site pos "  handle /api/* {
       import hold
     }
   }"
+# The shop's back office, also at warehouse.<domain>: the same bundle serves
+# both, so the warehouse PC opens the stock moves beside the store's screens.
+site warehouse "  handle /api/* {
+    reverse_proxy store:8080 {
+      import hold
+    }
+  }"
 # The sandbox has its own web folder (www/sandbox, filled by
 # `TARGET=sandbox deploy/gcp/deploy-hub-demo.sh`): what is being tried reaches
 # it first and the demo's hub only when it is ready.
@@ -440,7 +471,7 @@ cat "$state/Caddyfile.next" > "$state/Caddyfile"
 rm -f "$state/Caddyfile.next"
 }
 render_caddy
-mkdir -p "$state/www"/{hub,store,customer,pos,sandbox}
+mkdir -p "$state/www"/{hub,store,customer,pos,warehouse,sandbox}
 
 gcloud auth configure-docker "$registry" -q
 # The network is not always up at boot: a pull that times out once must not end

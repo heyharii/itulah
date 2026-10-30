@@ -23,6 +23,7 @@ import { organisationKeys } from "@/lib/queries/organisation"
 import { cn } from "@/lib/utils"
 import { ExceptionsCard } from "@/screens/stores/exceptions-shared"
 import { serverStateLabel } from "@/screens/stores/shared"
+import { ReceiptHeaderValue } from "@/screens/stores/receipt-header"
 import { OneDeviceValue, TillSeatsValue } from "@/screens/stores/till-seats"
 import { FleetStoreStrip } from "@/screens/system/fleet-shared"
 
@@ -110,6 +111,9 @@ export function OverviewTab({
               seats={store.tills.seats}
               canManage={can_manage}
             />
+          </Fact>
+          <Fact term="Receipt picture">
+            <ReceiptHeaderValue unit={store.unit_id} canManage={can_manage} />
           </Fact>
           <Fact term="One device per person">
             <OneDeviceValue

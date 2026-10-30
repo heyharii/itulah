@@ -45,14 +45,14 @@ pub async fn test(
         "Tes dari Central: WhatsApp kantor pusat tersambung.",
     )
     .await?;
-    Ok(Json(json!({ "id": id, "sent_to": whatsapp::masked(&request.to) })))
+    Ok(Json(
+        json!({ "id": id, "sent_to": whatsapp::masked(&request.to) }),
+    ))
 }
 
 /// `POST /api/v1/system/whatsapp/logout`: unlink the number, so another can be
 /// paired by a fresh QR.
-pub async fn logout(
-    Extension(principal): Extension<Principal>,
-) -> Result<Json<Value>, AppError> {
+pub async fn logout(Extension(principal): Extension<Principal>) -> Result<Json<Value>, AppError> {
     require_admin(&principal, "unlink head office's WhatsApp")?;
     whatsapp::logout().await?;
     Ok(Json(json!({ "ok": true })))

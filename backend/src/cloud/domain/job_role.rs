@@ -405,6 +405,14 @@ pub const SECTION_RULES: &[SectionRule] = &[
     rule("/api/v1/hr-scheduler", &["people"], Reads::Same),
     rule("/api/v1/recruitment", &["people", "stores"], Reads::Same),
     rule("/api/v1/hire-proposals", &["people", "stores"], Reads::Same),
+    // A person's papers (1001): a store's change and its scans wait on head
+    // office, which takes them under its own key.
+    rule("/api/v1/data-updates", &["people", "stores"], Reads::Same),
+    rule(
+        "/api/v1/employee-documents",
+        &["people", "stores"],
+        Reads::Same,
+    ),
     rule(
         "/api/v1/change-proposals",
         &["people", "stores"],

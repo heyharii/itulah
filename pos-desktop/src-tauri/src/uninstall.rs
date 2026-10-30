@@ -9,11 +9,15 @@
 //! (`REVOKED`), the window lets go ([`till_hold`] with `false`) and offers
 //! "Uninstall POS", which opens that same Apps list ([`open_uninstall`]).
 //!
-//! A second value, `Unsent`, is how many sales the till rang that the store
-//! server has not taken ([`till_unsent`]): the window writes it on every change
+//! A second value, `Unsent`, is how many sales the till rang that head office
+//! is not known to hold ([`till_unsent`]): not taken by the store server yet,
+//! refused by it, taken and not yet at head office, or no longer known to a
+//! replaced server (`ui/src/outbox.ts`). The window writes it on every change
 //! to its outbox, and the installer refuses to uninstall while it is there —
-//! those sales exist nowhere else. It is independent of `Held`: a removed till
-//! has let go of `Held` and is still refused until its sales are sent. An
+//! the till's copy may be the only one: a store server's PC can die before
+//! the line to head office comes back. It is independent of `Held`: a removed
+//! till has let go of `Held` and is still refused until head office has its
+//! sales. An
 //! upgrade is never refused, and the outbox is the window's own storage, which
 //! an upgrade keeps.
 //!
@@ -22,19 +26,26 @@
 //! user's). It stops the counter's own user, which is who the client meant.
 //!
 //! Not Windows: nothing is held, and there is nothing to open.
+//!
+//! Central Gudang, the warehouse edition (`tauri.gudang.conf.json`), keeps the
+//! same two values under its own product's key, `HKCU\Software\Central
+//! Gudang` (`wix/uninstall-guard-gudang.wxs`), so a POS and a warehouse PC on
+//! one machine never hold each other's installer.
 
 /// Hold the till (`true`) or let it go (`false`). Idempotent.
 #[tauri::command]
-pub async fn till_hold(held: bool) -> Result<(), String> {
-    crate::edge::off_the_window(move || hold(held)).await
+pub async fn till_hold(app: tauri::AppHandle, held: bool) -> Result<(), String> {
+    let key = key(&app);
+    crate::edge::off_the_window(move || hold(&key, held)).await
 }
 
-/// Say how many sales this till has rung that the store server has not taken
+/// Say how many sales this till has rung that head office is not known to hold
 /// (`Unsent`); none removes the value. Idempotent, and the window sends it in
 /// order, so the last word is the latest count.
 #[tauri::command]
-pub async fn till_unsent(count: u32) -> Result<(), String> {
-    crate::edge::off_the_window(move || unsent(count)).await
+pub async fn till_unsent(app: tauri::AppHandle, count: u32) -> Result<(), String> {
+    let key = key(&app);
+    crate::edge::off_the_window(move || unsent(&key, count)).await
 }
 
 /// Open Windows' Apps list, where "Central POS" is uninstalled.
@@ -43,8 +54,17 @@ pub async fn open_uninstall() -> Result<(), String> {
     crate::edge::off_the_window(open_apps).await
 }
 
-#[cfg(target_os = "windows")]
-const KEY: &str = r"HKCU\Software\Central POS";
+/// `HKCU\Software\{productName}`: `Central POS`, or `Central Gudang` for the
+/// warehouse edition — the key its installer's guard reads.
+fn key(app: &tauri::AppHandle) -> String {
+    let product = app
+        .config()
+        .product_name
+        .clone()
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| "Central POS".to_string());
+    format!(r"HKCU\Software\{product}")
+}
 
 #[cfg(target_os = "windows")]
 fn quiet(program: &str) -> std::process::Command {
@@ -56,10 +76,10 @@ fn quiet(program: &str) -> std::process::Command {
 }
 
 #[cfg(target_os = "windows")]
-fn hold(held: bool) -> Result<(), String> {
+fn hold(key: &str, held: bool) -> Result<(), String> {
     if held {
         let status = quiet("reg.exe")
-            .args(["add", KEY, "/v", "Held", "/t", "REG_SZ", "/d", "1", "/f"])
+            .args(["add", key, "/v", "Held", "/t", "REG_SZ", "/d", "1", "/f"])
             .status()
             .map_err(|error| format!("could not hold the till: {error}"))?;
         if !status.success() {
@@ -70,7 +90,7 @@ fn hold(held: bool) -> Result<(), String> {
     } else {
         // Absent already is let go already: reg.exe's complaint is not one.
         let _ = quiet("reg.exe")
-            .args(["delete", KEY, "/v", "Held", "/f"])
+            .args(["delete", key, "/v", "Held", "/f"])
             .status()
             .map_err(|error| format!("could not let the till go: {error}"))?;
     }
@@ -78,19 +98,19 @@ fn hold(held: bool) -> Result<(), String> {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn hold(held: bool) -> Result<(), String> {
-    let _ = held;
+fn hold(key: &str, held: bool) -> Result<(), String> {
+    let _ = (key, held);
     Ok(())
 }
 
 #[cfg(target_os = "windows")]
-fn unsent(count: u32) -> Result<(), String> {
+fn unsent(key: &str, count: u32) -> Result<(), String> {
     if count > 0 {
         // Present only while one or more are owed: the installer asks whether
         // the value is there, as it does for `Held`.
         let count = count.to_string();
         let status = quiet("reg.exe")
-            .args(["add", KEY, "/v", "Unsent", "/t", "REG_SZ", "/d", count.as_str(), "/f"])
+            .args(["add", key, "/v", "Unsent", "/t", "REG_SZ", "/d", count.as_str(), "/f"])
             .status()
             .map_err(|error| format!("could not record the unsent sales: {error}"))?;
         if !status.success() {
@@ -101,7 +121,7 @@ fn unsent(count: u32) -> Result<(), String> {
     } else {
         // Absent already is nothing owed already: reg.exe's complaint is not one.
         let _ = quiet("reg.exe")
-            .args(["delete", KEY, "/v", "Unsent", "/f"])
+            .args(["delete", key, "/v", "Unsent", "/f"])
             .status()
             .map_err(|error| format!("could not clear the unsent sales: {error}"))?;
     }
@@ -109,8 +129,8 @@ fn unsent(count: u32) -> Result<(), String> {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn unsent(count: u32) -> Result<(), String> {
-    let _ = count;
+fn unsent(key: &str, count: u32) -> Result<(), String> {
+    let _ = (key, count);
     Ok(())
 }
 

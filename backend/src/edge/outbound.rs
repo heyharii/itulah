@@ -2389,8 +2389,9 @@ pub struct ReportShortPickRequest {
 }
 
 /// One short pick as the board reads it. Its status is read, never stored:
-/// OPEN while the picklist still owes pieces of it, PICKED once it does not.
-/// (The edge has no count review or MD close to say FOUND, LOST or CLOSED.)
+/// OPEN while the picklist still owes pieces of it, CONTINUED once MD said
+/// Continue on it (`0097`), PICKED once nothing is owed. (The edge has no
+/// count review or MD close to say FOUND, LOST or CLOSED.)
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ShortPick {
     pub id: String,
@@ -2407,6 +2408,11 @@ pub struct ShortPick {
     pub reported_at: String,
     pub count_id: Option<String>,
     pub status: String,
+    /// Who answered Continue in MD's review, and when.
+    #[serde(default)]
+    pub continued_by: Option<String>,
+    #[serde(default)]
+    pub continued_at: Option<String>,
 }
 
 /// Where short picks are kept on this node. Created on first use rather than
@@ -2471,14 +2477,21 @@ pub fn list_short_picks(
     site_id: &str,
 ) -> Result<Vec<ShortPick>, EdgeError> {
     connection.execute_batch(SHORT_PICK_SCHEMA).map_err(db)?;
+    // MD's answers (`0097`), created here too for a connection that never
+    // went through the node's open.
+    connection
+        .execute_batch(crate::edge::sqlite::DC_OUTBOUND_CHECK_SCHEMA)
+        .map_err(db)?;
     let mut statement = connection
         .prepare(
             "SELECT sp.id, sp.allotment_id, COALESCE(w.allotment_number, ''), sp.destination_id,
                     sp.sku_code, COALESCE(c.name, sp.sku_code), sp.pieces, sp.reason, sp.note,
-                    sp.reported_by, sp.reported_at, sp.count_id
+                    sp.reported_by, sp.reported_at, sp.count_id,
+                    answer.continued_by, answer.continued_at
                FROM dc_short_pick sp
                LEFT JOIN dc_allotment_work w ON w.allotment_id = sp.allotment_id
                LEFT JOIN catalog_item c ON c.sku_code = sp.sku_code
+               LEFT JOIN dc_short_pick_continue answer ON answer.short_pick_id = sp.id
               ORDER BY sp.reported_at DESC, sp.id DESC
               LIMIT 500",
         )
@@ -2500,6 +2513,8 @@ pub fn list_short_picks(
                 reported_at: row.get(10)?,
                 count_id: row.get(11)?,
                 status: String::new(),
+                continued_by: row.get(12)?,
+                continued_at: row.get(13)?,
             })
         })
         .map_err(db)?
@@ -2516,11 +2531,10 @@ pub fn list_short_picks(
             &one.sku_code,
         )?;
         one.still_short = one.pieces.min(left);
-        one.status = if one.still_short > 0 {
-            "OPEN"
-        } else {
-            "PICKED"
-        }
+        one.status = crate::edge::dc_outbound::short_pick_status(
+            one.still_short,
+            one.continued_at.is_some(),
+        )
         .to_owned();
         items.push(one);
     }

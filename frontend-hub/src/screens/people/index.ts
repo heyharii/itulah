@@ -21,6 +21,11 @@ export const screens: ScreenMap = {
     () => import("@/screens/people/directory"),
     (m) => m.Directory
   ),
+  "/people/employee": lazyScreen(
+    "people/employee-page",
+    () => import("@/screens/people/employee-page"),
+    (m) => m.EmployeePage
+  ),
   "/people/org-chart": lazyScreen(
     "people/org-chart",
     () => import("@/screens/people/org-chart"),
@@ -63,9 +68,9 @@ export const screens: ScreenMap = {
     (m) => m.TimeOffBalances
   ),
   "/people/attendance-days": lazyScreen(
-    "people/attendance-days",
-    () => import("@/screens/people/attendance-days"),
-    (m) => m.AttendanceDays
+    "people/attendance-rp",
+    () => import("@/screens/people/rp/attendance-page"),
+    (m) => m.AttendancePage
   ),
   "/people/overtime": lazyScreen(
     "people/overtime",
@@ -79,9 +84,9 @@ export const screens: ScreenMap = {
   ),
   // Schedules
   "/people/roster": lazyScreen(
-    "people/roster",
-    () => import("@/screens/people/roster"),
-    (m) => m.Roster
+    "people/roster-rp",
+    () => import("@/screens/people/rp/roster-page"),
+    (m) => m.RosterPage
   ),
   "/people/calendar": lazyScreen(
     "people/team-calendar",
@@ -115,22 +120,11 @@ export const screens: ScreenMap = {
     () => import("@/screens/people/loan-repayments"),
     (m) => m.LoanRepayments
   ),
-  // Benefits
-  "/people/benefit": lazyScreen(
-    "people/benefit-page",
-    () => import("@/screens/people/benefit-page"),
-    (m) => m.BenefitPage
-  ),
-  "/people/benefit-history": lazyScreen(
-    "people/benefit-history",
-    () => import("@/screens/people/benefit-history"),
-    (m) => m.BenefitHistory
-  ),
   // Payroll
   "/people/payroll": lazyScreen(
-    "people/payroll",
-    () => import("@/screens/people/payroll"),
-    (m) => m.PayrollRuns
+    "people/payroll-rp",
+    () => import("@/screens/people/rp/payroll-page"),
+    (m) => m.PayrollPage
   ),
   "/people/adjustments": lazyScreen(
     "people/one-offs",
@@ -245,12 +239,6 @@ export const screens: ScreenMap = {
     "people/allowances-page",
     () => import("@/screens/people/allowances-page"),
     (m) => m.ClaimAllowancesPage
-  ),
-  // Settings · Benefits
-  "/people/settings/benefit": lazyScreen(
-    "people/settings-benefit",
-    () => import("@/screens/people/settings-benefit"),
-    (m) => m.BenefitSettings
   ),
   // Settings · Access
   "/people/roles": lazyScreen(

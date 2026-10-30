@@ -1133,3 +1133,208 @@ pub fn parse_store_return_mark(payload: &Value) -> Result<StoreReturnMarkPayload
     }
     Ok(marked)
 }
+
+// ---- Allotment held by the Gudang server (GUDANG-SERVER-PLAN step 4) -------
+//
+// Once the pen has moved, the Gudang server is the only writer of allotments
+// that leave the Gudang. MD at head office changes them on the server over the
+// LAN; MD anywhere else changes them at Central, which forwards the change as
+// a command and shows "waiting for the Gudang" until the server's fact comes
+// back. Either way the server writes the change once and reports it once, as
+// one fact, so Central's copy never depends on which road MD took.
+
+/// Central → Gudang server: MD's edit of an allotment the server holds,
+/// asked for outside head office. The server applies it with the same
+/// arithmetic as `cloud::postgres::allotment_amend` and always answers with
+/// [`INVENTORY_ALLOTMENT_AMENDED_V1`] — APPLIED, or REJECTED with the reason —
+/// never with an error: a command a node refuses blocks its whole stream.
+pub const INVENTORY_ALLOTMENT_AMEND_V1: &str = "inventory.allotment.amend.v1";
+
+/// Gudang server → Central: what an edit or cancel did, whichever road it
+/// came by. Central's read copy (`allotment_amendment`, the line progress) is
+/// written from this and nothing else.
+pub const INVENTORY_ALLOTMENT_AMENDED_V1: &str = "inventory.allotment.amended.v1";
+
+/// Gudang server → Central: an allotment MD raised on the server itself. The
+/// body is an activation's, already accepted: the server checked its own
+/// stock as it wrote it, so there is nothing for Central to decide.
+pub const INVENTORY_ALLOTMENT_CREATED_V1: &str = "inventory.allotment.created.v1";
+
+/// A Gudang server whose build takes [`INVENTORY_ALLOTMENT_AMEND_V1`]. Central
+/// forwards no edit to a server that does not say so in its heartbeat.
+pub const ALLOTMENT_AMEND_CAPABILITY: &str = "inventory.allotment_amend.v1";
+
+/// One line MD changes, to its new net target in pieces.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AllotmentAmendTarget {
+    pub allotment_line_id: Uuid,
+    pub to: i64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AllotmentAmendPayload {
+    pub schema_version: u32,
+    /// Central's record of the request, which the answer names so Central can
+    /// stop showing "waiting for the Gudang".
+    pub amendment_request_id: Uuid,
+    pub allotment_id: Uuid,
+    /// The Gudang as the server spells itself.
+    pub source_site_id: String,
+    #[serde(default)]
+    pub reason: Option<String>,
+    pub requested_by: String,
+    pub requested_at: DateTime<Utc>,
+    /// MD's Edit only moves pieces between stores (owner, 18 Oct 2026).
+    #[serde(default)]
+    pub move_only: bool,
+    #[serde(default)]
+    pub lines: Vec<AllotmentAmendTarget>,
+    /// Lines the allotment did not have, with ids Central minted so its copy
+    /// and the server's name them the same.
+    #[serde(default)]
+    pub add: Vec<AllotmentActivationLine>,
+}
+
+impl AllotmentAmendPayload {
+    pub fn validate(&self) -> Result<(), String> {
+        version(self.schema_version)?;
+        non_nil(self.amendment_request_id, "amendment_request_id")?;
+        non_nil(self.allotment_id, "allotment_id")?;
+        required(&self.source_site_id, "source_site_id")?;
+        required(&self.requested_by, "requested_by")?;
+        if self.lines.is_empty() && self.add.is_empty() {
+            return Err("an allotment amendment names at least one line".into());
+        }
+        let mut seen = HashSet::new();
+        for line in &self.lines {
+            non_nil(line.allotment_line_id, "allotment_line_id")?;
+            if line.to < 0 {
+                return Err("a line cannot go below zero".into());
+            }
+            if !seen.insert(line.allotment_line_id) {
+                return Err("an allotment line is named twice".into());
+            }
+        }
+        for line in &self.add {
+            non_nil(line.allotment_line_id, "add.allotment_line_id")?;
+            non_nil(line.sku_id, "add.sku_id")?;
+            required(&line.source_pool_id, "add.source_pool_id")?;
+            validate_destination(&line.destination_type, &line.destination_id)?;
+            canonical_upper(&line.sku_code, "add.sku_code")?;
+            positive(line.quantity, "added line quantity")?;
+            if !seen.insert(line.allotment_line_id) {
+                return Err("an added line reuses an allotment_line_id".into());
+            }
+        }
+        Ok(())
+    }
+}
+
+/// What one line became. `kind` is ADD, REDUCE or CANCEL, as
+/// `allotment_amendment.kind` spells it; `released` was given up at once,
+/// `owed` waits for the Gudang to move pieces back.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AllotmentAmendedLine {
+    pub amendment_id: Uuid,
+    pub allotment_line_id: Uuid,
+    pub sku_code: String,
+    pub kind: String,
+    pub target_before: i64,
+    pub target_after: i64,
+    pub released: i64,
+    pub owed: i64,
+    /// What the server wrote off the line's demand at once
+    /// (`cancelled_quantity`): `released` plus picked pieces owed to the
+    /// racks. Pieces owed out of cartons are written as the carton is opened.
+    pub cancelled_now: i64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum AmendmentOutcome {
+    Applied,
+    Rejected,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AllotmentAmendedPayload {
+    pub schema_version: u32,
+    /// The fact's own id (`event_id`).
+    pub result_id: Uuid,
+    /// Central's request this answers; absent when MD changed the allotment
+    /// on the server itself.
+    #[serde(default)]
+    pub amendment_request_id: Option<Uuid>,
+    pub allotment_id: Uuid,
+    pub source_site_id: String,
+    pub outcome: AmendmentOutcome,
+    /// Why the server refused, in words MD can act on.
+    #[serde(default)]
+    pub refusal: Option<String>,
+    /// MD's reason for the change.
+    #[serde(default)]
+    pub reason: Option<String>,
+    /// MD cancelled the whole allotment.
+    #[serde(default)]
+    pub cancelled: bool,
+    pub actor_id: String,
+    pub applied_at: DateTime<Utc>,
+    #[serde(default)]
+    pub lines: Vec<AllotmentAmendedLine>,
+    /// Lines added, as the server spells their pools and destinations.
+    #[serde(default)]
+    pub added: Vec<AllotmentActivationLine>,
+}
+
+impl AllotmentAmendedPayload {
+    pub fn validate(&self) -> Result<(), String> {
+        version(self.schema_version)?;
+        non_nil(self.result_id, "result_id")?;
+        non_nil(self.allotment_id, "allotment_id")?;
+        required(&self.source_site_id, "source_site_id")?;
+        required(&self.actor_id, "actor_id")?;
+        match self.outcome {
+            AmendmentOutcome::Rejected => {
+                required_option(&self.refusal, "refusal")?;
+                if !self.lines.is_empty() || !self.added.is_empty() {
+                    return Err("a refused amendment changes no line".into());
+                }
+            }
+            AmendmentOutcome::Applied => {
+                if self.lines.is_empty() {
+                    return Err("an applied amendment names its lines".into());
+                }
+            }
+        }
+        for line in &self.lines {
+            non_nil(line.amendment_id, "amendment_id")?;
+            non_nil(line.allotment_line_id, "allotment_line_id")?;
+            if !matches!(line.kind.as_str(), "ADD" | "REDUCE" | "CANCEL") {
+                return Err(format!("unknown amendment kind {}", line.kind));
+            }
+            if line.target_before < 0
+                || line.target_after < 0
+                || line.released < 0
+                || line.owed < 0
+                || line.cancelled_now < 0
+            {
+                return Err("amended quantities are never negative".into());
+            }
+        }
+        for line in &self.added {
+            non_nil(line.allotment_line_id, "added.allotment_line_id")?;
+            non_nil(line.sku_id, "added.sku_id")?;
+            validate_destination(&line.destination_type, &line.destination_id)?;
+            canonical_upper(&line.sku_code, "added.sku_code")?;
+            positive(line.quantity, "added line quantity")?;
+        }
+        Ok(())
+    }
+}
+
+parser!(parse_allotment_amend, AllotmentAmendPayload);
+parser!(parse_allotment_amended, AllotmentAmendedPayload);
+/// The created fact is an activation the server accepted itself.
+pub fn parse_allotment_created(payload: &Value) -> Result<AllotmentActivationPayload, String> {
+    parse_allotment_activation(payload)
+}

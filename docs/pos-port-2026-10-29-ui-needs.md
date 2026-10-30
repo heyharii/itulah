@@ -1,0 +1,24 @@
+# POS port 29 Oct 2026: what the UI asks of the backend
+
+The POS web UI (`pos-desktop/ui/src`) was ported from `pos-bayar-prototype.html`,
+`pos-classic-prototype.html` and `pos-thermal-prototype.html`. Each row below is a
+call or field the UI already uses (or reads) that the node may not have yet. Every
+one degrades quietly when it is missing (nothing is claimed on screen).
+
+| # | Method + path | Request | Response | Screen |
+|---|---|---|---|---|
+| 1 | `GET /api/v1/store/exchange-policy` | none | `{ "days": 7 }` (company setting, whole days from the sale) | Bayar: "Bisa ditukar s/d <date> · Hang tag utuh · bawa struk" (`exchange-policy.ts`). Unknown or 404: the line is not shown. |
+| 2 | quote line field | in `QuotedLine` (answer of the quote) add `exchangeable: boolean` | `false` = article head office marked not exchangeable, or underwear, or a promo piece when the store rule says so | Bayar: "Tidak bisa ditukar: <names>" / "Barang tidak bisa ditukar" |
+| 3 | `GET /api/v1/store/sales/{id}/receipt` (receipt doc) | none | add per line `exchangeable: false` for those pieces; top level `exchange_until` (ISO date, sale date + days; absent on a return); `return_of_receipt_no` (string, only on a return); lines of a return carry NEGATIVE `quantity` for pieces that came back, positive for replacements | Transaksi selesai: on-screen struk (client header, 7Soft middle, "Bisa ditukar s/d", "* ... tidak bisa ditukar") |
+| 4 | `GET /api/v1/store/sales/search` | as today | each hit gets `kind: "SALE" \| "RETURN"`; original struk of a return keeps `status: "RETURNED"` (shown "Di-return") | Struk (found by exact number only): a return's struk cannot be returned again |
+| 5 | `POST /api/v1/store/returns` | as today plus `refund: false` (never pay money out) and `reason: "Return tanpa pengganti"` when no replacement; `lines` may be all there is | as today plus `return_sale_id` (or `sale_id`): the return note, written as its OWN struk (`kind RETURN`, minus lines for the back pieces, "Return dari <no>"); it must be printable with `POST /sales/{id}/receipt`. Refuse (409/422 with a sentence) when the sale being returned is itself a return | Return: "Selesaikan return" with no replacement, or with a cheaper one |
+| 6 | sale with a `Return <no>` credit tender | as today | credit tender must be capped at the replacements' total (the rest is forfeited, never refunded); the sale is the return note when replacements exist (minus back lines + plus lines in one struk) | Return: "Bayar selisih" / "Selesaikan return" |
+| 7 | `POST /api/v1/store/vouchers/{code}/authorize` | add `single_use: true`, `face_minor` | hold for `amount_minor` but burn the whole face value on commit; no change, no balance left | Bayar: paper voucher, "Voucher tidak ada kembalian · sisa X hangus" |
+| 8 | Poin by WhatsApp code | existing routes (`askRedeem`, `lookupRedeemRequest`, `confirmRedeemRequest`, `redeemProgress`, `cancelRedeem` in `redeem.ts`) | no change needed | Bayar: + Poin (type points, shopper says yes in the app or reads the 6-digit WhatsApp code). No points balance is shown any more |
+| 9 | `POST /api/v1/store/sales/{id}/receipt` (node renders ESC/POS) | `copy` is always `false` now | Node must render the new paper: client logo band + address, `No Nota <no>  dd/mm/yy`, `Kasir NAME CODE  hh:mm`, `sku NAME` then `qty x price`, `Total Item: N Pcs`, `Total Disc`, `Setelah Disc.`, payments as `Tunai` / `EDC BCA` / `QRIS BCA`, `Kembali`, member line, terms box (`Bisa ditukar s/d <date>`, hang tag, wajib bawa struk, `* ... tidak bisa ditukar`, or `Barang tidak bisa ditukar`), client thanks/TLP footer; a return is the same format ending with Kembali and, if replacements, "Barang tidak bisa ditukar". Refuse `copy: true` (no reprint) | Sale and return printing |
+| 10 | `POST /api/v1/store/sales/{id}/void` | n/a | The till no longer calls it (no Void at the till); keep or remove at will | n/a |
+| 11 | `POST /api/v1/store/shifts/{id}/movements` | `kind: "PICKUP"` (Tambah modal) with NO `supervisor` | accepted; response ideally `slip: { slip_no: "TM-0004", at, given_by_name, received_by_name, amount_minor }` | Laci: Tambah modal has no finger (Setor modal keeps the head's finger) |
+| 12 | `CashMovementView` | add `slip_no` ("TM-0004", "SM-0002", "ST-0008") | n/a | Closing paper lists "Tambah Modal TM-0004" etc. |
+| 13 | shift report / movement / slip replies | add `shop_name`, `shop_line_1`, `shop_line_2` (as the receipt doc has) | n/a | Header band of the closing paper and cash slips |
+| 14 | close reply `edc_slips` | `[{ machine_id, machine_name, slips }]` (already assumed) | n/a | Tutup kasir: slip count per EDC on top; "Struk BCA 2" on the paper |
+| 15 | MODAL AWAL slip at opening a shift | n/a | slip number + head's name from the node | Not built in the UI (nothing prints at opening today); `CashSlipPaper` supports the title |

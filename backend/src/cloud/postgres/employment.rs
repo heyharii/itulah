@@ -1249,6 +1249,19 @@ pub async fn upsert_profile(
     employee_id: &str,
     profile: &Profile,
 ) -> Result<(), AppError> {
+    let mut tx = pool.begin().await?;
+    upsert_profile_in(&mut tx, employee_id, profile).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// [`upsert_profile`] inside a caller's transaction, for a profile written
+/// together with the decision that produced it.
+pub async fn upsert_profile_in(
+    tx: &mut Transaction<'_, Postgres>,
+    employee_id: &str,
+    profile: &Profile,
+) -> Result<(), AppError> {
     let amendments = serde_json::to_value(profile.amendments())?;
     sqlx::query(
         "INSERT INTO employee_profile
@@ -1273,7 +1286,7 @@ pub async fn upsert_profile(
     .bind(profile.phone().map(|contact| contact.as_str()))
     .bind(profile.email().map(|contact| contact.as_str()))
     .bind(&amendments)
-    .execute(pool)
+    .execute(&mut **tx)
     .await?;
     Ok(())
 }

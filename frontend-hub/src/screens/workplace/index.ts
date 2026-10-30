@@ -21,9 +21,4 @@ export const screens: ScreenMap = {
     () => import("@/screens/workplace/library"),
     (m) => m.Library
   ),
-  "/library/papers": lazyScreen(
-    "workplace/papers",
-    () => import("@/screens/workplace/papers"),
-    (m) => m.Papers
-  ),
 }

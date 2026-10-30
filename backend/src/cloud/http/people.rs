@@ -186,8 +186,11 @@ fn change_view(proposal: &ChangeProposal) -> ChangeProposalView {
             .iter()
             .map(|p| ChangePropView {
                 field: p.field.clone(),
-                from: render_value(&p.from),
-                to: render_value(&p.to),
+                from: p
+                    .from_label
+                    .clone()
+                    .unwrap_or_else(|| render_value(&p.from)),
+                to: p.to_label.clone().unwrap_or_else(|| render_value(&p.to)),
             })
             .collect(),
         effective_on: proposal.effective_on.to_string(),
@@ -693,19 +696,45 @@ pub async fn file_change(
     let authorization = access.authorize(actions::CHANGE_PROPOSAL_FILE, &body.reason)?;
     // What each field is now, copied from the live record at filing time so
     // the decider sees the starting point the filer saw.
-    let (base_now, position_now, grade_now): (Option<i64>, Option<String>, Option<String>) =
-        sqlx::query_as(
-            "SELECT (SELECT base_minor FROM employee_pay WHERE employee_id = $1
-                      AND effective_from <= current_date
-                    ORDER BY effective_from DESC LIMIT 1),
-                    (SELECT position FROM employee_contract WHERE employee_id = $1
-                      AND starts_on <= current_date ORDER BY starts_on DESC LIMIT 1),
-                    (SELECT grade FROM employee_contract WHERE employee_id = $1
-                      AND starts_on <= current_date ORDER BY starts_on DESC LIMIT 1)",
-        )
-        .bind(access.employee_id.as_str())
-        .fetch_one(&state.db)
-        .await?;
+    let (base_now, position_now, grade_now, boss_now): (
+        Option<i64>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ) = sqlx::query_as(
+        "SELECT (SELECT base_minor FROM employee_pay WHERE employee_id = $1
+                  AND effective_from <= current_date
+                ORDER BY effective_from DESC LIMIT 1),
+                (SELECT position FROM employee_contract WHERE employee_id = $1
+                  AND starts_on <= current_date ORDER BY starts_on DESC LIMIT 1),
+                (SELECT grade FROM employee_contract WHERE employee_id = $1
+                  AND starts_on <= current_date ORDER BY starts_on DESC LIMIT 1),
+                (SELECT reports_to FROM employee_placement WHERE employee_id = $1
+                  AND effective_from <= current_date
+                ORDER BY effective_from DESC LIMIT 1)",
+    )
+    .bind(access.employee_id.as_str())
+    .fetch_one(&state.db)
+    .await?;
+    // A boss is filed by id and read by name: the name of whoever an id
+    // names, taken now, so the queue reads the same tomorrow.
+    let name_of = |id: Option<String>| {
+        let pool = state.db.clone();
+        async move {
+            let Some(id) = id else {
+                return Ok::<_, AppError>(None);
+            };
+            let name: Option<String> = sqlx::query_scalar(
+                "SELECT COALESCE(p.full_name, e.code) FROM employee e
+                   LEFT JOIN employee_profile p ON p.employee_id = e.id
+                  WHERE e.id = $1",
+            )
+            .bind(&id)
+            .fetch_optional(&pool)
+            .await?;
+            Ok(name)
+        }
+    };
     let now_of = |field: &str| -> serde_json::Value {
         match field {
             "unit_id" => serde_json::Value::String(unit.clone()),
@@ -716,29 +745,39 @@ pub async fn file_change(
             "grade" => grade_now
                 .clone()
                 .map_or(serde_json::Value::Null, serde_json::Value::String),
+            "reports_to" => boss_now
+                .clone()
+                .map_or(serde_json::Value::Null, serde_json::Value::String),
             _ => serde_json::Value::Null,
         }
     };
-    let props = body
-        .props
-        .into_iter()
-        .map(|p| {
-            let to = match (p.to_minor, p.to_text) {
-                (Some(minor), _) => serde_json::json!(minor),
-                (None, Some(text)) => serde_json::Value::String(text),
-                (None, None) => {
-                    return Err(invalid(
-                        "a change row carries to_minor (a figure) or to_text (a name)",
-                    ));
-                }
-            };
-            Ok(ChangeProp {
-                from: now_of(&p.field),
-                field: p.field,
-                to,
-            })
-        })
-        .collect::<Result<Vec<_>, AppError>>()?;
+    let mut props = Vec::with_capacity(body.props.len());
+    for p in body.props {
+        let to = match (p.to_minor, p.to_text) {
+            (Some(minor), _) => serde_json::json!(minor),
+            (None, Some(text)) => serde_json::Value::String(text.trim().to_owned()),
+            (None, None) => {
+                return Err(invalid(
+                    "a change row carries to_minor (a figure) or to_text (a name)",
+                ));
+            }
+        };
+        let (from_label, to_label) = if p.field == "reports_to" {
+            let to_label = name_of(to.as_str().map(str::to_owned))
+                .await?
+                .ok_or_else(|| invalid("reports_to names nobody on the books"))?;
+            (name_of(boss_now.clone()).await?, Some(to_label))
+        } else {
+            (None, None)
+        };
+        props.push(ChangeProp {
+            from: now_of(&p.field),
+            field: p.field,
+            to,
+            from_label,
+            to_label,
+        });
+    }
     let proposal = ChangeProposal::file(
         EmployeeId::try_new(&access.employee_id).map_err(invalid)?,
         UnitId::try_new(&unit).map_err(invalid)?,
@@ -888,6 +927,34 @@ async fn apply_change(state: &AppState, proposal: &mut ChangeProposal) -> Result
     };
 
     match proposal.kind {
+        ChangeKind::Transfer if proposal.decided("reports_to").is_some() => {
+            // A change of boss is a placement from the day, carrying the
+            // department, level and grade in force unchanged — a placement
+            // states all four, so leaving them out would wipe them.
+            let boss = proposal
+                .decided("reports_to")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| {
+                    AppError::Configuration("an approved change of boss names one".to_owned())
+                })?
+                .to_owned();
+            let current = infrastructure::placements_of(&state.db, &employee_id)
+                .await?
+                .into_iter()
+                .find(|one| one.effective_from <= effective);
+            let auth = authority(actions::EMPLOYMENT_CHANGE)?;
+            infrastructure::place_employee(
+                &state.db,
+                &employee_id,
+                effective,
+                current.as_ref().and_then(|p| p.department_code.as_deref()),
+                current.as_ref().and_then(|p| p.level_code.as_deref()),
+                current.as_ref().and_then(|p| p.grade_code.as_deref()),
+                Some(boss.as_str()),
+                &auth,
+            )
+            .await?;
+        }
         ChangeKind::Transfer => {
             let to_unit = proposal
                 .decided("unit_id")

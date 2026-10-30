@@ -38,7 +38,7 @@ use super::devices::device_status_tx;
 use super::{publish_node_access, DeviceStatusRequest};
 use crate::cloud::application::AppError;
 use crate::cloud::domain::{PersonPosStop, PosStop, PosStops};
-use crate::sync::device::{STATUS_REVOKED, STATUS_SUSPENDED};
+use crate::sync::device::{KIND_WAREHOUSE, STATUS_REVOKED, STATUS_SUSPENDED};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Postgres, Row, Transaction};
@@ -130,6 +130,10 @@ pub struct StorePosCashier {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct StorePos {
     pub tills: Vec<StorePosTill>,
+    /// The store's warehouse PCs (Central Gudang, postgres 1000): stopped,
+    /// resumed and removed like a till, never in a seat and never with a
+    /// drawer.
+    pub warehouses: Vec<StorePosTill>,
     /// New POS asking to join, for head office to approve into a free seat
     /// or refuse (`pos_joins`).
     pub waiting: Vec<super::StorePosWaiting>,
@@ -323,7 +327,7 @@ pub async fn remove_store(
         "SELECT d.device_id
            FROM device d
            JOIN site s ON s.id = d.site_id
-          WHERE s.unit_id = $1 AND d.kind = 'TILL' AND d.status <> $2
+          WHERE s.unit_id = $1 AND d.kind IN ('TILL', 'WAREHOUSE') AND d.status <> $2
           ORDER BY d.device_id",
     )
     .bind(unit_id)
@@ -574,8 +578,8 @@ pub async fn store_pos(
     // A till's seat is `KASIR-n` (`edge::till::seat_label`): the node names
     // the n-th till `Kasir n`, and a drawer is kept by its seat. A till from
     // before seats kept its drawer under its own id.
-    let tills = sqlx::query(
-        "SELECT d.device_id, d.label, d.config -> 'machine' ->> 'hostname' AS machine,
+    let (warehouses, tills): (Vec<_>, Vec<_>) = sqlx::query(
+        "SELECT d.device_id, d.kind, d.label, d.config -> 'machine' ->> 'hostname' AS machine,
                 d.status, d.requested_status, d.last_seen_at,
                 COALESCE(h.status ? 'device_list', false) AS node_takes_commands,
                 stop.at AS stop_at, stop.actor AS stop_by, stop.reason AS stop_reason,
@@ -602,7 +606,7 @@ pub async fn store_pos(
                 ORDER BY c.opened_at DESC
                 LIMIT 1
            ) shift ON true
-          WHERE s.unit_id = $1 AND d.kind = 'TILL'
+          WHERE s.unit_id = $1 AND d.kind IN ('TILL', 'WAREHOUSE')
           ORDER BY (d.status = 'REVOKED'), d.label, d.device_id",
     )
     .bind(unit_id)
@@ -611,12 +615,13 @@ pub async fn store_pos(
     .fetch_all(pool)
     .await?
     .iter()
-    .map(|row| -> Result<StorePosTill, AppError> {
+    .map(|row| -> Result<(String, StorePosTill), AppError> {
+        let kind: String = row.try_get("kind")?;
         let status: String = row.try_get("status")?;
         let shift_opened_at: Option<DateTime<Utc>> = row.try_get("shift_opened_at")?;
         let shift_name: Option<String> = row.try_get("shift_name")?;
         let node_takes_commands: bool = row.try_get("node_takes_commands")?;
-        Ok(StorePosTill {
+        let till = StorePosTill {
             device_id: row.try_get("device_id")?,
             label: row.try_get("label")?,
             machine: row.try_get("machine")?,
@@ -633,9 +638,14 @@ pub async fn store_pos(
                 (Some(name), Some(opened_at)) => Some(StorePosShift { name, opened_at }),
                 _ => None,
             },
-        })
+        };
+        Ok((kind, till))
     })
-    .collect::<Result<Vec<_>, AppError>>()?;
+    .collect::<Result<Vec<_>, AppError>>()?
+    .into_iter()
+    .partition(|(kind, _)| kind == KIND_WAREHOUSE);
+    let tills: Vec<StorePosTill> = tills.into_iter().map(|(_, till)| till).collect();
+    let warehouses: Vec<StorePosTill> = warehouses.into_iter().map(|(_, till)| till).collect();
 
     let cashiers = sqlx::query(
         "WITH people AS (
@@ -691,6 +701,7 @@ pub async fn store_pos(
 
     Ok(StorePos {
         tills,
+        warehouses,
         waiting,
         seats,
         cashiers,

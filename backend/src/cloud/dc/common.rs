@@ -88,6 +88,39 @@ pub async fn ensure_origin(db: &PgPool) -> Result<(), AppError> {
     .await
 }
 
+/// Say loudly at boot when the Gudang already has two writers.
+///
+/// Registration refuses a Gudang server while this Central runs the Gudang
+/// (`postgres::sync::refuse_second_gudang_writer`), but a server let in before
+/// that rule, or hosting switched on while a server is still connected, is a
+/// second pen on the same stock. Refusing to boot would take every store and
+/// the hub down over a warehouse setting, so this only logs, as an error,
+/// once per start; the fix is the move in GUDANG-SERVER-PLAN.md.
+pub async fn warn_if_second_writer(db: &PgPool) {
+    if !hosted() {
+        return;
+    }
+    let servers: Result<Vec<String>, sqlx::Error> = sqlx::query_scalar(
+        "SELECT origin_id FROM sync_origin_credential
+          WHERE node_role = 'DC' AND inventory_enabled AND revoked_at IS NULL
+            AND origin_id <> $1
+          ORDER BY origin_id",
+    )
+    .bind(CLOUD_DC_ORIGIN)
+    .fetch_all(db)
+    .await;
+    match servers {
+        Ok(servers) if !servers.is_empty() => tracing::error!(
+            ?servers,
+            "this Central runs the Gudang (INVENTORY_DC_HOSTING=cloud) while a Gudang server is \
+             still connected and allowed to write its stock; two writers for one stock — \
+             disconnect the server or move the Gudang to it"
+        ),
+        Ok(_) => {}
+        Err(error) => tracing::warn!(%error, "could not check for a second Gudang writer"),
+    }
+}
+
 /// The next position in the cloud-run Gudang's own record stream: what the
 /// appliers key a record by when a DC server would have sent a fact
 /// (`(CLOUD_DC_ORIGIN, CLOUD_DC_GENERATION, seq)`). Never reused (0915).

@@ -1630,7 +1630,9 @@ pub async fn unidentified_receipts_page(
     limit: Option<i64>,
     cursor: Option<&str>,
 ) -> Result<(Vec<Value>, Option<String>), AppError> {
-    let limit = limit.unwrap_or(UNIDENTIFIED_PAGE).clamp(1, UNIDENTIFIED_PAGE_MAX);
+    let limit = limit
+        .unwrap_or(UNIDENTIFIED_PAGE)
+        .clamp(1, UNIDENTIFIED_PAGE_MAX);
     let after = cursor
         .map(str::trim)
         .filter(|raw| !raw.is_empty())
@@ -1696,10 +1698,12 @@ pub async fn unidentified_receipts_page(
     .fetch_all(pool)
     .await?;
     let next_cursor = match rows.last() {
-        Some(last) if rows.len() as i64 == limit => Some(super::encode_cursor(&UnidentifiedCursor {
-            verified_at: last.try_get("verified_at")?,
-            receipt_line_id: last.try_get("receipt_line_id")?,
-        })?),
+        Some(last) if rows.len() as i64 == limit => {
+            Some(super::encode_cursor(&UnidentifiedCursor {
+                verified_at: last.try_get("verified_at")?,
+                receipt_line_id: last.try_get("receipt_line_id")?,
+            })?)
+        }
         _ => None,
     };
     let items = rows

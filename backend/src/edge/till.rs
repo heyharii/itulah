@@ -31,7 +31,9 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::contracts::EdgeError;
-use super::escpos::{self, DrawerMode, PaperWidth, ReceiptDocument, ReceiptLine, ReceiptTender};
+use super::escpos::{
+    self, DrawerMode, PaperWidth, ReceiptCharge, ReceiptDocument, ReceiptLine, ReceiptTender,
+};
 
 fn db(error: rusqlite::Error) -> EdgeError {
     super::sqlite::db(error)
@@ -106,6 +108,18 @@ pub struct CloseShiftRequest {
     /// when it is sent it must add up to `declared_cash_minor` exactly.
     #[serde(default)]
     pub counted: Vec<CashCount>,
+    /// How many slips each EDC machine printed, as the cashier counted them
+    /// (client, 25 Oct 2026) — blind like the cash: the machines come from
+    /// `/shifts/{id}/edc-machines`, which names them and nothing else.
+    /// Optional; skipped on the way out when empty, so a request from before
+    /// is recorded exactly as it always was.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub edc_slips: Vec<EdcSlipCount>,
+    /// How many paper vouchers the shoppers paid with, counted off the drawer
+    /// (Hari, 30 Oct 2026): sheets, blind like the slips. Optional; skipped on
+    /// the way out when absent, so a request from before replays the same.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vouchers: Option<i64>,
     #[serde(default)]
     pub note: Option<String>,
     #[serde(default)]
@@ -115,6 +129,45 @@ pub struct CloseShiftRequest {
     #[serde(skip)]
     #[cfg_attr(feature = "ts", ts(skip))]
     pub supervising: bool,
+}
+
+/// One EDC machine as Tutup kasir asks about it: a name to count slips off,
+/// and no figure (client, 25 Oct 2026).
+///
+/// A shop has one machine per bank (postgres 0989), so the machine is the bank
+/// each card and QRIS tender names as `acquirer`; a bank's QRIS counts on that
+/// bank's machine.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ShiftEdcMachine {
+    /// The bank, upper-cased: `BCA`.
+    pub machine_id: String,
+    /// The bank as the cashier says it: `BCA`, `Mandiri`.
+    pub machine_name: String,
+}
+
+/// What the cashier counted off one machine.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct EdcSlipCount {
+    pub machine_id: String,
+    pub slips: i64,
+}
+
+/// One machine on the shift report: the slips counted, and the node's own
+/// count of the card and QRIS tenders taken on it.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ShiftEdcSlip {
+    pub machine_id: String,
+    pub machine_name: String,
+    /// As the cashier counted them; null until the drawer is counted.
+    pub slips: Option<i64>,
+    /// Every card and QRIS tender rung on this machine in the shift, a voided
+    /// sale's included: each printed its slip when it was taken. Null for a
+    /// cashier, like the expected cash (`http.rs`, `blind_for_cashier`).
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    pub expected: i64,
 }
 
 /// Open your own drawer at a free seat. A seat somebody else is holding is
@@ -129,6 +182,11 @@ pub struct TakeOverRequest {
     #[serde(default)]
     pub actor_id: String,
     pub idempotency_key: String,
+    /// The Kepala toko who opened the till for this cashier and hands the
+    /// float over: "Diserahkan" on the MODAL AWAL slip. Absent when the
+    /// cashier opened alone; the slip then names the cashier on both sides.
+    #[serde(default)]
+    pub handed_by: Option<String>,
 }
 
 /// The shift it opened. `ended` is always null now: nobody's shift is ended
@@ -190,6 +248,10 @@ pub struct CashMovementView {
     /// amount alone.
     #[serde(default)]
     pub counted: Vec<CashCount>,
+    /// The slip it handed out — `TM-0004`, `SM-0002`, `ST-0008` — which the
+    /// closing paper prints beside it. Null for a movement with no slip.
+    #[serde(default)]
+    pub slip_no: Option<String>,
     pub occurred_at: String,
 }
 
@@ -208,7 +270,56 @@ pub struct ShiftSale {
     pub change_minor: i64,
     /// Refunded against this sale since.
     pub returned_minor: i64,
+    /// The pieces on it: its tagged lines and those sold without a tag.
+    #[serde(default)]
+    pub pcs: i64,
     pub tenders: Vec<ShiftSaleTender>,
+}
+
+/// One return made at a drawer, as Transactions lists it (Hari, 30 Oct
+/// 2026): a transaction of its own, on its own receipt, at the time and drawer
+/// it was made — never a minus on the struk it came from.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ShiftReturn {
+    pub return_id: String,
+    /// The return's own number: the replacement sale's, or its own when
+    /// nothing went out.
+    pub receipt_no: String,
+    pub occurred_at: String,
+    pub cashier: String,
+    /// The struk the pieces came back from.
+    pub from_receipt_no: String,
+    /// The sale that carried the replacements; its row is this return.
+    pub replacement_sale_id: Option<String>,
+    pub back_pcs: i64,
+    pub out_pcs: i64,
+    pub back_minor: i64,
+    pub replacement_minor: i64,
+    /// What the customer paid on top; never negative, a cheaper replacement
+    /// pays nothing back.
+    pub paid_minor: i64,
+}
+
+/// One sale as the receipt search listed it. The search is gone (Hari, 28 Oct
+/// 2026: a struk is found only by its whole number, `lookup_receipt`); the
+/// shape stays for the contract until the till stops naming it.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct SaleSearchRow {
+    pub sale_id: String,
+    /// The number the receipt carries: the till's seven letters, or the
+    /// derived number of a sale from before them.
+    pub receipt_no: String,
+    pub completed_at: String,
+    /// Who rang it, by name.
+    pub cashier_name: String,
+    pub total_minor: i64,
+    pub pcs: i64,
+    pub tenders: Vec<ShiftSaleTender>,
+    /// `PAID`; `VOIDED`; or `RETURNED` once anything has come back against
+    /// it, all of it or part.
+    pub status: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -298,6 +409,18 @@ pub struct ShiftReport {
     /// until it has been returned.
     #[serde(default)]
     pub float_returned_to: Option<String>,
+    /// "Tambah modal": every PICKUP, as a positive figure.
+    #[serde(default)]
+    pub float_added_minor: i64,
+    /// "Setoran sementara": every DROP, as a positive figure (a drop sent
+    /// without an amount counts nought until the Kepala toko writes it).
+    #[serde(default)]
+    pub drops_minor: i64,
+    /// "Modal Akhir" on the closing paper: the opening float, plus every
+    /// Tambah modal, less every Setor modal. Setoran sementara is takings
+    /// leaving the drawer, not float, and is not in it.
+    #[serde(default)]
+    pub float_end_minor: i64,
     /// Float + cash taken − change − cash refunded + signed movements.
     #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     pub expected_cash_minor: i64,
@@ -309,6 +432,14 @@ pub struct ShiftReport {
     /// a shift closed with a total only.
     #[serde(default)]
     pub counted: Vec<CashCount>,
+    /// Each EDC machine the shift took cards or QRIS on, and every machine
+    /// the cashier counted slips off: the machines first used first.
+    #[serde(default)]
+    pub edc_slips: Vec<ShiftEdcSlip>,
+    /// The paper vouchers the cashier counted off the drawer at close (0105);
+    /// null until counted, and on a shift closed before.
+    #[serde(default)]
+    pub vouchers_counted: Option<i64>,
     /// True when the figures above were withheld from a cashier.
     #[serde(default)]
     pub blind: bool,
@@ -376,6 +507,14 @@ pub(crate) fn apply_float_return_schema(connection: &Connection) -> Result<(), E
         "'DROP'))",
         "'DROP', 'FLOAT_RETURN'))",
         "FLOAT_RETURN",
+    )?;
+    // MODAL AWAL (MA-0001, Hari 30 Oct 2026): the opening float's slip.
+    super::payment_methods::widen_check(
+        connection,
+        "cash_slip",
+        "'FLOAT_RETURN'))",
+        "'FLOAT_RETURN', 'OPENING_FLOAT'))",
+        "OPENING_FLOAT",
     )
 }
 
@@ -546,7 +685,13 @@ pub fn open_shift(
     now: DateTime<Utc>,
 ) -> Result<ShiftReport, EdgeError> {
     let terminal = request.terminal_id.trim();
-    check_opening(tx, terminal, request.opening_float_minor, &request.actor_id, now)?;
+    check_opening(
+        tx,
+        terminal,
+        request.opening_float_minor,
+        &request.actor_id,
+        now,
+    )?;
     if let Some(existing) = open_shift_id(tx, terminal)? {
         return Err(EdgeError::Conflict(format!(
             "{} is held by another shift ({existing}); it is closed first",
@@ -559,6 +704,7 @@ pub fn open_shift(
         request.actor_id.trim(),
         request.opening_float_minor,
         &request.idempotency_key,
+        None,
         now,
     )
 }
@@ -605,6 +751,7 @@ pub fn take_over(
         actor,
         request.opening_float_minor,
         &request.idempotency_key,
+        request.handed_by.as_deref().map(str::trim).filter(|by| !by.is_empty()),
         now,
     )?;
     Ok(TakeOverOutcome { ended: None, shift })
@@ -650,6 +797,7 @@ fn insert_shift(
     actor: &str,
     opening_float_minor: i64,
     idempotency_key: &str,
+    handed_by: Option<&str>,
     now: DateTime<Utc>,
 ) -> Result<ShiftReport, EdgeError> {
     let shift_id = Uuid::new_v4().to_string();
@@ -675,11 +823,12 @@ fn insert_shift(
     // shift row would mean the drawer's arithmetic had two sources, and the
     // one nobody looks at is the one that drifts.
     if opening_float_minor > 0 {
+        let movement_id = Uuid::new_v4().to_string();
         tx.prepare_cached("INSERT INTO cash_movement(id,idempotency_key,shift_id,kind,amount_minor,reason,actor_id,occurred_at)
              VALUES(?1,?2,?3,'OPENING_FLOAT',?4,'Modal awal',?5,?6)"
     ).map_err(db)?.execute(
             params![
-                Uuid::new_v4().to_string(),
+                movement_id,
                 format!("{idempotency_key}:float"),
                 shift_id,
                 opening_float_minor,
@@ -688,6 +837,17 @@ fn insert_shift(
             ],
         )
         .map_err(db)?;
+        // MODAL AWAL, numbered like the other slips (MA-0001): the Kepala
+        // toko hands the float, the cashier receives it.
+        record_slip(
+            tx,
+            &movement_id,
+            "OPENING_FLOAT",
+            opening_float_minor,
+            actor,
+            handed_by.unwrap_or(actor),
+            opened_at,
+        )?;
     }
     report(tx, &shift_id)
 }
@@ -725,6 +885,8 @@ pub fn count_shift(
     }
     require_holder(&holder, request.actor_id.trim(), request.supervising)?;
     record_count(tx, shift_id, request)?;
+    record_edc_slips(tx, shift_id, request)?;
+    record_vouchers(tx, shift_id, request)?;
 
     // Recomputed rather than read: a sale the holder rang offline before the
     // seat was taken can arrive after, and belongs in this drawer.
@@ -919,14 +1081,15 @@ pub fn shift_sales(
 ) -> Result<Vec<ShiftSale>, EdgeError> {
     let mut sales = {
         let mut statement = connection
-            .prepare_cached(
+            .prepare_cached(&format!(
                 "SELECT s.id,s.completed_at,s.actor_id,s.status,s.total_minor,s.change_minor,
                         COALESCE((SELECT SUM(r.refund_minor) FROM sale_return r WHERE r.sale_id = s.id),0),
-                        (SELECT k.receipt_no FROM sale_receipt k WHERE k.sale_id = s.id)
+                        (SELECT k.receipt_no FROM sale_receipt k WHERE k.sale_id = s.id),
+                        {SALE_PCS}
                    FROM sale s
                   WHERE s.shift_id=?1
-                  ORDER BY s.completed_at, s.id",
-            )
+                  ORDER BY s.completed_at, s.id"
+            ))
             .map_err(db)?;
         let rows = statement
             .query_map([shift_id], |row| {
@@ -943,6 +1106,7 @@ pub fn shift_sales(
                     total_minor: row.get(4)?,
                     change_minor: row.get(5)?,
                     returned_minor: row.get(6)?,
+                    pcs: row.get(8)?,
                     tenders: Vec::new(),
                 })
             })
@@ -983,6 +1147,120 @@ pub fn shift_sales(
     }
     Ok(sales)
 }
+
+/// The returns made at one drawer, oldest first.
+pub fn shift_returns(
+    connection: &Connection,
+    site_id: &str,
+    shift_id: &str,
+) -> Result<Vec<ShiftReturn>, EdgeError> {
+    type Row = (
+        String,
+        String,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<i64>,
+        Option<i64>,
+        Option<i64>,
+        i64,
+        i64,
+    );
+    let rows: Vec<Row> = {
+        let mut statement = connection
+            .prepare_cached(
+                "SELECT r.id, r.occurred_at, r.actor_id, r.sale_id, k.receipt_no,
+                        COALESCE(k.replacement_sale_id,
+                                 CASE WHEN r.refund_method='EXCHANGE' THEN r.refund_reference END),
+                        k.back_minor, k.replacement_minor, k.paid_minor,
+                        (SELECT COUNT(*) FROM sale_return_line l WHERE l.return_id = r.id)
+                        + (SELECT COUNT(*) FROM unmatched_return_line u WHERE u.return_id = r.id),
+                        COALESCE((SELECT SUM(l.refund_minor) FROM sale_return_line l WHERE l.return_id = r.id),0)
+                        + COALESCE((SELECT SUM(u.refund_minor) FROM unmatched_return_line u WHERE u.return_id = r.id),0)
+                   FROM sale_return r
+              LEFT JOIN return_receipt k ON k.return_id = r.id
+                  WHERE r.shift_id=?1
+                  ORDER BY r.occurred_at, r.id",
+            )
+            .map_err(db)?;
+        let rows = statement
+            .query_map([shift_id], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                    row.get(7)?,
+                    row.get(8)?,
+                    row.get(9)?,
+                    row.get(10)?,
+                ))
+            })
+            .map_err(db)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(db)?
+    };
+    let mut out = Vec::with_capacity(rows.len());
+    for (
+        return_id,
+        occurred_at,
+        cashier,
+        from_sale_id,
+        kept,
+        replacement,
+        back,
+        out_minor,
+        paid,
+        back_pcs,
+        lines_minor,
+    ) in rows
+    {
+        let (replacement_pcs, replacement_total): (i64, i64) = match replacement.as_deref() {
+            Some(sale_id) => connection
+                .prepare_cached(&format!(
+                    "SELECT {SALE_PCS}, s.total_minor FROM sale s WHERE s.id=?1"
+                ))
+                .map_err(db)?
+                .query_row([sale_id], |row| Ok((row.get(0)?, row.get(1)?)))
+                .optional()
+                .map_err(db)?
+                .unwrap_or((0, 0)),
+            None => (0, 0),
+        };
+        // A return from before 0102 has no receipt row: its number was the
+        // replacement's, its worth the lines'.
+        let receipt_no = match (kept, replacement.as_deref()) {
+            (Some(kept), _) => kept,
+            (None, Some(sale_id)) => sale_receipt_no(connection, site_id, sale_id)?,
+            (None, None) => sale_receipt_no(connection, site_id, &from_sale_id)?,
+        };
+        let back_minor = back.unwrap_or(lines_minor);
+        let replacement_minor = out_minor.unwrap_or(replacement_total);
+        out.push(ShiftReturn {
+            return_id,
+            receipt_no,
+            occurred_at,
+            cashier,
+            from_receipt_no: sale_receipt_no(connection, site_id, &from_sale_id)?,
+            replacement_sale_id: replacement,
+            back_pcs,
+            out_pcs: replacement_pcs,
+            back_minor,
+            replacement_minor,
+            paid_minor: paid.unwrap_or((replacement_minor - back_minor).max(0)),
+        });
+    }
+    Ok(out)
+}
+
+/// The pieces on sale `s`, as one SQL expression: its tagged lines, and one
+/// for each piece sold without a tag (`0084`).
+const SALE_PCS: &str =
+    "COALESCE((SELECT SUM(l.quantity) FROM sale_line l WHERE l.sale_id = s.id),0)
+     + (SELECT COUNT(*) FROM unmatched_sale_line u WHERE u.sale_id = s.id)";
 
 /// Every drawer open in the store now, oldest first.
 pub fn open_shifts(connection: &Connection) -> Result<Vec<ShiftReport>, EdgeError> {
@@ -1073,12 +1351,19 @@ pub fn record_cash_movement(
 
     // Money leaving the drawer is the direction somebody steals in. A payout
     // is money gone. Since 23 Oct 2026 (client) modal only grows and every
-    // hand-over has two names: a PICKUP's supervisor gives, a DROP's and a
-    // FLOAT_RETURN's receives.
-    let approved_by = if matches!(
-        kind.as_str(),
-        "PAYOUT" | "CORRECTION" | "PICKUP" | "DROP" | "FLOAT_RETURN"
-    ) {
+    // hand-over has two names: a DROP's and a FLOAT_RETURN's supervisor
+    // receives. "Tambah modal" (PICKUP) needs no finger since 28 Oct 2026
+    // (Hari): money coming INTO the drawer is not the direction anybody
+    // steals in, and the slip still carries both signatures. A grant the
+    // till sends anyway is checked and names the giver.
+    //
+    // Setoran sementara (DROP) needs no finger either since 30 Oct 2026
+    // (Hari: "tempelan sidik jarinya dihapus"): the Kepala toko's line on the
+    // slip is left for a pen, as on Tambah modal.
+    let finger_needed = matches!(kind.as_str(), "PAYOUT" | "CORRECTION" | "FLOAT_RETURN");
+    let approved_by = if finger_needed
+        || (matches!(kind.as_str(), "PICKUP" | "DROP") && request.supervisor.is_some())
+    {
         Some(
             verify_supervisor(
                 tx,
@@ -1134,6 +1419,17 @@ pub fn record_cash_movement(
         .map_err(db)?;
     }
     let slip = match (kind.as_str(), approved_by.as_deref()) {
+        // Tambah modal or Setoran sementara without a finger: the other
+        // person's line is left for a pen.
+        ("PICKUP" | "DROP", None) => Some(record_slip(
+            tx,
+            &movement_id,
+            &kind,
+            amount_minor,
+            request.actor_id.trim(),
+            "",
+            now,
+        )?),
         ("PICKUP" | "DROP" | "FLOAT_RETURN", Some(supervisor)) => Some(record_slip(
             tx,
             &movement_id,
@@ -1154,11 +1450,7 @@ pub fn record_cash_movement(
 /// opening float and every Tambah modal — less what has gone back already. A
 /// second tap on the button is then refused rather than recorded as the float
 /// leaving twice, which would put the drawer short by a float at the close.
-fn check_float_left(
-    tx: &Transaction<'_>,
-    shift_id: &str,
-    returning: i64,
-) -> Result<(), EdgeError> {
+fn check_float_left(tx: &Transaction<'_>, shift_id: &str, returning: i64) -> Result<(), EdgeError> {
     let left: i64 = tx
         .prepare_cached(
             "SELECT COALESCE(SUM(amount_minor), 0) FROM cash_movement
@@ -1194,6 +1486,7 @@ fn record_slip(
 ) -> Result<CashSlip, EdgeError> {
     let (prefix, given_by, received_by) = match kind {
         "PICKUP" => ("TM", supervisor, cashier),
+        "OPENING_FLOAT" => ("MA", supervisor, cashier),
         "FLOAT_RETURN" => ("SM", cashier, supervisor),
         _ => ("ST", cashier, supervisor),
     };
@@ -1208,7 +1501,14 @@ fn record_slip(
          VALUES(?1,?2,?3,?4,?5,?6)",
     )
     .map_err(db)?
-    .execute(params![movement_id, kind, seq, slip_no, given_by, received_by])
+    .execute(params![
+        movement_id,
+        kind,
+        seq,
+        slip_no,
+        given_by,
+        received_by
+    ])
     .map_err(db)?;
     Ok(CashSlip {
         slip_no,
@@ -1291,6 +1591,9 @@ pub fn close_shift(
         request.supervising,
     )?;
     record_count(tx, shift_id, request)?;
+    require_every_machine(tx, shift_id, request)?;
+    record_edc_slips(tx, shift_id, request)?;
+    record_vouchers(tx, shift_id, request)?;
 
     let running = report(tx, shift_id)?;
     let variance = request.declared_cash_minor - running.expected_cash_minor;
@@ -1376,6 +1679,214 @@ fn record_count(
         .map_err(db)?;
     }
     Ok(())
+}
+
+/// Write the slips the cashier counted off each EDC machine (`0093`), when
+/// the till sent them: a whole number, nought or more, each machine once.
+fn record_edc_slips(
+    tx: &Transaction<'_>,
+    shift_id: &str,
+    request: &CloseShiftRequest,
+) -> Result<(), EdgeError> {
+    let mut seen = std::collections::HashSet::new();
+    for line in &request.edc_slips {
+        let machine = line.machine_id.trim().to_ascii_uppercase();
+        if machine.is_empty() {
+            return Err(EdgeError::Validation(
+                "an EDC slip count names its machine".into(),
+            ));
+        }
+        if line.slips < 0 {
+            return Err(EdgeError::Validation(format!(
+                "EDC {machine} cannot have printed fewer than no slips"
+            )));
+        }
+        if !seen.insert(machine.clone()) {
+            return Err(EdgeError::Validation(format!(
+                "EDC {machine} is counted twice"
+            )));
+        }
+        tx.prepare_cached(
+            "INSERT INTO cash_shift_edc_slip(shift_id,machine_id,slips) VALUES(?1,?2,?3)",
+        )
+        .map_err(db)?
+        .execute(params![shift_id, machine, line.slips])
+        .map_err(db)?;
+    }
+    Ok(())
+}
+
+/// Write the paper vouchers the cashier counted off the drawer (`0105`), when
+/// the till sent them: a whole number, nought or more.
+fn record_vouchers(
+    tx: &Transaction<'_>,
+    shift_id: &str,
+    request: &CloseShiftRequest,
+) -> Result<(), EdgeError> {
+    let Some(vouchers) = request.vouchers else {
+        return Ok(());
+    };
+    if vouchers < 0 {
+        return Err(EdgeError::Validation(
+            "a drawer cannot hold fewer than no vouchers".into(),
+        ));
+    }
+    tx.prepare_cached(
+        "INSERT INTO cash_shift_voucher_count(shift_id,vouchers) VALUES(?1,?2)
+         ON CONFLICT(shift_id) DO UPDATE SET vouchers=excluded.vouchers",
+    )
+    .map_err(db)?
+    .execute(params![shift_id, vouchers])
+    .map_err(db)?;
+    Ok(())
+}
+
+/// Tutup kasir is one form (Hari, 28 Oct 2026): once the till counts slips at
+/// all, it counts every machine `/edc-machines` named — "F4 Tutup kasir waits
+/// for every machine's slips". A close with no slips at all (a supervisor
+/// closing from the store app, a till from before 25 Oct) still closes.
+fn require_every_machine(
+    tx: &Transaction<'_>,
+    shift_id: &str,
+    request: &CloseShiftRequest,
+) -> Result<(), EdgeError> {
+    if request.edc_slips.is_empty() {
+        return Ok(());
+    }
+    for machine in edc_machines(tx, shift_id)? {
+        let counted = request.edc_slips.iter().any(|line| {
+            line.machine_id
+                .trim()
+                .eq_ignore_ascii_case(&machine.machine_id)
+        });
+        if !counted {
+            return Err(EdgeError::Validation(format!(
+                "Hitung struk EDC {} dulu",
+                machine.machine_name
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// The bank as the cashier says it — a short code as it is (`BCA`, `BRI`), a
+/// longer one with one capital (`Mandiri`) — the till's own `bankWord`.
+fn machine_name(machine_id: &str) -> String {
+    if machine_id.chars().count() <= 4 {
+        return machine_id.to_string();
+    }
+    let mut letters = machine_id.chars();
+    match letters.next() {
+        Some(first) => first
+            .to_uppercase()
+            .chain(letters.flat_map(char::to_lowercase))
+            .collect(),
+        None => String::new(),
+    }
+}
+
+/// Every EDC machine a shift took cards or QRIS on, first used first, with
+/// how many tenders it took. A voided sale's tenders count: each printed its
+/// slip when it was taken. A card rung before the till named its bank has no
+/// machine to count on, and is left out.
+fn machine_tenders(
+    connection: &Connection,
+    shift_id: &str,
+) -> Result<Vec<(String, i64)>, EdgeError> {
+    let mut statement = connection
+        .prepare_cached(
+            "SELECT upper(trim(t.acquirer)), COUNT(*)
+               FROM sale_tender t
+               JOIN sale s ON s.id = t.sale_id
+              WHERE s.shift_id=?1 AND t.method IN ('CARD','QRIS')
+                AND t.acquirer IS NOT NULL AND trim(t.acquirer) <> ''
+              GROUP BY upper(trim(t.acquirer))
+              ORDER BY MIN(s.completed_at), upper(trim(t.acquirer))",
+        )
+        .map_err(db)?;
+    let rows = statement
+        .query_map([shift_id], |row| Ok((row.get(0)?, row.get(1)?)))
+        .map_err(db)?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(db)
+}
+
+/// The shop's EDC machines as head office names them (sqlite 0100), in book
+/// order. Empty on a node head office has not sent a book to.
+fn edc_book(connection: &Connection) -> Result<Vec<String>, EdgeError> {
+    let mut statement = connection
+        .prepare_cached("SELECT machine_id FROM edge_edc_machine ORDER BY machine_id")
+        .map_err(db)?;
+    let rows = statement.query_map([], |row| row.get(0)).map_err(db)?;
+    rows.collect::<Result<Vec<String>, _>>().map_err(db)
+}
+
+/// `GET /api/v1/store/shifts/{id}/edc-machines`: every machine Tutup kasir asks
+/// the cashier to count slips off — the shop's book (0100) first, then any
+/// machine that took a card this shift but is not in it. By name only: no
+/// count, no amount, so the count stays blind.
+pub fn edc_machines(
+    connection: &Connection,
+    shift_id: &str,
+) -> Result<Vec<ShiftEdcMachine>, EdgeError> {
+    holder_of(connection, shift_id)?;
+    let mut ids = edc_book(connection)?;
+    for (machine_id, _) in machine_tenders(connection, shift_id)? {
+        if !ids.iter().any(|id| id == &machine_id) {
+            ids.push(machine_id);
+        }
+    }
+    Ok(ids
+        .into_iter()
+        .map(|machine_id| ShiftEdcMachine {
+            machine_name: machine_name(&machine_id),
+            machine_id,
+        })
+        .collect())
+}
+
+/// The shift report's EDC lines: every machine in the shop's book (0100) —
+/// counted or not — then any machine outside it that took a card or was
+/// counted here.
+fn edc_slips_of(connection: &Connection, shift_id: &str) -> Result<Vec<ShiftEdcSlip>, EdgeError> {
+    let mut counted: Vec<(String, i64)> = {
+        let mut statement = connection
+            .prepare_cached(
+                "SELECT machine_id,slips FROM cash_shift_edc_slip
+                  WHERE shift_id=?1 ORDER BY rowid",
+            )
+            .map_err(db)?;
+        let rows = statement
+            .query_map([shift_id], |row| Ok((row.get(0)?, row.get(1)?)))
+            .map_err(db)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(db)?
+    };
+    let tenders: std::collections::BTreeMap<String, i64> =
+        machine_tenders(connection, shift_id)?.into_iter().collect();
+    let mut ids = edc_book(connection)?;
+    for machine_id in tenders.keys() {
+        if !ids.iter().any(|id| id == machine_id) {
+            ids.push(machine_id.clone());
+        }
+    }
+    for (machine_id, _) in &counted {
+        if !ids.iter().any(|id| id == machine_id) {
+            ids.push(machine_id.clone());
+        }
+    }
+    let mut lines = Vec::with_capacity(ids.len());
+    for machine_id in ids {
+        let found = counted
+            .iter()
+            .position(|(counted_id, _)| *counted_id == machine_id);
+        let slips = found.map(|index| counted.remove(index).1);
+        lines.push(ShiftEdcSlip {
+            machine_name: machine_name(&machine_id),
+            expected: tenders.get(&machine_id).copied().unwrap_or(0),
+            slips,
+            machine_id,
+        });
+    }
+    Ok(lines)
 }
 
 fn holder_of(connection: &Connection, shift_id: &str) -> Result<String, EdgeError> {
@@ -1506,8 +2017,10 @@ pub fn report(connection: &Connection, shift_id: &str) -> Result<ShiftReport, Ed
     {
         let mut statement = connection
             .prepare(
-                "SELECT id,kind,amount_minor,reason,actor_id,approved_by,occurred_at,received_by
-                   FROM cash_movement WHERE shift_id=?1 ORDER BY occurred_at, id",
+                "SELECT m.id,m.kind,m.amount_minor,m.reason,m.actor_id,m.approved_by,m.occurred_at,
+                        m.received_by,
+                        (SELECT k.slip_no FROM cash_slip k WHERE k.movement_id = m.id)
+                   FROM cash_movement m WHERE m.shift_id=?1 ORDER BY m.occurred_at, m.id",
             )
             .map_err(db)?;
         let rows = statement
@@ -1521,6 +2034,7 @@ pub fn report(connection: &Connection, shift_id: &str) -> Result<ShiftReport, Ed
                     approved_by: row.get(5)?,
                     received_by: row.get(7)?,
                     counted: Vec::new(),
+                    slip_no: row.get(8)?,
                     occurred_at: row.get(6)?,
                 })
             })
@@ -1542,12 +2056,26 @@ pub fn report(connection: &Connection, shift_id: &str) -> Result<ShiftReport, Ed
         .filter(|movement| movement.kind == "FLOAT_RETURN")
         .map(|movement| -movement.amount_minor)
         .sum();
+    let float_added_minor: i64 = movements
+        .iter()
+        .filter(|movement| movement.kind == "PICKUP")
+        .map(|movement| movement.amount_minor)
+        .sum();
+    let drops_minor: i64 = movements
+        .iter()
+        .filter(|movement| movement.kind == "DROP")
+        .map(|movement| -movement.amount_minor)
+        .sum();
     let float_returned_to = match movements
         .iter()
         .rev()
         .find(|movement| movement.kind == "FLOAT_RETURN")
-        .and_then(|movement| movement.received_by.as_deref().or(movement.approved_by.as_deref()))
-    {
+        .and_then(|movement| {
+            movement
+                .received_by
+                .as_deref()
+                .or(movement.approved_by.as_deref())
+        }) {
         Some(username) => Some(display_name_of(connection, username)?),
         None => None,
     };
@@ -1602,6 +2130,9 @@ pub fn report(connection: &Connection, shift_id: &str) -> Result<ShiftReport, Ed
         movements,
         float_returned_minor,
         float_returned_to,
+        float_added_minor,
+        drops_minor,
+        float_end_minor: head.6 + float_added_minor - float_returned_minor,
         expected_cash_minor,
         declared_cash_minor: declared,
         // Recomputed for an open shift so the number moves with the evening;
@@ -1614,6 +2145,13 @@ pub fn report(connection: &Connection, shift_id: &str) -> Result<ShiftReport, Ed
         tenders,
         note: head.9,
         counted,
+        edc_slips: edc_slips_of(connection, shift_id)?,
+        vouchers_counted: connection
+            .prepare_cached("SELECT vouchers FROM cash_shift_voucher_count WHERE shift_id=?1")
+            .map_err(db)?
+            .query_row([shift_id], |row| row.get(0))
+            .optional()
+            .map_err(db)?,
         blind: false,
         slip: None,
     })
@@ -2023,8 +2561,7 @@ pub fn pick_untagged(
     } else {
         sku.clone()
     };
-    let of_sku: Vec<&UntaggedSoldLine> =
-        sold.iter().filter(|line| line.sku_code == sku).collect();
+    let of_sku: Vec<&UntaggedSoldLine> = sold.iter().filter(|line| line.sku_code == sku).collect();
     if of_sku.is_empty() {
         return Err(EdgeError::Validation(format!(
             "SKU {label} tidak dijual tanpa tag di struk ini"
@@ -2034,9 +2571,7 @@ pub fn pick_untagged(
         .into_iter()
         .find(|line| !line.already_returned && !taken.contains(&line.line_id))
         .ok_or_else(|| {
-            EdgeError::Conflict(format!(
-                "SKU {label} di struk ini semua sudah dikembalikan"
-            ))
+            EdgeError::Conflict(format!("SKU {label} di struk ini semua sudah dikembalikan"))
         })?;
     taken.insert(line.line_id.clone());
     Ok(line.clone())
@@ -2242,6 +2777,12 @@ pub fn record_return_valued(
 /// money back (owner, 23 Oct 2026). A dearer replacement is topped up with
 /// ordinary tenders; a cheaper or equal one costs nothing and returns nothing.
 /// The Kepala toko authorises it, exactly as for a return.
+///
+/// This is THE return at the till since 28 Oct 2026 (Hari): `POST
+/// /api/v1/store/returns` and `/exchanges` both take it. Replacements are
+/// optional — with none the pieces go home, nothing is paid out and their
+/// whole value is forfeited ("selisih tidak diuangkan"). Every return is a
+/// receipt of its own (`return_receipt`, 0102) that can never be returned.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct ExchangeRequest {
@@ -2255,8 +2796,14 @@ pub struct ExchangeRequest {
     /// returned.
     #[serde(default)]
     pub returned_skus: Vec<String>,
-    /// Each a piece on this shop's floor.
+    /// Each a piece on this shop's floor. Optional: a return may end with no
+    /// replacement at all.
+    #[serde(default)]
     pub replacement_epcs: Vec<String>,
+    /// Replacements typed at the till instead of read off a tag (Hari, 30 Oct
+    /// 2026: "hapus aturan itu"), rung like a sale's typed lines.
+    #[serde(default)]
+    pub replacement_untagged: Vec<super::contracts::UntaggedLine>,
     /// The difference only, when the replacement is dearer. Empty otherwise.
     #[serde(default)]
     pub tenders: Vec<crate::tender::SaleTender>,
@@ -2271,12 +2818,17 @@ pub struct ExchangeRequest {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct ExchangeResult {
-    /// The replacement sale.
-    pub sale_id: String,
+    /// The replacement sale; null when nothing went out.
+    pub sale_id: Option<String>,
+    /// The return's own receipt: the replacement sale's number, or — with no
+    /// replacement — a number of its own from the same run.
     pub receipt_no: String,
     /// The return of the pieces that came back (`refund_method = EXCHANGE`).
     pub return_id: String,
     pub original_sale_id: String,
+    /// The struk the pieces were sold on, as "Return dari" prints it.
+    #[serde(default)]
+    pub original_receipt_no: String,
     /// What the returned pieces were charged on their own receipt.
     pub returned_minor: i64,
     /// What the replacement comes to.
@@ -2285,14 +2837,16 @@ pub struct ExchangeResult {
     pub credit_minor: i64,
     /// `max(0, replacement − returned)`: what the shopper's tenders covered.
     pub owed_minor: i64,
-    /// `max(0, returned − replacement)`: value left behind, not handed back.
+    /// `max(0, returned − replacement)`: value left behind, not handed back —
+    /// forfeited, and kept on the return receipt (`forfeited_minor`).
     pub unused_credit_minor: i64,
     /// What the shopper's own tenders came to (the credit not included).
     pub paid_minor: i64,
     pub change_minor: i64,
     pub approved_by: String,
     pub occurred_at: String,
-    pub sale: super::contracts::SaleResult,
+    /// The replacement sale; null when nothing went out.
+    pub sale: Option<super::contracts::SaleResult>,
     pub returned: ReturnResult,
 }
 
@@ -2420,6 +2974,8 @@ pub fn receipt_document(
                     unit_price_minor: row.get(3)?,
                     line_total_minor: row.get(3)?,
                     base_unit_price_minor: base,
+                    exchangeable: true,
+                    no_exchange_by: None,
                 })
             })
             .map_err(db)?;
@@ -2453,6 +3009,8 @@ pub fn receipt_document(
                     unit_price_minor,
                     line_total_minor: row.get(2)?,
                     base_unit_price_minor: Some(unit_price_minor),
+                    exchangeable: true,
+                    no_exchange_by: None,
                 })
             })
             .map_err(db)?;
@@ -2463,11 +3021,34 @@ pub fn receipt_document(
         }
     }
 
+    // Bags and other fees are on the bill but are not merchandise: printed as
+    // their own lines after the goods, counted in the money, never in Pcs.
+    let mut charges = Vec::new();
+    {
+        let mut statement = connection
+            .prepare(
+                "SELECT description,amount_minor FROM sale_charge
+                  WHERE sale_id=?1 ORDER BY charge_seq",
+            )
+            .map_err(db)?;
+        let rows = statement
+            .query_map([sale_id], |row| {
+                Ok(ReceiptCharge {
+                    description: row.get(0)?,
+                    amount_minor: row.get(1)?,
+                })
+            })
+            .map_err(db)?;
+        for row in rows {
+            charges.push(row.map_err(db)?);
+        }
+    }
+
     let mut tenders = Vec::new();
     {
         let mut statement = connection
             .prepare(
-                "SELECT method,amount_minor,reference FROM sale_tender
+                "SELECT method,amount_minor,reference,card_kind,acquirer FROM sale_tender
                   WHERE sale_id=?1 ORDER BY tender_seq",
             )
             .map_err(db)?;
@@ -2477,6 +3058,8 @@ pub fn receipt_document(
                     method: row.get(0)?,
                     amount_minor: row.get(1)?,
                     reference: row.get(2)?,
+                    card_kind: row.get(3)?,
+                    acquirer: row.get(4)?,
                 })
             })
             .map_err(db)?;
@@ -2485,8 +3068,10 @@ pub fn receipt_document(
         }
     }
 
-    let returned_minor: i64 = connection
-        .prepare_cached("SELECT COALESCE(SUM(refund_minor),0) FROM sale_return WHERE sale_id=?1")
+    // A return pays nothing out since 28 Oct 2026, so its refund can be
+    // nought: whether anything came back is a count, not a sum.
+    let returns: i64 = connection
+        .prepare_cached("SELECT COUNT(*) FROM sale_return WHERE sale_id=?1")
         .map_err(db)?
         .query_row([sale_id], |row| row.get(0))
         .map_err(db)?;
@@ -2513,14 +3098,40 @@ pub fn receipt_document(
 
     let stamp_text = if head.0 == "VOIDED" {
         Some("** BATAL **".to_string())
-    } else if returned_minor > 0 {
-        Some("** RETUR **".to_string())
+    } else if returns > 0 {
+        Some("** DI-RETURN **".to_string())
     } else {
         None
     };
 
-    Ok(ReceiptDocument {
+    // Which pieces never come back (postgres 1006), and the last day for the
+    // rest, as the sale wrote it — the on-screen struk says both.
+    let promise = super::return_policy::current(connection)?;
+    for line in &mut lines {
+        if !line.sku_code.is_empty() {
+            // As the sale was made (0103), not as the policy reads today.
+            line.no_exchange_by =
+                super::return_policy::refused_on_sale(connection, &promise, sale_id, &line.sku_code)?;
+            line.exchangeable = line.no_exchange_by.is_none();
+        }
+    }
+    let exchange_until: Option<String> = connection
+        .prepare_cached("SELECT return_by FROM sale WHERE id=?1")
+        .map_err(db)?
+        .query_row([sale_id], |row| row.get(0))
+        .map_err(db)?;
+
+    // What the sale earned its member, line by line (0032), for the paper's
+    // "Member point" row.
+    let points_earned: i64 = connection
+        .prepare_cached("SELECT COALESCE(SUM(points_earned),0) FROM sale_line WHERE sale_id=?1")
+        .map_err(db)?
+        .query_row([sale_id], |row| row.get(0))
+        .map_err(db)?;
+
+    let mut document = ReceiptDocument {
         shop_name: shop_name.to_string(),
+        header_image: crate::edge::receipt_header::current(connection).ok(),
         shop_line_1: None,
         shop_line_2: None,
         site_id: site_id.to_string(),
@@ -2529,17 +3140,54 @@ pub fn receipt_document(
         completed_at: head.5.clone(),
         cashier: head.4,
         lines,
+        charges,
         subtotal_minor,
         discount_minor: (subtotal_minor - head.1).max(0),
         total_minor: head.1,
         tenders,
         paid_minor: head.2,
         change_minor: head.3,
-        points_earned: 0,
+        points_earned,
         footer: footer.map(str::to_string),
         stamp: stamp_text,
         untagged_open,
-    })
+        returned_from: None,
+        returned_in: Vec::new(),
+        forfeited_minor: 0,
+        exchange_until,
+        require_hang_tag: promise.setting.require_hang_tag,
+        require_receipt: promise.setting.require_receipt,
+        promotions: sale_promotions(connection, sale_id)?,
+    };
+    document.returned_in = returned_in(connection, site_id, sale_id)?
+        .into_iter()
+        .filter_map(|returned| returned.receipt_no)
+        .collect();
+    dress_as_return(connection, site_id, sale_id, &mut document)?;
+    Ok(document)
+}
+
+/// The promotions a sale kept for its paper (0104), in the order they came off.
+fn sale_promotions(
+    connection: &Connection,
+    sale_id: &str,
+) -> Result<Vec<super::escpos::ReceiptPromotion>, EdgeError> {
+    let mut statement = connection
+        .prepare_cached(
+            "SELECT name,sku_code,benefit_minor FROM sale_promotion_line
+              WHERE sale_id=?1 ORDER BY promo_seq, rowid",
+        )
+        .map_err(db)?;
+    let rows = statement
+        .query_map([sale_id], |row| {
+            Ok(super::escpos::ReceiptPromotion {
+                name: row.get(0)?,
+                sku_code: row.get(1)?,
+                benefit_minor: row.get(2)?,
+            })
+        })
+        .map_err(db)?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(db)
 }
 
 /// The number a customer reads back over the phone.
@@ -2568,6 +3216,643 @@ pub(crate) fn receipt_number(site_id: &str, sale_id: &str, completed_at: &str) -
         site_id.to_ascii_uppercase(),
         tail.to_ascii_uppercase()
     )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// A return is its own receipt; a struk is found by its number and printed
+// once (Hari, 28–29 Oct 2026)
+// ════════════════════════════════════════════════════════════════════════════
+
+/// What the till is told when it asks to return a return's receipt.
+pub const RETURN_RECEIPT_NOT_RETURNABLE: &str =
+    "Struk return tidak bisa di-return · barang hasil tukar tidak bisa ditukar lagi";
+
+/// What the till is told when a struk already has a return on it: one
+/// return per struk, the rest of it stays sold (Hari, 29 Oct 2026).
+pub const STRUK_ALREADY_RETURNED: &str =
+    "Struk ini sudah pernah di-return · tidak bisa di-return lagi";
+
+/// What the till is told when a struk is printed a second time.
+pub const NO_REPRINT: &str = "tidak bisa cetak ulang";
+
+/// Whether `sale_id` is itself a return's receipt: the replacement sale of a
+/// return (0102), or of an exchange rung before it.
+pub fn is_return_receipt(connection: &Connection, sale_id: &str) -> Result<bool, EdgeError> {
+    connection
+        .prepare_cached(
+            "SELECT EXISTS(SELECT 1 FROM return_receipt WHERE replacement_sale_id=?1)
+                 OR EXISTS(SELECT 1 FROM sale_return
+                            WHERE refund_method='EXCHANGE' AND refund_reference=?1)",
+        )
+        .map_err(db)?
+        .query_row([sale_id], |row| row.get::<_, bool>(0))
+        .map_err(db)
+}
+
+/// The number for a return that rang no replacement: the next at the seat of
+/// the drawer it was made on, from the run the sales use. Not yet taken — the
+/// `return_receipt` row takes it, in the same transaction.
+pub(crate) fn next_return_number(
+    connection: &Connection,
+    shift_id: Option<&str>,
+) -> Result<(String, i64, String), EdgeError> {
+    let seat = receipt_seat(connection, shift_id)?;
+    let (n, receipt_no) = next_receipt(connection, &seat)?;
+    Ok((seat, n, receipt_no))
+}
+
+/// One return receipt, as `exchange_sale` writes it.
+pub(crate) struct ReturnReceiptRow<'a> {
+    pub return_id: &'a str,
+    pub receipt_no: &'a str,
+    /// The seat and number when the return numbered itself.
+    pub numbered_at: Option<(&'a str, i64)>,
+    pub from_sale_id: &'a str,
+    pub replacement_sale_id: Option<&'a str>,
+    pub back_minor: i64,
+    pub replacement_minor: i64,
+    pub paid_minor: i64,
+    pub forfeited_minor: i64,
+    pub at: DateTime<Utc>,
+}
+
+pub(crate) fn record_return_receipt(
+    tx: &Transaction<'_>,
+    row: &ReturnReceiptRow<'_>,
+) -> Result<(), EdgeError> {
+    tx.prepare_cached(
+        "INSERT INTO return_receipt(return_id,receipt_no,terminal_id,n,from_sale_id,
+                                    replacement_sale_id,back_minor,replacement_minor,
+                                    paid_minor,forfeited_minor,created_at)
+         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+    )
+    .map_err(db)?
+    .execute(params![
+        row.return_id,
+        row.receipt_no,
+        row.numbered_at.map(|(seat, _)| seat),
+        row.numbered_at.map(|(_, n)| n),
+        row.from_sale_id,
+        row.replacement_sale_id,
+        row.back_minor,
+        row.replacement_minor,
+        row.paid_minor,
+        row.forfeited_minor,
+        stamp(row.at)
+    ])
+    .map_err(db)?;
+    Ok(())
+}
+
+/// One return made against a struk: "Di-return di <receipt_no>".
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ReturnedIn {
+    pub return_id: String,
+    /// The return's own receipt. Null for a refund in money made before 28
+    /// Oct 2026, which had none.
+    pub receipt_no: Option<String>,
+    pub occurred_at: String,
+}
+
+/// Every return made against `sale_id`, oldest first.
+pub fn returned_in(
+    connection: &Connection,
+    site_id: &str,
+    sale_id: &str,
+) -> Result<Vec<ReturnedIn>, EdgeError> {
+    let rows: Vec<(String, Option<String>, Option<String>, String)> = {
+        let mut statement = connection
+            .prepare_cached(
+                "SELECT r.id, k.receipt_no,
+                        CASE WHEN r.refund_method='EXCHANGE' THEN r.refund_reference END,
+                        r.occurred_at
+                   FROM sale_return r
+              LEFT JOIN return_receipt k ON k.return_id = r.id
+                  WHERE r.sale_id=?1
+                  ORDER BY r.occurred_at, r.id",
+            )
+            .map_err(db)?;
+        let rows = statement
+            .query_map([sale_id], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })
+            .map_err(db)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(db)?
+    };
+    let mut out = Vec::with_capacity(rows.len());
+    for (return_id, kept, replacement, occurred_at) in rows {
+        // An exchange from before 0102 has no row of its own: its receipt
+        // was the replacement sale's.
+        let receipt_no = match (kept, replacement) {
+            (Some(kept), _) => Some(kept),
+            (None, Some(replacement)) => {
+                let completed_at: Option<String> = connection
+                    .prepare_cached("SELECT completed_at FROM sale WHERE id=?1")
+                    .map_err(db)?
+                    .query_row([&replacement], |row| row.get(0))
+                    .optional()
+                    .map_err(db)?;
+                match completed_at {
+                    Some(completed_at) => Some(receipt_no_of(
+                        connection,
+                        site_id,
+                        &replacement,
+                        &completed_at,
+                    )?),
+                    None => None,
+                }
+            }
+            (None, None) => None,
+        };
+        out.push(ReturnedIn {
+            return_id,
+            receipt_no,
+            occurred_at,
+        });
+    }
+    Ok(out)
+}
+
+/// The pieces a return took back, as receipt lines: quantity −1 and a
+/// negative total, at what each was charged on its own struk.
+fn back_lines(connection: &Connection, return_id: &str) -> Result<Vec<ReceiptLine>, EdgeError> {
+    let mut lines = Vec::new();
+    for sql in [
+        "SELECT r.sku_code, r.refund_minor, COALESCE(c.name, r.sku_code)
+           FROM sale_return_line r
+      LEFT JOIN catalog_item c ON c.sku_code = r.sku_code
+          WHERE r.return_id=?1
+          ORDER BY r.epc",
+        "SELECT u.sku_code, u.refund_minor, COALESCE(c.name, u.sku_code)
+           FROM unmatched_return_line u
+      LEFT JOIN catalog_item c ON c.sku_code = u.sku_code
+          WHERE u.return_id=?1
+          ORDER BY u.unmatched_line_id",
+    ] {
+        let mut statement = connection.prepare_cached(sql).map_err(db)?;
+        let rows = statement
+            .query_map([return_id], |row| {
+                let charged: i64 = row.get(1)?;
+                Ok(ReceiptLine {
+                    sku_code: row.get(0)?,
+                    name: row.get(2)?,
+                    quantity: -1,
+                    unit_price_minor: charged,
+                    line_total_minor: -charged,
+                    base_unit_price_minor: None,
+                    exchangeable: true,
+                    no_exchange_by: None,
+                })
+            })
+            .map_err(db)?;
+        for row in rows {
+            lines.push(row.map_err(db)?);
+        }
+    }
+    Ok(lines)
+}
+
+/// The head of one return receipt.
+struct ReturnReceiptHead {
+    return_id: String,
+    receipt_no: String,
+    from_sale_id: String,
+    paid_minor: i64,
+    forfeited_minor: i64,
+}
+
+fn return_receipt_head(
+    connection: &Connection,
+    column: &str,
+    value: &str,
+) -> Result<Option<ReturnReceiptHead>, EdgeError> {
+    // `column` is one of two literals below, never a caller's word.
+    let sql = format!(
+        "SELECT return_id,receipt_no,from_sale_id,paid_minor,forfeited_minor
+           FROM return_receipt WHERE {column}=?1"
+    );
+    connection
+        .prepare_cached(&sql)
+        .map_err(db)?
+        .query_row([value], |row| {
+            Ok(ReturnReceiptHead {
+                return_id: row.get(0)?,
+                receipt_no: row.get(1)?,
+                from_sale_id: row.get(2)?,
+                paid_minor: row.get(3)?,
+                forfeited_minor: row.get(4)?,
+            })
+        })
+        .optional()
+        .map_err(db)
+}
+
+fn sale_receipt_no(
+    connection: &Connection,
+    site_id: &str,
+    sale_id: &str,
+) -> Result<String, EdgeError> {
+    let completed_at: String = connection
+        .prepare_cached("SELECT completed_at FROM sale WHERE id=?1")
+        .map_err(db)?
+        .query_row([sale_id], |row| row.get(0))
+        .optional()
+        .map_err(db)?
+        .ok_or_else(|| EdgeError::NotFound(format!("sale {sale_id}")))?;
+    receipt_no_of(connection, site_id, sale_id, &completed_at)
+}
+
+/// A replacement sale's paper is the return's receipt: the pieces back (−)
+/// above the replacements (+), "Return dari" the struk they came from, the
+/// difference as its total, and the credit the pieces gave left off the
+/// tenders — the lines already say it. A return receipt promises no return.
+fn dress_as_return(
+    connection: &Connection,
+    site_id: &str,
+    sale_id: &str,
+    document: &mut ReceiptDocument,
+) -> Result<(), EdgeError> {
+    let Some(head) = return_receipt_head(connection, "replacement_sale_id", sale_id)? else {
+        return Ok(());
+    };
+    document.returned_from = Some(sale_receipt_no(connection, site_id, &head.from_sale_id)?);
+    let mut lines = back_lines(connection, &head.return_id)?;
+    lines.append(&mut document.lines);
+    document.lines = lines;
+    document.subtotal_minor = document
+        .lines
+        .iter()
+        .map(|line| line.line_total_minor)
+        .sum();
+    document.discount_minor = 0;
+    document.total_minor = head.paid_minor;
+    let credit = head.from_sale_id.clone();
+    document.tenders.retain(|tender| {
+        !(tender.method == "OTHER" && tender.reference.as_deref() == Some(credit.as_str()))
+    });
+    document.paid_minor = document
+        .tenders
+        .iter()
+        .map(|tender| tender.amount_minor)
+        .sum();
+    document.forfeited_minor = head.forfeited_minor;
+    document.footer = None;
+    document.exchange_until = None;
+    Ok(())
+}
+
+/// The paper of a return that rang no replacement: only the pieces back,
+/// nothing paid, the whole value forfeited.
+fn bare_return_document(
+    connection: &Connection,
+    shop_name: &str,
+    site_id: &str,
+    head: &ReturnReceiptHead,
+) -> Result<ReceiptDocument, EdgeError> {
+    let (actor_id, occurred_at): (String, String) = connection
+        .prepare_cached("SELECT actor_id,occurred_at FROM sale_return WHERE id=?1")
+        .map_err(db)?
+        .query_row([&head.return_id], |row| Ok((row.get(0)?, row.get(1)?)))
+        .map_err(db)?;
+    let lines = back_lines(connection, &head.return_id)?;
+    Ok(ReceiptDocument {
+        shop_name: shop_name.to_string(),
+        header_image: crate::edge::receipt_header::current(connection).ok(),
+        shop_line_1: None,
+        shop_line_2: None,
+        site_id: site_id.to_string(),
+        // No sale: the return names itself.
+        sale_id: head.return_id.clone(),
+        receipt_no: head.receipt_no.clone(),
+        completed_at: occurred_at,
+        cashier: actor_id,
+        subtotal_minor: lines.iter().map(|line| line.line_total_minor).sum(),
+        lines,
+        charges: Vec::new(),
+        discount_minor: 0,
+        total_minor: 0,
+        tenders: Vec::new(),
+        paid_minor: 0,
+        change_minor: 0,
+        points_earned: 0,
+        footer: None,
+        stamp: None,
+        untagged_open: Vec::new(),
+        returned_from: Some(sale_receipt_no(connection, site_id, &head.from_sale_id)?),
+        returned_in: Vec::new(),
+        forfeited_minor: head.forfeited_minor,
+        exchange_until: None,
+        // A return's paper promises no return; its terms only name the
+        // replacements, so the two conditions never print.
+        require_hang_tag: true,
+        require_receipt: true,
+        promotions: Vec::new(),
+    })
+}
+
+/// One piece on a struk as the Return screen needs it: what it is, what it
+/// was charged, and whether it may still come back.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ReceiptPiece {
+    /// The tag read back on a return. Null for a piece sold without one; it
+    /// then comes back by `sku_code`.
+    pub epc: Option<String>,
+    pub sku_code: String,
+    pub name: String,
+    pub charged_minor: i64,
+    /// Already taken back on an earlier return: never twice.
+    pub returned: bool,
+    /// False when a return policy says it never comes back (postgres 1006).
+    pub exchangeable: bool,
+}
+
+/// `GET /api/v1/store/receipts/{receipt_no}`: one struk, found only by its
+/// whole number — never listed or browsed (Hari, 28 Oct 2026).
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ReceiptLookup {
+    /// `SALE` — a struk a return may start from; `RETURN` — a return's own
+    /// receipt (with or without replacements), never returnable.
+    pub kind: String,
+    /// The sale; null for a return that rang no replacement.
+    pub sale_id: Option<String>,
+    /// The return, when this is a return's receipt.
+    pub return_id: Option<String>,
+    /// `PAID`, `VOIDED`, `RETURNED` (anything came back against it) or
+    /// `RETURN` (it is a return's receipt).
+    pub status: String,
+    /// The paper as printed — never printed again.
+    pub receipt: ReceiptDocument,
+    /// Whether a return may start from it now.
+    pub returnable: bool,
+    /// Why not, in the till's words, when `returnable` is false.
+    pub refusal: Option<String>,
+    /// The last day written on the sale (`YYYY-MM-DD`), when one was.
+    pub return_by: Option<String>,
+    /// "Di-return di …": the returns made against it.
+    pub returned_in: Vec<ReturnedIn>,
+    /// Every piece on a SALE struk; empty on a RETURN.
+    pub pieces: Vec<ReceiptPiece>,
+}
+
+/// Which sale or return `receipt_no` names: the till's seven letters (a
+/// sale's, or a return's own), or the derived number of a sale from before
+/// them. Exact and whole — a part of a number finds nothing.
+pub(crate) enum ReceiptTarget {
+    Sale(String),
+    Return(String),
+}
+
+pub(crate) fn find_receipt(
+    connection: &Connection,
+    site_id: &str,
+    receipt_no: &str,
+) -> Result<ReceiptTarget, EdgeError> {
+    let wanted = receipt_no.trim().to_ascii_uppercase();
+    if wanted.is_empty() {
+        return Err(EdgeError::Validation("ketik nomor struk".into()));
+    }
+    let sale: Option<String> = connection
+        .prepare_cached("SELECT sale_id FROM sale_receipt WHERE receipt_no=?1")
+        .map_err(db)?
+        .query_row([&wanted], |row| row.get(0))
+        .optional()
+        .map_err(db)?;
+    if let Some(sale_id) = sale {
+        return Ok(ReceiptTarget::Sale(sale_id));
+    }
+    let returned: Option<String> = connection
+        .prepare_cached("SELECT return_id FROM return_receipt WHERE receipt_no=?1")
+        .map_err(db)?
+        .query_row([&wanted], |row| row.get(0))
+        .optional()
+        .map_err(db)?;
+    if let Some(return_id) = returned {
+        return Ok(ReceiptTarget::Return(return_id));
+    }
+    // A sale from before the seven letters prints `SITE-YYYYMMDD-XXXXXX`.
+    let derived: Vec<String> = {
+        let mut statement = connection
+            .prepare_cached(
+                "SELECT s.id FROM sale s
+                  WHERE NOT EXISTS(SELECT 1 FROM sale_receipt k WHERE k.sale_id = s.id)
+                    AND upper(?1) || '-' || replace(substr(s.completed_at, 1, 10), '-', '')
+                        || '-' || upper(substr(replace(s.id, '-', ''), -6)) = ?2
+                  LIMIT 2",
+            )
+            .map_err(db)?;
+        let rows = statement
+            .query_map(params![site_id, wanted], |row| row.get(0))
+            .map_err(db)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(db)?
+    };
+    match derived.as_slice() {
+        [sale_id] => Ok(ReceiptTarget::Sale(sale_id.clone())),
+        _ => Err(EdgeError::NotFound(format!("Struk {wanted} tidak ada"))),
+    }
+}
+
+/// The struk behind a number, with what a return from it may take.
+pub fn lookup_receipt(
+    connection: &Connection,
+    shop_name: &str,
+    site_id: &str,
+    receipt_no: &str,
+) -> Result<ReceiptLookup, EdgeError> {
+    let sale_id = match find_receipt(connection, site_id, receipt_no)? {
+        ReceiptTarget::Return(return_id) => {
+            let head = return_receipt_head(connection, "return_id", &return_id)?
+                .ok_or_else(|| EdgeError::NotFound(format!("return {return_id}")))?;
+            return Ok(ReceiptLookup {
+                kind: "RETURN".into(),
+                sale_id: None,
+                return_id: Some(return_id),
+                status: "RETURN".into(),
+                receipt: bare_return_document(connection, shop_name, site_id, &head)?,
+                returnable: false,
+                refusal: Some(RETURN_RECEIPT_NOT_RETURNABLE.into()),
+                return_by: None,
+                returned_in: Vec::new(),
+                pieces: Vec::new(),
+            });
+        }
+        ReceiptTarget::Sale(sale_id) => sale_id,
+    };
+    let footer = super::return_policy::receipt_footer(connection, &sale_id)?;
+    let receipt = receipt_document(connection, &sale_id, shop_name, site_id, footer.as_deref())?;
+    let as_return = return_receipt_head(connection, "replacement_sale_id", &sale_id)?;
+    // What went out on a return comes back only when the return policy says
+    // so (1007); a return with nothing out has no goods to take back anyway.
+    let returnable_returns = super::return_policy::current(connection)?
+        .setting
+        .return_receipt_returnable;
+    if !returnable_returns && (as_return.is_some() || is_return_receipt(connection, &sale_id)?) {
+        return Ok(ReceiptLookup {
+            kind: "RETURN".into(),
+            sale_id: Some(sale_id),
+            return_id: as_return.map(|head| head.return_id),
+            status: "RETURN".into(),
+            receipt,
+            returnable: false,
+            refusal: Some(RETURN_RECEIPT_NOT_RETURNABLE.into()),
+            return_by: None,
+            returned_in: Vec::new(),
+            pieces: Vec::new(),
+        });
+    }
+
+    let (status, return_by): (String, Option<String>) = connection
+        .prepare_cached("SELECT status,return_by FROM sale WHERE id=?1")
+        .map_err(db)?
+        .query_row([&sale_id], |row| Ok((row.get(0)?, row.get(1)?)))
+        .map_err(db)?;
+    let promise = super::return_policy::current(connection)?;
+    let name_of = |sku: &str| -> Result<String, EdgeError> {
+        Ok(connection
+            .prepare_cached("SELECT name FROM catalog_item WHERE sku_code=?1")
+            .map_err(db)?
+            .query_row([sku], |row| row.get::<_, String>(0))
+            .optional()
+            .map_err(db)?
+            .unwrap_or_else(|| sku.to_string()))
+    };
+    let mut pieces = Vec::new();
+    for line in sold_lines(connection, &sale_id)? {
+        pieces.push(ReceiptPiece {
+            name: name_of(&line.sku_code)?,
+            exchangeable: super::return_policy::refused_on_sale(
+                connection,
+                &promise,
+                &sale_id,
+                &line.sku_code,
+            )?
+            .is_none(),
+            epc: Some(line.epc),
+            sku_code: line.sku_code,
+            charged_minor: line.charged_minor,
+            returned: line.already_returned,
+        });
+    }
+    for line in untagged_sold_lines(connection, &sale_id)? {
+        pieces.push(ReceiptPiece {
+            name: name_of(&line.sku_code)?,
+            exchangeable: super::return_policy::refused_on_sale(
+                connection,
+                &promise,
+                &sale_id,
+                &line.sku_code,
+            )?
+            .is_none(),
+            epc: None,
+            sku_code: line.sku_code,
+            charged_minor: line.charged_minor,
+            returned: line.already_returned,
+        });
+    }
+    let returned_in = returned_in(connection, site_id, &sale_id)?;
+
+    let refusal = if status == "VOIDED" {
+        Some("Struk ini sudah dibatalkan".to_string())
+    } else if !returned_in.is_empty() && promise.setting.one_return_per_receipt {
+        Some(STRUK_ALREADY_RETURNED.to_string())
+    } else if pieces.iter().all(|piece| piece.returned) {
+        Some("Semua barang struk ini sudah dikembalikan".to_string())
+    } else if pieces
+        .iter()
+        .filter(|piece| !piece.returned)
+        .all(|piece| !piece.exchangeable)
+    {
+        Some("Barang di struk ini tidak bisa ditukar".to_string())
+    } else {
+        super::return_policy::assert_within_window(connection, &sale_id)
+            .err()
+            .map(|error| match error {
+                EdgeError::Conflict(words) => words,
+                other => other.to_string(),
+            })
+    };
+    Ok(ReceiptLookup {
+        kind: "SALE".into(),
+        status: if status == "VOIDED" {
+            "VOIDED".into()
+        } else if returned_in.is_empty() {
+            "PAID".into()
+        } else {
+            "RETURNED".into()
+        },
+        sale_id: Some(sale_id),
+        return_id: None,
+        receipt,
+        returnable: refusal.is_none(),
+        refusal,
+        return_by,
+        returned_in,
+        pieces,
+    })
+}
+
+/// The paper behind a number, for a printer.
+pub fn document_for_number(
+    connection: &Connection,
+    shop_name: &str,
+    site_id: &str,
+    receipt_no: &str,
+) -> Result<ReceiptDocument, EdgeError> {
+    match find_receipt(connection, site_id, receipt_no)? {
+        ReceiptTarget::Sale(sale_id) => {
+            let footer = super::return_policy::receipt_footer(connection, &sale_id)?;
+            receipt_document(connection, &sale_id, shop_name, site_id, footer.as_deref())
+        }
+        ReceiptTarget::Return(return_id) => {
+            let head = return_receipt_head(connection, "return_id", &return_id)?
+                .ok_or_else(|| EdgeError::NotFound(format!("return {return_id}")))?;
+            bare_return_document(connection, shop_name, site_id, &head)
+        }
+    }
+}
+
+/// Spend the one print a struk has: written the first time it goes to a
+/// printer, refused every time after (no Cetak ulang, Cetak salinan or
+/// Ctrl+P anywhere). A copy is refused outright.
+pub fn claim_print(
+    connection: &Connection,
+    receipt_no: &str,
+    actor: &str,
+    copy: bool,
+    now: DateTime<Utc>,
+) -> Result<(), EdgeError> {
+    if copy {
+        return Err(EdgeError::Conflict(format!(
+            "Struk {receipt_no} {NO_REPRINT}"
+        )));
+    }
+    let written = connection
+        .prepare_cached(
+            "INSERT INTO receipt_print(receipt_no,printed_at,printed_by) VALUES(?1,?2,?3)
+             ON CONFLICT(receipt_no) DO NOTHING",
+        )
+        .map_err(db)?
+        .execute(params![receipt_no, stamp(now), actor.trim()])
+        .map_err(db)?;
+    if written == 0 {
+        return Err(EdgeError::Conflict(format!(
+            "Struk {receipt_no} sudah dicetak · {NO_REPRINT}"
+        )));
+    }
+    Ok(())
+}
+
+/// Give a print back when the printer took nothing — a network printer that
+/// refused the connection printed no paper, and the struk still owes one.
+pub fn release_print(connection: &Connection, receipt_no: &str) -> Result<(), EdgeError> {
+    connection
+        .prepare_cached("DELETE FROM receipt_print WHERE receipt_no=?1")
+        .map_err(db)?
+        .execute([receipt_no])
+        .map_err(db)?;
+    Ok(())
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -2622,10 +3907,55 @@ pub struct HeldSale {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct DropHeldRequest {
     pub supervisor: Supervisor,
+    /// What the Kepala toko checked, SKU by SKU (client, 25 Oct 2026). It has
+    /// to be the whole basket — every SKU, at the basket's quantity — or the
+    /// drop is refused with [`DROP_NOT_ALL_CHECKED`].
+    #[serde(default)]
+    pub checked: Vec<CheckedPiece>,
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(skip))]
     pub actor_id: String,
 }
+
+/// So many pieces of one SKU, seen by the Kepala toko before a tunda goes.
+/// A Barang tak dikenal has no SKU and is checked under the empty one.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct CheckedPiece {
+    pub sku: String,
+    pub quantity: i64,
+}
+
+/// `POST /api/v1/store/held/{id}/resume`. The body is optional: the person
+/// who held a basket resumes it with none.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ResumeHeldRequest {
+    /// The Kepala toko's yes, for a basket somebody else held — how a tunda
+    /// past its thirty minutes is settled once the head has unlocked the till
+    /// (client, 25 Oct 2026).
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub supervisor: Option<Supervisor>,
+    /// Set by the router from the session.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(skip))]
+    pub actor_id: String,
+    /// Set by the router, never by the caller: auth is off, so there is no
+    /// person signed in to hold the basket to.
+    #[serde(skip)]
+    #[cfg_attr(feature = "ts", ts(skip))]
+    pub anyone: bool,
+}
+
+/// How a resume ends when somebody else held the basket and no supervisor
+/// said yes: "Hanya Siti yang bisa melanjutkan tunda ini". The router answers
+/// it 403 in these words alone (`http.rs`, `store_resume_held`).
+pub const ONLY_THE_HOLDER_RESUMES: &str = "yang bisa melanjutkan tunda ini";
+
+/// Said when a drop's check does not account for the whole basket. The router
+/// answers it 422 in these words alone (`http.rs`, `store_drop_held`).
+pub const DROP_NOT_ALL_CHECKED: &str = "Supervisor wajib cek semua barang";
 
 fn display_name_of(connection: &Connection, username: &str) -> Result<String, EdgeError> {
     Ok(connection
@@ -2728,8 +4058,8 @@ fn finish_held(
     (mut held, basket): (HeldSale, String),
 ) -> Result<HeldSale, EdgeError> {
     held.held_by_name = display_name_of(connection, &held.held_by)?;
-    held.basket = serde_json::from_str(&basket)
-        .map_err(|error| EdgeError::Persistence(error.to_string()))?;
+    held.basket =
+        serde_json::from_str(&basket).map_err(|error| EdgeError::Persistence(error.to_string()))?;
     Ok(held)
 }
 
@@ -2753,11 +4083,7 @@ pub fn held_sales(connection: &Connection, now: DateTime<Utc>) -> Result<Vec<Hel
 }
 
 /// The held basket `id`, still held today — or why not.
-fn open_held(
-    connection: &Connection,
-    id: &str,
-    now: DateTime<Utc>,
-) -> Result<HeldSale, EdgeError> {
+fn open_held(connection: &Connection, id: &str, now: DateTime<Utc>) -> Result<HeldSale, EdgeError> {
     let row = connection
         .prepare_cached(&format!("{HELD_COLUMNS} WHERE id=?1 AND status='HELD'"))
         .map_err(db)?
@@ -2797,18 +4123,37 @@ fn close_held(
 
 /// Take a held basket back to a till: it leaves the list, and the till gets
 /// the basket it sent.
+///
+/// The person who held it takes it back as it is. Anybody else needs the
+/// Kepala toko's yes (client, 25 Oct 2026); without one they are told whose
+/// it is.
 pub fn resume_held(
     tx: &Transaction<'_>,
     id: &str,
-    actor: &str,
+    request: &ResumeHeldRequest,
     now: DateTime<Utc>,
 ) -> Result<HeldSale, EdgeError> {
     let held = open_held(tx, id, now)?;
-    close_held(tx, id, "RESUMED", actor.trim(), now)?;
+    let actor = request.actor_id.trim();
+    match request.supervisor.as_ref() {
+        Some(supervisor) => {
+            verify_supervisor(tx, Some(supervisor), &[actor])?;
+        }
+        None if request.anyone || held.held_by == actor => {}
+        None => {
+            return Err(EdgeError::Forbidden(format!(
+                "Hanya {} {ONLY_THE_HOLDER_RESUMES}",
+                held.held_by_name
+            )));
+        }
+    }
+    close_held(tx, id, "RESUMED", actor, now)?;
     Ok(held)
 }
 
-/// Throw a held basket away, with the Kepala toko's finger or password.
+/// Throw a held basket away, with the Kepala toko's finger or password, once
+/// he has checked every piece in it (client, 25 Oct 2026). What he checked is
+/// written on the approval row beside his name.
 pub fn drop_held(
     tx: &Transaction<'_>,
     id: &str,
@@ -2816,10 +4161,136 @@ pub fn drop_held(
     now: DateTime<Utc>,
 ) -> Result<HeldSale, EdgeError> {
     let held = open_held(tx, id, now)?;
+    let checked = all_checked(&held, &request.checked)
+        .ok_or_else(|| EdgeError::Validation(DROP_NOT_ALL_CHECKED.into()))?;
     let approved_by =
         verify_supervisor(tx, Some(&request.supervisor), &[request.actor_id.as_str()])?;
     close_held(tx, id, "DROPPED", &approved_by, now)?;
+    record_drop_check(
+        tx,
+        &held,
+        &checked,
+        request.actor_id.trim(),
+        &approved_by,
+        now,
+    )?;
     Ok(held)
+}
+
+/// A SKU as a key: letters and digits only, upper-cased, so `00000004·103`
+/// as the till prints it is `00000004103` as it is stored.
+fn sku_key(sku: &str) -> String {
+    sku.chars()
+        .filter(char::is_ascii_alphanumeric)
+        .map(|letter| letter.to_ascii_uppercase())
+        .collect()
+}
+
+/// The pieces in a held basket by SKU: one entry in `units` per piece, as the
+/// till keeps it (`Held` in `pos-desktop/ui/src/till.tsx`). None for a basket
+/// kept in some other shape.
+fn held_pieces(basket: &serde_json::Value) -> Option<std::collections::BTreeMap<String, i64>> {
+    let units = basket.get("units")?.as_array()?;
+    let mut pieces = std::collections::BTreeMap::new();
+    for unit in units {
+        let sku = unit
+            .get("sku_code")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        *pieces.entry(sku_key(sku)).or_insert(0_i64) += 1;
+    }
+    Some(pieces)
+}
+
+/// What was checked, by SKU, when it is the whole basket: every SKU in it at
+/// its quantity, and nothing else. A basket kept in another shape is held to
+/// the number of pieces it was held with.
+fn all_checked(
+    held: &HeldSale,
+    checked: &[CheckedPiece],
+) -> Option<std::collections::BTreeMap<String, i64>> {
+    let mut seen = std::collections::BTreeMap::new();
+    for piece in checked {
+        if piece.quantity < 0 {
+            return None;
+        }
+        let quantity = seen.entry(sku_key(&piece.sku)).or_insert(0_i64);
+        *quantity = quantity.checked_add(piece.quantity)?;
+    }
+    seen.retain(|_, quantity| *quantity > 0);
+    let whole = match held_pieces(&held.basket) {
+        Some(basket) => basket == seen,
+        None => {
+            seen.values()
+                .try_fold(0_i64, |sum, quantity| sum.checked_add(*quantity))
+                == Some(held.pcs)
+        }
+    };
+    whole.then_some(seen)
+}
+
+/// The Kepala toko's yes to a dropped tunda, on the till's approval row
+/// (`0045`, `DROP_HOLD`): the pieces he checked, in words, and the basket's
+/// tags.
+fn record_drop_check(
+    tx: &Transaction<'_>,
+    held: &HeldSale,
+    checked: &std::collections::BTreeMap<String, i64>,
+    actor: &str,
+    approved_by: &str,
+    now: DateTime<Utc>,
+) -> Result<(), EdgeError> {
+    let pieces = checked
+        .iter()
+        .map(|(sku, quantity)| {
+            if sku.is_empty() {
+                format!("Barang tak dikenal x{quantity}")
+            } else {
+                format!("{sku} x{quantity}")
+            }
+        })
+        .collect::<Vec<_>>();
+    let detail = if pieces.is_empty() {
+        format!("Tunda {} pcs dihapus", held.pcs)
+    } else {
+        format!(
+            "Tunda {} pcs dihapus, semua barang dicek: {}",
+            held.pcs,
+            pieces.join(", ")
+        )
+    };
+    let epcs: Vec<&str> = held
+        .basket
+        .get("units")
+        .and_then(serde_json::Value::as_array)
+        .map(|units| {
+            units
+                .iter()
+                .filter(|unit| unit.get("untagged").is_none_or(serde_json::Value::is_null))
+                .filter_map(|unit| unit.get("epc").and_then(serde_json::Value::as_str))
+                .collect()
+        })
+        .unwrap_or_default();
+    tx.prepare_cached(
+        "INSERT INTO till_approval
+           (id,idempotency_key,action,terminal_id,actor_id,approved_by,detail,reason,
+            epcs_json,amount_minor,recorded_at)
+         VALUES(?1,?2,'DROP_HOLD',?3,?4,?5,?6,NULL,?7,?8,?9)",
+    )
+    .map_err(db)?
+    .execute(params![
+        Uuid::new_v4().to_string(),
+        format!("held:{}:drop", held.id),
+        held.terminal_id.as_deref().unwrap_or_default(),
+        if actor.is_empty() { "api" } else { actor },
+        approved_by,
+        detail,
+        serde_json::to_string(&epcs).map_err(|error| EdgeError::Validation(error.to_string()))?,
+        held.total_minor,
+        stamp(now),
+    ])
+    .map_err(db)?;
+    Ok(())
 }
 
 /// Refuse to close a drawer while its seat has a basket held today.
@@ -2874,9 +4345,10 @@ pub fn refuse_closed_today(
                 AND taken_over_by IS NULL AND business_date=?3",
         )
         .map_err(db)?
-        .query_row(params![actor, terminal, local_date(connection, now)], |row| {
-            row.get(0)
-        })
+        .query_row(
+            params![actor, terminal, local_date(connection, now)],
+            |row| row.get(0),
+        )
         .map_err(db)?;
     if closed > 0 {
         return Err(EdgeError::Forbidden(format!(
@@ -2914,7 +4386,10 @@ pub(crate) fn scrambled_letters(n: u64) -> String {
 /// uppercase — its id's when the name has fewer, `X` after that.
 pub(crate) fn store_letters(connection: &Connection) -> String {
     let site = super::site_profile::own(connection);
-    let name = site.as_ref().map(|site| site.name.clone()).unwrap_or_default();
+    let name = site
+        .as_ref()
+        .map(|site| site.name.clone())
+        .unwrap_or_default();
     let id = site.map(|site| site.site_id).unwrap_or_default();
     let mut letters: String = name
         .chars()
@@ -2956,8 +4431,15 @@ fn receipt_seat(connection: &Connection, shift_id: Option<&str>) -> Result<Strin
 
 /// The next number at a seat, and what it reads as — not yet taken.
 fn next_receipt(connection: &Connection, seat: &str) -> Result<(i64, String), EdgeError> {
+    // A return with no replacement numbers itself from the same run (0102),
+    // so the sales and the returns at a seat never share a number.
     let last: i64 = connection
-        .prepare_cached("SELECT COALESCE(MAX(n), 0) FROM sale_receipt WHERE terminal_id=?1")
+        .prepare_cached(
+            "SELECT COALESCE(MAX(n), 0) FROM (
+                 SELECT n FROM sale_receipt WHERE terminal_id=?1
+                 UNION ALL
+                 SELECT n FROM return_receipt WHERE terminal_id=?1 AND n IS NOT NULL)",
+        )
         .map_err(db)?
         .query_row([seat], |row| row.get(0))
         .map_err(db)?;
@@ -2970,7 +4452,10 @@ fn next_receipt(connection: &Connection, seat: &str) -> Result<(i64, String), Ed
             scrambled_letters(u64::try_from(n).unwrap_or(0))
         );
         let taken: i64 = connection
-            .prepare_cached("SELECT COUNT(*) FROM sale_receipt WHERE receipt_no=?1")
+            .prepare_cached(
+                "SELECT (SELECT COUNT(*) FROM sale_receipt WHERE receipt_no=?1)
+                      + (SELECT COUNT(*) FROM return_receipt WHERE receipt_no=?1)",
+            )
             .map_err(db)?
             .query_row([&receipt_no], |row| row.get(0))
             .map_err(db)?;
@@ -3194,7 +4679,9 @@ pub fn attach_member(
               WHERE r.receipt_no = ?1",
         )
         .map_err(db)?
-        .query_row([&receipt_no], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .query_row([&receipt_no], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })
         .optional()
         .map_err(db)?;
     let Some((sale_id, status, completed_at)) = sale else {
@@ -3225,7 +4712,9 @@ pub fn attach_member(
             "SELECT member_id, member_name, points_earned FROM sale_member WHERE sale_id=?1",
         )
         .map_err(db)?
-        .query_row([&sale_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .query_row([&sale_id], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })
         .optional()
         .map_err(db)?;
     if let Some((kept_id, kept_name, points_earned)) = kept {
@@ -3425,7 +4914,10 @@ fn member_points(
             .map_err(db)?;
         let rows = statement
             .query_map([sale_id], |row| {
-                Ok((PricedAgain::Unmatched(row.get(0)?), row.get::<_, String>(1)?))
+                Ok((
+                    PricedAgain::Unmatched(row.get(0)?),
+                    row.get::<_, String>(1)?,
+                ))
             })
             .map_err(db)?;
         for row in rows {

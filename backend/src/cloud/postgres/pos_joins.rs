@@ -19,12 +19,16 @@
 //! counting the approvals still on their way; a POS that replaces another
 //! takes that one's seat and name, and is refused while that one's drawer is
 //! open, for the reason `edge::devices::refuse_while_shift_open` gives.
+//!
+//! A warehouse PC (Central Gudang, `WAREHOUSE`, postgres 1000) asks and is
+//! decided on the same tab, and takes no seat: it never sells. It replaces
+//! only another warehouse PC.
 
 use super::sync::issue_command_tx;
 use crate::cloud::application::AppError;
 use crate::sync::device::{
     JoinDecisionCommand, WaitingJoin, COMMAND_DEVICE_JOIN_DECIDE, JOIN_DECIDE_CAPABILITY,
-    STATUS_REVOKED,
+    KIND_TILL, KIND_WAREHOUSE, STATUS_REVOKED,
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -36,6 +40,8 @@ use uuid::Uuid;
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct StorePosWaiting {
     pub join_id: Uuid,
+    /// `TILL`, or `WAREHOUSE` for a Central Gudang PC, which takes no seat.
+    pub kind: String,
     /// `7K4-P9Q`, as the POS shows it on its screen.
     pub code: String,
     /// The six digits the POS shows beside the code.
@@ -170,6 +176,7 @@ pub async fn waiting_pos(pool: &PgPool, unit_id: &str) -> Result<Vec<StorePosWai
                 .filter(|_| join.head_office_error.is_none());
             StorePosWaiting {
                 join_id: join.join_id,
+                kind: join.kind,
                 code: join.code,
                 verification: join.verification,
                 machine: text(&join.machine.hostname),
@@ -221,10 +228,15 @@ pub async fn decide_pos_join(
     };
 
     let all_held = held_at(&mut *tx, unit_id).await?;
-    // The other approvals still on their way, which hold a seat too.
+    // The other approvals still on their way, which hold a seat too — a
+    // warehouse PC's holds none.
     let others_waiting: Vec<Uuid> = all_held
         .iter()
-        .filter(|other| other.join.join_id != join_id && other.join.head_office_error.is_none())
+        .filter(|other| {
+            other.join.join_id != join_id
+                && other.join.head_office_error.is_none()
+                && other.join.kind != KIND_WAREHOUSE
+        })
         .map(|other| other.join.join_id)
         .collect();
     let held = all_held
@@ -256,13 +268,21 @@ pub async fn decide_pos_join(
         ));
     }
 
+    // A till or a warehouse PC: each replaces only its own kind, and only a
+    // till takes a seat.
+    let kind = if held.join.kind == KIND_WAREHOUSE {
+        KIND_WAREHOUSE
+    } else {
+        KIND_TILL
+    };
     let mut replaces_terminal = None;
     if approve {
         match replaces_device_id {
             Some(device_id) => {
                 replaces_terminal =
-                    Some(replaced_till(&mut tx, &site_id, &held.origin_id, device_id).await?);
+                    Some(replaced_till(&mut tx, &site_id, &held.origin_id, device_id, kind).await?);
             }
+            None if kind == KIND_WAREHOUSE => {}
             None => {
                 let live: i64 = sqlx::query_scalar(
                     "SELECT count(*) FROM device
@@ -328,20 +348,22 @@ pub async fn decide_pos_join(
 }
 
 /// The till a new POS replaces: on this store's register, at the same
-/// server, not removed already, and with no drawer open. Answers its id at
-/// the server.
+/// server, of the same kind (a warehouse PC replaces a warehouse PC), not
+/// removed already, and with no drawer open. Answers its id at the server.
 async fn replaced_till(
     tx: &mut Transaction<'_, Postgres>,
     site_id: &str,
     origin_id: &str,
     device_id: &str,
+    kind: &str,
 ) -> Result<String, AppError> {
     let row: Option<(String, String, String)> = sqlx::query_as(
         "SELECT d.label, d.status, d.origin_id FROM device d
-          WHERE d.device_id = $1 AND d.site_id = $2 AND d.kind = 'TILL'",
+          WHERE d.device_id = $1 AND d.site_id = $2 AND d.kind = $3",
     )
     .bind(device_id)
     .bind(site_id)
+    .bind(kind)
     .fetch_optional(&mut **tx)
     .await?;
     let Some((label, status, held_by)) = row else {

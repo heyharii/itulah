@@ -39,6 +39,7 @@ import id.itulah.pindai.core.RadioRecipe
 import id.itulah.pindai.core.ScanCounts
 import id.itulah.pindai.core.skuDisplay
 import id.itulah.pindai.data.InboundDelivery
+import id.itulah.pindai.data.VerifyStore
 import id.itulah.pindai.ui.kit.*
 import id.itulah.pindai.ui.theme.*
 
@@ -117,6 +118,7 @@ private fun ScanningSurface(state: State<SweepState>) {
         ScanFrame(
             receiving = it.isReceivingDelivery,
             delivery = it.inbound.chosen,
+            verifying = if (it.isVerifyingStore) it.verify.chosen else null,
             starting = it.starting,
             clockSuspect = it.clockSuspect,
             unexpected = it.counts.unexpected,
@@ -134,6 +136,10 @@ private fun ScanningSurface(state: State<SweepState>) {
         // should contain. See ReceivingBanner.
         if (frame.receiving) {
             ReceivingBanner(frame.delivery)
+            Spacer(Modifier.height(Space.lg))
+        }
+        frame.verifying?.let { store ->
+            VerifyBanner(store)
             Spacer(Modifier.height(Space.lg))
         }
         if (frame.starting) Pill(Tone.WARN, "waking the reader") else Pill(Tone.OK, "reading")
@@ -183,6 +189,8 @@ private fun ScanningSurface(state: State<SweepState>) {
 private data class ScanFrame(
     val receiving: Boolean,
     val delivery: InboundDelivery?,
+    /** The store whose koli are being read, on Verify. */
+    val verifying: VerifyStore?,
     val starting: Boolean,
     val clockSuspect: Boolean,
     val unexpected: Int,
@@ -266,6 +274,7 @@ private fun BigCount(value: Int, live: Boolean) {
 private fun RestingSurface(vm: SweepViewModel, state: State<SweepState>, onOpenSessions: () -> Unit) {
     val surface by state.slice {
         when {
+            it.mode == Mode.VERIFY -> Resting.VERIFY
             it.isStoreReceiving -> Resting.RECEIVING
             it.openSweep != null -> Resting.DETAIL
             else -> Resting.HISTORY
@@ -275,13 +284,15 @@ private fun RestingSurface(vm: SweepViewModel, state: State<SweepState>, onOpenS
         // A shop's Receive is a different job with its own screens: which
         // delivery, its sweep, and what it came to. See ReceivingScreen.
         Resting.RECEIVING -> ReceivingScreen(vm, state)
+        // Verify koli: which store, its sweep, and Central's answer. See VerifyScreen.
+        Resting.VERIFY -> VerifyScreen(vm, state)
         Resting.DETAIL -> SweepDetail(vm, state)
         Resting.HISTORY -> History(vm, state)
     }
 }
 
-/** Which of the three resting screens is up. */
-private enum class Resting { RECEIVING, DETAIL, HISTORY }
+/** Which of the resting screens is up. */
+private enum class Resting { VERIFY, RECEIVING, DETAIL, HISTORY }
 
 /**
  * The history list.
@@ -749,7 +760,7 @@ private fun ModeExtras(vm: SweepViewModel, state: State<SweepState>) {
                     "a target edited to match the sweep is not a target.",
             )
         }
-        Mode.RECEIVING -> Unit
+        Mode.RECEIVING, Mode.VERIFY -> Unit
         Mode.COUNT -> HubCard {
             // Read once, at the moment this card first appears — as before.
             val loadedWhenShown = extras.countsLoaded

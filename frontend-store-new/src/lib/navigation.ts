@@ -30,6 +30,8 @@ import {
   Server,
   Sun,
   TrendingUp,
+  ReceiptText,
+  CreditCard,
   Users,
   Wallet,
   Fingerprint,
@@ -149,7 +151,7 @@ const catalogue: AppModule = {
 
 const promotions: AppModule = {
   id: "promotions",
-  label: "Promotions",
+  label: "Marketing",
   icon: Percent,
   home: "/promotions",
   sections: [
@@ -172,6 +174,11 @@ const promotions: AppModule = {
           path: "/promotions/vouchers",
           label: "Vouchers",
           icon: TicketPercent,
+        },
+        {
+          path: "/promotions/return-policy",
+          label: "Return policy",
+          icon: Undo2,
         },
       ],
     },
@@ -206,7 +213,7 @@ const stock: AppModule = {
 
 const money: AppModule = {
   id: "money",
-  label: "Money",
+  label: "Finance",
   icon: Wallet,
   home: "/money/sales",
   sections: [
@@ -214,9 +221,20 @@ const money: AppModule = {
       items: [
         { path: "/money/sales", label: "Sales", icon: TrendingUp },
         {
+          path: "/money/transactions",
+          label: "Transactions",
+          icon: ReceiptText,
+        },
+        { path: "/money/payments", label: "Payments", icon: CreditCard },
+        {
           path: "/money/unmatched",
           label: "Unmatched sales",
           icon: Unlink,
+        },
+        {
+          path: "/money/declaration",
+          label: "Money Declaration",
+          icon: ClipboardCheck,
         },
         { path: "/money/reconciliation", label: "Reconciliation", icon: Scale },
         {
@@ -244,72 +262,75 @@ const people: AppModule = {
   id: "people",
   label: "People",
   icon: Users,
-  home: "/hr/overview",
+  home: "/hr/directory",
+  // What a store head runs day to day. Head-office work (period close,
+  // benefits, hiring, onboarding, employment changes) stays routable but off
+  // the panel (owner, 30 Oct 2026).
   sections: [
     {
       items: [
-        {
-          path: "/hr/overview",
-          label: "Overview",
-          icon: Gauge,
-          moved: ["/hr/today"],
-        },
         {
           path: "/hr/directory",
           label: "Staff",
           icon: Users,
           moved: ["/hr/team"],
         },
-      ],
-    },
-    {
-      label: "Time",
-      items: [
-        { path: "/hr/roster", label: "Schedule", icon: CalendarRange },
+        { path: "/hr/roster", label: "Roster", icon: CalendarRange },
         { path: "/hr/attendance", label: "Attendance", icon: Fingerprint },
-        {
-          // Keep the historical route while naming the work this screen does.
-          path: "/hr/payroll",
-          label: "Period close",
-          icon: CalendarCheck,
-          moved: ["/hr/period"],
-        },
         {
           path: "/hr/leave",
           label: "Requests",
           icon: Sun,
           moved: ["/hr/requests"],
         },
-        { path: "/hr/overtime", label: "Overtime", icon: Clock4 },
-      ],
-    },
-    {
-      label: "Pay",
-      items: [
+        { path: "/hr/overtime", label: "Overtime", icon: Clock4, hidden: true },
         { path: "/hr/pay", label: "Payroll", icon: Banknote },
-        { path: "/hr/expenses", label: "Expenses", icon: Receipt },
-        { path: "/hr/benefits", label: "Benefits", icon: HeartHandshake },
-      ],
-    },
-    {
-      label: "Talent",
-      items: [
+        {
+          path: "/hr/overview",
+          label: "Overview",
+          icon: Gauge,
+          moved: ["/hr/today"],
+          hidden: true,
+        },
+        {
+          // Keep the historical route while naming the work this screen does.
+          path: "/hr/payroll",
+          label: "Period close",
+          icon: CalendarCheck,
+          moved: ["/hr/period"],
+          hidden: true,
+        },
+        {
+          path: "/hr/expenses",
+          label: "Expenses",
+          icon: Receipt,
+          hidden: true,
+        },
+        {
+          path: "/hr/benefits",
+          label: "Benefits",
+          icon: HeartHandshake,
+          hidden: true,
+        },
         {
           path: "/hr/recruitment",
           label: "Recruitment",
           icon: Briefcase,
           moved: ["/hr/interviews"],
+          hidden: true,
         },
         {
           path: "/hr/lifecycle",
           label: "Onboarding & exit",
           icon: ClipboardList,
           moved: ["/hr/tasks"],
+          hidden: true,
         },
         {
           path: "/hr/changes",
           label: "Employment changes",
           icon: Repeat2,
+          hidden: true,
         },
       ],
     },

@@ -44,6 +44,7 @@ import {
   createCatalogPurchaseOrder,
   createSupplierItemWithPhoto,
   listSuppliers,
+  orderDetailQuery,
   paymentTermsBook,
   procurementKeys,
   removeFromBasket,
@@ -71,6 +72,7 @@ import {
   type PendingItem,
 } from "@/screens/procurement/shared"
 import type { BasketLine, SupplierItem } from "@itulah/contract"
+import { ApiError } from "@itulah/contract/client"
 import {
   enqueueOrder,
   removeOrder,
@@ -885,6 +887,14 @@ export function OrderComposer({
   /// The order whose figures were last poured into the form, and the
   /// supplier whose basket last was — both set during render, see below.
   const [pouredFor, setPouredFor] = useState<string | undefined>(undefined)
+  /// The version of the order being edited as it was when the form was filled
+  /// from it — what Submit quotes as `If-Match`. Held here, not read off
+  /// `editing`, because the detail refetches behind the sheet: a version read
+  /// at Submit would be the latest one, and would hide that somebody else saved
+  /// in between. Absent on an older server, which then sends no header.
+  const [loadedVersion, setLoadedVersion] = useState<number | undefined>(
+    undefined
+  )
   const [resumedFor, setResumedFor] = useState<string | undefined>(undefined)
   const [basketFor, setBasketFor] = useState<string | null>(null)
   const [lines, setLines] = useState<readonly DraftLine[]>([])
@@ -1083,27 +1093,29 @@ export function OrderComposer({
   if (open && supplierId === null && basket !== undefined && basket.length > 0)
     setSupplierId(basket[0].supplierId)
 
+  /// An order's figures poured into the form: when Edit opens it, and again
+  /// when the buyer reloads it after a conflict.
+  const pourOrder = (order: PurchaseOrderDetail) => {
+    setLoadedVersion(order.version)
+    setSupplierId(order.supplier_ref_id)
+    setLines(order.lines.map(fromOrderLine))
+    setArrival(order.expected_arrival ?? "")
+    setTerms(order.payment_terms_code ?? "")
+    setMethod(order.payment_method ?? "")
+    setNotes(order.notes ?? "")
+    setConditions(order.terms_and_conditions?.trim() || DEFAULT_TERMS)
+    setDiscount(order.discount_minor === 0 ? "" : String(order.discount_minor))
+    setDiscountPct("")
+    setDiscountBy("amount")
+    setStep("edit")
+  }
   /// The order being edited, poured into the form once per order. Keyed on
   /// the id rather than the object, so the detail refetching behind the sheet
   /// does not throw away what somebody has typed.
   const editingId = open ? editing?.purchase_order_id : undefined
   if (editingId !== pouredFor) {
     setPouredFor(editingId)
-    if (editing !== undefined && editingId !== undefined) {
-      setSupplierId(editing.supplier_ref_id)
-      setLines(editing.lines.map(fromOrderLine))
-      setArrival(editing.expected_arrival ?? "")
-      setTerms(editing.payment_terms_code ?? "")
-      setMethod(editing.payment_method ?? "")
-      setNotes(editing.notes ?? "")
-      setConditions(editing.terms_and_conditions?.trim() || DEFAULT_TERMS)
-      setDiscount(
-        editing.discount_minor === 0 ? "" : String(editing.discount_minor)
-      )
-      setDiscountPct("")
-      setDiscountBy("amount")
-      setStep("edit")
-    }
+    if (editing !== undefined && editingId !== undefined) pourOrder(editing)
   }
 
   /// The basket's lines, whenever the basket being ordered from changes.
@@ -1801,7 +1813,8 @@ export function OrderComposer({
               }
             }),
           },
-          idempotency.key
+          idempotency.key,
+          loadedVersion
         )
       }
       return createCatalogPurchaseOrder(newOrderBody(sent), idempotency.key)
@@ -1893,6 +1906,33 @@ export function OrderComposer({
     // this sheet may be what changed.
     onError: () => {
       void client.invalidateQueries({ queryKey: procurementKeys.orders() })
+    },
+  })
+
+  /// Somebody else saved this order after it was opened here (409). The
+  /// buyer's edits stay on screen with the server's sentence until they press
+  /// Reload order, which reads the order again and fills the form from it, so
+  /// the change is made again on top of what the other person saved.
+  const conflict =
+    editing !== undefined &&
+    raise.error instanceof ApiError &&
+    raise.error.status === 409
+  const reload = useMutation({
+    networkMode: "always",
+    // Through the cache, so the order's sheet behind this one reads the same
+    // fresh order and the version quoted next is the one it holds.
+    mutationFn: () =>
+      client.fetchQuery({
+        ...orderDetailQuery(editing!.purchase_order_id),
+        staleTime: 0,
+      }),
+    onSuccess: (fresh) => {
+      // No longer editable (goods arrived meanwhile): the editor behind this
+      // sheet says why and closes it, so there is nothing to fill.
+      if (!fresh.editable) return
+      raise.reset()
+      idempotency.rotate()
+      pourOrder(fresh)
     },
   })
 
@@ -2228,6 +2268,7 @@ export function OrderComposer({
                 said={said.said}
                 onClick={(event) => {
                   said.mark(event.currentTarget)
+                  reload.reset()
                   raise.mutate()
                 }}
               >
@@ -2245,7 +2286,25 @@ export function OrderComposer({
             </Banner>
           )}
           {raise.isError && (
-            <Banner tone="bad">{(raise.error as Error).message}</Banner>
+            <Banner tone="bad">
+              {conflict ? (
+                <span className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+                  <span>{(raise.error as Error).message}</span>
+                  <Button
+                    variant="primary"
+                    pending={reload.isPending}
+                    onClick={() => reload.mutate()}
+                  >
+                    Reload order
+                  </Button>
+                </span>
+              ) : (
+                (raise.error as Error).message
+              )}
+            </Banner>
+          )}
+          {conflict && reload.isError && (
+            <Banner tone="bad">{(reload.error as Error).message}</Banner>
           )}
 
           {step === "review" ? (

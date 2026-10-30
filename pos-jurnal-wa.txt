@@ -1,0 +1,425 @@
+*JURNAL – TOKO C001*
+_Angka contoh, HPP ilustrasi_
+
+*━━ PENJUALAN POS ━━*
+
+*1. Jual tunai*
+*Total belanja Rp 300.000*
+• Kemeja Rp 300.000
+• Bayar tunai Rp 500.000
+• Kembali Rp 200.000
+Dr Cash on Hand C001 (101100100101) 300.000
+Cr Penjualan Tunai C001 (401011000101) 300.000
+*Stok keluar (HPP) Rp 180.000*
+Dr Harga Pokok Pembelian C001 (501011000101) 180.000
+Cr Persediaan Barang Dagangan C001 (101120100101) 180.000
+
+*2. Jual debit BCA*
+*Total belanja Rp 450.000*
+• Bayar EDC Debit BCA Rp 450.000
+Dr Hutang Affiliasi Pembiayaan HEAD OFFICE - C001 (201230100101) 450.000
+Cr Penjualan Debit Card Bank BCA C001 (401011100101) 450.000
+*Dicatat masuk Tabungan BCA HO Rp 450.000*
+Dr Cash In Bank Tabungan Bank BCA HO (101100300100) 450.000
+Cr Piutang Affiliasi Pembiayaan CIKUPA - HO (102140100200) 450.000
+*Stok keluar (HPP) Rp 270.000*
+Dr Harga Pokok Pembelian C001 (501011000101) 270.000
+Cr Persediaan Barang Dagangan C001 (101120100101) 270.000
+
+*3. Jual kartu kredit VISA*
+*Total belanja Rp 600.000*
+• Bayar EDC VISA (mesin BCA) Rp 600.000
+Dr Hutang Affiliasi Pembiayaan HEAD OFFICE - C001 (201230100101) 600.000
+Cr Penjualan Kartu Kredit VISA Card C001 (401011200101) 600.000
+*Dicatat masuk Tabungan BCA HO Rp 600.000*
+Dr Cash In Bank Tabungan Bank BCA HO (101100300100) 600.000
+Cr Piutang Affiliasi Pembiayaan CIKUPA - HO (102140100200) 600.000
+*Stok keluar (HPP) Rp 360.000*
+Dr Harga Pokok Pembelian C001 (501011000101) 360.000
+Cr Persediaan Barang Dagangan C001 (101120100101) 360.000
+
+*4. Jual kartu kredit MASTER*
+*Total belanja Rp 400.000*
+• Bayar EDC MASTER (mesin BCA) Rp 400.000
+Dr Hutang Affiliasi Pembiayaan HEAD OFFICE - C001 (201230100101) 400.000
+Cr Penjualan Kartu Kredit MASTER Card C001 (401011200201) 400.000
+*Dicatat masuk Tabungan BCA HO Rp 400.000*
+Dr Cash In Bank Tabungan Bank BCA HO (101100300100) 400.000
+Cr Piutang Affiliasi Pembiayaan CIKUPA - HO (102140100200) 400.000
+*Stok keluar (HPP) Rp 240.000*
+Dr Harga Pokok Pembelian C001 (501011000101) 240.000
+Cr Persediaan Barang Dagangan C001 (101120100101) 240.000
+
+*5. Jual QRIS*
+*Total belanja Rp 150.000*
+• Bayar QRIS (mesin BCA) Rp 150.000
+Dr Hutang Affiliasi Pembiayaan HEAD OFFICE - C001 (201230100101) 150.000
+Cr Penjualan Debit Card Bank BCA C001 (401011100101) 150.000
+*Dicatat masuk Tabungan BCA HO Rp 150.000*
+Dr Cash In Bank Tabungan Bank BCA HO (101100300100) 150.000
+Cr Piutang Affiliasi Pembiayaan CIKUPA - HO (102140100200) 150.000
+*Stok keluar (HPP) Rp 90.000*
+Dr Harga Pokok Pembelian C001 (501011000101) 90.000
+Cr Persediaan Barang Dagangan C001 (101120100101) 90.000
+
+*6. Bayar campur (tunai + debit)*
+*Total belanja Rp 500.000*
+• Bayar tunai Rp 200.000
+• Bayar EDC Debit Mandiri Rp 300.000
+Dr Cash on Hand C001 (101100100101) 200.000
+Dr Hutang Affiliasi Pembiayaan HEAD OFFICE - C001 (201230100101) 300.000
+Cr Penjualan Tunai C001 (401011000101) 200.000
+Cr Penjualan Debit Card Bank Mandiri C001 (401011100201) 300.000
+*Dicatat masuk Tabungan Mandiri HO Rp 300.000*
+Dr Cash In Bank Tabungan Bank Mandiri HO (101100300200) 300.000
+Cr Piutang Affiliasi Pembiayaan CIKUPA - HO (102140100200) 300.000
+*Stok keluar (HPP) Rp 300.000*
+Dr Harga Pokok Pembelian C001 (501011000101) 300.000
+Cr Persediaan Barang Dagangan C001 (101120100101) 300.000
+
+*7. Promo / diskon barang*
+*Total belanja Rp 120.000*
+• Kaos Rp 150.000
+• Promo 20% -Rp 30.000
+• Bayar tunai Rp 120.000
+Dr Cash on Hand C001 (101100100101) 120.000
+Cr Penjualan Tunai C001 (401011000101) 120.000
+*Stok keluar (HPP) Rp 90.000*
+Dr Harga Pokok Pembelian C001 (501011000101) 90.000
+Cr Persediaan Barang Dagangan C001 (101120100101) 90.000
+
+*8. Bayar pakai voucher*
+*Total belanja Rp 200.000*
+• Voucher Rp 50.000
+• Bayar tunai Rp 150.000
+Dr Cash on Hand C001 (101100100101) 150.000
+Dr Discount / Potongan Penjualan C001 (401021300101) 50.000
+Cr Penjualan Tunai C001 (401011000101) 200.000
+*Stok keluar (HPP) Rp 120.000*
+Dr Harga Pokok Pembelian C001 (501011000101) 120.000
+Cr Persediaan Barang Dagangan C001 (101120100101) 120.000
+
+*9. Diskon karyawan (saldo benefit)*
+*Total belanja Rp 250.000*
+• Saldo karyawan Rp 100.000
+• Bayar tunai Rp 150.000
+Dr Cash on Hand C001 (101100100101) 150.000
+Dr Discount / Potongan Penjualan C001 (401021300101) 100.000
+Cr Penjualan Tunai C001 (401011000101) 250.000
+*Stok keluar (HPP) Rp 150.000*
+Dr Harga Pokok Pembelian C001 (501011000101) 150.000
+Cr Persediaan Barang Dagangan C001 (101120100101) 150.000
+
+*10. Tukar barang, pengganti lebih murah*
+*Barang kembali Rp 300.000*
+*Barang pengganti Rp 250.000*
+• Selisih tidak dikembalikan Rp 50.000
+Dr Retur Penjualan C001 (401021400101) 300.000
+Cr Penjualan Tunai C001 (401011000101) 250.000
+Cr Pendapatan (Biaya) Lain-Lain C001 (801011000701) 50.000
+*Stok kembali (HPP) Rp 180.000*
+_Belum dibuat sistem_
+Dr Persediaan Barang Dagangan C001 (101120100101) 180.000
+Cr Harga Pokok Pembelian C001 (501011000101) 180.000
+*Stok keluar (HPP) Rp 150.000*
+Dr Harga Pokok Pembelian C001 (501011000101) 150.000
+Cr Persediaan Barang Dagangan C001 (101120100101) 150.000
+
+*11. Tukar barang, pengganti lebih mahal*
+*Barang kembali Rp 250.000*
+*Barang pengganti Rp 300.000*
+• Tambah tunai Rp 50.000
+Dr Retur Penjualan C001 (401021400101) 250.000
+Dr Cash on Hand C001 (101100100101) 50.000
+Cr Penjualan Tunai C001 (401011000101) 300.000
+*Stok kembali (HPP) Rp 150.000*
+_Belum dibuat sistem_
+Dr Persediaan Barang Dagangan C001 (101120100101) 150.000
+Cr Harga Pokok Pembelian C001 (501011000101) 150.000
+*Stok keluar (HPP) Rp 180.000*
+Dr Harga Pokok Pembelian C001 (501011000101) 180.000
+Cr Persediaan Barang Dagangan C001 (101120100101) 180.000
+
+*12. Retur + beli barang baru lebih banyak*
+*Barang kembali -Rp 250.000*
+• Kemeja Batik -Rp 250.000
+Dr Retur Penjualan C001 (401021400101) 250.000
+Cr Penjualan Tunai C001 (401011000101) 250.000
+*Barang baru Rp 500.000*
+• Kaos × 2 Rp 300.000
+• Celana Rp 200.000
+*Sisa dibayar EDC Debit BCA Rp 250.000*
+Dr Hutang Affiliasi Pembiayaan HEAD OFFICE - C001 (201230100101) 250.000
+Cr Penjualan Debit Card Bank BCA C001 (401011100101) 250.000
+*Dicatat masuk Tabungan BCA HO Rp 250.000*
+Dr Cash In Bank Tabungan Bank BCA HO (101100300100) 250.000
+Cr Piutang Affiliasi Pembiayaan CIKUPA - HO (102140100200) 250.000
+*Stok keluar (HPP) Rp 290.000*
+Dr Harga Pokok Pembelian C001 (501011000101) 290.000
+Cr Persediaan Barang Dagangan C001 (101120100101) 290.000
+*Stok kembali (HPP) Rp 150.000*
+_Belum dibuat sistem_
+Dr Persediaan Barang Dagangan C001 (101120100101) 150.000
+Cr Harga Pokok Pembelian C001 (501011000101) 150.000
+
+*13. Kantong belanja*
+*Kantong keluar Rp 12.500*
+• 25 kantong × Rp 500
+Dr Biaya Customer Supplies C001 (601011000101) 12.500
+Cr Kantong Belanja Plastik Ukuran KECIL C001 (101120200101) 12.500
+
+*14. Member point – pilihan A (cash basis)*
+*Dapat 3.100 poin (1 poin = Rp 1) Rp 3.100*
+_Tidak ada jurnal_
+*Total belanja Rp 200.000*
+• Pakai poin Rp 3.100
+• Bayar tunai Rp 196.900
+_Belum dibuat sistem_
+Dr Cash on Hand C001 (101100100101) 196.900
+Dr Biaya Promosi C001 (601011000301) 3.100
+Cr Penjualan Tunai C001 (401011000101) 200.000
+*Stok keluar (HPP) Rp 120.000*
+Dr Harga Pokok Pembelian C001 (501011000101) 120.000
+Cr Persediaan Barang Dagangan C001 (101120100101) 120.000
+
+*15. Member point – pilihan B (accrual)*
+*Dapat 3.100 poin (1 poin = Rp 1) Rp 3.100*
+_Belum dibuat sistem_
+Dr Biaya Promosi C001 (601011000301) 3.100
+Cr Kewajiban Poin Member C001 (akun baru) 3.100
+*Total belanja Rp 200.000*
+• Pakai poin Rp 3.100
+• Bayar tunai Rp 196.900
+Dr Cash on Hand C001 (101100100101) 196.900
+Dr Kewajiban Poin Member C001 (akun baru) 3.100
+Cr Penjualan Tunai C001 (401011000101) 200.000
+*Stok keluar (HPP) Rp 120.000*
+Dr Harga Pokok Pembelian C001 (501011000101) 120.000
+Cr Persediaan Barang Dagangan C001 (101120100101) 120.000
+*Poin hangus Rp 1.100*
+Dr Kewajiban Poin Member C001 (akun baru) 1.100
+Cr Biaya Promosi C001 (601011000301) 1.100
+
+*━━ KAS TOKO ━━*
+
+*16. Modal kasir*
+*Modal kasir Rp 500.000*
+Dr Modal Kasir C001 (101100100301) 500.000
+Cr Cash on Hand C001 (101100100101) 500.000
+
+*17. Tutup kasir, uang kurang*
+*Uang di laci kurang Rp 20.000*
+Dr PIUTANG KEPALA TOKO C001 (101110200201) 20.000
+Cr Cash on Hand C001 (101100100101) 20.000
+
+*18. Tutup kasir, uang lebih*
+*Uang di laci lebih Rp 10.000*
+Dr Cash on Hand C001 (101100100101) 10.000
+Cr Pendapatan (Biaya) Lain-Lain C001 (801011000701) 10.000
+
+*19. Setor ke bank*
+*Setoran keluar dari toko Rp 1.130.000*
+Dr Hutang Affiliasi Pembiayaan HEAD OFFICE - C001 (201230100101) 1.130.000
+Cr Cash on Hand C001 (101100100101) 1.130.000
+*Bank BCA HO konfirmasi masuk Rp 1.130.000*
+Dr Cash In Bank Tabungan Bank BCA HO (101100300100) 1.130.000
+Cr Piutang Affiliasi Pembiayaan CIKUPA - HO (102140100200) 1.130.000
+
+*20. Selisih pembulatan*
+*Selisih pembulatan Rp 100*
+Dr Selisih pembulatan C001 (801011000201) 100
+Cr Cash on Hand C001 (101100100101) 100
+
+*21. HO kirim dana operasional (kas kecil)*
+*HO transfer dari BCA Rp 2.000.000*
+Dr Piutang Affiliasi Pembiayaan CIKUPA - HO (102140100200) 2.000.000
+Cr Cash In Bank Tabungan Bank BCA HO (101100300100) 2.000.000
+*Toko terima kas kecil Rp 2.000.000*
+Dr PETTY CASH C001 (101100100201) 2.000.000
+Cr Hutang Affiliasi Pembiayaan HEAD OFFICE - C001 (201230100101) 2.000.000
+
+*22. Biaya toko pakai kas kecil*
+*Bayar cleaning Rp 150.000*
+Dr Biaya Kebersihan (Cleaning) C001 (601031000101) 150.000
+Cr PETTY CASH C001 (101100100201) 150.000
+
+*23. Isi ulang kas kecil*
+*HO transfer dari BCA Rp 150.000*
+Dr Piutang Affiliasi Pembiayaan CIKUPA - HO (102140100200) 150.000
+Cr Cash In Bank Tabungan Bank BCA HO (101100300100) 150.000
+*Toko terima kas kecil Rp 150.000*
+Dr PETTY CASH C001 (101100100201) 150.000
+Cr Hutang Affiliasi Pembiayaan HEAD OFFICE - C001 (201230100101) 150.000
+
+*━━ PEMBELIAN & HUTANG ━━*
+
+*24. Terima barang dari supplier di DC*
+*Terima barang PO Rp 10.000.000*
+Dr Persediaan Barang Dagangan HO (101120100100) 10.000.000
+Cr Hutang Suppliers Barang Dagangan HO (201200100100) 10.000.000
+
+*25. Terima barang supplier langsung di toko*
+*C001 terima barang PO Rp 4.000.000*
+Dr Persediaan Barang Dagangan C001 (101120100101) 4.000.000
+Cr Hutang Affiliasi Atas Barang HEAD OFFICE - C001 (201230200101) 4.000.000
+*Hutang supplier dicatat di HO Rp 4.000.000*
+Dr Piutang Affiliasi Atas Barang CIKUPA - HO (102140200200) 4.000.000
+Cr Hutang Suppliers Barang Dagangan HO (201200100100) 4.000.000
+
+*26. Faktur supplier lebih mahal dari terima barang*
+*Faktur Rp 10.200.000*
+• Terima barang Rp 10.000.000
+• Selisih harga Rp 200.000
+Dr Hutang Suppliers Barang Dagangan HO (201200100100) 10.000.000
+Dr Persediaan Barang Dagangan HO (101120100100) 200.000
+Cr Hutang Suppliers Barang Dagangan HO (201200100100) 10.200.000
+
+*27. Faktur supplier dengan potongan*
+*Potongan faktur Rp 300.000*
+Dr Hutang Suppliers Barang Dagangan HO (201200100100) 300.000
+Cr Potongan Pembelian HO (801011000300) 300.000
+
+*28. Faktur biaya (bukan barang dagang)*
+*Tagihan listrik HO Rp 2.500.000*
+Dr Biaya Pemakaian Listrik HO (601031000600) 2.500.000
+Cr Hutang Supplier Non Barang Dagang HO (201200100300) 2.500.000
+
+*29. Bayar supplier transfer*
+*Bayar supplier Rp 10.200.000*
+• Biaya bank Rp 6.500
+• Keluar dari BCA Rp 10.206.500
+Dr Hutang Suppliers Barang Dagangan HO (201200100100) 10.200.000
+Dr Biaya Bank HO (601031000400) 6.500
+Cr Cash In Bank Tabungan Bank BCA HO (101100300100) 10.206.500
+
+*30. Bayar supplier pakai giro*
+*Giro BCA keluar Rp 5.000.000*
+Dr Hutang Suppliers Barang Dagangan HO (201200100100) 5.000.000
+Cr Outstanding Giro Bank BCA HO (201200200100) 5.000.000
+*Giro cair Rp 5.000.000*
+Dr Outstanding Giro Bank BCA HO (201200200100) 5.000.000
+Cr Cash In Bank Giro Bank BCA HO (101100200100) 5.000.000
+
+*31. Uang muka (DP) supplier*
+*Bayar DP Rp 3.000.000*
+Dr Advanced - Purchase HO (101130300200) 3.000.000
+Cr Cash In Bank Tabungan Bank BCA HO (101100300100) 3.000.000
+*DP dipotong ke faktur Rp 3.000.000*
+Dr Hutang Suppliers Barang Dagangan HO (201200100100) 3.000.000
+Cr Advanced - Purchase HO (101130300200) 3.000.000
+
+*32. Retur barang ke supplier*
+*Retur dari DC Rp 800.000*
+Dr Hutang Suppliers Barang Dagangan HO (201200100100) 800.000
+Cr Persediaan Barang Dagangan HO (101120100100) 800.000
+
+*━━ STOK & KIRIM BARANG ━━*
+
+*33. DC kirim barang ke toko (SJD)*
+*DC kirim ke C001 Rp 6.000.000*
+Dr BDP Barang Dagangan CIKUPA - HO (101120300200) 6.000.000
+Cr Persediaan Barang Dagangan HO (101120100100) 6.000.000
+*C001 catat barang di jalan Rp 6.000.000*
+Dr BDP Barang Dagangan HEAD OFFICE - C001 (101120300101) 6.000.000
+Cr Hutang Affiliasi Atas Barang HEAD OFFICE - C001 (201230200101) 6.000.000
+
+*34. Toko terima barang dari DC*
+*HO tutup barang di jalan Rp 6.000.000*
+Dr Piutang Affiliasi Atas Barang CIKUPA - HO (102140200200) 6.000.000
+Cr BDP Barang Dagangan CIKUPA - HO (101120300200) 6.000.000
+*C001 terima barang Rp 6.000.000*
+Dr Persediaan Barang Dagangan C001 (101120100101) 6.000.000
+Cr BDP Barang Dagangan HEAD OFFICE - C001 (101120300101) 6.000.000
+
+*35. Selisih stock opname (kurang)*
+*Stok kurang Rp 350.000*
+Dr Kehilangan Barang atau Selisih Stock Opname C001 (801011000601) 350.000
+Cr Persediaan Barang Dagangan C001 (101120100101) 350.000
+
+*36. Barang rusak / hilang*
+*Barang rusak Rp 200.000*
+Dr Biaya Kerusakan Persediaan Barang Dagangan C001 (601011000801) 200.000
+Cr Persediaan Barang Dagangan C001 (101120100101) 200.000
+
+*━━ BIAYA & ASET ━━*
+
+*37. Kasbon dinas karyawan*
+*Kasbon Rp 1.000.000*
+Dr Advanced - Travelling HO (101130300100) 1.000.000
+Cr Cash on Hand HO (101100100100) 1.000.000
+*Pertanggungjawaban Rp 1.000.000*
+Dr Biaya Perjalanan Dinas HO (601031000800) 1.000.000
+Cr Advanced - Travelling HO (101130300100) 1.000.000
+
+*38. Klaim biaya karyawan*
+*Klaim transport disetujui Rp 75.000*
+Dr Lokal Transport C001 (601031000901) 75.000
+Cr Hutang Lain - Lain HEAD OFFICE - C001 (201230400101) 75.000
+*Dibayar dari kas kecil Rp 75.000*
+Dr Hutang Lain - Lain HEAD OFFICE - C001 (201230400101) 75.000
+Cr PETTY CASH C001 (101100100201) 75.000
+
+*39. Sewa toko dibayar di muka*
+*Sewa 12 bulan Rp 120.000.000*
+Dr Sewa Toko Bayar dimuka C001 (101130100301) 120.000.000
+Cr Hutang Affiliasi Pembiayaan HEAD OFFICE - C001 (201230100101) 120.000.000
+*HO bayar dari BCA Rp 120.000.000*
+Dr Piutang Affiliasi Pembiayaan CIKUPA - HO (102140100200) 120.000.000
+Cr Cash In Bank Tabungan Bank BCA HO (101100300100) 120.000.000
+*Beban sewa 1 bulan Rp 10.000.000*
+Dr Biaya Sewa Bangunan Toko dan Gudang C001 (701011000301) 10.000.000
+Cr Sewa Toko Bayar dimuka C001 (101130100301) 10.000.000
+
+*40. Penyusutan aset*
+*Penyusutan komputer kasir Rp 250.000*
+• Rp 12.000.000 / 48 bulan
+Dr Biaya Depresiasi FFE Komputer C001 (701021400301) 250.000
+Cr Akum Penyusu - FFE Komputer C001 (102160600301) 250.000
+
+*41. Management fee HO ke toko*
+*C001 dibebani management fee Rp 5.000.000*
+Dr Biaya Management FEE C001 (702031000401) 5.000.000
+Cr Hutang Lain-lain Principal HEAD OFFICE - C001 (201230300101) 5.000.000
+*HO catat pendapatan Rp 5.000.000*
+Dr Piutang Affiliasi Lain-lain CIKUPA - HO (102140300200) 5.000.000
+Cr Management Fee HO (402011000100) 5.000.000
+
+*━━ GAJI ━━*
+
+*42. Gaji karyawan toko*
+*Gaji Rp 6.000.000*
+• PPh 21 -Rp 100.000
+• BPJS -Rp 240.000
+• Gaji bersih Rp 5.660.000
+Dr Biaya Gaji Karyawan C001 (601011100101) 6.000.000
+Cr PPH Pasal 21 C001 (201210100101) 100.000
+Cr Biaya Asuransi dan BPJS YMHD C001 (201220100501) 240.000
+Cr Biaya Gaji dan Upah YMHD C001 (201220100101) 5.660.000
+*Gaji dibayar dari dana toko Rp 5.660.000*
+Dr Biaya Gaji dan Upah YMHD C001 (201220100101) 5.660.000
+Cr PETTY CASH C001 (101100100201) 5.660.000
+
+*43. Cadangan THR per bulan*
+*Cadangan THR Rp 500.000*
+Dr Tunjangan Hari Raya (THR) C001 (601011100701) 500.000
+Cr THR/Insentif/Bonus/Pesangon YMHD C001 (201220100201) 500.000
+
+*━━ PAJAK, MODAL, TUTUP BUKU ━━*
+
+*44. Setor PPh 21*
+*Setor PPh 21 dari BCA Rp 100.000*
+Dr PPH Pasal 21 HO (201210100100) 100.000
+Cr Cash In Bank Tabungan Bank BCA HO (101100300100) 100.000
+
+*45. Setoran modal pemilik*
+*Modal masuk BCA Rp 50.000.000*
+Dr Cash In Bank Tabungan Bank BCA HO (101100300100) 50.000.000
+Cr Modal Setor HO (301300100100) 50.000.000
+
+*46. Tutup buku bulanan*
+*Laba bulan ini Rp 750.000*
+• Penjualan Rp 1.850.000
+• HPP -Rp 1.100.000
+Dr Penjualan Tunai C001 (401011000101) 1.850.000
+Cr Harga Pokok Pembelian C001 (501011000101) 1.100.000
+Cr Laba (Rugi) Ditahan C001 (301300100201) 750.000

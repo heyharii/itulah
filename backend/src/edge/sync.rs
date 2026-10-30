@@ -2159,16 +2159,25 @@ fn apply_auth_policy(tx: &Transaction<'_>, snapshot: &AuthPolicySnapshot) -> Res
         } else {
             user.username.clone()
         };
+        // How long a finger still lets this person in (`0095`), beside the
+        // password's lease. Never shorter than it, whatever was sent; NULL
+        // when head office sent none — an older centre — which the doors read
+        // as the password's lease, so nothing outlives what it did before.
+        let finger_valid_until = snapshot
+            .finger_valid_until
+            .get(&user.user_id)
+            .map(|until| time_text((*until).max(user.valid_until)));
         tx.prepare_cached(
             "INSERT INTO edge_user
                  (id,username,display_name,password_hash,role,active,auth_version,source,
-                  policy_version,valid_until,created_at,updated_at)
-             VALUES(?1,?2,?3,?4,?5,?6,?7,'CLOUD',?8,?9,?10,?10)
+                  policy_version,valid_until,created_at,updated_at,finger_valid_until)
+             VALUES(?1,?2,?3,?4,?5,?6,?7,'CLOUD',?8,?9,?10,?10,?11)
              ON CONFLICT(id) DO UPDATE SET
                  username=excluded.username,display_name=excluded.display_name,
                  password_hash=excluded.password_hash,role=excluded.role,
                  active=excluded.active,auth_version=excluded.auth_version,
                  policy_version=excluded.policy_version,valid_until=excluded.valid_until,
+                 finger_valid_until=excluded.finger_valid_until,
                  updated_at=excluded.updated_at,
                  failed_login_count=CASE
                      WHEN edge_user.password_hash<>excluded.password_hash
@@ -2195,6 +2204,7 @@ fn apply_auth_policy(tx: &Transaction<'_>, snapshot: &AuthPolicySnapshot) -> Res
             snapshot.version,
             time_text(user.valid_until),
             now_text(),
+            finger_valid_until,
         ])
         .map_err(err)?;
     }
@@ -2265,6 +2275,36 @@ fn apply_auth_policy(tx: &Transaction<'_>, snapshot: &AuthPolicySnapshot) -> Res
         .map_err(err)?
         .execute(params![snapshot.version])
         .map_err(err)?;
+    // The shop's EDC machines (0100): asked at Tutup kasir even when one took
+    // no card this shift. Sent as `Some`, so an empty book clears what was
+    // held; absent from an older centre, which keeps the tenders as the only
+    // names it knows.
+    if let Some(machines) = snapshot.edc_machines.as_ref() {
+        tx.execute("DELETE FROM edge_edc_machine", [])
+            .map_err(err)?;
+        for machine in machines {
+            tx.prepare_cached(
+                "INSERT INTO edge_edc_machine(machine_id,label,updated_at) VALUES(?1,?2,?3)",
+            )
+            .map_err(err)?
+            .execute(params![machine.machine_id, machine.label, now_text()])
+            .map_err(err)?;
+        }
+    }
+    // The return promise (`0101`, postgres 1005): the window, the exceptions
+    // and the conditions. Only when the centre said something — an older
+    // policy carries none, and must not wipe what a newer one sent.
+    if let Some(policy) = snapshot.return_policy.as_ref() {
+        crate::edge::return_policy::apply(tx, policy, snapshot.version).map_err(err)?;
+    }
+    // The point policy (postgres 1008), on the same terms.
+    if let Some(policy) = snapshot.point_policy.as_ref() {
+        crate::edge::point_policy::apply(tx, policy, snapshot.version).map_err(err)?;
+    }
+    // The picture at the top of a receipt (postgres 1009), on the same terms.
+    if let Some(header) = snapshot.receipt_header.as_ref() {
+        crate::edge::receipt_header::apply(tx, header, snapshot.version).map_err(err)?;
+    }
     // What head office says about this node's site and the others (0049).
     // Only when it said something: a policy from an older centre carries
     // neither, and must not wipe what a newer one sent.
@@ -3415,6 +3455,14 @@ fn apply_command_effect(tx: &Transaction<'_>, command: &PushedCommand) -> Result
                 .map_err(err)?;
             apply_allotment_close_short(tx, &payload)
         }
+        // MD's edit made outside HO, forwarded by Central to the server that
+        // holds the allotment (GUDANG-SERVER-PLAN step 4). Answered with a
+        // fact either way; see `edge::dc_allotment::apply_amend_command`.
+        crate::sync::workflow::INVENTORY_ALLOTMENT_AMEND_V1 => {
+            let payload =
+                crate::sync::workflow::parse_allotment_amend(&command.payload).map_err(err)?;
+            crate::edge::dc_allotment::apply_amend_command(tx, &payload)
+        }
         INVENTORY_OFFICIAL_COUNT_ACTIVATE_V1 => {
             let payload = parse_official_count_activation(&command.payload).map_err(err)?;
             apply_official_count_activation(tx, command.command_id, &payload)
@@ -3474,8 +3522,8 @@ fn apply_command_effect(tx: &Transaction<'_>, command: &PushedCommand) -> Result
         // Head office matched a sale to a piece this shop holds: let it go.
         // Only ever sent to a node whose heartbeat carries the take capability.
         crate::sync::unmatched::INVENTORY_UNMATCHED_SALE_TAKE_V1 => {
-            let payload = crate::sync::unmatched::parse_unmatched_sale_take(&command.payload)
-                .map_err(err)?;
+            let payload =
+                crate::sync::unmatched::parse_unmatched_sale_take(&command.payload).map_err(err)?;
             let node = resident_node(tx)?;
             crate::edge::unmatched::apply_take(tx, &node, command.command_id, &payload)
                 .map_err(|error| err(error.to_string()))
@@ -4425,6 +4473,66 @@ impl EdgeSyncHandle {
     }
 }
 
+/// Ask head office once for the stock this store holds there, and book it
+/// (`SqliteEdge::apply_stock_handover`). A server that already holds stock is
+/// not asked: it was not replaced. Answers whether there is nothing more to
+/// ask this run.
+async fn take_stock_handover(
+    connection: &std::sync::Arc<std::sync::Mutex<Connection>>,
+    transport: &dyn crate::sync::port::SyncTransport,
+) -> Result<bool, String> {
+    let request = {
+        let guard = connection
+            .lock()
+            .map_err(|_| "edge sync store poisoned".to_string())?;
+        let held: i64 = guard
+            .query_row("SELECT COUNT(*) FROM inventory_subject", [], |row| {
+                row.get(0)
+            })
+            .map_err(|error| error.to_string())?;
+        if held > 0 {
+            return Ok(true);
+        }
+        let origin: Option<(String, i64)> = guard
+            .query_row(
+                "SELECT origin_id, generation FROM sync_origin WHERE singleton=1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(|error| error.to_string())?;
+        let Some((origin_id, generation)) = origin else {
+            return Ok(false);
+        };
+        crate::sync::port::StockHandoverRequest {
+            origin_id,
+            generation,
+        }
+    };
+    let handover = transport.stock_handover(&request).await?;
+    let mut guard = connection
+        .lock()
+        .map_err(|_| "edge sync store poisoned".to_string())?;
+    let tx = guard.transaction().map_err(|error| error.to_string())?;
+    let node = resident_node(&tx).map_err(|error| error.to_string())?;
+    let booked =
+        crate::edge::SqliteEdge::apply_stock_handover(&tx, &node, request.generation, &handover)
+            .map_err(|error| error.to_string())?;
+    tx.commit().map_err(|error| error.to_string())?;
+    if booked > 0 {
+        tracing::info!(
+            booked,
+            generation = request.generation,
+            "booked the stock head office handed this server"
+        );
+    }
+    Ok(true)
+}
+
+/// A cycle that brought back this many commands brought a full batch (the
+/// cloud's `COMMAND_BATCH`), so more are probably waiting behind it.
+const COMMANDS_LEFT_WAITING: u64 = 20;
+
 pub fn spawn_agent(
     edge: &crate::edge::SqliteEdge,
     config: EdgeSyncConfig,
@@ -4483,6 +4591,15 @@ pub fn spawn_agent(
     runtime.spawn(async move {
         let interval = std::time::Duration::from_secs(config.interval_seconds);
         let mut last_purge = std::time::Instant::now();
+        // The last cycle came back with a full batch of commands, so more are
+        // waiting: a new or replacement server takes thousands at first, and
+        // at one batch per interval that was a quarter of an hour (C001,
+        // 30 Oct 2026).
+        let mut catching_up = false;
+        // Asked once a run, after the first handshake this run agrees and
+        // before anything is uploaded: a replacement must hold its store's
+        // stock before it writes a fact about any of it.
+        let mut handover_taken = false;
         tracing::info!(
             origin = %origin,
             url = %config.upload_url,
@@ -4492,11 +4609,15 @@ pub fn spawn_agent(
         loop {
             // Either the interval elapses or somebody pressed "send now". The
             // interval stretches while the machine is short of CPU or memory
-            // (`edge/pace.rs`); a press still sends at once.
-            tokio::select! {
-                () = tokio::time::sleep(interval * crate::edge::pace::factor()) => {}
-                () = agent.wake.notified() => {}
+            // (`edge/pace.rs`); a press still sends at once, and so does a
+            // node still catching up on commands.
+            if !catching_up {
+                tokio::select! {
+                    () = tokio::time::sleep(interval * crate::edge::pace::factor()) => {}
+                    () = agent.wake.notified() => {}
+                }
             }
+            catching_up = false;
             // Whose seqs are these? Asked before every upload and answered
             // once per run, because the fault it catches — this database
             // replaced under its own origin id — is invisible from in here and
@@ -4531,6 +4652,15 @@ pub fn spawn_agent(
                     continue;
                 }
             }
+            if !handover_taken {
+                match take_stock_handover(&connection, &transport).await {
+                    Ok(done) => handover_taken = done,
+                    Err(error) => {
+                        tracing::warn!(%error, "could not take the stock head office holds for this store");
+                        continue;
+                    }
+                }
+            }
             match crate::sync::run_cycle(&store, &cycle, &transport).await {
                 Ok(outcome) => {
                     if let crate::sync::CycleReport::Advanced {
@@ -4563,6 +4693,9 @@ pub fn spawn_agent(
                             tracing::error!(%error, "could not reopen the generation handshake");
                         }
                     }
+                    catching_up = outcome.commands_blocked.is_none()
+                        && outcome.commands_applied + outcome.commands_skipped
+                            >= COMMANDS_LEFT_WAITING;
                     if outcome.commands_applied > 0 || outcome.commands_skipped > 0 {
                         tracing::info!(
                             applied = outcome.commands_applied,
@@ -4788,6 +4921,11 @@ mod tests {
             sites: Vec::new(),
             device_kinds: Default::default(),
             pos_stops: None,
+            finger_valid_until: Default::default(),
+            edc_machines: None,
+            return_policy: None,
+            point_policy: None,
+            receipt_header: None,
         };
         snapshot.content_hash = auth_policy_content_hash(&snapshot);
         let version_one = snapshot.clone();
@@ -4909,6 +5047,105 @@ mod tests {
         // to answer a batch filed under the old key and sent again under the
         // new one instead of filing it a second time.
         assert_eq!((sequence, receipts), (0, 1));
+    }
+
+    #[test]
+    fn a_finger_lease_rides_beside_the_users_outside_the_hash() {
+        let site = SiteId::new("store-07").unwrap_or_else(|error| panic!("site: {error}"));
+        let node = NodeContext::new("store-07-edge", EdgeRole::Store, site)
+            .unwrap_or_else(|error| panic!("node: {error}"));
+        let edge = SqliteEdge::open_in_memory(node).unwrap_or_else(|error| panic!("edge: {error}"));
+        let now = Utc::now();
+        let head = Uuid::new_v4();
+        let cashier = Uuid::new_v4();
+        let user = |user_id, username: &str, role: &str, lease| AuthPolicyUser {
+            user_id,
+            username: username.into(),
+            display_name: username.into(),
+            role: role.into(),
+            credential_hash: "$argon2id$test-verifier".into(),
+            active: true,
+            auth_version: 1,
+            valid_until: lease,
+        };
+        let mut snapshot = AuthPolicySnapshot {
+            snapshot_id: Uuid::new_v4(),
+            version: 1,
+            origin_id: "store-07-edge".into(),
+            site_id: "store-07".into(),
+            node_role: "STORE".into(),
+            issued_at: now,
+            valid_until: now + chrono::Duration::days(7),
+            content_hash: String::new(),
+            sso_public_key: None,
+            users: vec![
+                user(
+                    head,
+                    "head.07",
+                    "SUPERVISOR",
+                    now + chrono::Duration::hours(24),
+                ),
+                user(
+                    cashier,
+                    "cashier.07",
+                    "CASHIER",
+                    now + chrono::Duration::days(7),
+                ),
+            ],
+            devices: Vec::new(),
+            site: None,
+            sites: Vec::new(),
+            device_kinds: Default::default(),
+            pos_stops: None,
+            finger_valid_until: Default::default(),
+            edc_machines: None,
+            return_policy: None,
+            point_policy: None,
+            receipt_header: None,
+        };
+        // What an older node hashes: everything it knows, no finger lease.
+        let older_hash = auth_policy_content_hash(&snapshot);
+        snapshot
+            .finger_valid_until
+            .insert(head, now + chrono::Duration::days(7));
+        // Sent shorter than the password's lease: the node keeps the longer.
+        snapshot
+            .finger_valid_until
+            .insert(cashier, now + chrono::Duration::days(1));
+        snapshot.content_hash = auth_policy_content_hash(&snapshot);
+        assert_eq!(snapshot.content_hash, older_hash);
+        let payload =
+            serde_json::to_value(&snapshot).unwrap_or_else(|error| panic!("payload: {error}"));
+        let parsed = parse_auth_policy(&payload).unwrap_or_else(|error| panic!("parse: {error}"));
+        assert_eq!(parsed.finger_valid_until, snapshot.finger_valid_until);
+
+        let shared = edge.connection();
+        let mut connection = shared
+            .lock()
+            .unwrap_or_else(|error| panic!("connection: {error}"));
+        {
+            let tx = connection
+                .transaction()
+                .unwrap_or_else(|error| panic!("transaction: {error}"));
+            apply_auth_policy(&tx, &parsed).unwrap_or_else(|error| panic!("apply policy: {error}"));
+            tx.commit()
+                .unwrap_or_else(|error| panic!("commit policy: {error}"));
+        }
+        let finger_lease = |user_id: Uuid| -> Option<String> {
+            connection
+                .prepare_cached("SELECT finger_valid_until FROM edge_user WHERE id=?1")
+                .unwrap_or_else(|error| panic!("prepare: {error}"))
+                .query_row(params![user_id.to_string()], |row| row.get(0))
+                .unwrap_or_else(|error| panic!("finger lease: {error}"))
+        };
+        assert_eq!(
+            finger_lease(head),
+            Some(time_text(now + chrono::Duration::days(7)))
+        );
+        assert_eq!(
+            finger_lease(cashier),
+            Some(time_text(now + chrono::Duration::days(7)))
+        );
     }
 
     #[tokio::test]

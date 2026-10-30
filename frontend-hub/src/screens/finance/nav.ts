@@ -172,7 +172,7 @@ export const financeNav: AppModule = {
   icon: Landmark,
   // No Overview row (owner, 28 Oct 2026): the module lands on the first 7Soft
   // menu, Info Kas Bank. The dashboard stays reachable at its URL and in ⌘K.
-  home: "/finance/stores/sales",
+  home: "/finance/stores/daily-close",
   base: "/finance",
   moved: [
     // The modules the frozen tree replaced on 2026-09-26.
@@ -1179,73 +1179,83 @@ export const financeNav: AppModule = {
 /// item, so a duplicated path would fail when the router is created. Faktur
 /// Penjualan (credit sales; the chart has no customer receivable) and History
 /// Report (report opens are not logged) have no screen and no row.
-const SEVEN_SOFT_MENU: readonly (readonly [string, string])[] = [
-  ["/finance/stores/sales", "Daily close"],
-  ["/finance/stores", "Store cash"],
-  ["/finance/cash-bank/kas-bank", "Cash & Bank"],
-  ["/finance/cash-bank/bkk", "BKK"],
-  ["/finance/cash-bank/bkm", "BKM"],
-  ["/finance/cash-bank/giro", "Giro"],
-  ["/finance/cash-bank/bank-reconciliation", "Bank reconciliation"],
-  ["/finance/payables/bills", "Bills"],
-  ["/finance/payables/supplier-ledger", "Suppliers"],
-  ["/finance/accounting/journal-entries", "Journal"],
-  ["/finance/accounting/info-accounting", "Ledger"],
-  ["/finance/assets/capitalization", "Assets"],
-  ["/finance/period-close", "Month end"],
-  ["/finance/reports/laporan-accounting", "Reports"],
-  ["/finance/accounts-setup", "Setup"],
+/// The icons of the rows whose path is new — the three screens that did not
+/// exist when the tree above was written. Every other row reads its icon off
+/// the item it already had.
+const SEVEN_SOFT_ICON: readonly (readonly [string, NavItem["icon"]])[] = [
+  ["/finance/stores/daily-close", CalendarCheck],
+  ["/finance/stores/store-cash", Coins],
+  ["/finance/accounting/month-end", CalendarClock],
 ]
 
 /// The final menu (owner, 28 Oct 2026): 15 rows in 6 groups, as drawn in
 /// `finance-menu-final-prototype.html`. Reports and Setup are rows with no
 /// heading. Every other screen keeps its route and its ⌘K entry, hidden.
-/// Daily close lands on the till sales screen until its own screen is built.
-const SEVEN_SOFT_GROUP: readonly (readonly [string, readonly string[]])[] = [
-  ["Stores", ["/finance/stores/sales", "/finance/stores"]],
+///
+/// A row carries its own path and label: it must not borrow the Stores door,
+/// whose path is only the first view of its first tab. Daily close, Store
+/// cash and Month end have screens of their own in `index.ts`; the old
+/// sales-by-day and period-close screens keep their routes, off the menu.
+const SEVEN_SOFT_GROUP: readonly (readonly [
+  string,
+  readonly (readonly [string, string])[],
+])[] = [
+  [
+    "Stores",
+    [
+      ["/finance/stores/daily-close", "Daily close"],
+      ["/finance/stores/store-cash", "Store cash"],
+    ],
+  ],
   [
     "Cash & Bank",
     [
-      "/finance/cash-bank/kas-bank",
-      "/finance/cash-bank/bkk",
-      "/finance/cash-bank/bkm",
-      "/finance/cash-bank/giro",
-      "/finance/cash-bank/bank-reconciliation",
+      ["/finance/cash-bank/kas-bank", "Cash & Bank"],
+      ["/finance/cash-bank/bkk", "BKK"],
+      ["/finance/cash-bank/bkm", "BKM"],
+      ["/finance/cash-bank/giro", "Giro"],
+      ["/finance/cash-bank/bank-reconciliation", "Bank reconciliation"],
     ],
   ],
   [
     "Payables",
-    ["/finance/payables/bills", "/finance/payables/supplier-ledger"],
+    [
+      ["/finance/payables/bills", "Bills"],
+      ["/finance/payables/supplier-ledger", "Suppliers"],
+    ],
   ],
   [
     "Accounting",
     [
-      "/finance/accounting/journal-entries",
-      "/finance/accounting/info-accounting",
-      "/finance/assets/capitalization",
-      "/finance/period-close",
+      ["/finance/accounting/journal-entries", "Journal"],
+      ["/finance/accounting/info-accounting", "Ledger"],
+      ["/finance/assets/capitalization", "Assets"],
+      ["/finance/accounting/month-end", "Month end"],
     ],
   ],
-  ["", ["/finance/reports/laporan-accounting"]],
-  ["", ["/finance/accounts-setup"]],
+  ["", [["/finance/reports/laporan-accounting", "Reports"]]],
+  ["", [["/finance/accounts-setup", "Setup"]]],
 ]
 
 {
   const every = financeNav.sections.flatMap((section) => section.items)
   const byPath = new Map(every.map((item) => [item.path, item]))
-  const label = new Map(SEVEN_SOFT_MENU)
+  const icon = new Map(SEVEN_SOFT_ICON)
   const shown = new Set<string>()
 
   const sections: NavSection[] = [
-    ...SEVEN_SOFT_GROUP.map(([group, paths]) => ({
+    ...SEVEN_SOFT_GROUP.map(([group, rows]) => ({
       ...(group === "" ? {} : { label: group, chip: true }),
-      items: paths.flatMap((path) => {
-        const item = byPath.get(path)
-        if (!item) return []
+      items: rows.map(([path, label]) => {
         shown.add(path)
-        return [
-          { ...item, label: label.get(path) ?? item.label, hidden: false },
-        ]
+        const item = byPath.get(path)
+        return {
+          ...item,
+          path,
+          label,
+          icon: item?.icon ?? icon.get(path) ?? Landmark,
+          hidden: false,
+        }
       }),
     })),
     {

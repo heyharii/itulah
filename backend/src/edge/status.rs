@@ -31,12 +31,14 @@ use std::{
 ///
 /// A shop takes everything a Gudang does, plus the announcement that a koli is
 /// on its way (`inventory.store_inbound.announce.v1`).
-const DC_CAPABILITIES: [&str; 8] = [
+const DC_CAPABILITIES: [&str; 9] = [
     "inventory.pools.owned",
     "inventory.movements.read",
     crate::sync::workflow::GOODS_ROUTES_CAPABILITY,
     crate::sync::workflow::TRANSIT_SHORT_CAPABILITY,
     crate::sync::workflow::CLOSE_SHORT_CAPABILITY,
+    // MD's edit forwarded from Central (`edge::dc_allotment`).
+    crate::sync::workflow::ALLOTMENT_AMEND_CAPABILITY,
     crate::sync::flow::FLOWS_CAPABILITY,
     crate::sync::device::TEST_PRINT_CAPABILITY,
     crate::sync::node_ops::NODE_ACTIONS_CAPABILITY,

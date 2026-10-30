@@ -9,7 +9,6 @@ import {
 import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
-import { TintButton } from "@/components/ui/tint-button"
 import { Card } from "@/components/ui/card"
 import { DocStamp } from "@/components/ui/doc-stamp"
 import { Select } from "@/components/ui/field"
@@ -23,8 +22,13 @@ import type { ArticlePick } from "@/lib/operations/article-picks"
 import type { Identity } from "@/lib/operations/catalogue"
 import { moveBack } from "@/lib/operations/changes"
 import { keys } from "@/lib/operations/keys"
-import { rfidChecks, rfidKeys, type RfidCheck } from "@/lib/operations/rfid"
-import { RfidVerifySheet, type VerifyKoli } from "@/screens/operations/board/rfid-verify"
+import {
+  rfidChecks,
+  rfidKeys,
+  rfidRequests,
+  sendToC5,
+  type RfidCheck,
+} from "@/lib/operations/rfid"
 import { toast } from "@/lib/toast"
 import { idempotencyKey } from "@itulah/contract/client"
 import { cn } from "@/lib/utils"
@@ -146,8 +150,6 @@ export function BoardTables({
   const [pickStore, setPickStore] = useState<string>(ALL)
   const [packStore, setPackStore] = useState<string | null>(null)
   const [ticked, setTicked] = useState<ReadonlySet<string>>(new Set())
-  /// The koli being verified by RFID, while its sheet is open.
-  const [verifying, setVerifying] = useState<readonly VerifyKoli[] | null>(null)
   const checks = useQuery({
     queryKey: rfidKeys.checks(),
     queryFn: ({ signal }) => rfidChecks(signal),
@@ -155,6 +157,25 @@ export function BoardTables({
   })
   const checkOf = (koliId: string) =>
     checks.data?.find((one) => one.koli_id === koliId)
+  /// The stores the C5 has been sent and has not verified yet.
+  const requests = useQuery({
+    queryKey: rfidKeys.requests(),
+    queryFn: ({ signal }) => rfidRequests(signal),
+    refetchInterval: 10_000,
+  })
+  const waitingStores = new Set((requests.data ?? []).map((one) => one.store_id))
+  const client = useQueryClient()
+  /// Verify RFID (owner, 25 Oct 2026): sends the ticked koli's stores to the
+  /// C5; dispatch never waits for it.
+  const sendC5 = useMutation({
+    mutationFn: (storeIds: readonly string[]) => sendToC5(storeIds),
+    onSuccess: (_, storeIds) => {
+      setTicked(new Set())
+      void client.invalidateQueries({ queryKey: rfidKeys.requests() })
+      toast.success(`Sent to C5 · ${storeIds.map((id) => name(id)).join(", ")}`)
+    },
+    onError: (error) => toast.error(String((error as Error)?.message ?? error)),
+  })
   const name = (id: string) => shop(id) || id
 
   // ── Picklist ──
@@ -226,6 +247,13 @@ export function BoardTables({
       </>
     )
   if (tab === "packed" && koliRows.length > 0) {
+    const verifyStores = [
+      ...new Set(
+        koliRows
+          .filter((row) => chosen.has(row.koli.koli_id))
+          .map((row) => row.koli.destination_store_id)
+      ),
+    ]
     const one = chosen.size === 1 ? koliRows.find((row) => chosen.has(row.koli.koli_id)) : undefined
     actions = (
       <>
@@ -245,25 +273,17 @@ export function BoardTables({
         >
           Unpack
         </Button>
-        <TintButton
-          tone="ok"
+        <Button
+          variant="primary"
           disabled={chosen.size === 0}
+          pending={sendC5.isPending}
           title={chosen.size === 0 ? "Tick the koli to verify" : undefined}
-          onClick={() =>
-            setVerifying(
-              koliRows
-                .filter((row) => chosen.has(row.koli.koli_id))
-                .map((row) => ({
-                  id: row.koli.koli_id,
-                  label: `Koli ${row.index}`,
-                  code: bare(row.koli.koli_number),
-                  store: name(row.koli.destination_store_id),
-                }))
-            )
-          }
+          onClick={() => sendC5.mutate(verifyStores)}
         >
-          {chosen.size > 0 ? `Verify RFID · ${count(chosen.size)} koli` : "Verify RFID"}
-        </TintButton>
+          {verifyStores.length > 0
+            ? `Verify RFID · ${verifyStores.length === 1 ? "1 store" : `${count(verifyStores.length)} stores`}`
+            : "Verify RFID"}
+        </Button>
         <Button
           variant="primary"
           // Nothing can go while every koli holds pieces MD took out.
@@ -499,7 +519,10 @@ export function BoardTables({
                       <td className="max-md:hidden">{name(koli.destination_store_id)}</td>
                       <td className="tabular-nums max-md:hidden">{koli.sealed_at === null ? "—" : dayTime(koli.sealed_at)}</td>
                       <td className="whitespace-nowrap max-md:hidden">
-                        <RfidState check={checkOf(koli.koli_id)} />
+                        <RfidState
+                          check={checkOf(koli.koli_id)}
+                          waiting={waitingStores.has(koli.destination_store_id)}
+                        />
                       </td>
                       <td className="pr-4 text-right tabular-nums">
                         {count(koli.unit_count)}
@@ -511,17 +534,6 @@ export function BoardTables({
             </table>
           </Card>
         ))}
-
-      {verifying !== null && (
-        <RfidVerifySheet
-          koli={verifying}
-          open
-          onClose={() => {
-            setVerifying(null)
-            setTicked(new Set())
-          }}
-        />
-      )}
 
       {tab === "transit" &&
         (transit.length === 0 ? (
@@ -678,11 +690,17 @@ function PickedTable({
 
 /// A koli's RFID check (owner, 21 Oct 2026): Verified in green once every
 /// tag was read; how many were not, in amber; nothing until it is checked.
-function RfidState({ check: one }: { check: RfidCheck | undefined }) {
-  if (one === undefined) return <span className="text-mute">Not verified</span>
+function RfidState({
+  check: one,
+  waiting,
+}: {
+  check: RfidCheck | undefined
+  /// The koli's store was sent to the C5 and is not verified yet.
+  waiting: boolean
+}) {
   // A cap, as a finished document wears (owner, 21 Oct 2026: "verify rfid
   // cap saja").
-  if (one.verified_at !== null)
+  if (one !== undefined && one.verified_at !== null)
     return (
       <DocStamp
         word="RFID verified"
@@ -691,6 +709,9 @@ function RfidState({ check: one }: { check: RfidCheck | undefined }) {
         className="static text-[1rem] leading-5"
       />
     )
+  // Verify RFID (owner, 25 Oct 2026): sent to the C5, the answer not back.
+  if (waiting) return <span className="text-mute">Waiting for C5</span>
+  if (one === undefined || one.missing === 0) return <span className="text-mute">Not verified</span>
   return <span className="font-semibold text-warn-fg">{`${count(one.missing)} not read`}</span>
 }
 

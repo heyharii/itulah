@@ -50,6 +50,9 @@ export function authorizeVoucher(
   checkoutId: string,
   amountMinor: number,
 ): Promise<EdgeReply<VoucherHold>> {
+  // A paper voucher is single use (client, 28 Oct 2026): head office forfeits
+  // what the basket did not take when the hold is committed — the till only
+  // asks for the amount.
   return edge<VoucherHold>("POST", `${base(code)}/authorize`, {
     checkout_id: checkoutId,
     amount_minor: amountMinor,

@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kertas thermal</title>
+<style>
+:root{
+  --ink:#1d1d1f;--body:#6e6e73;--faint:#c7c7cc;--canvas:#fff;--stone:#e8ebf0;--hairline:#e8e8ec;--hairline-2:#dcdce1;
+  --accent:#2862dc;--accent-bg:#eef3fc;--segment-track:#f2f2f4;
+  --font-sans:"Inter Variable",Inter,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--stone);color:var(--ink);font:15px/1.45 var(--font-sans);-webkit-font-smoothing:antialiased}
+p{margin:0}
+.top{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;align-items:center;gap:10px 20px;padding:14px 24px;background:rgba(232,235,240,.92);backdrop-filter:blur(12px);border-bottom:1px solid var(--hairline-2)}
+.top h1{margin:0;font-size:20px;line-height:28px;font-weight:600;letter-spacing:-.4px}
+.grp{display:flex;align-items:center;gap:8px}
+.grp .k{color:var(--body)}
+.seg{display:inline-flex;padding:2px;border-radius:9px;background:#fff;box-shadow:inset 0 0 0 1px var(--hairline-2)}
+.seg button{height:32px;padding:0 12px;border:0;border-radius:7px;background:none;font:inherit;color:var(--ink);cursor:pointer;white-space:nowrap}
+.seg button.on{background:var(--accent);color:#fff;font-weight:600}
+main{padding:8px 24px 48px}
+section{margin-top:28px;scroll-margin-top:120px}
+.jump{display:flex;flex-wrap:wrap;gap:6px}
+.nv{display:inline-flex;align-items:center;gap:8px;color:var(--body)}
+.nv .seg2{display:inline-flex;gap:2px;padding:3px;border-radius:9px;background:#dfe1e6}
+.nv button{height:28px;padding:0 10px;border:0;border-radius:7px;background:none;cursor:pointer;font:inherit}
+.nv button.on{background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.12);font-weight:600}
+.jump a{display:inline-flex;gap:6px;align-items:center;height:30px;padding:0 10px;border-radius:999px;background:#fff;border:1px solid var(--hairline-2);color:var(--ink);text-decoration:none;font-size:15px}
+.jump a:hover{background:#f4f4f5}
+.jump a span{color:var(--mute)}
+section>h2{margin:0 0 14px;font-size:17px;line-height:24px;font-weight:600;letter-spacing:-.3px}
+.row{display:flex;flex-wrap:wrap;gap:28px;align-items:flex-start}
+.card{display:flex;flex-direction:column;gap:10px;width:340px}
+.card>.lbl{font-weight:600}
+.card>.lbl span{font-weight:400;color:var(--body)}
+
+/* The paper: an 80 mm roll, the printer's monospace, dashed rules, a torn foot. */
+.th-wrap{filter:drop-shadow(0 1px 1px rgb(0 0 0/10%)) drop-shadow(0 6px 14px rgb(0 0 0/8%))}
+.thermal{padding:18px 16px 30px;background:#fff;color:#111;font:15px/1.4 var(--mono);font-variant-numeric:tabular-nums;
+  -webkit-mask:conic-gradient(from -45deg at bottom,#0000,#000 1deg 89deg,#0000 90deg) 50%/12px 100%;
+  mask:conic-gradient(from -45deg at bottom,#0000,#000 1deg 89deg,#0000 90deg) 50%/12px 100%}
+/* The store's header, as on the client's own struk: logo band, then the address. */
+.th-logo{display:flex;flex-direction:column;align-items:center;margin-bottom:6px;padding:8px 0 6px;background:#111;color:#fff;font-family:var(--font-sans,system-ui)}
+.th-logo b{font-size:28px;line-height:30px;font-weight:800;letter-spacing:.06em}
+.th-logo i{font-size:15px;line-height:18px;font-style:italic;opacity:.85}
+/* The foot of the Bayar dialog on the till, as the cashier sees it. */
+.fb{width:100%;padding-top:14px;border-radius:14px;background:#fff;overflow:hidden;box-shadow:0 1px 2px rgb(0 0 0/6%),0 8px 24px rgb(0 0 0/6%)}
+.fb-tell{margin:0 20px 12px;padding:10px 14px;border-radius:10px;background:#faeacd;color:#d70015;font-weight:600}
+.fb-band{display:grid;grid-template-columns:auto 1fr;align-items:baseline;column-gap:20px;padding:16px 20px 20px;background:var(--accent);color:#fff}
+.fb-band .k{font-size:20px;line-height:28px;font-weight:600;color:#fff}
+.fb-band .v{font-size:38px;line-height:46px;font-weight:700;letter-spacing:-.035em;text-align:right;font-variant-numeric:tabular-nums}
+/* B: the warning rides inside the band, a white strip on top. */
+.fb-in{grid-column:1/-1;margin-bottom:10px;padding:8px 12px;border-radius:8px;background:#fff;color:#d70015;font-weight:600}
+/* C: the warning is one more row of the band, red on the blue's foot. */
+.fb.b,.fb.c{padding-top:0}
+.card:has(.fb){width:460px}
+.fb-band .k{white-space:nowrap}
+.fb-row{margin:0;padding:10px 20px;background:#d70015;color:#fff;font-weight:600}
+.c{text-align:center}
+.b{font-weight:700}
+.thermal hr{margin:8px 0;border:0;border-top:1px dashed #111}
+.thermal hr.dbl{border-top:3px double #111}
+.r{display:flex;justify-content:space-between;gap:12px}
+.r span:first-child{min-width:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.r span:last-child{flex:none;text-align:right;white-space:pre}
+.it+.it{margin-top:6px}
+.nm{overflow-wrap:anywhere}
+.mute{color:#555}
+.inv{display:inline-block;padding:0 6px;background:#111;color:#fff}
+.box{margin-top:8px;padding:6px 8px;border:1px solid #111}
+.terms p+p{margin-top:2px}
+/* A wrapped line starts under the text, not under the dash. */
+.terms .li{padding-left:2ch;text-indent:-2ch}
+.sign{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:14px;text-align:center}
+.sign .line{display:block;height:48px;border-bottom:1px solid #111;margin-bottom:4px}
+.big{font-size:20px;line-height:26px}
+/* Auto-cut pieces: one per note, cut straight by the printer, taped to its bundle. */
+.cuts{display:flex;flex-direction:column;gap:10px}
+.cuts .thermal{-webkit-mask:none;mask:none;padding:12px 16px 14px}
+.lab-k{text-align:center;color:#555}
+.lab-v{text-align:center;font-size:30px;line-height:36px;font-weight:700;letter-spacing:-.5px}
+.lab-v.sm{font-size:24px;line-height:30px;font-weight:600}
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Kertas thermal</h1>
+  <nav class="jump" id="jump"></nav>
+</header>
+<main id="app"></main>
+<script>
+const STORE = { company: 'CENTRAL FS', code: 'C011', name: 'Spin', till: 'Kasir 1', cashier: 'Andi', head: 'Bima Prasetyo' };
+/* Days a piece may come back, set per company in the hub. */
+const SWAP_DAYS = 7;
+/* `final`: the name of the return policy that says this piece never comes
+   back (hub Return policy, cloud `return_policy.exchangeable = false`, 1006):
+   a TAG policy for pakaian dalam, an ARTICLE policy for one article. A piece
+   sold on its own promotion joins them when the store's rule says so (DV). */
+const IT = {
+  koko: { sku: '2100200704', name: 'Andeska STL Koko TPJ', price: 207000 },
+  jeans: { sku: '2100341121', name: 'Grandkids CPD Jeans', price: 137000 },
+  tpd: { sku: '2100560203', name: 'Picasso KOB TPD 25', price: 94000 },
+  kanvas: { sku: '2100611904', name: 'Bombi CPJ Kanvas', price: 157000 },
+  sweat: { sku: '2100734410', name: 'MH Platinum Sweat Sweater', price: 189000 },
+  sae: { sku: '2100560291', name: 'Picasso KOB 91 SAE', price: 94000 },
+  legging: { sku: '2100871109', name: 'Ygynium CPJ Legging 1109 Polos', price: 37000 },
+  socks: { sku: '2100903301', name: 'Bombi Kaos Kaki 3in1', price: 29000, final: 'Pakaian dalam' },
+  batik: { sku: '2100990417', name: 'Kemeja Batik Parang', price: 259000, final: 'Batik Parang' },
+  sale: { sku: '2100955102', name: 'MH Kemeja Flanel', price: 99000 },
+  /* Marked down by a price change (clearance), not by a promotion. */
+  flanel: { sku: '2100955118', name: 'MH Kemeja Flanel Kotak', price: 99000, was: 159000 },
+  /* A gift card sold over the counter: paper money, never exchanged. */
+  gc: { sku: 'GC-8M2P-41TA', name: 'Gift Card 200.000', price: 200000, final: 'Voucher' },
+  /* The till's bags (BAGS in pos-classic-prototype.html): a free one reads
+     1 x Rp 0, a paid one its price (Hari, 29 Oct 2026). */
+  bag_ps: { sku: 'BAG-PS', name: 'Tas kertas kecil', price: 0, bag: true },
+  bag_pl: { sku: 'BAG-PL', name: 'Tas kertas besar', price: 0, bag: true },
+  bag_xs: { sku: 'BAG-XS', name: 'Kantong plastik kecil', price: 500, bag: true },
+  bag_xl: { sku: 'BAG-XL', name: 'Kantong plastik besar', price: 1000, bag: true },
+};
+/* Footer Bayar stays in the file but off the page (Hari, 29 Oct 2026). */
+const SHOW_FOOT = new URLSearchParams(location.search).has('foot'); // ?foot shows it
+const BULAN = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+const BULAN_PANJANG = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+const fmt = n => (n < 0 ? '-' : '') + Math.abs(n).toLocaleString('id-ID');
+/* Every price on a sale or return paper says Rp (Hari, 29 Oct 2026). */
+const money = n => (n < 0 ? '-' : '') + 'Rp ' + Math.abs(n).toLocaleString('id-ID');
+const day = d => `${d.getDate()} ${BULAN[d.getMonth()]} ${d.getFullYear()}`;
+const dmy = d => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getFullYear()).slice(2)}`;
+const hm = d => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+const plus = (d, n) => new Date(d.getTime() + n * 86400000);
+const r = (k, v, cls = '') => `<p class="r${cls ? ' ' + cls : ''}"><span>${k}</span><span>${v}</span></p>`;
+const SOLD = new Date(2026, 9, 21, 10, 59);
+const NOW = new Date(2026, 9, 28, 14, 12);
+
+/* Picked 28 Oct 2026: item row A, footer in the band, promo pieces can be exchanged, terms in a box. */
+const FV = 'B', DV = 'N', TV = 'A', IV = 'A';
+
+const head = () => `<div class="th-logo"><b>CENTRAL</b><i>Fashion Store</i></div><p class="c">Jl. Diponegoro 456</p><p class="c">Kalierang - Bumiayu</p><hr>`;
+const paper = body => `<div class="th-wrap"><div class="thermal">${body}</div></div>`;
+const card = (lbl, body) => `<div class="card"><p class="lbl">${lbl}</p>${paper(body)}</div>`;
+
+/* ── Terms at the foot of every sale and every return ───────────────────── */
+function terms(at, lines) {
+  const d = plus(at, SWAP_DAYS), until = `${d.getDate()} ${BULAN_PANJANG[d.getMonth()]} ${d.getFullYear()}`;
+  const n = lines.filter(isFinal).length;
+  /* Each piece that may not come back on its own line, named as the rows
+     above name it: "SKU NAMA tidak bisa ditukar" (Hari, 30 Oct 2026). */
+  const named = [...new Set(lines.filter(isFinal).map(l => `${l.it.sku} ${l.it.name.toUpperCase()}`))];
+  /* Nothing on the struk may come back: no terms, only that. */
+  if (n && n === lines.length) return `<div class="box terms">${named.map(x => `<p class="b">${x} tidak bisa ditukar</p>`).join('')}</div>`;
+  /* The client's own wording (29 Oct 2026). */
+  return `<div class="box terms">
+      <p class="b">Ketentuan penukaran barang:</p>
+      <p class="li">- Penukaran paling lambat tgl ${until}</p>
+      <p class="li">- Nota penjualan wajib dibawa saat penukaran</p>
+      <p class="li">- Hang tag dan label harga barang tidak boleh terlepas, rusak, atau hilang</p>
+      <p class="li">- Barang hanya dapat ditukar dengan barang yang sama atau lebih mahal</p>
+      <p class="li">- Penukaran barang dengan barang yang lebih murah tidak ada pengembalian uang</p>
+      ${named.map(x => `<p class="li">- ${x} tidak bisa ditukar</p>`).join('')}
+    </div>`;
+}
+/* A piece that may not come back carries a star after its name. */
+const isFinal = l => !!l.it.final || (DV === 'Y' && !!l.promo);
+const itemRow = (l, sign = '') => `<div class="it"><p class="nm">${l.it.name}${l.it.final ? ' *' : ''}</p>${r(`${sign}${l.q} x ${fmt(l.it.price)}`, fmt((sign === '-' ? -1 : 1) * l.q * l.it.price))}${l.it.was ? r('  harga awal', fmt(l.it.was), 'mute') : ''}</div>`;
+
+/* How a piece reads on the struk; four ways to compare (28 Oct 2026). */
+/* Set while a paper is drawn: every piece on it is final. */
+let ALL_FINAL = false;
+function saleLine(l) {
+  /* A piece coming back returns its promotion too: the minus line turns plus. */
+  return pieceLine(l) + (l.it.was ? r('  harga awal', money(l.it.was), 'mute') : '') + (l.promo ? r(`  ${l.promo[0]}`, money(l.q < 0 ? l.promo[1] : -l.promo[1])) : '');
+}
+function pieceLine(l) {
+  // No star when nothing on the paper comes back: the box says it (Hari, 29 Oct 2026).
+  // No stars (Hari, 29 Oct 2026): the box names the SKU that may not come back.
+  const nm = l.it.name.toUpperCase(), tot = money(l.q * l.it.price), qp = `${l.q} x ${money(l.it.price)}`;
+  if (IV === 'B') return `<div class="it"><p class="nm">${nm}</p>${r(`  ${l.it.sku}  ${qp}`, tot)}</div>`;
+  if (IV === 'C') return `<div class="it">${r(nm, tot)}<p class="mute">  ${l.it.sku} · ${qp}</p></div>`;
+  if (IV === 'D') return `<div class="it"><p class="nm">${nm}</p>${r(`  ${qp}`, tot)}</div>`;
+  return `<div class="it"><p class="nm">${l.it.sku} ${nm}</p>${r(`  ${qp}`, tot)}</div>`;
+}
+
+/* ── Sales ─────────────────────────────────────────────────────────────── */
+/* Marketing on the struk (28 Oct 2026): a piece's promotion right under the
+   piece; a basket discount (member promo, coupon) by name above Total Disc;
+   voucher, points and employee balance are ways to pay. A voucher is paper,
+   used once at its face value: what it leaves over is lost, never change —
+   only cash gives change. */
+function sale({ no, lines, pays, change = 0, member, discs = [] }) {
+  /* A bag is no piece: not in Total Item, not in the exchange terms. */
+  const goods = lines.filter(l => !l.it.bag);
+  const pcs = goods.reduce((a, l) => a + l.q, 0);
+  const sub = lines.reduce((a, l) => a + l.q * l.it.price, 0);
+  const cut = lines.reduce((a, l) => a + (l.promo ? l.promo[1] : 0), 0) + discs.reduce((a, d) => a + d[1], 0);
+  const total = sub - cut;
+  return head()
+    /* The middle as on the client's 7Soft struk: No Nota/Kasir with date and
+       time, "qty SKU NAME" then qty x price, Total Item … Kembali. */
+    + r(`No Nota  <b>${no}</b>`, dmy(SOLD)) + r(`Kasir    ${STORE.cashier.toUpperCase()} ${STORE.code}`, hm(SOLD))
+    + '<hr>' + ((ALL_FINAL = goods.every(isFinal)), lines.map(saleLine).join('')) + '<hr>'
+    + r(`Total Item: ${pcs} Pcs`, money(sub)) + discs.map(([k, v]) => r(k, money(-v))).join('') + r('Total Disc', money(cut)) + r('Setelah Disc.', money(total), 'b')
+    + '<hr>' + pays.map(([k, v, left]) => r(k, money(v)) + (left ? `<p class="mute">  ${left}</p>` : '')).join('') + r('Kembali', money(change))
+    + (member ? `<hr>${r('Member point', `+${fmt(Math.floor(total / 10000))} poin`)}` : '')
+    + terms(SOLD, goods)
+    + '<hr><p class="c">Terima Kasih atas Kunjungan Anda</p><p class="c">Kritik dan saran hubungi</p><p class="c">TLP. (0289) 4403336</p>';
+}
+
+/* ── Returns: what came back (minus), what went out (plus) ─────────────── */
+/* Cheaper replacements leave the note at 0: a return note never pays money
+   out. Dearer ones are paid like any sale. */
+function ret({ no, back, out, pays = [], change = 0, toBalance, member }) {
+  /* One format with the sale's struk (Hari, 28 Oct 2026): no title of its own,
+     the pieces that came back in minus, the replacements in plus. What is owed
+     is never below 0; Kembali is the change from paying a difference, never a refund. */
+  const lines = [...back.map(l => ({ ...l, q: -l.q })), ...out];
+  const pcs = lines.reduce((a, l) => a + Math.abs(l.q), 0);
+  /* A piece comes back at what was paid for it: its promotion is taken off. */
+  const total = lines.reduce((a, l) => a + l.q * l.it.price - Math.sign(l.q) * (l.promo ? l.promo[1] : 0), 0), due = Math.max(0, total);
+  return head()
+    + r(`No Nota  <b>${no}</b>`, dmy(NOW)) + r(`Kasir    ${STORE.cashier.toUpperCase()} ${STORE.code}`, hm(NOW))
+    + '<hr>' + ((ALL_FINAL = false), lines.map(saleLine).join('')) + '<hr>'
+    + r(`Total Item: ${pcs} Pcs`, money(due)) + r('Total Disc', money(0)) + r('Setelah Disc.', money(due), 'b')
+    + '<hr>' + pays.map(([k, v]) => r(k, money(v))).join('')
+    + (toBalance && total < 0 ? r(toBalance, money(-total)) : '')
+    + r('Kembali', money(due > 0 ? change : 0))
+    + (member ? `<hr>${r('Member point', `${fmt(member[1])} poin`)}` : '')
+    /* A struk with a return on it never comes back again, replacements included (Hari, 28 Oct 2026);
+       the box names them as the rows above do, SKU then name (Hari, 29 Oct 2026). */
+    + (out.length ? `<div class="box terms">${[...new Set(out.map(l => `${l.it.sku} ${l.it.name.toUpperCase()}`))].map(x => `<p class="b">${x} tidak bisa ditukar</p>`).join('')}</div>` : '')
+    + '<hr><p class="c">Terima Kasih atas Kunjungan Anda</p><p class="c">Kritik dan saran hubungi</p><p class="c">TLP. (0289) 4403336</p>';
+}
+
+/* ── Cash slips ────────────────────────────────────────────────────────── */
+function slip(title, no, name, amount, from, to) {
+  return head() + `<p class="c b">${title}</p><hr>` + r('No.', no) + r(dmy(NOW), hm(NOW)) + r('Kasir', `${name} ${STORE.code}`)
+    + '<hr>' + r('Jumlah', amount ? money(amount) : '____________', 'b')
+    + `<div class="sign"><div>Diserahkan<span class="line"></span>${from}</div><div>Diterima<span class="line"></span>${to}</div></div>`;
+}
+/* `moves`: what happened to the drawer's float during the shift, in order —
+   every slip by its number, so each one can be found again. */
+function closing(moves = []) {
+  const D = [100000, 50000, 20000, 10000, 5000, 2000, 1000, 500, 200, 100], N = [52, 38, 1, 1, 0, 1, 0, 1, 0, 0];
+  const total = D.reduce((a, v, i) => a + v * N[i], 0);
+  const modal = 500000 + moves.filter(m => m[2] !== 'setoran').reduce((a, m) => a + m[1], 0);
+  return head() + '<p class="c b">TUTUP KASIR</p><hr>'
+    + r('Kasir', `ANDI SAPUTRA ${STORE.code}`) + r('Dibuka', '21 Okt 2026 08:58') + r('Ditutup', '21 Okt 2026 17:05') + r('Saldo Awal', '500.000')
+    + moves.map(([k, v]) => r(k, money(v))).join('') + (moves.some(m => m[2] !== 'setoran') ? r('Modal Akhir', money(modal), 'b') : '')
+    + r('Struk BCA', '2') + r('Struk MANDIRI', '2') + r('Struk BRI', '1') + r('Voucher', '3')
+    + '<hr><p class="b">RINCIAN UANG</p>'
+    + D.map((v, i) => N[i] ? r(`${money(v).padStart(7)} x ${String(N[i]).padStart(3)}`, money(v * N[i])) : '').join('')
+    + '<hr>' + r('TOTAL', money(total), 'b')
+    + `<div class="sign"><div>Kasir<span class="line"></span>Andi Saputra</div><div>Admin<span class="line"></span>&nbsp;</div></div>`;
+}
+
+/* One cut piece per note counted, only to mark the money: who and when, then the
+   count (ESC/POS: double-size text, then GS V cut). */
+function labels(when, D, N) {
+  return `<div class="cuts">${D.map((v, i) => N[i] ? `<div class="th-wrap"><div class="thermal">
+      <p class="lab-k">Andi Saputra</p><p class="lab-k">${when}</p>
+      <p class="lab-v sm">${N[i]} x ${money(v)}</p><p class="lab-v">${money(v * N[i])}</p></div></div>` : '').join('')}</div>`;
+}
+const CLOSE_D = [100000, 50000, 20000, 10000, 5000, 2000, 1000, 500, 200, 100], CLOSE_N = [52, 38, 1, 1, 0, 1, 0, 1, 0, 0];
+const SETOR_N = [0, 10, 10, 0, 0, 0, 0, 0, 0, 0];
+const L = (it, q = 1) => ({ it: IT[it], q });
+/* The Bayar dialog's foot: the red line only when something may not be exchanged. */
+/* `tell`: what the white cards say, one card each (29 Oct 2026). */
+const foot = (lbl, tell, pcs, paid) => {
+  tell = tell === null ? null : [].concat(tell).map(t => `<p class="fb-in">${t}</p>`).join('');
+  const figs = `<span class="k">Total Belanja</span><span class="v">${pcs} Pcs</span>${paid ? `<span class="k">Uang Diterima</span><span class="v">${fmt(paid)}</span>` : ''}`;
+  const body = FV === 'B' ? `<div class="fb-band">${tell || ''}${figs}</div>`
+    : FV === 'C' ? `<div class="fb-band">${figs}</div>${tell ? `<p class="fb-row">${tell}</p>` : ''}`
+    : `${tell ? `<p class="fb-tell">${tell}</p>` : ''}<div class="fb-band">${figs}</div>`;
+  return `<div class="card"><p class="lbl">${lbl}</p><div class="fb ${FV.toLowerCase()}">${body}</div></div>`;
+};
+/* Sections by what the cashier does (Hari, 29 Oct 2026): a row per way to pay,
+   then discounts, the exchange terms, returns, and the drawer. */
+function render() {
+  const G = {
+    tunai: `${card('Tunai', sale({ no: 'SPAPODH', lines: [L('koko', 2), L('jeans'), L('tpd'), L('kanvas')], pays: [['Tunai', 1000000]], change: 9000 }))}`,
+    split: `${card('Split · member', sale({ no: 'SPAPOEK', lines: [L('sweat'), L('sale'), L('socks')], pays: [['EDC BCA', 200000], ['Tunai', 117000]], member: ['Siti Rahmawati', 1240] }))}`,
+    v_big: `${card('Voucher lebih besar <span>· tanpa kembalian</span>', sale({ no: 'SPAPOEN', lines: [L('sweat')], pays: [['Voucher GC-7Y3K-22QD', 200000]], change: 0 }))}`,
+    v_cash: `${card('Voucher + tunai', sale({ no: 'SPAPOEO', lines: [L('koko')], pays: [['Voucher CP-QA19-X04M', 50000], ['Tunai', 200000]], change: 43000 }))}`,
+    gc: `${card('Jual gift card', sale({ no: 'SPAPOFH', lines: [L('gc')], pays: [['Tunai', 200000]] }))}`,
+    poin: `${card('Tukar poin', sale({ no: 'SPAPOEP', lines: [L('jeans')], pays: [['Poin 50.000', 50000], ['Tunai', 100000]], change: 13000, member: ['Siti Rahmawati', 7408] }))}`,
+    pvt: `${card('Poin + voucher + tunai', sale({ no: 'SPAPOFE', lines: [L('sweat'), L('tpd')], pays: [['Poin 30.000', 30000], ['Voucher CP-QA19-X04M', 100000], ['Tunai', 160000]], change: 7000, member: ['Siti Rahmawati', 4436] }))}`,
+    emp: `${card('Diskon karyawan', sale({ no: 'SPAPOEQ', lines: [L('kanvas')], pays: [['Diskon karyawan', 100000], ['Tunai', 60000]], change: 3000 }))}`,
+    emp_full: `${card('Diskon karyawan <span>· penuh</span>', sale({ no: 'SPAPOFF', lines: [L('kanvas')], pays: [['Diskon karyawan', 157000]] }))}`,
+    emp_edc: `${card('Diskon karyawan + EDC <span>· saldo habis</span>', sale({ no: 'SPAPOFG', lines: [L('koko'), L('jeans')], pays: [['Diskon karyawan', 150000], ['EDC BCA', 194000]] }))}`,
+    emp_promo: `${card('Diskon karyawan + barang promo', sale({ no: 'SPAPOFI', lines: [{ ...L('koko'), promo: ['Gajian Oktober 30%', 62100] }, L('jeans')], pays: [['Diskon karyawan', 200000], ['Tunai', 100000]], change: 18100 }))}`,
+    promo: `${card('Promo barang', sale({ no: 'SPAPOEL', lines: [{ ...L('koko'), promo: ['Gajian Oktober 30%', 62100] }, { ...L('jeans', 3), promo: ['Beli 2 gratis 1', 137000] }], pays: [['Tunai', 500000]], change: 40900 }))}`,
+    rupiah: `${card('Potongan rupiah', sale({ no: 'SPAPOFA', lines: [{ ...L('kanvas'), promo: ['Weekend Potong 25.000', 25000] }], pays: [['Tunai', 150000]], change: 18000 }))}`,
+    coret: `${card('Harga coret <span>· clearance</span>', sale({ no: 'SPAPOFB', lines: [L('flanel'), L('tpd')], pays: [['Tunai', 200000]], change: 7000 }))}`,
+    paket: `${card('Paket <span>· 2 jadi 300.000</span>', sale({ no: 'SPAPOFC', lines: [L('koko'), { ...L('kanvas'), promo: ['Paket Lebaran 2 = 300.000', 64000] }], pays: [['QRIS BCA', 300000]] }))}`,
+    member_kupon: `${card('Promo member · kupon', sale({ no: 'SPAPOEM', lines: [L('koko'), L('kanvas')], discs: [['Member Hemat', 25000], ['Kupon HEMAT50', 50000]], pays: [['QRIS BCA', 289000]], member: ['Siti Rahmawati', 1269] }))}`,
+    bag_free: `${card('Kantong gratis', sale({ no: 'SPAPOFJ', lines: [L('koko'), L('jeans'), L('bag_pl')], pays: [['Tunai', 400000]], change: 56000 }))}`,
+    bag_paid: `${card('Kantong bayar', sale({ no: 'SPAPOFK', lines: [L('koko'), L('jeans'), L('bag_xs')], pays: [['Tunai', 400000]], change: 55500 }))}`,
+    bag_mix: `${card('Gratis + bayar', sale({ no: 'SPAPOFL', lines: [L('koko'), L('jeans'), L('bag_ps'), L('bag_xl', 2)], pays: [['Tunai', 400000]], change: 54000 }))}`,
+    promo_kupon: `${card('Promo barang + kupon', sale({ no: 'SPAPOFD', lines: [{ ...L('koko'), promo: ['Gajian Oktober 30%', 62100] }, L('jeans')], discs: [['Kupon HEMAT50', 50000]], pays: [['EDC BCA', 231900]] }))}`,
+    t_all: `${card('Semua bisa ditukar', sale({ no: 'SPAPOER', lines: [L('koko'), L('jeans')], pays: [['Tunai', 400000]], change: 56000 }))}`,
+    t_art: `${card('Artikel tidak bisa ditukar', sale({ no: 'SPAPOES', lines: [L('batik'), L('jeans')], pays: [['Tunai', 400000]], change: 4000 }))}`,
+    t_pd: `${card('Pakaian dalam', sale({ no: 'SPAPOET', lines: [L('socks', 2), L('tpd')], pays: [['Tunai', 200000]], change: 48000 }))}`,
+    t_promo: `${card(`Barang promo <span>· ${DV === 'Y' ? 'tidak bisa ditukar' : 'bisa ditukar'}</span>`, sale({ no: 'SPAPOEU', lines: [{ ...L('koko'), promo: ['Gajian Oktober 30%', 62100] }, L('kanvas')], pays: [['Tunai', 400000]], change: 98100 }))}`,
+    t_disc: `${card('Diskon belanja <span>· member, kupon</span>', sale({ no: 'SPAPOEV', lines: [L('koko'), L('kanvas')], discs: [['Kupon HEMAT50', 50000]], pays: [['Tunai', 400000]], change: 86000 }))}`,
+    t_mix: `${card('Campuran', sale({ no: 'SPAPOEW', lines: [L('batik'), L('socks'), { ...L('koko'), promo: ['Gajian Oktober 30%', 62100] }, L('jeans')], pays: [['EDC BCA', 569900]] }))}`,
+    t_none: `${card('Semua tidak bisa ditukar', sale({ no: 'SPAPOEX', lines: [L('batik'), L('socks')], pays: [['Tunai', 300000]], change: 12000 }))}`,
+    r_cheap: `${card('Lebih murah <span>· pengembalian 0</span>', ret({ no: 'SPARTQZ', back: [L('jeans')], out: [L('tpd')] }))}`,
+    r_same: `${card('Sama', ret({ no: 'SPARTRA', back: [L('tpd')], out: [L('sae')] }))}`,
+    r_dear: `${card('Lebih mahal <span>· bayar selisih</span>', ret({ no: 'SPARTRB', back: [L('legging'), L('tpd')], out: [L('koko')], pays: [['Tunai', 100000]], change: 24000 }))}`,
+    r_none: `${card('Tanpa pengganti', ret({ no: 'SPARTRC', back: [L('kanvas')], out: [] }))}`,
+    rm_promo: `${card('Barang promo kembali <span>· harga setelah promo</span>', ret({ no: 'SPARTRE', back: [{ ...L('koko'), promo: ['Gajian Oktober 30%', 62100] }], out: [L('kanvas')], pays: [['Tunai', 20000]], change: 7900 }))}`,
+    rm_emp: `${card('Dari diskon karyawan <span>· saldo kembali</span>', ret({ no: 'SPARTRF', back: [L('kanvas')], out: [], toBalance: 'Saldo karyawan kembali' }))}`,
+    rm_member: `${card('Member <span>· poin ditarik</span>', ret({ no: 'SPARTRG', back: [L('jeans')], out: [L('tpd')], member: ['Siti Rahmawati', -4] }))}`,
+    k_ma: `${card('Modal awal <span>· buka kasir</span>', slip('MODAL AWAL', 'MA-0021', 'ANDI SAPUTRA', 500000, STORE.head, 'Andi Saputra'))}`,
+    k_tm: `${card('Tambah modal', slip('TAMBAH MODAL KASIR', 'TM-0004', 'ANDI SAPUTRA', 202000, STORE.head, 'Andi Saputra'))}`,
+    k_tm2: `${card('Tambah modal ke-2', slip('TAMBAH MODAL KASIR', 'TM-0005', 'ANDI SAPUTRA', 100000, STORE.head, 'Andi Saputra'))}`,
+    k_sm: `${card('Setor modal', slip('SETOR MODAL', 'SM-0002', 'ANDI SAPUTRA', 300000, 'Andi Saputra', STORE.head))}`,
+    k_ss: `${card('Setoran sementara', slip('SETORAN SEMENTARA', 'ST-0008', 'ANDI SAPUTRA', 0, 'Andi Saputra', STORE.head))}`,
+    c_tetap: `${card('Modal tetap', closing())}`,
+    c_tambah: `${card('Modal ditambah & disetor', closing([['Tambah Modal TM-0004', 202000], ['Tambah Modal TM-0005', 100000], ['Setor Modal SM-0002', -300000], ['Setoran ST-0008', -700000, 'setoran']]))}`,
+    setor: `${card('Kertas setoran', slip('SETORAN SEMENTARA', 'ST-0008', 'ANDI SAPUTRA', 700000, 'Andi Saputra', STORE.head).replace('<hr>' + r('Jumlah', money(700000), 'b'), '<hr>' + CLOSE_D.map((v, i) => SETOR_N[i] ? r(`${money(v).padStart(7)} x ${String(SETOR_N[i]).padStart(3)}`, money(v * SETOR_N[i])) : '').join('') + '<hr>' + r('Jumlah', money(700000), 'b')))}`,
+    lab_close: `<div class="card"><p class="lbl">Potongan per pecahan</p>${labels('21/10/2026 17:05', CLOSE_D, CLOSE_N)}</div>`,
+    lab_setor: `<div class="card"><p class="lbl">Potongan per pecahan</p>${labels('28/10/2026 14:12', CLOSE_D, SETOR_N)}</div>`,
+  };
+  const list = [
+    ['tunai', 'Bayar · tunai & kartu', [G.tunai, G.split]],
+    ['voucher', 'Bayar · voucher', [G.v_big, G.v_cash, G.gc]],
+    ['poin', 'Bayar · poin member', [G.poin, G.pvt]],
+    ['karyawan', 'Bayar · diskon karyawan', [G.emp, G.emp_full, G.emp_edc, G.emp_promo]],
+    ['promo', 'Diskon · per barang', [G.promo, G.rupiah, G.coret, G.paket]],
+    ['belanja', 'Diskon · belanja', [G.member_kupon, G.promo_kupon]],
+    ['kantong', 'Kantong belanja', [G.bag_free, G.bag_paid, G.bag_mix]],
+    ['tukar', 'Syarat tukar', [G.t_all, G.t_art, G.t_pd, G.t_promo, G.t_disc, G.t_mix, G.t_none]],
+    ['return', 'Return', [G.r_cheap, G.r_same, G.r_dear, G.r_none]],
+    ['return-m', 'Return · diskon & bayar', [G.rm_promo, G.rm_emp, G.rm_member]],
+    ['kas', 'Kas', [G.k_ma, G.k_tm, G.k_tm2, G.k_sm, G.k_ss]],
+    ['tutup', 'Tutup kasir', [G.c_tetap, G.c_tambah, G.lab_close]],
+    ['setoran', 'Setoran sementara', [G.setor, G.lab_setor]],
+  ];
+  document.getElementById('jump').innerHTML = list.map(([id, title, cards]) => `<a href="#${id}">${title} <span>${cards.length}</span></a>`).join('');
+  document.getElementById('app').innerHTML = list.map(([id, title, cards]) => `<section id="${id}"><h2>${title}</h2><div class="row">${cards.join('')}</div></section>`).join('')
+    + `${SHOW_FOOT ? `<section id="footer"><h2>Footer Bayar</h2><div class="row">
+    ${foot('Semua bisa ditukar · belum bayar', null, 3)}
+    ${foot('Semua bisa ditukar · uang diterima', null, 3, 600000)}
+    ${foot('Ada yang tidak bisa ditukar', '2100903301 BOMBI KAOS KAKI 3IN1 tidak bisa ditukar', 3, 400000)}
+    ${foot('Beberapa tidak bisa ditukar', ['2100903301 BOMBI KAOS KAKI 3IN1 tidak bisa ditukar', '2100990417 KEMEJA BATIK PARANG tidak bisa ditukar'], 4, 600000)}
+    ${foot('Semua tidak bisa ditukar', ['2100990417 KEMEJA BATIK PARANG tidak bisa ditukar', '2100903301 BOMBI KAOS KAKI 3IN1 tidak bisa ditukar'], 2, 300000)}
+    ${foot('Return · bayar selisih', '2100200704 ANDESKA STL KOKO TPJ tidak bisa ditukar', 1, 100000)}
+  </div></section>` : ''}`;
+}
+render();
+</script>
+</body>
+</html>

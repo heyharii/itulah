@@ -56,7 +56,7 @@ const WHERE: Partial<Record<RecordKind, { to: string; sheet?: SheetKey }>> = {
   },
 
   // People
-  employee: { to: "/people", sheet: "employee" },
+  employee: { to: "/people/employee", sheet: "employee" },
 
   // Marketing. The marketing watch raises notices about a promotion or a
   // campaign that has used up its budget or crossed a guardrail, and both

@@ -7,7 +7,8 @@ import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { button } from "@/components/ui/button-style"
 import { Field, Input, Select, Textarea } from "@/components/ui/field"
-import { Pill } from "@/components/ui/pill"
+import { Pill, Status } from "@/components/ui/pill"
+import { MiniCell, MiniRow, MiniTable, SheetSection } from "@/components/ui/rows"
 import { Segmented } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
@@ -38,6 +39,8 @@ import {
   type VaultRow,
 } from "@/screens/workplace/vault"
 import { PagePreview, useCopyLink } from "@/screens/workplace/vault-tile"
+import { originalWords } from "@/screens/workplace/original-sheets"
+import { useSheet } from "@/lib/sheets"
 
 // ─── One row, opened ─────────────────────────────────────────────────────────
 
@@ -72,6 +75,7 @@ export function VaultSheet({
     enabled: row !== null && row.source === "FILED",
   })
   const nameOf = useNameOfLogin()
+  const original = useSheet("original")
 
   const links = detail.data?.links ?? []
   const state = row === null ? "Ready" : stateOf(row)
@@ -161,6 +165,40 @@ export function VaultSheet({
               </Fact>
             )}
           </Facts>
+
+          {row.paper != null && (
+            <SheetSection title="Hard copy" aside={row.paper.originals.length}>
+              {row.paper.originals.length === 0 ? (
+                <p className="text-body">No hard copy is kept.</p>
+              ) : (
+                <MiniTable
+                  head={["Copy", { label: "Where it is", align: "left" }]}
+                >
+                  {row.paper.originals.map((one) => {
+                    const words = originalWords(one)
+                    return (
+                      <MiniRow key={one.original_id}>
+                        <MiniCell>
+                          <button
+                            type="button"
+                            className="record-link text-left"
+                            onClick={() => original.open(one.original_id)}
+                          >
+                            {one.kind === "ORIGINAL"
+                              ? "Original"
+                              : "Certified copy"}
+                          </button>
+                        </MiniCell>
+                        <MiniCell>
+                          <Status tone={words.tone}>{words.word}</Status>
+                        </MiniCell>
+                      </MiniRow>
+                    )
+                  })}
+                </MiniTable>
+              )}
+            </SheetSection>
+          )}
 
           {summary && (
             <section>

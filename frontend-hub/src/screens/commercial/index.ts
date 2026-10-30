@@ -41,4 +41,29 @@ export const screens: ScreenMap = {
     () => import("@/screens/commercial/vouchers"),
     (m) => m.Vouchers
   ),
+  "/commercial/return-policy": lazyScreen(
+    "commercial/return-policy",
+    () => import("@/screens/commercial/return-policy"),
+    (m) => m.ReturnPolicyScreen
+  ),
+  "/commercial/point-policy": lazyScreen(
+    "commercial/point-policy",
+    () => import("@/screens/commercial/point-policy"),
+    (m) => m.PointPolicyScreen
+  ),
+  "/commercial/employee-discount": lazyScreen(
+    "commercial/employee-discount",
+    () => import("@/screens/commercial/employee-discount"),
+    (m) => m.EmployeeDiscountPage
+  ),
+  "/commercial/employee-discount-history": lazyScreen(
+    "commercial/employee-discount-history",
+    () => import("@/screens/commercial/employee-discount-history"),
+    (m) => m.EmployeeDiscountHistory
+  ),
+  "/commercial/employee-discount-settings": lazyScreen(
+    "commercial/employee-discount-settings",
+    () => import("@/screens/commercial/employee-discount-settings"),
+    (m) => m.EmployeeDiscountSettings
+  ),
 }

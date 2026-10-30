@@ -525,19 +525,23 @@ pub fn claim(
         ));
     };
 
-    let row: Option<(String, String, i64)> = tx
+    // The finger's own lease (`0095`), falling back to the password's when head
+    // office sent none. A store head's finger still opens a till or approves a
+    // void after a day without head office, and not once this has run out.
+    let row: Option<(String, String, i64, Option<String>)> = tx
         .query_row(
-            "SELECT f.username,u.role,u.active
+            "SELECT f.username,u.role,u.active,
+                    COALESCE(u.finger_valid_until,u.valid_until)
              FROM edge_fingerprint f
              JOIN edge_user u ON u.username = f.username
              WHERE f.finger_id=?1 AND f.active=1",
             params![finger_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .optional()
         .map_err(db)?;
 
-    let Some((username, role, active)) = row else {
+    let Some((username, role, active, lease_until)) = row else {
         record(&tx, Some(finger_id), None, false, Some("unknown enrolment"))?;
         tx.commit().map_err(db)?;
         return Err(EdgeError::Unauthorized(
@@ -555,6 +559,28 @@ pub fn claim(
         tx.commit().map_err(db)?;
         return Err(EdgeError::Unauthorized(
             "that account is not active at this shop".into(),
+        ));
+    }
+    // No lease is a LOCAL account, which head office does not lease.
+    let lease_ended = match lease_until.as_deref() {
+        Some(until) => {
+            chrono::DateTime::parse_from_rfc3339(until)
+                .map_err(|error| EdgeError::Persistence(error.to_string()))?
+                <= now
+        }
+        None => false,
+    };
+    if lease_ended {
+        record(
+            &tx,
+            Some(finger_id),
+            Some(&username),
+            false,
+            Some("lease ended"),
+        )?;
+        tx.commit().map_err(db)?;
+        return Err(EdgeError::Unauthorized(
+            "that account's offline lease at this shop has run out".into(),
         ));
     }
     if purpose == "SUPERVISOR" && !matches!(role.as_str(), "SUPERVISOR" | "ADMIN") {
@@ -1158,14 +1184,15 @@ pub fn replace_from_head_office(
     Ok((taken, retired))
 }
 
-// ── a finger recorded at the store waits for head office ─────────────────
+// ── a finger recorded at the store ───────────────────────────────────────
 //
-// Owner, 24 Oct 2026: every finger recorded at a store waits for head office.
 // The store head records her own at the POS after signing in with her
-// password, then the people head office added. A recording sits in
-// `edge_finger_submission` (`0090`), never in `edge_fingerprint`, so nothing
-// can match it before head office says yes; it is sent with the next ask for
-// fingers, and an approved one comes back as head office's own.
+// password, then the people head office added. Each is hers to approve, and
+// recording it is her yes (owner, 24 Oct 2026 for her team; 25 Oct 2026 for
+// her own): it opens this store's POS at once from a `st-` row, and the
+// recording in `edge_finger_submission` (`0090`) is sent with the next ask for
+// fingers, where head office takes it as approved by her and can withdraw it.
+// Head office's copy comes back and takes over from the store's.
 
 /// The ten fingers, in head office's words (`fingerprint_template.finger`).
 pub const FINGER_CODES: [&str; 10] = [
@@ -1202,15 +1229,17 @@ pub struct FingerSubmission {
     pub finger: String,
     /// "Telunjuk kanan".
     pub label: String,
-    /// `PENDING` until head office decides; `REFUSED` with its reason.
+    /// `APPROVED` as it is recorded; `REFUSED`, with its reason, when head
+    /// office would not take it.
     pub status: String,
     pub reason: Option<String>,
     pub recorded_by: String,
     pub recorded_at: String,
 }
 
-/// Record a finger for head office to approve. Recording the same finger of
-/// the same person again replaces what was waiting or was refused.
+/// Record a finger, approved by the store head who records it. Recording the
+/// same finger of the same person again replaces what was waiting or was
+/// refused.
 ///
 /// A finger already enrolled to somebody else here is refused by its exact
 /// template; the POS matches the new capture against everybody's fingers
@@ -1306,45 +1335,42 @@ pub fn submit(
             ],
         )
         .map_err(db)?;
-    // Somebody else's finger, recorded by the store head, is the head's to
-    // approve, and she just did (owner, 24 Oct 2026: "both bisa ho bisa
-    // kepala toko"): it opens this store's POS now, and head office takes it
-    // as approved by her and can still withdraw it. Her own waits for head
-    // office. One row per person and finger, which head office's copy
-    // retires when it arrives (`replace_from_head_office`).
-    let approved_here = username != recorded_by;
-    if approved_here {
-        connection
-            .execute(
-                "INSERT INTO edge_fingerprint
-                   (finger_id,username,label,template_base64,reader_kind,
-                    enrolled_at,enrolled_by,active,updated_at,source)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,1,?6,'STORE')
-                 ON CONFLICT(finger_id) DO UPDATE SET
-                    template_base64 = excluded.template_base64,
-                    reader_kind = excluded.reader_kind,
-                    enrolled_at = excluded.enrolled_at,
-                    enrolled_by = excluded.enrolled_by,
-                    active = 1, retired_at = NULL,
-                    updated_at = excluded.updated_at",
-                params![
-                    store_finger_id(&username, &finger),
-                    username,
-                    finger_words(&finger),
-                    template,
-                    reader_kind,
-                    now,
-                    recorded_by
-                ],
-            )
-            .map_err(db)?;
-    }
+    // A finger the store head records is hers to approve, and she just did —
+    // her team's (owner, 24 Oct 2026: "both bisa ho bisa kepala toko") and
+    // her own (25 Oct 2026): it opens this store's POS now, and head office
+    // takes it as approved by her and can still withdraw it. Only a store head
+    // records one (`FingerRecord`). One row per person and finger, which head
+    // office's copy retires when it arrives (`replace_from_head_office`).
+    connection
+        .execute(
+            "INSERT INTO edge_fingerprint
+               (finger_id,username,label,template_base64,reader_kind,
+                enrolled_at,enrolled_by,active,updated_at,source)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,1,?6,'STORE')
+             ON CONFLICT(finger_id) DO UPDATE SET
+                template_base64 = excluded.template_base64,
+                reader_kind = excluded.reader_kind,
+                enrolled_at = excluded.enrolled_at,
+                enrolled_by = excluded.enrolled_by,
+                active = 1, retired_at = NULL,
+                updated_at = excluded.updated_at",
+            params![
+                store_finger_id(&username, &finger),
+                username,
+                finger_words(&finger),
+                template,
+                reader_kind,
+                now,
+                recorded_by
+            ],
+        )
+        .map_err(db)?;
     Ok(FingerSubmission {
         submission_id,
         username,
         label: finger_words(&finger),
         finger,
-        status: if approved_here { "APPROVED" } else { "PENDING" }.into(),
+        status: "APPROVED".into(),
         reason: None,
         recorded_by,
         recorded_at: now,
@@ -1375,12 +1401,12 @@ pub struct TeamMember {
     /// `CASHIER`, `SUPERVISOR` or `ADMIN`.
     pub role: String,
     pub fingers: Vec<TeamFinger>,
-    /// Waiting for head office, or refused by it.
+    /// The recordings head office would not take, each with its reason.
     pub submissions: Vec<FingerSubmission>,
 }
 
 /// Everybody who signs in here, store heads first, each with the fingers
-/// that open the POS and the ones waiting for head office.
+/// that open the POS and the recordings head office refused.
 pub fn team(connection: &Connection) -> Result<Vec<TeamMember>, EdgeError> {
     let mut people: Vec<TeamMember> = connection
         .prepare(
@@ -1416,7 +1442,7 @@ pub fn team(connection: &Connection) -> Result<Vec<TeamMember>, EdgeError> {
         .prepare(
             "SELECT submission_id, username, finger, status, reason, recorded_by, recorded_at
                FROM edge_finger_submission
-              WHERE status = 'REFUSED' OR (status = 'PENDING' AND username = recorded_by)
+              WHERE status = 'REFUSED'
               ORDER BY recorded_at",
         )
         .map_err(db)?
@@ -1472,7 +1498,8 @@ struct OutgoingFinger {
     quality: Option<i64>,
     recorded_by: String,
     recorded_at: String,
-    /// Somebody else's finger, which the store head approved by recording it.
+    /// The store head approved it by recording it — anybody's finger, her own
+    /// included (25 Oct 2026) — so head office takes it under her name.
     approved_by_head: bool,
 }
 
@@ -1495,7 +1522,7 @@ fn waiting_fingers(connection: &Connection) -> Result<Vec<OutgoingFinger>, EdgeE
     connection
         .prepare(
             "SELECT submission_id, username, finger, template_base64, reader_kind, quality,
-                    recorded_by, recorded_at, username <> recorded_by
+                    recorded_by, recorded_at
                FROM edge_finger_submission WHERE status = 'PENDING'
               ORDER BY recorded_at",
         )
@@ -1510,7 +1537,7 @@ fn waiting_fingers(connection: &Connection) -> Result<Vec<OutgoingFinger>, EdgeE
                 quality: row.get(5)?,
                 recorded_by: row.get(6)?,
                 recorded_at: row.get(7)?,
-                approved_by_head: row.get(8)?,
+                approved_by_head: true,
             })
         })
         .map_err(db)?
@@ -1834,17 +1861,20 @@ mod tests {
         )
     }
 
+    /// The store head's own finger is hers to approve too (owner, 25 Oct
+    /// 2026): it opens the POS at once and goes to head office as approved.
     #[test]
-    fn a_recorded_finger_waits_and_opens_nothing_until_head_office_answers() {
+    fn the_heads_own_finger_opens_the_pos_at_once_and_a_refusal_keeps_its_reason() {
         let shop = shop();
-        let waiting =
+        let own =
             record(&shop, "siti", "U0lUSQ==", "siti").unwrap_or_else(|error| panic!("{error}"));
-        assert_eq!(waiting.finger, "RIGHT_INDEX");
-        assert_eq!(waiting.status, "PENDING");
-        // Not among the fingers a till matches against.
-        assert!(held(&shop).iter().all(|(id, _, _)| !id.contains("siti")));
+        assert_eq!(own.finger, "RIGHT_INDEX");
+        assert_eq!(own.status, "APPROVED");
+        assert!(held(&shop)
+            .iter()
+            .any(|(id, active, _)| id == "st-siti-RIGHT_INDEX" && *active == 1));
 
-        // Recorded again: still one waiting, the newer one.
+        // Recorded again: still one sent, the newer one, as her approval.
         let again =
             record(&shop, "siti", "U0lUSTI=", "siti").unwrap_or_else(|error| panic!("{error}"));
         let connection = shop.connection();
@@ -1854,6 +1884,7 @@ mod tests {
         let sent = waiting_fingers(&guard).unwrap_or_else(|error| panic!("{error}"));
         assert_eq!(sent.len(), 1);
         assert_eq!(sent[0].submission_id, again.submission_id);
+        assert!(sent[0].approved_by_head);
 
         let decided = take_answers(
             &guard,

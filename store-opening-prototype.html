@@ -468,6 +468,42 @@ svg.lucide.inl { width: 15px; height: 15px; vertical-align: -2px; }
 .openbar .grow { flex: 1; color: var(--body); font-size: 14px; }
 .factsgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px 24px; padding: 16px; }
 .factsgrid .l { font-size: 14px; color: var(--body); } .factsgrid .v { font-size: 14px; color: var(--ink); margin-top: 4px; }
+
+/* laptop install (29 Oct): what broke at C015, and the same laptop done right */
+.win.lpwin { width: min(900px, calc(100vw - 24px)); }
+.win.lpwin .scroll { max-height: calc(100vh - var(--barh) - 140px); overflow-y: auto; }
+.lpfig { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; padding: 22px 24px; border-bottom: 1px solid var(--hairline); }
+.lpfig .v { font-size: 28px; line-height: 34px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--ink); }
+.lpfig .l { font-size: 15px; color: var(--body); }
+.lptyped { display: flex; flex-wrap: wrap; gap: 6px; padding: 14px 24px; border-bottom: 1px solid var(--hairline); }
+.lptyped span { font-family: var(--mono); font-size: 15px; color: var(--bad-fg); background: var(--soft); border-radius: 6px; padding: 2px 8px; }
+.lprow { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 14px 24px; border-bottom: 1px solid var(--hairline); }
+.lprow:last-child { border-bottom: 0; }
+.lprow .ic { width: 34px; height: 34px; border-radius: 8px; background: var(--soft-2); display: grid; place-items: center; color: var(--bad-fg); }
+.lprow .ic svg { width: 17px; height: 17px; }
+.lprow .t { color: var(--ink); font-weight: 500; font-size: 15px; }
+.lprow .d { display: block; color: var(--body); font-size: 15px; }
+.lprow .f { display: block; color: var(--ok-fg); font-size: 15px; margin-top: 2px; }
+.lpk { border: 1px solid var(--hairline); border-radius: var(--r-card); }
+.lpk .lr { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--hairline); }
+.lpk .lr:last-child { border-bottom: 0; }
+.lpk .t { color: var(--ink); font-weight: 500; font-size: 15px; }
+.lpk .d { display: block; color: var(--body); font-size: 15px; }
+.lpk .d.warn { color: var(--warn-fg); }
+.lpk .mono { font-family: var(--mono); font-size: 15px; }
+.lpk .tick { width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid var(--edge); display: grid; place-items: center; transition: background-color 200ms ease, border-color 200ms ease; }
+.lpk .tick svg { width: 12px; height: 12px; stroke-width: 3; color: #fff; }
+.lpk .ok .tick { background: var(--okdot); border-color: var(--okdot); }
+.lpk .warn .tick { background: var(--warndot); border-color: var(--warndot); }
+.lpk .now .tick { border-color: var(--accent); border-top-color: transparent; animation: spin 700ms linear infinite; }
+.lpready { display: grid; grid-template-columns: minmax(0, 1fr) 96px; gap: 18px; align-items: center; }
+.lpready .qr { width: 96px; height: 96px; }
+.lpchip { font-family: var(--mono); font-size: 15px; background: var(--soft-2); border-radius: 6px; padding: 2px 8px; color: var(--ink); cursor: pointer; }
+.lpcode { height: 47px; width: 100%; border: 1px solid var(--edge); border-radius: var(--r-inner); padding: 0 14px; font-family: var(--mono); font-size: 20px; letter-spacing: .08em; text-transform: uppercase; }
+.lpcode.bad { border-color: var(--baddot); }
+.lpjoin { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: var(--r-inner); background: var(--soft); text-align: left; }
+.lpjoin .two { flex: 1; }
+.btn.cap { background: #fff; border: 1px solid var(--edge); border-radius: 999px; color: var(--ink); padding: 0 14px; }
 .sectionh { padding: 14px 16px 10px; font-weight: 600; border-bottom: 1px solid var(--hairline); display: flex; justify-content: space-between; align-items: baseline; }
 .sectionh span { font-weight: 400; color: var(--mute); font-size: 14px; }
 
@@ -706,7 +742,9 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&l
 const fmt = (n) => n.toLocaleString("id-ID")
 const CODE = "KGD4TX7Q"
 const showCode = (c) => c.slice(0, 4) + "-" + c.slice(4)
-const APP_URL = "http://c014.local:8082"
+/* the LAN IP, never <node>.local: Windows can't open its own .local name and
+   Android Chrome never looks one up (C015, 28 Oct) */
+const APP_URL = "http://192.168.1.20:8082"
 const STAGES = [
   ["articles", "Articles", 12480, 1700],
   ["prices", "Price books", 4, 600],
@@ -850,6 +888,7 @@ function paintData() {
 /* ═══ prototype bar ═════════════════════════════════════════════════════ */
 function barHtml() {
   const j = journeyAt()
+  if (S.part === "laptop") return `${partSeg()}${partJourney()}<button class="reset" id="reset">Reset</button>`
   if (S.part !== "new") return `${partSeg()}${partJourney()}${partScreens()}<button class="reset" id="reset">Reset</button>`
   const J = ["Add store", "Install server", "Hub confirms", "Store app", "POS", "Open store"]
   const SCR = [["hub", "Central"], ["pc", S.machine === "win" ? "Store PC" : "Mini PC"], ["phone", "Store app"], ["till", "POS"]]
@@ -1190,12 +1229,13 @@ function pinBlock(kind, who) {
    later lets her go; head office looks after the POS machines — a new one
    joining, stopping one, removing one, a night update, a store server down.
    What the hub does shows up on the POS, in the POS's own Indonesian. */
-const PARTS = [["new", "New store"], ["store", "Store management"], ["people", "User management"], ["devices", "Device management"]]
+const PARTS = [["new", "New store"], ["laptop", "Laptop install"], ["store", "Store management"], ["people", "User management"], ["devices", "Device management"]]
 const JOURNEYS = {
   new: ["Add store", "Install server", "Hub confirms", "Store app", "POS", "Open store"],
   store: ["Open", "Stop store", "Resume", "Replace server", "Remove store"],
   people: ["Add employee", "Joins", "Head's first finger", "HO approves", "Head enrols team", "Sign in at POS", "Stop POS access", "Leaves"],
   devices: ["POS list", "New POS", "Stop POS", "Remove POS", "Update", "Server down"],
+  laptop: ["28 Oct", "Check laptop", "Install", "Ready", "POS on this laptop", "HO approves", "Kasir 2"],
 }
 const FINGERS = [["LEFT_THUMB", "Left thumb"], ["LEFT_INDEX", "Left index"], ["LEFT_MIDDLE", "Left middle"], ["LEFT_RING", "Left ring"], ["LEFT_LITTLE", "Left little"],
   ["RIGHT_THUMB", "Right thumb"], ["RIGHT_INDEX", "Right index"], ["RIGHT_MIDDLE", "Right middle"], ["RIGHT_RING", "Right ring"], ["RIGHT_LITTLE", "Right little"]]
@@ -1208,7 +1248,8 @@ const TEAM = [
 
 function partsFresh() {
   return {
-    part: "new", stepAt: { store: 1, people: 1, devices: 1 },
+    part: "new", stepAt: { store: 1, people: 1, devices: 1, laptop: 1 },
+    lp: { net: false, power: false, err: "", inst: -1, dlg: null, asked: false, approved: false },
     mg: { status: "open", reason: "", stoppedAt: "", menu: false, dlg: null, sheet: null, released: false, uninstalled: false, prep: null },
     pp: { page: "list", person: "andi", sheet: null, dlg: null, form: { name: "Andi Saputra", role: "Cashier" }, added: false, joined: false,
       fp: { dewi: null, andi: null, wira: null }, pick: "RIGHT_INDEX", press: 0, who: "dewi", dup: false, access: "allowed", reason: "", leave: null, when: "today", pos: "door" },
@@ -1611,6 +1652,7 @@ function partJump(n) {
     if (n >= 6) { dv.down = true; S.tv = 0; S.screen = "till" }
     if (n === 3 || n === 4) S.screen = "till"
   }
+  if (part === "laptop") lpJump(n)
   S.unread = { hub: 0, pc: 0, phone: 0, till: 0 }
   render()
 }
@@ -1629,6 +1671,7 @@ function partClick(e) {
     S.part = part; partJump(1); return true
   }
   if ((el = t("[data-pjump]"))) { partJump(Number(el.dataset.pjump)); return true }
+  if (S.part === "laptop") { lpClick(t); return true }
   if (S.part === "new" && !t("[data-pp]")) return false
   const mg = S.mg, pp = S.pp, dv = S.dv
   if ((el = t("[data-mg]"))) {
@@ -1726,6 +1769,156 @@ function partOverlays() {
   return dvDialogs() + ppOverlays()
 }
 
+/* ═══ laptop install (29 Oct 2026) ════════════════════════════════════════
+   One Windows laptop is both Purwokerto's server and its second POS, the way
+   C015 was set up for the 28 Oct presentation. Step 1 is what broke there;
+   steps 2–7 are the same laptop with each break caught by the installer, the
+   Ready page or the POS door. docs/research/2026-10-29-install-laptop-c015.md */
+const LP_PC = "LAPTOP-C014", LP_IP = "192.168.1.20", LP_URL = `http://${LP_IP}:8082`
+const LP_TYPED = ["ipconfig", "netstat -ano", "hostname", "sc query ItulahStore", "curl.exe …/api/v1/health", "Get-NetConnectionProfile", "Set-NetConnectionProfile", "mkdir web", "Extract store-web.zip", "Restart-Service ItulahStore", "rename node.json", "End task Central POS"]
+const LP_BROKE = [
+  ["link-2-off", "Open store app went to store-c015.local:8082", "Windows can't open its own .local name", 4, "The address is the laptop's IP"],
+  ["folder-x", "Every page 404 except /console", "The installer in the bucket was a hand-built copy without the store app; the hub's link points at latest.msi, which isn't there", 3, "One installer, the one CI tests, checked for the store app"],
+  ["folder-search", "Told to open itulah Store\\web, the folder was Central Store", "Two installers, two folder names", 3, "One installer"],
+  ["shield-alert", "Nothing else could reach 192.168.0.249", "Wi-Fi was Public; the firewall rule opens Private networks only", 2, "The installer names the network and makes it Private"],
+  ["battery-medium", "Server laptop on battery, 75%", "If it sleeps, the server stops", 2, "Plug in; sleep off while the server runs"],
+  ["monitor-smartphone", "POS went straight to the fingerprint door", "It was joined to another store, so the join button was hidden; renaming node.json didn't bring it back", 5, "Move this POS to this store, from the door"],
+  ["users", "One POS seat; the second added in the database", "The new seat reached the server 6 minutes later", 6, "Add a seat and approve, sent at once"],
+  ["database", "The POS approved in the database", "Nobody had Central open", 6, "Central's notification opens the approval"],
+]
+
+function lpJump(n) {
+  const l = S.lp
+  if (n >= 3) { l.net = true; l.power = true }
+  if (n >= 4) l.inst = 99
+  if (n >= 6) l.asked = true
+  if (n >= 7) l.approved = true
+}
+const lpAt = () => S.stepAt.laptop
+const lpTick = (state) => `<span class="tick">${state === "ok" ? ic("check") : state === "warn" ? ic("minus") : ""}</span>`
+const lpRow = (state, title, sub, action = "", subTone = "") => `<div class="lr ${state}">${lpTick(state)}<span><span class="t">${title}</span><span class="d ${subTone}">${sub}</span></span>${action}</div>`
+
+function lpWin(title, body, side) {
+  return `<div class="desk"><div class="win lpwin ${shown.has("lp" + lpAt()) ? "" : "enter-from"}" data-key="lp${lpAt()}"><div class="tb"><span class="nm"><span class="mark"></span>${title}</span>${CAPS}</div>
+    ${side ? `<div class="inst">${side}<div class="main">${body}</div></div>` : body}</div>${taskbar(true, lpAt() >= 4 ? "ok" : null)}</div>`
+}
+function lpSide(at) {
+  const steps = ["Check this laptop", "Install code", "Install", "Ready"]
+  return `<div class="side"><div class="brandline"><span class="mark"></span>Central Store Server</div>
+    ${steps.map((s, i) => `<div class="stp ${i < at ? "done" : i === at ? "on" : ""}"><i>${i < at ? ic("check") : ""}</i>${s}</div>`).join("")}<div class="ver">Version 1.4.2</div></div>`
+}
+
+function lpScreen() {
+  const l = S.lp, at = lpAt()
+  if (at === 1) {
+    const rows = LP_BROKE.map(([icon, what, why, step, fix]) => `<div class="lprow"><span class="ic">${ic(icon)}</span>
+      <span><span class="t">${what}</span><span class="d">${why}</span><span class="f">${fix}</span></span><button class="btn cap sm" data-pjump="${step}">Step ${step}</button></div>`).join("")
+    return lpWin("C015 · 28 Oct 2026 · DESKTOP-6Q3F7V9", `<div class="scroll">
+      <div class="lpfig"><div><div class="v">${LP_TYPED.length}</div><div class="l">commands typed at the laptop</div></div><div><div class="v">2</div><div class="l">fixes made in the database</div></div><div><div class="v">0</div><div class="l">POS joined by the end</div></div></div>
+      <div class="lptyped">${LP_TYPED.map((c) => `<span>${esc(c)}</span>`).join("")}</div>${rows}</div>`)
+  }
+  if (at === 2) {
+    const ok = l.net
+    const body = `<h2>Check this laptop</h2>
+      <div class="lpk">
+        ${lpRow("ok", "Windows 11 Pro", `${LP_PC} · 212 GB free`)}
+        ${lpRow("ok", "Port 8082", "Free")}
+        ${lpRow("ok", "Central", "osretail.site answers")}
+        ${l.net ? lpRow("ok", "Wi-Fi Kantor", "Private · POS and tablets on it can reach this laptop")
+          : lpRow("warn", "Wi-Fi Kantor", "Public · POS and tablets can't reach this laptop", `<button class="btn primary sm" data-lp="net">Make it Private</button>`, "warn")}
+        ${l.power ? lpRow("ok", "Power", "Plugged in · sleep off while the server runs")
+          : lpRow("warn", "Power", "On battery, 75% · the server stops when the laptop sleeps", `<button class="btn cap sm" data-lp="power">Plugged in</button>`, "warn")}
+        ${lpRow("warn", "Central POS on this laptop", "Joined to Cikupa (C001) · it can move to this store once the server is ready", "", "warn")}
+      </div>
+      <div class="foot"><button class="btn primary" data-lp="cont" ${ok ? "" : "disabled"}>Continue</button></div>`
+    return lpWin("Central Store Server Setup", body, lpSide(0))
+  }
+  if (at === 3) {
+    if (l.inst < 0) {
+      const body = `<h2>Connect this laptop to Central</h2>
+        <p class="lede">Install code from Central: Stores › Purwokerto › Server <span class="lpchip" data-lp="fill">${showCode(CODE)}</span></p>
+        <input id="lpcode" class="lpcode ${l.err ? "bad" : ""}" maxlength="9" placeholder="____-____" autocomplete="off" spellcheck="false" aria-label="Install code">
+        ${l.err ? `<div class="err">${l.err}</div>` : ""}
+        <div class="foot"><button class="btn primary" data-lp="install">Install</button></div>`
+      return lpWin("Central Store Server Setup", body, lpSide(1))
+    }
+    const STEPS = [["Service", "ItulahStore · starts with Windows"], ["Store app", "Served at :8082"], ["Firewall", "Port 8082 on Wi-Fi Kantor"], ["Central", "Connected as C014"], ["Purwokerto's data", "12.480 articles · 4 price books · 6 staff"]]
+    const body = `<h2>Installing</h2><div class="lpk">${STEPS.map(([t, d], i) => lpRow(i < l.inst ? "ok" : i === l.inst ? "now" : "", t, d)).join("")}</div>`
+    return lpWin("Central Store Server Setup", body, lpSide(2))
+  }
+  if (at === 4) {
+    const body = `<h2>Purwokerto's server is ready</h2>
+      <div class="lpready"><div class="lpk">
+        ${lpRow("ok", "Store app", `<span class="mono">${LP_URL}</span>`, `<button class="btn cap sm" data-lp="open">Open</button>`)}
+        ${lpRow("ok", "From the shop's Wi-Fi", `Answers at ${LP_IP} on Wi-Fi Kantor`)}
+        ${lpRow("ok", "Central", "Data up to 09:43")}
+        ${lpRow("ok", "Sleep", "Off while plugged in")}
+        ${lpRow("warn", "Central POS on this laptop", "Still joined to Cikupa (C001)", `<button class="btn primary sm" data-pjump="5">Move it here</button>`, "warn")}
+      </div>${qr(14)}</div>
+      <div class="foot"><button class="btn primary" data-pjump="5">Finish</button></div>`
+    return lpWin("Central Store Server Setup", body, lpSide(3))
+  }
+  if (at === 5 || at === 7) return lpPos()
+  return shell(lpHub()) + (l.approved || l.dlg === "closed" ? "" : dlg("lpapprove", "Kasir asks to join Purwokerto", `<div class="lpk">
+      ${lpRow("", LP_PC, "Asked 09:46 · code 7K4-P9Q")}
+      ${lpRow("warn", "POS seats", "1 of 1 in use · Kasir 1", "", "warn")}
+    </div>`, `<button class="btn primary" data-lp="approve">Add a seat and approve</button>`))
+}
+function lpHub() {
+  return `<div class="phead"><div><div class="crumb">Stores › Purwokerto</div><h1>POS</h1></div></div>
+    <div class="card"><div class="lpk" style="border:0">
+      ${lpRow("ok", "Kasir 1", "POS-DESKTOP-1 · 1.4.2")}
+      ${S.lp.approved ? lpRow("ok", "Kasir 2", `${LP_PC} · 1.4.2 · joined 09:47`) : lpRow("warn", LP_PC, "Asking to join", `<button class="btn primary sm" data-lp="review">Review</button>`, "warn")}
+    </div></div>`
+}
+function lpPos() {
+  const l = S.lp, at = lpAt()
+  let inner
+  if (at === 7) {
+    inner = `<div class="lc"><span class="mark lg"></span><span class="k">Kasir 2</span><span class="hint">Purwokerto · C014 · ${LP_PC}</span>
+      <button class="btn primary posbtn" style="width:100%">${ic("fingerprint")}Tempel jari untuk buka shift</button></div>`
+  } else if (l.asked) {
+    inner = `<div class="lc" style="width:420px"><span class="k">Menunggu kantor pusat</span><span class="hint">Diminta 09:46 · kode 7K4-P9Q</span><span class="spin2"></span></div>`
+  } else {
+    inner = `<div class="lc" style="width:440px;align-items:stretch;text-align:left">
+      <span class="k" style="text-align:center">Kasir · Cikupa (C001)</span>
+      <button class="lpjoin" data-lp="move"><span class="mark"></span><span class="two"><span class="a">Purwokerto (C014)</span><span class="b">Server toko di laptop ini · ${LP_IP}</span></span><span class="btn primary sm">Pindah ke toko ini</span></button>
+      <button class="btn cap posbtn" style="width:100%">${ic("fingerprint")}Tempel jari</button></div>`
+  }
+  const dialog = l.dlg === "move" ? dlg("lpmove", "Pindah ke Purwokerto?", `<span>Kasir ini keluar dari Cikupa (C001). Semua penjualan sudah terkirim.</span>`, `<button class="btn primary" data-lp="moveok">Pindah</button>`) : ""
+  return `<div class="desk"><div class="poswin"><div class="tb" style="height:34px;display:flex;align-items:center;justify-content:space-between;padding-left:12px;border-bottom:1px solid var(--hairline);font-size:15px;color:var(--body)"><span style="display:flex;gap:8px;align-items:center"><span class="mark"></span>Central POS</span>${CAPS}</div>
+    <div class="lockscreen">${inner}</div></div>${taskbar(true, "ok")}</div>${dialog}`
+}
+function lpClick(t) {
+  const l = S.lp
+  let el
+  if (t("[data-close]")) { l.dlg = lpAt() === 6 ? "closed" : null; render(); return }
+  if (!(el = t("[data-lp]"))) return
+  const a = el.dataset.lp
+  if (a === "net") { l.net = true; render() }
+  else if (a === "power") { l.power = true; render() }
+  else if (a === "cont") { S.stepAt.laptop = 3; render() }
+  else if (a === "fill") { const i = $("#lpcode"); if (i) i.value = showCode(CODE) }
+  else if (a === "install") {
+    const v = ($("#lpcode") || {}).value || ""
+    if (v.replace(/[^A-Z0-9]/gi, "").toUpperCase() !== CODE) { l.err = "This code is not valid. It may be mistyped, used, or expired."; render(); return }
+    l.err = ""; l.inst = 0; render()
+    const step = () => later(650, () => { l.inst++; if (l.inst < 5) { render(); step() } else { S.stepAt.laptop = 4; render() } })
+    step()
+  }
+  else if (a === "open") toast(`${LP_URL} opens in the browser`)
+  else if (a === "move") { l.dlg = "move"; render() }
+  else if (a === "moveok") {
+    l.dlg = null; l.asked = true; render()
+    later(1600, () => { S.stepAt.laptop = 6; l.dlg = null; render() })
+  }
+  else if (a === "review") { l.dlg = null; render() }
+  else if (a === "approve") {
+    l.approved = true; toast("Kasir 2 approved · POS seats 2")
+    later(1400, () => { S.stepAt.laptop = 7; render() })
+  }
+}
+
 /* ═══ render ═════════════════════════════════════════════════════════════ */
 function render() {
   const fo = document.activeElement && document.activeElement.id
@@ -1733,7 +1926,8 @@ function render() {
   $("#bar").innerHTML = barHtml()
   document.documentElement.style.setProperty("--barh", $("#bar").offsetHeight + "px")
   let html = ""
-  if (S.screen === "hub") {
+  if (S.part === "laptop") html = lpScreen()
+  else if (S.screen === "hub") {
     let page
     if (S.part === "new") page = S.hub.page === "store" && S.store.added ? storePage() : hubList()
     else if (S.hub.page === "updates") page = updatesPage()

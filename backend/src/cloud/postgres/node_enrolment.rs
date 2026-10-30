@@ -238,6 +238,12 @@ pub async fn issue_node_enrolment(
         }
     }
 
+    // While this Central runs the Gudang itself, a Gudang server could only be
+    // approved into a second writer for the same stock, and registration
+    // refuses that (`sync::refuse_second_gudang_writer`). Said before a code
+    // exists, so nobody installs a PC that can never be let in.
+    super::sync::refuse_second_gudang_writer(role, Some(true))?;
+
     let code = enrolment::random_code();
     let enrolment_id = Uuid::new_v4();
     let expires_at = Utc::now() + Duration::minutes(ttl);

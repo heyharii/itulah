@@ -1,0 +1,2135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roster · Central</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<style>
+/* Tokens and shell from hr-profile-prototype.html (measured on the running
+   hub). Floor 15px for every line on screen. */
+:root {
+  --ink: #20242c; --text: #394150; --body: #565f6d; --mute: #666f7d; --faint: #b9c0c9; --line-ico: #89919d;
+  --hairline: #e6e6e9; --edge: #dadade; --soft: #f8f8f9; --soft-2: #f0f0f2; --soft-3: #f6f6f7;
+  --accent: #2563eb; --tint: #eff5ff; --info-fg: #2c57bf;
+  --bad-fg: #be123c; --bad-bg: #fbeaea; --ok-fg: #137a37; --red: #dc2626;
+  --warn-fg: #a64a08; --warn-bg: #fdf3ea;
+  --rail: #242526;
+  --r-card: 10px; --r-inner: 8px; --r-sheet: 16px;
+  --shadow-soft: 0 1px 3px rgba(24, 39, 60, .04);
+  --shadow-pop: 0 4px 12px rgba(24, 39, 60, .08), 0 16px 40px rgba(24, 39, 60, .12);
+  --ease-out: cubic-bezier(.23, 1, .32, 1);
+  --ease-drawer: cubic-bezier(.32, .72, 0, 1);
+  --top: 48px;
+  /* One type scale (hub, 14 Oct: "header kecil seperti Apple"):
+     title 17 semibold · text 15 · quiet lines 15 in grey. Nothing else.
+     Weights: 600 titles and figures, 500 names and controls, 400 the rest.
+     Spacing on 4·8·12·16·20; radii 8 controls · 10 cards · 12 popovers. */
+  --fs-title: 17px; --lh-title: 24px;
+  --fs: 15px; --lh: 22px;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; height: 100%; }
+body {
+  font: 400 var(--fs)/var(--lh) "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  letter-spacing: -0.09px; color: var(--ink); background: var(--soft-3);
+  -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent;
+}
+body.embed { --top: 0px; }
+button, input { font: inherit; letter-spacing: inherit; color: inherit; }
+button { cursor: pointer; border: 0; background: none; padding: 0; }
+.num { font-variant-numeric: tabular-nums; }
+svg.lucide { width: 18px; height: 18px; stroke-width: 1.75; flex-shrink: 0; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mute { color: var(--mute); } .bad { color: var(--bad-fg); } .ok { color: var(--ok-fg); }
+
+/* ── prototype bar ───────────────────────────────────────── */
+.proto { position: fixed; inset: 0 0 auto 0; z-index: 100; height: 48px; display: flex; align-items: center; gap: 12px; padding: 0 16px; background: #fff; border-bottom: 1px solid var(--hairline); }
+body.embed .proto { display: none; }
+.seg { display: inline-flex; gap: 2px; padding: 3px; background: var(--soft-2); border-radius: 10px; }
+.seg button { height: 30px; padding: 0 12px; border-radius: 7px; font-weight: 500; color: var(--body); transition: background-color 150ms ease, color 150ms ease; }
+.seg button[aria-pressed="true"] { background: #fff; color: var(--ink); box-shadow: 0 1px 2px rgba(24, 39, 60, .08), 0 0 0 1px var(--hairline); }
+.proto .reset { margin-left: auto; height: 30px; padding: 0 10px; border-radius: 7px; color: var(--body); }
+.proto .reset:hover { background: var(--soft-2); }
+
+/* ── shell ───────────────────────────────────────────────── */
+.shell { position: fixed; inset: var(--top) 0 0 0; display: grid; grid-template-columns: 68px 232px minmax(0, 1fr); }
+body.folded .shell { grid-template-columns: 68px minmax(0, 1fr); }
+body.folded .dept { display: none; }
+.rail { background: var(--rail); display: flex; flex-direction: column; align-items: center; padding: 12px 0; gap: 4px; }
+.rail .logo { width: 28px; height: 28px; border-radius: 8px; background: #fff; color: var(--rail); font-weight: 700; display: grid; place-items: center; margin-bottom: 14px; font-size: 16px; }
+.rail .ic { width: 36px; height: 36px; border-radius: 8px; display: grid; place-items: center; color: #b9bcc2; }
+.rail .ic.on { background: rgba(255, 255, 255, .1); color: #fff; }
+.dept { background: #fff; border-right: 1px solid var(--hairline); }
+.dept .head { height: 52px; display: flex; align-items: center; padding: 0 16px; font-weight: 600; }
+.dept nav { display: flex; flex-direction: column; gap: 2px; padding: 4px 10px; }
+.dept nav a { height: 36px; display: flex; align-items: center; gap: 10px; padding: 0 10px; border-radius: 8px; color: var(--text); }
+.dept nav a svg { width: 17px; height: 17px; color: var(--line-ico); }
+.dept nav a.on { background: var(--tint); color: var(--accent); font-weight: 500; }
+.dept nav a.on svg { color: var(--accent); }
+.content { overflow-y: auto; padding: 20px 28px 40px; min-width: 0; }
+
+/* ── the shops ───────────────────────────────────────────── */
+.stores { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; padding: 4px; margin-bottom: 20px; background: #fff; border: 1px solid var(--hairline); border-radius: var(--r-card); box-shadow: var(--shadow-soft); }
+.storepick { display: none; }
+.scard .sn, .scard .sc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.scard {
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: center; padding: 8px 12px; text-align: left; line-height: 20px;
+  background: transparent; border-radius: 8px;
+  transition: box-shadow 150ms ease, background-color 150ms ease, transform 160ms var(--ease-out);
+}
+.scard:active { transform: scale(.98); }
+@media (hover: hover) and (pointer: fine) { .scard:hover { background: var(--soft); } }
+.scard[aria-pressed="true"] { background: var(--tint); box-shadow: 0 0 0 1.5px var(--accent) inset; }
+.scard .sn { font-weight: 500; color: var(--ink); }
+.scard .sc { color: var(--mute); }
+.scard .ss { display: inline-flex; align-items: center; gap: 4px; color: var(--mute); }
+.scard .ss.bad, .scard .ss.ok { font-weight: 500; }
+.scard .ss svg { width: 16px; height: 16px; }
+.scard .ss.mute { color: var(--body); }
+
+/* ── page head ───────────────────────────────────────────── */
+.head { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; margin-bottom: 16px; min-height: 36px; }
+.head .seg { padding: 3px; border-radius: 8px; }
+.head .seg button { height: 30px; border-radius: 6px; }
+.head h1 { font-size: var(--fs-title); line-height: var(--lh-title); font-weight: 600; margin: 0; }
+.head .grow { flex: 1; }
+.store { height: 36px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 8px; background: #fff; border: 1px solid var(--edge); font-weight: 500; }
+.step { display: inline-flex; align-items: center; gap: 2px; }
+.step .lbl { min-width: 128px; text-align: center; font-weight: 500; }
+.icbtn { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 8px; color: var(--body); transition: transform 160ms var(--ease-out), background-color 120ms ease; }
+.icbtn:active { transform: scale(.94); }
+@media (hover: hover) and (pointer: fine) { .icbtn:hover { background: var(--soft-2); color: var(--ink); } }
+.btn { height: 36px; display: inline-flex; align-items: center; gap: 6px; padding: 0 14px; border-radius: 8px; font-weight: 500; white-space: nowrap; background: var(--accent); color: #fff; transition: transform 160ms var(--ease-out), opacity 150ms ease; }
+.btn:active:not(:disabled) { transform: scale(.97); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn.red { background: var(--red); }
+/* Shifts: the setup of the roster's own words, in green beside Publish. */
+.btn.green { background: var(--ok-fg); color: #fff; }
+.btn.green svg { color: #fff; }
+@media (hover: hover) and (pointer: fine) { .btn.green:hover { background: #106a30; } }
+/* A supporting action: neutral, on white. */
+.btn.ghost { background: #fff; color: var(--text); box-shadow: 0 0 0 1px var(--edge) inset; }
+.btn.ghost svg { color: var(--line-ico); }
+@media (hover: hover) and (pointer: fine) { .btn.ghost:hover { background: var(--soft-2); color: var(--ink); } }
+.btn svg { width: 16px; height: 16px; }
+
+/* ── the brushes: one per shift ──────────────────────────── */
+/* ── the grid ────────────────────────────────────────────── */
+.card { background: #fff; border: 1px solid var(--hairline); border-radius: var(--r-card); box-shadow: var(--shadow-soft); overflow: hidden; }
+.grid { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; user-select: none; -webkit-user-select: none; }
+.grid th { height: 44px; padding: 0 8px; background: var(--soft); border-bottom: 1px solid var(--hairline); color: var(--body); font-weight: 500; text-align: center; white-space: nowrap; }
+.grid th:first-child { text-align: left; padding-left: 16px; }
+.grid th.today { color: var(--accent); }
+.grid th.wkend { color: var(--mute); }
+.grid th.hrs, .grid td.hrs { width: 84px; text-align: right; padding-right: 16px; border-left: 1px solid var(--hairline); }
+.grid tfoot td:last-child { border-left: 1px solid var(--hairline); }
+@media (hover: hover) and (pointer: fine) { .grid tbody tr:hover td { background: #fbfbfc; } }
+.grid col.who { width: 232px; }
+.grid td { height: 64px; padding: 6px 3px; border-bottom: 1px solid var(--hairline); vertical-align: middle; transition: background-color 120ms ease; }
+.grid tbody tr:last-child td { border-bottom: 0; }
+.grid td.who { padding: 0 8px 0 16px; }
+.grid tfoot td { height: 44px; background: var(--soft); border-top: 1px solid var(--hairline); border-bottom: 0; text-align: center; color: var(--mute); }
+.grid tfoot td:first-child { text-align: left; padding-left: 16px; }
+.person { display: flex; align-items: center; gap: 12px; min-width: 0; width: 100%; text-align: left; border-radius: 8px; padding: 6px; margin-left: -6px; transition: background-color 120ms ease; }
+.av { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; flex-shrink: 0; font-weight: 500; color: var(--body); background: linear-gradient(135deg, #e8def4, #f8dde8); }
+.who2 { display: flex; flex-direction: column; min-width: 0; line-height: 20px; }
+.who2 .n { color: var(--ink); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 120ms ease; }
+.who2 .r { color: var(--mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hrs b { font-weight: 600; }
+.hh { display: inline-flex; flex-direction: column; align-items: flex-end; line-height: 20px; }
+.hh .ot { color: var(--mute); }
+.hh .ot.bad, .cell .t.bad { color: var(--bad-fg); font-weight: 500; }
+
+/* a month of the roster: one narrow cell a day, the shift's first letter in its colour */
+.cell.mini { width: 100%; max-width: 28px; min-height: 40px; height: 40px; margin: 0 auto; border-radius: 6px; position: relative; }
+.cell.mini .s { font-weight: 600; }
+.grid.month th.hrs, .grid.month td.hrs { width: 112px; }
+.cell.mini .otd { position: absolute; top: 4px; right: 4px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.cell.mini.empty::after { font-size: 15px; }
+
+/* a day in the plan */
+.cell {
+  --c: transparent;
+  height: 100%; min-height: 52px; border-radius: 8px; display: flex; flex-direction: column; justify-content: center; align-items: center;
+  line-height: 20px; cursor: pointer; background: color-mix(in srgb, var(--c) 14%, #fff);
+  transition: background-color 120ms ease, box-shadow 120ms ease;
+}
+.cell .s { font-weight: 500; color: var(--ink); }
+.cell .t { color: var(--mute); }
+/* A day still to plan: a dashed outline, and a plus when the pointer is on it. */
+.cell.empty { background: transparent; outline: 1px dashed var(--edge); outline-offset: -1px; position: relative; }
+.cell.empty::after { content: "+"; color: var(--line-ico); font-size: var(--fs-title); opacity: 0; transition: opacity 120ms ease; }
+@media (hover: hover) and (pointer: fine) {
+  .cell.empty:hover { background: var(--soft); }
+  .cell.empty:hover::after { opacity: 1; }
+  .cell:not(.empty):not(.leave):hover { box-shadow: 0 0 0 1px color-mix(in srgb, var(--c) 45%, var(--edge)) inset; }
+  .cell.off:hover { box-shadow: 0 0 0 1px var(--edge) inset; }
+}
+.cell.sel.empty { outline-color: transparent; }
+.cell.sel, .cell.sel.empty:hover { box-shadow: 0 0 0 2px var(--accent) inset; }
+.cell.sel.empty { background: var(--tint); }
+.cell.off { background: var(--soft); }
+.cell.off .s { color: var(--mute); font-weight: 400; }
+.cell.leave { cursor: not-allowed; background: repeating-linear-gradient(135deg, var(--soft) 0 6px, #fff 6px 12px); }
+.cell.leave .s { color: var(--mute); font-weight: 400; }
+.cell.landed { animation: landed 180ms var(--ease-out); }
+@keyframes landed { from { transform: scale(.94); } to { transform: scale(1); } }
+.cell.no { animation: no 260ms ease; }
+@keyframes no { 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
+
+/* ── under 40 h: said once, above the grid ───────────────── */
+.pubmark { display: inline-flex; align-items: center; gap: 4px; color: var(--ok-fg); font-weight: 500; }
+.pubmark svg { width: 16px; height: 16px; }
+.btn.publish { }
+.scard .ss.info { color: var(--info-fg); }
+.warnbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding: 12px 16px; margin-bottom: 16px; border-radius: var(--r-card); background: var(--bad-bg); color: var(--bad-fg); }
+.warnbar svg { width: 18px; height: 18px; }
+.warnbar b { font-weight: 500; }
+.warnbar .nm { color: var(--bad-fg); font-weight: 500; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: color-mix(in srgb, var(--bad-fg) 35%, transparent); }
+
+/* ── a day at a time (desk) ─────────────────────────────── */
+.dayview .days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; margin-bottom: 16px; }
+.dayview .days button { height: 52px; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 22px; color: var(--body); background: #fff; box-shadow: 0 0 0 1px var(--hairline) inset; transition: background-color 150ms ease, color 150ms ease, transform 160ms var(--ease-out); }
+.dayview .days button:active { transform: scale(.97); }
+.dayview .days button b { font-weight: 600; color: var(--ink); }
+.dayview .days button[aria-pressed="true"] { background: var(--tint); color: var(--accent); box-shadow: 0 0 0 1.5px var(--accent) inset; }
+.dayview .days button[aria-pressed="true"] b { color: var(--accent); }
+.dayview .days button.today:not([aria-pressed="true"]) b { color: var(--accent); }
+.dayview .dayhead { display: flex; justify-content: space-between; height: 44px; align-items: center; padding: 0 16px; background: var(--soft); border-bottom: 1px solid var(--hairline); font-weight: 500; }
+.dayview .plist { display: flex; flex-direction: column; padding: 0 16px; }
+.dayview .prow { display: grid; grid-template-columns: minmax(0, 1fr) 280px; align-items: center; gap: 16px; padding: 6px 0; min-height: 64px; border-bottom: 1px solid var(--hairline); }
+.dayview .prow:last-child { border-bottom: 0; }
+.dayview .prow .cell { min-height: 52px; }
+
+/* ── popover: a new shift ────────────────────────────────── */
+.pop-scrim { position: fixed; inset: 0; z-index: 60; }
+.pop {
+  position: fixed; z-index: 61; width: 340px; padding: 20px; background: #fff; border-radius: 14px; border: 1px solid var(--hairline); box-shadow: var(--shadow-pop);
+  transform-origin: var(--origin, top left); transition: transform 180ms var(--ease-out), opacity 180ms var(--ease-out);
+}
+.pop.off { opacity: 0; transform: scale(.96); pointer-events: none; }
+.pop h3, .sform h3 { margin: 0 0 16px; font-size: var(--fs-title); line-height: var(--lh-title); font-weight: 600; }
+.fld { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.fld label { color: var(--body); font-weight: 500; }
+.fld input { height: 44px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--edge); background: #fff; }
+.fld input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.swatches { display: flex; gap: 8px; }
+.swatches button { width: 28px; height: 28px; border-radius: 8px; background: var(--c); transition: transform 160ms var(--ease-out), box-shadow 120ms ease; }
+.swatches button:active { transform: scale(.92); }
+.swatches button[aria-pressed="true"] { box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--c); }
+.sform .foot { display: flex; align-items: center; gap: 8px; margin-top: 18px; }
+.sform .foot .sum { color: var(--mute); margin-right: auto; }
+
+/* ── the Shifts sheet: slides in from the right over a dimmed page ── */
+@keyframes formIn { from { opacity: 0; transform: translateY(-4px); } }
+.scrim { position: fixed; inset: var(--top) 0 0 0; z-index: 80; background: rgb(40 30 20 / 10%); transition: opacity 340ms var(--ease-drawer); }
+.scrim.off { opacity: 0; }
+.sheet {
+  position: fixed; top: calc(var(--top) + 12px); right: 12px; bottom: 12px; z-index: 81; width: min(480px, calc(100vw - 24px));
+  display: flex; flex-direction: column; background: #fff; border: 1px solid var(--hairline); border-radius: var(--r-sheet); box-shadow: var(--shadow-pop);
+  transition: transform 340ms var(--ease-drawer);
+}
+.sheet.off { transform: translateX(calc(100% + 24px)); }
+.sheet.closing { transition: transform 200ms var(--ease-out); }
+.sheet .shead { height: 64px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 0 16px 0 28px; border-bottom: 1px solid var(--hairline); }
+.sheet .shead h2 { margin: 0; flex: 1; font-size: var(--fs-title); line-height: var(--lh-title); font-weight: 600; }
+.sheet .sbody { flex: 1; overflow-y: auto; padding: 16px 16px 24px; }
+.sheet .sbody.form { padding: 28px; animation: formIn 160ms var(--ease-out); }
+.sheet .sfoot { flex-shrink: 0; display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 16px 28px; border-top: 1px solid var(--hairline); }
+.sheet .sfoot .sum { margin-right: auto; color: var(--mute); }
+.srow { --c: var(--line-ico); width: 100%; display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px; text-align: left; transition: background-color 120ms ease, transform 160ms var(--ease-out); }
+.srow:active { transform: scale(.99); }
+@media (hover: hover) and (pointer: fine) { .srow:hover { background: var(--soft); } .srow:hover .cnt { display: none; } .srow:hover .pen { display: block; } }
+.srow .tile { width: 36px; height: 36px; border-radius: 8px; flex-shrink: 0; display: grid; place-items: center; background: color-mix(in srgb, var(--c) 16%, #fff); }
+.srow .tile i { display: block; width: 12px; height: 12px; border-radius: 4px; background: var(--c); }
+.srow .cnt { margin-left: auto; color: var(--mute); white-space: nowrap; }
+.srow .pen { margin-left: auto; width: 16px; height: 16px; color: var(--line-ico); display: none; }
+.sheet .sform .fld { margin-bottom: 24px; }
+.sheet .sform .row2 { gap: 16px; }
+
+/* ── attendance ──────────────────────────────────────────── */
+.afilters { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; margin: 0 0 20px; }
+.afilters .seg { padding: 3px; border-radius: 8px; }
+.afilters .seg button { height: 30px; border-radius: 6px; white-space: nowrap; }
+.afilters .cn { color: var(--mute); margin-left: 4px; }
+.afilters .seg button[aria-pressed="true"] .cn { color: var(--ink); }
+.afilters .open { font-weight: 500; }
+.acell { width: 100%; height: 100%; min-height: 52px; border-radius: 8px; display: flex; align-items: center; justify-content: center; background: #fff; box-shadow: 0 0 0 1px var(--hairline) inset; color: var(--text); position: relative; transition: background-color 120ms ease, box-shadow 120ms ease, transform 160ms var(--ease-out); }
+button.acell { cursor: pointer; }
+button.acell:active { transform: scale(.98); }
+@media (hover: hover) and (pointer: fine) { button.acell:hover { box-shadow: 0 0 0 1px var(--edge) inset; background: var(--soft); } }
+.acell .lt { color: var(--warn-fg); font-weight: 500; }
+.acell.absent { background: var(--bad-bg); color: var(--bad-fg); box-shadow: none; font-weight: 500; }
+.acell.noout { background: var(--warn-bg); color: var(--warn-fg); box-shadow: none; }
+.acell.now { color: var(--info-fg); background: var(--tint); box-shadow: none; }
+.acell.off { background: var(--soft); box-shadow: none; color: var(--mute); }
+.acell.leave { background: repeating-linear-gradient(135deg, var(--soft) 0 6px, #fff 6px 12px); box-shadow: none; color: var(--mute); }
+.acell.none { background: transparent; box-shadow: none; color: var(--faint); }
+.acell.fixed::after { content: ""; position: absolute; top: 6px; right: 6px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.empty-note { padding: 32px; text-align: center; color: var(--mute); }
+.afacts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 24px; margin-bottom: 24px; }
+.afacts .l { display: block; color: var(--mute); }
+.afacts .v { display: block; color: var(--ink); font-weight: 500; }
+.afacts .v.bad { color: var(--bad-fg); } .afacts .v.warn { color: var(--warn-fg); } .afacts .v.ok { color: var(--ok-fg); }
+.anote { margin: 0 0 16px; padding: 12px 16px; border-radius: 8px; background: var(--soft); color: var(--body); }
+.rsum { color: var(--mute); }
+.xdel { width: 24px; height: 24px; margin-left: 8px; border-radius: 6px; display: inline-grid; place-items: center; color: var(--line-ico); vertical-align: middle; }
+.xdel svg { width: 14px; height: 14px; }
+@media (hover: hover) and (pointer: fine) { .xdel:hover { background: var(--soft-2); color: var(--ink); } }
+.hdtot { display: inline-flex; flex-direction: column; align-items: flex-end; line-height: 20px; margin: 0 4px; }
+.hdtot .l { color: var(--mute); } .hdtot b { font-weight: 600; color: var(--ink); }
+/* The total stays in view while the people scroll under it. */
+.card.desk:has(.grid.pay) { overflow: clip; }
+.grid.pay tfoot td { position: sticky; bottom: 0; z-index: 3; box-shadow: 0 -1px 0 var(--hairline); }
+.sheet .sub { font-weight: 500; color: var(--ink); margin: 24px 0 8px; }
+.sheet .sub:first-of-type { margin-top: 0; }
+.sheet .sbody.form.roomy { padding: 36px; }
+
+/* ── attendance by the month ─────────────────────────────── */
+.grid.month th.am-h { padding: 4px 0; height: 52px; font-weight: 400; line-height: 20px; }
+.grid.month th.am-h span { display: block; color: var(--mute); }
+.grid.month th.am-h b { display: block; font-weight: 500; color: var(--ink); }
+.grid.month th.am-h.wkend span, .grid.month th.am-h.wkend b { color: var(--mute); }
+.grid.month th.am-h.today b { color: var(--accent); }
+.grid.month td { height: 56px; padding: 0; }
+.grid.month td.who { padding: 0 8px 0 16px; }
+.grid.month td.amc { padding: 0 1px; text-align: center; }
+.grid.month tfoot td.amc { color: var(--mute); }
+.grid.month th.tcol, .grid.month td.tcol { text-align: right; padding-right: 12px; border-left: 0; width: auto; }
+.grid.month th.tcol:first-of-type, .grid.month td.tcol:first-of-type { border-left: 1px solid var(--hairline); padding-right: 16px; }
+.grid.month td.tcol:nth-last-child(3) { border-left: 1px solid var(--hairline); padding-right: 16px; }
+.grid.month th.tcol { padding: 0 12px 0 0; }
+.grid.month th.tcol:nth-last-child(3) { border-left: 1px solid var(--hairline); padding-right: 16px; }
+.lt2 { color: var(--warn-fg); font-weight: 500; }
+.grid.month .person { background: none; padding: 6px; }
+@media (hover: hover) and (pointer: fine) { .grid.month .person:hover { background: var(--soft); } .grid.month .person:hover .n { color: var(--accent); } }
+.am { width: 100%; max-width: 28px; height: 36px; margin: 0 auto; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: var(--faint); position: relative; }
+.am.wkend { background: var(--soft); }
+button.am { cursor: pointer; transition: background-color 100ms ease, transform 140ms var(--ease-out); }
+button.am:active { transform: scale(.94); }
+.am.ok { color: var(--line-ico); }
+.am.now { color: var(--accent); background: var(--tint); }
+.am.late { background: var(--warn-bg); color: var(--warn-fg); font-weight: 500; }
+.am.noout { background: var(--warn-bg); color: var(--warn-fg); font-weight: 500; }
+.am.absent { background: var(--bad-bg); color: var(--bad-fg); font-weight: 500; }
+.am.off { background: var(--soft); }
+.am.leave { background: repeating-linear-gradient(135deg, var(--soft) 0 4px, #fff 4px 8px); }
+.am.none { background: transparent; }
+@media (hover: hover) and (pointer: fine) { button.am.ok:hover { background: var(--soft-2); } button.am:hover { box-shadow: 0 0 0 1px var(--edge) inset; } }
+.am.fixed::after { content: ""; position: absolute; top: 3px; right: 3px; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 20px; padding: 12px 4px; color: var(--mute); }
+.legend span { display: inline-flex; align-items: center; gap: 8px; }
+.am-l { width: 22px; height: 22px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; font-weight: 500; }
+.am-l.late, .am-l.noout { background: var(--warn-bg); color: var(--warn-fg); }
+.am-l.absent { background: var(--bad-bg); color: var(--bad-fg); }
+.am-l.off { background: var(--soft); box-shadow: 0 0 0 1px var(--hairline) inset; }
+.am-l.leave { background: repeating-linear-gradient(135deg, var(--soft) 0 4px, #fff 4px 8px); box-shadow: 0 0 0 1px var(--hairline) inset; }
+.dotb { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-left: 6px; vertical-align: middle; }
+.drow { width: 100%; display: grid; grid-template-columns: 64px 1fr auto; align-items: center; gap: 12px; min-height: 48px; padding: 0 12px; border-radius: 8px; text-align: left; }
+.drow.click { transition: background-color 120ms ease; }
+@media (hover: hover) and (pointer: fine) { .drow.click:hover { background: var(--soft); } }
+.drow .dn { color: var(--body); }
+.drow .dt { color: var(--ink); }
+.drow .st { color: var(--mute); text-align: right; }
+.drow .st.late, .drow .st.noout { color: var(--warn-fg); } .drow .st.absent { color: var(--bad-fg); }
+.person.prow { width: 100%; }
+.person.prow .who2 .r { white-space: normal; }
+.chev { margin-left: auto; width: 16px; height: 16px; color: var(--line-ico); }
+
+/* ── payroll ─────────────────────────────────────────────── */
+/* grouped */
+.grid.grouped tr.gr td { height: 48px; background: var(--soft); border-top: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline); color: var(--body); padding: 0 20px 0 24px; font-weight: 500; }
+.grid.grouped tr.gr td.pn2 { padding-right: 20px; }
+.grid.grouped .exp { width: 16px; height: 16px; color: var(--line-ico); transition: transform 160ms var(--ease-out); flex-shrink: 0; margin-left: -4px; }
+.grid.grouped tr.opened .exp { transform: rotate(90deg); }
+.grid.grouped tr.subrow td { height: auto; padding: 8px 24px 24px 72px; background: #fbfbfc; }
+.split { display: grid; grid-template-columns: 1fr 1fr auto; gap: 0 48px; align-items: start; }
+.split .shd { color: var(--mute); margin-bottom: 4px; }
+.sl2 { display: flex; justify-content: space-between; gap: 24px; min-height: 36px; align-items: center; }
+.slact { align-self: end; }
+.grid.pay.grouped td.pn2 .pc.need { margin-right: 0; }
+/* difference */
+.grid.pay.diff td.why { display: table-cell; padding: 0 16px 0 8px; }
+.wy { display: inline-block; padding: 4px 10px; margin: 2px 6px 2px 0; border-radius: 8px; font-variant-numeric: tabular-nums; }
+.wy.chg { background: var(--warn-bg); color: var(--warn-fg); } .wy.bad2 { background: var(--bad-bg); color: var(--bad-fg); }
+/* queue */
+.card.queue { overflow: hidden; }
+.qsec + .qsec { border-top: 1px solid var(--hairline); }
+.qhead { width: 100%; height: 56px; display: flex; align-items: center; gap: 12px; padding: 0 24px; text-align: left; font-weight: 500; background: var(--soft); transition: background-color 120ms ease; }
+.qhead svg { width: 16px; height: 16px; color: var(--line-ico); transition: transform 160ms var(--ease-out); }
+.qhead[aria-expanded="true"] svg { transform: rotate(90deg); }
+.qhead .cn { color: var(--mute); }
+.qrow { display: flex; align-items: center; gap: 16px; min-height: 76px; padding: 0 24px; border-top: 1px solid var(--hairline); cursor: pointer; transition: background-color 120ms ease; }
+@media (hover: hover) and (pointer: fine) { .qrow:hover { background: var(--soft); } }
+.qrow .who2 { flex: 1; }
+.qrow .qn { min-width: 150px; display: flex; flex-direction: column; align-items: flex-end; line-height: 20px; }
+.qrow .qn b { font-weight: 600; }
+.linkbtn { color: var(--accent); font-weight: 500; }
+.linkbtn:hover { text-decoration: underline; text-underline-offset: 3px; }
+.grid.pay td { height: 72px; padding: 0 20px 0 8px; }
+.grid.pay th { height: 52px; padding: 0 20px 0 8px; }
+.grid.pay td.who, .grid.pay th:first-child { padding: 0 8px 0 24px; text-align: left; }
+.grid.pay .av { width: 40px; height: 40px; }
+.grid.pay tr.grp th { height: 40px; background: #fff; border-bottom: 0; color: var(--mute); font-weight: 400; text-align: left; padding: 0 0 0 8px; }
+.grid.pay tr.grp th.gh { border-bottom: 1px solid var(--hairline); }
+.grid.pay .sep { border-left: 1px solid var(--hairline); }
+.grid.pay td.net b { font-weight: 600; }
+.grid.pay td.bk { color: var(--body); text-align: right; padding-right: 24px; }
+.grid.pay th:last-child { padding-right: 24px; }
+.grid.pay tfoot td { height: 52px; background: var(--soft); border-top: 1px solid var(--hairline); color: var(--body); }
+.grid.pay tfoot td:first-child { text-align: left; }
+.grid.pay .acc { color: var(--accent); font-weight: 500; } .grid.pay .ok { color: var(--ok-fg); font-weight: 500; }
+.grid.pay .seen { width: 15px; height: 15px; vertical-align: -2px; }
+button.pc.need.sm { justify-content: flex-start; min-height: 24px; margin: 0; padding: 0 8px; white-space: nowrap; }
+.pc { display: inline-flex; align-items: center; justify-content: flex-end; min-height: 32px; padding: 0 8px; margin-right: -8px; border-radius: 8px; }
+.pc.chg { background: var(--warn-bg); color: var(--warn-fg); }
+.pc.bad2 { background: var(--bad-bg); color: var(--bad-fg); }
+button.pc.need { background: var(--warn-bg); color: var(--warn-fg); font-weight: 500; box-shadow: 0 0 0 1px color-mix(in srgb, var(--warn-fg) 30%, transparent) inset; transition: transform 140ms var(--ease-out), background-color 120ms ease; }
+button.pc.need:active { transform: scale(.96); }
+.grid.pay th.pn2, .grid.pay td.pn2 { text-align: right; white-space: nowrap; }
+.grid.pay tr.click { cursor: pointer; }
+@media (hover: hover) and (pointer: fine) { .grid.pay tr.click:hover td { background: var(--soft); } }
+.grid.pay .seen { width: 15px; height: 15px; color: var(--ok-fg); vertical-align: -2px; }
+.slipnet { display: flex; flex-direction: column; gap: 4px; margin-bottom: 40px; }
+.slipnet .l { color: var(--mute); }
+.slipnet .v { font-size: 28px; line-height: 36px; font-weight: 600; color: var(--ink); }
+.sl { width: calc(100% + 24px); display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 52px; padding: 0 12px; margin: 0 -12px; border-radius: 8px; text-align: left; }
+.sl.click { transition: background-color 120ms ease; }
+@media (hover: hover) and (pointer: fine) { .sl.click:hover { background: var(--soft); } }
+.person.prow .rt { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; line-height: 20px; }
+.person.prow .rt b { font-weight: 500; }
+
+/* ── F–I: two columns ────────────────────────────────────── */
+.grid.pay td.two { vertical-align: middle; }
+.grid.pay td.two .t { display: block; }
+.grid.pay td.two .s { display: block; max-width: 280px; margin-left: auto; color: var(--mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.grid.pay td.two .s.chg { color: var(--warn-fg); }
+.pcell { display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; min-height: 36px; padding: 0 8px; margin-right: -8px; border-radius: 8px; transition: background-color 120ms ease; }
+@media (hover: hover) and (pointer: fine) { .pcell:hover { background: var(--soft-2); } }
+.bd { min-width: 28px; height: 22px; padding: 0 6px; border-radius: 11px; background: var(--soft-2); color: var(--body); font-size: 15px; line-height: 22px; text-align: center; }
+.bd.chg { background: var(--warn-bg); color: var(--warn-fg); }
+.bd.none { visibility: hidden; }
+.cl { display: flex; justify-content: space-between; gap: 32px; min-height: 36px; align-items: center; padding: 0 12px; }
+.cl.chg { color: var(--warn-fg); } .cl.tot { font-weight: 500; }
+.grid.ledger tr.lg td { height: 44px; background: #fbfbfc; border-bottom: 1px solid var(--hairline); }
+.grid.ledger tr.lg td.who { padding-left: 88px; }
+.grid.ledger tr.lg .lbl2 { color: var(--body); } .grid.ledger tr.lg .lbl2.chg { color: var(--warn-fg); }
+.grid.ledger .exp { width: 16px; height: 16px; color: var(--line-ico); transition: transform 160ms var(--ease-out); flex-shrink: 0; margin-left: -4px; }
+.grid.ledger tr.opened .exp { transform: rotate(90deg); }
+.grid.ledger th .tog { margin-left: 12px; }
+.gfold { display: inline-flex; align-items: center; gap: 6px; color: var(--body); font-weight: 500; }
+.gfold svg { width: 16px; height: 16px; transition: transform 160ms var(--ease-out); }
+.gfold[aria-expanded="true"] svg { transform: rotate(90deg); }
+@media (hover: hover) and (pointer: fine) { .gfold:hover { color: var(--ink); } }
+.cd { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--warn-fg); margin-left: 8px; vertical-align: middle; }
+
+/* ── swap ── */
+.swapbar { display: flex; align-items: center; gap: 12px; padding: 12px 16px; margin-bottom: 16px; border-radius: var(--r-card); background: var(--tint); color: var(--accent); }
+.swapbar svg { width: 18px; height: 18px; }
+.swapbar span { flex: 1; } .swapbar b { font-weight: 500; }
+.cell.swapsrc { box-shadow: 0 0 0 2px var(--accent) inset; background: var(--tint); }
+body:has(.swapbar) .cell:not(.leave) { cursor: crosshair; }
+/* ── attendance overtime ── */
+.am.ot { background: var(--tint); color: var(--accent); font-weight: 500; }
+.am.late.otm { background: var(--warn-bg); color: var(--accent); font-weight: 500; }
+.am-l.ot { background: var(--tint); color: var(--accent); }
+.otc { color: var(--accent); font-weight: 500; }
+.acell.hasot { flex-direction: column; gap: 0; line-height: 20px; }
+.acell .otm { color: var(--accent); font-weight: 500; }
+/* ── J · multi-row ── */
+.grid.pay.stack td { height: auto; padding: 12px 24px 12px 8px; vertical-align: top; }
+.grid.pay.stack td.who { padding: 14px 8px 12px 24px; vertical-align: top; }
+.grid.pay.stack td.net { vertical-align: middle; }
+.grid.pay.stack th { text-align: left; }
+.grid.pay.stack th.pn2 { text-align: right; }
+.grid.pay.stack td.stc { padding: 10px 32px 10px 16px; }
+.grid.pay.stack tfoot td.stc { text-align: right; padding: 0 32px 0 16px; vertical-align: middle; height: 52px; }
+.stk { display: flex; flex-direction: column; }
+.ln { display: flex; justify-content: space-between; gap: 24px; min-height: 30px; align-items: center; color: var(--body); }
+.ln .num { color: var(--ink); }
+.ln.chg, .ln.chg .num { color: var(--warn-fg); }
+.ln.tt { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--hairline); color: var(--mute); }
+.ln.tt .num { color: var(--ink); font-weight: 500; }
+.grid.pay.stack td.net b { font-size: var(--fs-title); line-height: var(--lh-title); font-weight: 600; }
+/* ── the menu on a day ───────────────────────────────────── */
+.menu-scrim { position: fixed; inset: 0; z-index: 70; background: rgb(32 36 44 / 14%); }
+.menu {
+  position: fixed; z-index: 71; width: 264px; padding: 6px; background: #fff; border-radius: 12px; border: 1px solid var(--hairline); box-shadow: var(--shadow-pop);
+  transform-origin: var(--origin, top left); transition: transform 150ms var(--ease-out), opacity 150ms var(--ease-out);
+}
+.menu.off { opacity: 0; transform: scale(.96); pointer-events: none; }
+.menu .mhead { padding: 8px 12px 4px; color: var(--mute); }
+.mitem { --c: var(--line-ico); width: 100%; height: 40px; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-radius: 8px; text-align: left; transition: background-color 100ms ease, transform 120ms var(--ease-out); }
+.mitem:active { transform: scale(.98); }
+@media (hover: hover) and (pointer: fine) { .mitem:hover { background: var(--soft-2); } }
+.mitem .dot { width: 12px; height: 12px; border-radius: 4px; background: var(--c); flex-shrink: 0; }
+.mitem .mi, .mot .mi { width: 16px; height: 16px; color: var(--line-ico); }
+.mitem .mn { font-weight: 500; }
+.mitem .mt { margin-left: auto; color: var(--mute); }
+.mitem .mk { margin-left: auto; color: var(--faint); }
+.mitem .mt + .mk, .mitem .mt + svg { margin-left: 8px; }
+.mitem svg.lucide:last-child:not(.mi) { margin-left: auto; color: var(--accent); width: 16px; height: 16px; }
+.mitem .mt + svg.lucide:last-child { margin-left: 8px; }
+.menu .mrule { height: 1px; background: var(--hairline); margin: 6px 4px; }
+.mot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 4px 4px 12px; }
+.mot .mn { display: inline-flex; align-items: center; gap: 12px; font-weight: 500; }
+.ots { display: inline-flex; gap: 2px; padding: 2px; background: var(--soft-2); border-radius: 8px; }
+.ots button { min-width: 32px; height: 28px; padding: 0 6px; border-radius: 6px; color: var(--body); font-weight: 500; transition: background-color 120ms ease; }
+.ots button[aria-pressed="true"] { background: #fff; color: var(--ink); box-shadow: 0 0 0 1px var(--hairline); }
+.mrow { display: flex; align-items: center; gap: 2px; }
+.mrow .mitem { flex: 1; min-width: 0; }
+.medit { width: 40px; height: 40px; display: none; place-items: center; border-radius: 8px; color: var(--line-ico); }
+.phone-only { display: none; }
+
+/* ── toast ───────────────────────────────────────────────── */
+.toast { position: fixed; left: 50%; bottom: 28px; z-index: 90; transform: translate(-50%, 0); display: flex; align-items: center; gap: 14px; padding: 10px 10px 10px 16px; background: var(--ink); color: #fff; border-radius: 10px; box-shadow: var(--shadow-pop); transition: opacity 200ms var(--ease-out), transform 200ms var(--ease-out); }
+.toast.off { opacity: 0; transform: translate(-50%, 8px); pointer-events: none; }
+.toast button { height: 30px; padding: 0 12px; border-radius: 7px; background: rgba(255, 255, 255, .14); color: #fff; font-weight: 500; }
+
+/* ── phone frame ─────────────────────────────────────────── */
+.phone-stage { position: fixed; inset: var(--top) 0 0 0; z-index: 95; background: var(--soft-3); display: grid; place-items: center; overflow: auto; padding: 20px; }
+.phone-stage iframe { width: 414px; height: min(896px, calc(100vh - 88px)); border: 0; border-radius: 28px; background: #fff; box-shadow: 0 0 0 10px #1b1c1e, var(--shadow-pop); }
+
+/* ── phone ───────────────────────────────────────────────── */
+.phonebar, .days, .plist { display: none; }
+@media (max-width: 767px) {
+  body { background: #fff; }
+  .shell { display: block; inset: 0; }
+  .rail, .dept, .desk-only { display: none !important; }
+  .content { position: absolute; inset: 52px 0 0 0; padding: 12px 16px 32px; }
+  .phonebar { display: flex; position: absolute; inset: 0 0 auto 0; height: 52px; align-items: center; justify-content: space-between; padding: 0 16px; border-bottom: 1px solid var(--hairline); background: #fff; font-weight: 600; font-size: var(--fs-title); }
+  .phonebar .store { height: 32px; font-size: 15px; }
+  .head { gap: 10px; margin-bottom: 12px; }
+  .head h1 { display: none; }
+  .storepick { display: flex; width: 100%; align-items: center; justify-content: space-between; padding: 8px 12px; margin-bottom: 10px; border-radius: 10px; background: #fff; box-shadow: 0 0 0 1px var(--edge) inset; text-align: left; }
+  .storepick .who2 .r.ok { color: var(--ok-fg); }
+  .storepick svg { transition: transform 200ms var(--ease-out); }
+  .storepick[aria-expanded="true"] svg { transform: rotate(180deg); }
+  .stores { display: none; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-bottom: 14px; }
+  .stores.open { display: grid; }
+  .scard { padding: 6px 10px; }
+  .head .seg { display: none; }
+  .head .step { width: 100%; justify-content: space-between; }
+  .afilters .seg { width: 100%; overflow-x: auto; }
+  .afilters .seg button { flex: 1; padding: 0 8px; }
+  .head .btn.publish, .head .btn.green { flex: 1; justify-content: center; height: 44px; }
+  .head .step .lbl { min-width: 0; }
+  .card.desk { display: none; }
+  .qhead { padding: 0 16px; }
+  .qrow { flex-wrap: wrap; gap: 12px 12px; padding: 14px 16px; min-height: 0; }
+  .qrow .who2 { flex: 1 1 0; min-width: 0; }
+  .qrow .qn { min-width: 0; }
+  .qrow .btn { order: 3; flex: 1 0 100%; justify-content: center; height: 44px; }
+  .slipnet .v { font-size: 22px; }
+  .plist .prow.person { grid-template-columns: none; display: flex; padding: 10px 0; border-radius: 0; gap: 12px; }
+
+  .days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; margin-bottom: 12px; }
+  .days button { height: 52px; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 20px; color: var(--body); transition: background-color 150ms ease, color 150ms ease; }
+  .days button b { font-weight: 600; color: var(--ink); }
+  .days button[aria-pressed="true"] { background: var(--tint); color: var(--accent); box-shadow: 0 0 0 1.5px var(--accent) inset; }
+  .days button[aria-pressed="true"] b { color: var(--accent); }
+  .days button.today:not([aria-pressed="true"]) b { color: var(--accent); }
+
+  .plist { display: flex; flex-direction: column; }
+  .prow { display: grid; grid-template-columns: minmax(0, 1fr) 132px; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--hairline); }
+  .prow:last-child { border-bottom: 0; }
+  .prow .cell { min-height: 44px; }
+  .prow .hr { color: var(--mute); }
+  .prow .who2 .r .bad { font-weight: 500; }
+  .phead { display: flex; justify-content: space-between; color: var(--body); padding: 4px 0 8px; border-bottom: 1px solid var(--hairline); }
+
+  .menu { left: 8px !important; right: 8px; top: auto !important; bottom: calc(8px + env(safe-area-inset-bottom)); width: auto; transform-origin: bottom center; padding: 8px; border-radius: 16px; }
+  .menu.off { transform: translateY(16px); }
+  .mitem { height: 48px; }
+  .medit { display: grid; }
+  .phone-only { display: flex; }
+  .mrow .medit.phone-only { display: grid; }
+  .ots button { min-width: 40px; height: 36px; }
+
+  .sheet { top: 40px; left: 0; right: 0; bottom: 0; width: auto; border-radius: 16px 16px 0 0; }
+  .sheet.off { transform: translateY(100%); }
+  .sheet .shead { padding: 0 8px 0 20px; }
+  .sheet .sbody.form { padding: 20px; }
+  .sheet .sfoot { padding: 12px 20px calc(12px + env(safe-area-inset-bottom)); }
+  .sheet .sfoot .btn { height: 44px; flex: 1; justify-content: center; }
+  .sheet .sfoot .sum { display: none; }
+  .pop { left: 8px !important; right: 8px; top: auto !important; bottom: 8px; width: auto; transform-origin: bottom center; }
+  .pop.off { transform: translateY(16px); }
+  .pop .fld input { height: 48px; }
+  .toast { bottom: 16px; width: max-content; max-width: calc(100% - 32px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cell.landed, .cell.no { animation: none; }
+  .pop, .toast, .menu, .sheet { transition-property: opacity; }
+}
+</style>
+</head>
+<body>
+
+<div class="proto">
+  <div class="seg" id="pageSeg"><button data-page="roster" aria-pressed="true">Roster</button><button data-page="attendance" aria-pressed="false">Attendance</button><button data-page="payroll" aria-pressed="false">Payroll</button></div>
+  <div class="seg" id="optSeg" hidden></div>
+  <div class="seg" id="devSeg"></div>
+  <div class="seg" id="sideSeg"><button aria-pressed="true" data-side="folded">Sidebar hidden</button><button aria-pressed="false" data-side="open">Sidebar shown</button></div>
+  <button class="reset" id="reset">Reset</button>
+</div>
+
+<div class="shell" id="shell">
+  <aside class="rail">
+    <div class="logo">C</div>
+    <div class="ic"><i data-lucide="layout-grid"></i></div>
+    <div class="ic"><i data-lucide="package"></i></div>
+    <div class="ic"><i data-lucide="shopping-bag"></i></div>
+    <div class="ic"><i data-lucide="wallet"></i></div>
+    <div class="ic on"><i data-lucide="users"></i></div>
+  </aside>
+  <aside class="dept">
+    <div class="head">HR</div>
+    <nav>
+      <a><i data-lucide="layout-grid"></i>Overview</a>
+      <a><i data-lucide="users"></i>Employees</a>
+      <a data-page="roster" class="on"><i data-lucide="calendar-range"></i>Schedules</a>
+      <a data-page="attendance"><i data-lucide="fingerprint"></i>Attendance</a>
+      <a data-page="payroll"><i data-lucide="wallet"></i>Payroll</a>
+    </nav>
+  </aside>
+  <div class="phonebar" id="phonebar">Roster</div>
+  <main class="content" id="content"></main>
+</div>
+
+<div class="menu-scrim" id="menuScrim" hidden></div>
+<div class="menu off" id="menu" role="menu"></div>
+<div class="phone-stage" id="phone" hidden><iframe id="phoneFrame" title="Phone"></iframe></div>
+<div class="scrim off" id="sheetScrim" hidden></div>
+<aside class="sheet off" id="sheet" role="dialog" aria-modal="true" aria-label="Shifts"></aside>
+<div class="pop-scrim" id="popScrim" hidden></div>
+<div class="pop off" id="pop" role="dialog" aria-modal="true"></div>
+<div class="toast off" id="toast"><span></span><button id="undo">Undo</button></div>
+
+<script>
+/* ───────────────────────── data ───────────────────────── */
+const Q = new URLSearchParams(location.search);
+if (Q.get("embed") === "1") document.body.classList.add("embed");
+
+const COLORS = ["#ee8b2e", "#4a82f0", "#8a6cf0", "#46a06a", "#d65b95", "#1f9fb4", "#b7791f"];
+const crew = (rows) => rows.map(([id, name, role]) => ({ id, name, role }));
+const STORES = [
+  { id: "C001", name: "Purwokerto", people: crew([
+    ["p1", "Dewi Lestari", "Store head"], ["p2", "Siti Rahayu", "Cashier"], ["p3", "Bayu Pratama", "Cashier"],
+    ["p4", "Nur Aini", "Stock keeper"], ["p5", "Rizky Ananda", "Cashier"], ["p6", "Wulan Sari", "Stock keeper"],
+    ["p7", "Fajar Nugroho", "Cashier"], ["p8", "Andi Saputra", "Security"], ["p9", "Lina Marlina", "Admin"]]) },
+  { id: "C002", name: "Cilacap", people: crew([
+    ["c1", "Hendra Wijaya", "Store head"], ["c2", "Putri Ayu", "Cashier"], ["c3", "Agus Salim", "Cashier"],
+    ["c4", "Mega Puspita", "Stock keeper"], ["c5", "Yoga Pratama", "Cashier"], ["c6", "Rina Oktavia", "Admin"],
+    ["c7", "Dimas Arya", "Security"]]) },
+  { id: "C003", name: "Banjarnegara", people: crew([
+    ["b1", "Sri Wahyuni", "Store head"], ["b2", "Eko Saputro", "Cashier"], ["b3", "Fitri Handayani", "Cashier"],
+    ["b4", "Joko Susilo", "Stock keeper"], ["b5", "Ani Rahmawati", "Cashier"], ["b6", "Bambang Irawan", "Security"],
+    ["b7", "Desi Ratnasari", "Cashier"], ["b8", "Teguh Santoso", "Admin"]]) },
+  { id: "C004", name: "Tegal", people: crew([
+    ["t1", "Rudi Hartono", "Store head"], ["t2", "Nina Kurnia", "Cashier"], ["t3", "Ilham Maulana", "Cashier"],
+    ["t4", "Sari Indah", "Stock keeper"], ["t5", "Wahyu Hidayat", "Security"], ["t6", "Lestari Ningsih", "Cashier"]]) },
+];
+const TOWNS = [["C005", "Purbalingga"], ["C006", "Kebumen"], ["C007", "Wonosobo"], ["C008", "Magelang"], ["C009", "Brebes"], ["C010", "Pemalang"], ["C011", "Pekalongan"], ["C012", "Batang"]];
+const FIRST = ["Ayu", "Budi", "Citra", "Dani", "Erna", "Feri", "Gita", "Hadi", "Indah", "Jaka", "Kiki", "Lukman", "Maya", "Nanda", "Oki", "Prita", "Reza", "Sinta", "Tono", "Umi"];
+const LAST = ["Permana", "Lestari", "Setiawan", "Kusuma", "Hidayat", "Wibowo", "Saputri", "Nugraha", "Utami", "Santoso"];
+const ROLES = ["Store head", "Cashier", "Cashier", "Stock keeper", "Cashier", "Security", "Admin", "Cashier"];
+TOWNS.forEach(([id, name], k) => {
+  const n = 6 + (k % 3);
+  STORES.push({ id, name, people: crew(Array.from({ length: n }, (_, i) => [`x${k}-${i}`, `${FIRST[(k * 3 + i) % FIRST.length]} ${LAST[(k + i * 7) % LAST.length]}`, ROLES[i]])) });
+});
+STORES.push({ id: "HO", name: "Head Office", people: crew([
+  ["h1", "Rina Kusuma", "HR manager"], ["h2", "Arif Mahendra", "Finance"], ["h3", "Sinta Dewi", "Finance"], ["h4", "Yusuf Hakim", "Buyer"],
+  ["h5", "Mira Anggraini", "Buyer"], ["h6", "Dedi Kurniawan", "IT"], ["h7", "Laras Wulandari", "Merchandiser"]]) });
+const unitOf = (pid) => STORES.find((st) => st.people.some((p) => p.id === pid));
+let PEOPLE = STORES[0].people;
+const TODAY = "2026-10-26"; // a Monday
+const LEAVE = { p2: ["2026-10-29"], p6: ["2026-11-04", "2026-11-05"] };
+const MIN_HOURS = 40;
+
+// Overtime on top of a day's shift, in hours: Fajar stays two on Friday for
+// the stock count, Andi one on Thursday.
+function freshOT() {
+  return { p7: { "2026-10-30": 2, "2026-10-21": 2 }, p8: { "2026-10-29": 1 }, p5: { "2026-10-22": 2, "2026-10-14": 1 }, p2: { "2026-10-08": 1 }, h2: { "2026-10-22": 3 }, h4: { "2026-10-21": 2 } };
+}
+function freshShifts() {
+  return [
+    { id: "s1", name: "Pagi", start: "07:30", end: "16:30", color: COLORS[0] },
+    { id: "s2", name: "Siang", start: "13:00", end: "22:00", color: COLORS[1] },
+    { id: "s3", name: "Middle", start: "10:00", end: "19:00", color: COLORS[2] },
+    { id: "s4", name: "Long", start: "07:30", end: "20:30", color: COLORS[3] },
+  ];
+}
+// Last week and this one written, next week half done: a roster mid-build.
+function freshPlan() {
+  const plan = {};
+  const pattern = {
+    p1: ["s1", "s1", "s1", "s1", "s1", "OFF", "OFF"],
+    p2: ["s1", "s1", "OFF", null, "s2", "s2", "s1"],
+    p3: ["s2", "s2", "s2", "OFF", "s2", null, "OFF"],
+    p4: ["s1", "s1", "s1", "s1", "OFF", "s1", "OFF"],
+    p5: ["s2", "OFF", "s2", "s2", "s2", "s2", "OFF"],
+    p6: ["s3", "s3", "s3", "OFF", "s3", "s3", "OFF"],
+    p7: ["OFF", "s2", "s2", "s2", "s1", "s1", "OFF"],
+    p8: ["s1", "s2", "s1", "s2", "s1", "OFF", "OFF"],
+    p9: ["s3", "s3", "s3", "s3", "s3", "OFF", "OFF"],
+  };
+  // The other shops borrow Purwokerto's weeks, turned a little: Cilacap has
+  // two people short, Banjarnegara is done, Tegal has not started this week.
+  const base = Object.values(pattern);
+  STORES.slice(1).forEach((store, k) => store.people.forEach((p, i) => {
+    const week = base[(i + k + 1) % base.length].slice();
+    if (store.id === "HO") { pattern[p.id] = ["s1", "s1", "s1", "s1", "s1", "OFF", "OFF"]; return; }
+    if (store.id === "C002" && i < 2) week[5] = "OFF";
+    if (store.id === "C003" || /^C00[5-9]$|^C01[01]$/.test(store.id) && !["C006","C010"].includes(store.id)) for (let d = 0; d < 7; d++) if (week[d] === null) week[d] = "s1";
+    pattern[p.id] = week;
+  }));
+  for (const p of STORES.flatMap((store) => store.people)) {
+    plan[p.id] = {};
+    pattern[p.id].forEach((s, i) => {
+      if (p.id.startsWith("t") || /^x[258]-/.test(p.id)) { if (s) plan[p.id][addDays("2026-10-19", i)] = s; return; }
+      if (s) plan[p.id][addDays("2026-10-19", i)] = s;
+      if (s) plan[p.id][addDays("2026-10-26", i)] = s;
+      if (s && i < 3 && ["p1", "p4", "p9"].includes(p.id)) plan[p.id][addDays("2026-11-02", i)] = s;
+      if (s) for (const mon of ["2026-09-28", "2026-10-05", "2026-10-12"]) plan[p.id][addDays(mon, i)] = s;
+    });
+  }
+  delete plan.p2["2026-10-29"];
+  plan.p5["2026-10-31"] = "s4"; // Rizky's Saturday is a long one
+  return plan;
+}
+
+// One-off extras HR adds for the month: a bonus (earning) and a uniform (deduction).
+const ADJ = { p5: { label: "Sales bonus", amt: 150000, kind: "earn" }, p6: { label: "Uniform", amt: 80000, kind: "ded" } };
+const S = {
+  view: Q.get("view") === "day" ? "day" : "week", rmonth: "2026-10",
+  week: "2026-10-26", day: TODAY,
+  store: 0, sel: [], swapFrom: null,
+  page: ["attendance", "payroll"].includes(Q.get("page")) ? Q.get("page") : "roster",
+  adj: Object.fromEntries(Object.entries(ADJ).map(([k, v]) => [k, [{ ...v }]])), adjForm: null,
+  rates: { store: 8000, ho: 12000 }, ratesOpen: false, pay: {}, slip: null, pfilter: "all", popt: ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"].includes((Q.get("opt") || "").toUpperCase()) ? Q.get("opt").toUpperCase() : "A", pexp: {}, pcol: {}, pall: false, pfold: { earn: false, ded: false }, pcompOpen: false,
+  attMonth: "2026-10", attDate: "2026-10-20", aview: "month", afilter: "all", att: null, attP: null, punch: {}, aprv: {},
+  shifts: freshShifts(), plan: freshPlan(), ot: freshOT(), pub: {},
+  dev: "desk",
+};
+
+/* ───────────────────────── helpers ───────────────────────── */
+const $ = (s, r = document) => r.querySelector(s);
+const esc = (v) => String(v ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const icons = () => window.lucide && lucide.createIcons();
+const phone = () => matchMedia("(max-width: 767px)").matches;
+function addDays(iso, n) { const d = new Date(iso + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+const DOW = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const dnum = (iso) => +iso.slice(8, 10);
+const dlabel = (iso) => `${dnum(iso)} ${MON[+iso.slice(5, 7) - 1]}`;
+const weekLabel = (mon) => `${dlabel(mon)} – ${dlabel(addDays(mon, 6))}`;
+const days = (mon) => [0, 1, 2, 3, 4, 5, 6].map((i) => addDays(mon, i));
+const initials = (n) => n.split(" ").map((w) => w[0]).slice(0, 2).join("");
+const shiftOf = (id) => S.shifts.find((s) => s.id === id);
+const mins = (t) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+function netHours(s) {
+  let span = mins(s.end) - mins(s.start); if (span <= 0) span += 1440;
+  if (span > 360) span -= 60; // an hour's break past six hours
+  return span / 60;
+}
+const fmtH = (h) => (Number.isInteger(h) ? `${h}` : h.toFixed(1)) + " h";
+const onLeave = (pid, iso) => (LEAVE[pid] || []).includes(iso);
+const at = (pid, iso) => (onLeave(pid, iso) ? "LEAVE" : S.plan[pid][iso]);
+// A day is eight normal hours at most; what a shift runs past that, and any
+// overtime asked on top of it, is overtime (UU 13/2003: at most 4 h a day,
+// 18 h a week). Days beyond five are not turned into overtime: the hours column
+// says what the roster plans, and overtime only what was asked.
+const DAY_NORMAL = 8, OT_DAY = 4, OT_WEEK = 18;
+function dayNormalSum(pid, mon) {
+  return days(mon).reduce((sum, iso) => { const s = shiftOf(at(pid, iso)); return sum + (s ? Math.min(netHours(s), DAY_NORMAL) : 0); }, 0);
+}
+const weekHours = (pid, mon) => dayNormalSum(pid, mon);
+function dayOT(pid, iso) {
+  const s = shiftOf(at(pid, iso));
+  if (!s) return 0;
+  return Math.max(netHours(s) - DAY_NORMAL, 0) + ((S.ot[pid] || {})[iso] || 0);
+}
+const weekOT = (pid, mon) => days(mon).reduce((n, iso) => n + dayOT(pid, iso), 0);
+const otOver = (pid, mon) => weekOT(pid, mon) > OT_WEEK || days(mon).some((iso) => dayOT(pid, iso) > OT_DAY);
+
+/* ───────────────────────── attendance: what was clocked ───────────────────────── */
+// Punches are made up from the roster, the same every time: most people are
+// on time, a few are late, one is absent, one forgot to clock out.
+const NOW = "10:30"; // the clock on TODAY
+function hash(str) { let h = 2166136261; for (const c of str) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return (h >>> 0) % 100; }
+const hm = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+const FORCED = { "p2|2026-10-19": { late: 16 }, "p3|2026-10-20": { absent: true }, "p4|2026-10-21": { noout: true }, "p6|2026-10-22": { fix: true, in: "10:05", out: "19:02", note: "Fingerprint would not read" }, "p9|2026-10-23": { late: 22 }, "p7|2026-10-19": { late: 9 } };
+function punchOf(pid, iso) {
+  S.punch[pid] ??= {};
+  if (S.punch[pid][iso] !== undefined) return S.punch[pid][iso];
+  let rec = null;
+  const sh = shiftOf(S.plan[pid]?.[iso]);
+  if (sh && !onLeave(pid, iso) && iso < TODAY) {
+    const r = hash(`${pid}${iso}`), f = FORCED[`${pid}|${iso}`] || {};
+    const start = mins(sh.start), end = mins(sh.end) + (((S.ot[pid] || {})[iso] || 0) * 60);
+    if (f.absent || (!f.late && !f.fix && !f.noout && r < 1 && pid !== "p1")) rec = { absent: true };
+    else if (f.fix) rec = { in: f.in, out: f.out, fix: true, note: f.note, src: "HR" };
+    else if (f.noout || (r < 2 && pid !== "p1")) rec = { in: hm(start - (r % 7)), out: null, src: "Fingerprint" };
+    else if (f.late || r < 12) rec = { in: hm(start + (f.late || 6 + (r % 24))), out: hm(end + (r % 11)), src: "Fingerprint" };
+    else rec = { in: hm(start - (r % 9)), out: hm(end + (r % 14)), src: r % 5 === 0 ? "App" : "Fingerprint" };
+    // What happened before the 19th was answered long ago.
+    if (iso < "2026-10-19" && rec && (rec.absent || !rec.out) && !rec.fix) rec = rec.absent ? { absent: true, fix: true, note: "Confirmed absent", src: "HR" } : { in: rec.in, out: hm(end), fix: true, note: "Forgot to clock out", src: "HR" };
+  } else if (sh && !onLeave(pid, iso) && iso === TODAY) {
+    const start = mins(sh.start);
+    if (start <= mins(NOW)) rec = { in: hm(start - (hash(`${pid}${iso}`) % 8)), out: null, today: true, src: "Fingerprint" };
+  }
+  S.punch[pid][iso] = rec;
+  return rec;
+}
+const LATE_GRACE = 5;
+function attStat(pid, iso) {
+  if (onLeave(pid, iso)) return { kind: "leave" };
+  const sh = shiftOf(S.plan[pid]?.[iso]);
+  const v = S.plan[pid]?.[iso];
+  if (v === "OFF") return { kind: "off" };
+  if (!sh) return { kind: "none" };
+  if (iso > TODAY) return { kind: "future", sh };
+  const rec = punchOf(pid, iso);
+  if (rec === null) return { kind: "future", sh };
+  if (rec.absent) return { kind: "absent", sh, rec };
+  if (rec.today) return { kind: "today", sh, rec };
+  if (!rec.out) return { kind: "noout", sh, rec };
+  const late = mins(rec.in) - mins(sh.start);
+  return { kind: late > LATE_GRACE ? "late" : "ok", sh, rec, late };
+}
+function workedHours(pid, iso) {
+  const st = attStat(pid, iso);
+  if (!st.rec || !st.rec.in || !st.rec.out) return 0;
+  let span = mins(st.rec.out) - mins(st.rec.in); if (span < 0) span += 1440;
+  return Math.max(span - (span > 360 ? 60 : 0), 0) / 60;
+}
+// A period is a month: payroll counts a month, so attendance is approved by one.
+const monthDays = (ym) => { const [y, m] = ym.split("-").map(Number); const n = new Date(Date.UTC(y, m, 0)).getUTCDate(); return Array.from({ length: n }, (_, i) => `${ym}-${String(i + 1).padStart(2, "0")}`); };
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const monthLabel = (ym) => `${MONTHS[+ym.slice(5, 7) - 1]} ${ym.slice(0, 4)}`;
+const addMonths = (ym, n) => { const d = new Date(Date.UTC(+ym.slice(0, 4), +ym.slice(5, 7) - 1 + n, 1)); return d.toISOString().slice(0, 7); };
+const attDays = () => monthDays(S.attMonth);
+const mondayOfIso = (iso) => addDays(iso, -((new Date(iso + "T00:00:00Z").getUTCDay() + 6) % 7));
+// The days on show: the month, the week around the date, or the day.
+const visDays = () => S.aview === "month" ? attDays() : S.aview === "week" ? days(mondayOfIso(S.attDate)) : [S.attDate];
+const setAttDate = (d) => { S.attDate = d; S.attMonth = d.slice(0, 7); };
+const attWeekHours = (pid) => attDays().reduce((n, iso) => n + workedHours(pid, iso), 0);
+const attPlanned = (pid) => attDays().reduce((n, iso) => { const st = attStat(pid, iso); return n + (["ok", "late", "noout", "absent"].includes(st.kind) ? Math.min(netHours(st.sh), DAY_NORMAL) + dayOT(pid, iso) : 0); }, 0);
+// A day nobody has answered for: absent, or in without an out.
+const isOpen = (st) => (st.kind === "absent" || st.kind === "noout") && !st.rec.fix;
+function attCounts(people = PEOPLE) {
+  const c = { late: 0, absent: 0, noout: 0 };
+  for (const p of people) for (const iso of visDays()) { const k = attStat(p.id, iso).kind; if (k in c) c[k]++; }
+  return c;
+}
+const curStore = () => STORES[S.store];
+const openOf = (store = curStore()) => store.people.flatMap((p) => attDays().map((iso) => ({ p, iso, st: attStat(p.id, iso) }))).filter((x) => isOpen(x.st));
+const attSig = (store = curStore()) => JSON.stringify(store.people.map((p) => attDays().map((iso) => S.punch[p.id]?.[iso] ?? null)));
+// A few shops already had their attendance approved when you came in.
+const PRE_APPROVED = new Set(["HO", "C002", "C004", "C005", "C007", "C008", "C010", "C011"]);
+function attApproved(store = curStore()) {
+  const key = pubKey(store, S.attMonth);
+  if (S.aprv[key] === undefined && PRE_APPROVED.has(store.id) && openOf(store).length === 0) S.aprv[key] = attSig(store);
+  return S.aprv[key] === attSig(store);
+}
+const personById = (pid) => STORES.flatMap((st) => st.people).find((x) => x.id === pid);
+
+/* ───────────────────────── one cell ───────────────────────── */
+function cellHTML(pid, iso) {
+  const v = at(pid, iso);
+  const data = `data-p="${pid}" data-d="${iso}"`;
+  const sel = S.sel.includes(`${pid}|${iso}`) ? " sel" : S.swapFrom === `${pid}|${iso}` ? " swapsrc" : "";
+  if (v === "LEAVE") return `<div class="cell leave${sel}" ${data}><span class="s">Leave</span></div>`;
+  if (v === "OFF") return `<div class="cell off${sel}" ${data}><span class="s">Off</span></div>`;
+  const s = shiftOf(v);
+  if (!s) return `<div class="cell empty${sel}" ${data}></div>`;
+  const ot = dayOT(pid, iso);
+  return `<div class="cell${sel}" ${data} style="--c:${s.color}" title="${s.start}–${s.end}"><span class="s">${esc(s.name)}</span>${ot ? `<span class="t num${ot > OT_DAY ? " bad" : ""}">+${fmtH(ot)}</span>` : ""}</div>`;
+}
+const planned = (pid, mon) => days(mon).some((iso) => S.plan[pid][iso] !== undefined);
+const hoursHTML = (h, any = true) => (!any ? `<span class="mute">—</span>` : h < MIN_HOURS ? `<b class="bad num">${fmtH(h)}</b>` : `<b class="num">${fmtH(h)}</b>`);
+// Normal hours over the overtime, when there is any.
+function hoursCell(pid, mon) {
+  const ot = weekOT(pid, mon);
+  return `<span class="hh">${hoursHTML(weekHours(pid, mon), planned(pid, mon))}${ot ? `<span class="ot num${otOver(pid, mon) ? " bad" : ""}">+${fmtH(ot)}</span>` : ""}</span>`;
+}
+
+/* Planned, and under the weekly minimum: the people a roster still owes hours. */
+// Everybody under the weekly minimum, planned or not: a week nobody has
+// started is not a week that can be sent.
+function shortOf(mon, people = PEOPLE) {
+  return people.map((p, idx) => ({ p, idx, h: weekHours(p.id, mon) })).filter((r) => r.h < MIN_HOURS);
+}
+// What a published week looked like. Any change after it makes the week a
+// draft again, with no flag to forget to clear — and Undo brings it back.
+const signature = (store, mon) => JSON.stringify(store.people.map((p) => days(mon).map((iso) => [at(p.id, iso) ?? null, (S.ot[p.id] || {})[iso] ?? null])));
+const pubKey = (store, mon) => `${store.id}|${mon}`;
+const isPublished = (store, mon) => S.pub[pubKey(store, mon)] === signature(store, mon);
+function otWarnHTML(mon) {
+  const list = PEOPLE.map((p, idx) => ({ p, idx })).filter((r) => otOver(r.p.id, mon));
+  if (!list.length) return "";
+  const names = list.map((r) => `<span class="nm">${esc(r.p.name.split(" ")[0])} +${fmtH(weekOT(r.p.id, mon))}</span>`).join(", ");
+  return `<div class="warnbar" role="status"><i data-lucide="timer"></i><b>Overtime past ${OT_DAY} h a day or ${OT_WEEK} h a week</b><span>${names}</span></div>`;
+}
+
+/* ───────────────────────── the shops, as cards ───────────────────────── */
+// Each shop says the one thing about its week that matters: days still to
+// plan, people under the weekly minimum, or that it is ready.
+function storeState(store, mon) {
+  const ds = days(mon);
+  const empty = store.people.reduce((n, p) => n + ds.filter((iso) => at(p.id, iso) === undefined).length, 0);
+  const short = store.people.filter((p) => weekHours(p.id, mon) < MIN_HOURS).length;
+  if (empty > 0) return { cls: "mute", text: `${empty} ${empty === 1 ? "day" : "days"} to plan`, rank: 2, n: empty };
+  if (short > 0) return { cls: "bad", text: `${short} under ${MIN_HOURS} h`, rank: 1, n: short };
+  if (isPublished(store, mon)) return { cls: "ok", text: "Published", rank: 0, n: 0, done: true };
+  return { cls: "mute", text: "Ready to publish", rank: 0, n: 0 };
+}
+// Twelve shops, all of them at once: two rows of six, in a fixed order so a
+// shop is always where the hand expects it.
+function storesHTML() {
+  // A phone has no room for twelve cards: the open shop is one row that
+  // unfolds them.
+  const here = STORES[S.store];
+  const pick = `<button class="storepick" data-act="pickstore" aria-expanded="${!!S.storesOpen}"><span class="who2"><span class="r num">${here.id}</span><span class="n">${esc(here.name)}</span></span><i data-lucide="chevron-down"></i></button>`;
+  return `${pick}<div class="stores${S.storesOpen ? " open" : ""}">${STORES.map((store, i) => {
+    return `<button class="scard" data-store="${i}" aria-pressed="${S.store === i}" title="${store.id} · ${store.people.length} people">
+      <span class="sc num">${store.id}</span>
+      <span class="sn">${esc(store.name)}</span>
+    </button>`;
+  }).join("")}</div>`;
+}
+
+/* ───────────────────────── the right bar ───────────────────────── */
+/* ───────────────────────── views ───────────────────────── */
+const monthWeeks = (ym) => { const out = []; let m = mondayOfIso(`${ym}-01`); while (m <= monthDays(ym)[monthDays(ym).length - 1]) { out.push(m); m = addDays(m, 7); } return out; };
+const monthShort = (ym) => monthWeeks(ym).flatMap((mon) => shortOf(mon).map((r) => ({ ...r, mon })));
+const monthPublished = (store, ym) => monthWeeks(ym).every((mon) => isPublished(store, mon));
+function headHTML() {
+  const month = S.view === "month";
+  const published = month ? monthPublished(STORES[S.store], S.rmonth) : isPublished(STORES[S.store], S.week);
+  const short = month ? monthShort(S.rmonth) : shortOf(S.week);
+  const stepWeek = `<div class="step"><button class="icbtn" data-act="wk-1" aria-label="${month ? "Previous month" : "Previous week"}"><i data-lucide="chevron-left"></i></button>
+      <span class="lbl num">${month ? monthLabel(S.rmonth) : weekLabel(S.week)}</span>
+      <button class="icbtn" data-act="wk+1" aria-label="${month ? "Next month" : "Next week"}"><i data-lucide="chevron-right"></i></button></div>`;
+  return `<div class="head">
+    <h1>${esc(STORES[S.store].name)}</h1>
+    ${published ? `<span class="pubmark"><i data-lucide="check"></i>Published</span>` : ""}
+    <span class="grow desk-only"></span>
+    <div class="seg" role="tablist">
+      <button aria-pressed="${S.view === "day"}" data-view="day" class="desk-only">By day</button>
+      <button aria-pressed="${S.view === "week"}" data-view="week">By week</button>
+    </div>
+    ${stepWeek}
+    ${S.view === "week" ? `<button class="btn ghost desk-only" data-act="copy"><i data-lucide="copy"></i>Copy last week</button>` : ""}
+    <button class="btn green" data-act="shifts"><i data-lucide="clock"></i>Shifts</button>
+    <button class="btn publish" data-act="publish" ${published || short.length ? "disabled" : ""} title="${short.length ? `${short.map((r) => `${r.p.name.split(" ")[0]} ${fmtH(r.h)}`).slice(0, 4).join(", ")} — everybody needs ${MIN_HOURS} h to publish` : ""}">${published ? "Published" : month ? "Publish month" : "Publish week"}</button>
+  </div>`;
+}
+
+/* A month: people × the days, a cell each. Drag across days to paint them; the
+   hours column is the month's, and red when any week in it is short. */
+function monthRosterHTML() {
+  const ym = S.rmonth, ds = monthDays(ym);
+  const weeks = monthWeeks(ym);
+  const wd = (iso) => (new Date(iso + "T00:00:00Z").getUTCDay() + 6) % 7;
+  const head = ds.map((iso) => `<th class="am-h${wd(iso) > 4 ? " wkend" : ""}${iso === TODAY ? " today" : ""}"><span>${"MTWTFSS"[wd(iso)]}</span><b class="num">${dnum(iso)}</b></th>`).join("");
+  const mini = (pid, iso) => {
+    const v = at(pid, iso), data = `data-p="${pid}" data-d="${iso}"`;
+    const sel = S.sel.includes(`${pid}|${iso}`) ? " sel" : S.swapFrom === `${pid}|${iso}` ? " swapsrc" : "";
+    if (v === "LEAVE") return `<div class="cell mini leave${sel}" ${data} title="Leave"></div>`;
+    if (v === "OFF") return `<div class="cell mini off${sel}" ${data} title="Off"><span class="s">·</span></div>`;
+    const sh = shiftOf(v);
+    if (!sh) return `<div class="cell mini empty${sel}" ${data}></div>`;
+    return `<div class="cell mini${sel}" ${data} style="--c:${sh.color}" title="${esc(sh.name)} ${sh.start}–${sh.end}"><span class="s">${esc(sh.name[0])}</span>${dayOT(pid, iso) ? `<i class="otd"></i>` : ""}</div>`;
+  };
+  const hours = (p) => {
+    const h = ds.reduce((n, iso) => { const sh = shiftOf(at(p.id, iso)); return n + (sh ? Math.min(netHours(sh), DAY_NORMAL) : 0); }, 0);
+    const ot = ds.reduce((n, iso) => n + dayOT(p.id, iso), 0);
+    const bad = weeks.some((mon) => weekHours(p.id, mon) < MIN_HOURS);
+    const any = ds.some((iso) => S.plan[p.id][iso] !== undefined);
+    return `<span class="hh">${any ? `<b class="num${bad ? " bad" : ""}">${fmtH(h)}</b>` : `<span class="mute">—</span>`}${ot ? `<span class="ot num">+${fmtH(ot)}</span>` : ""}</span>`;
+  };
+  const rows = PEOPLE.map((p) => `<tr><td class="who"><div class="person"><div class="av">${initials(p.name)}</div><div class="who2"><span class="n">${esc(p.name)}</span><span class="r">${esc(p.role)}</span></div></div></td>${ds.map((iso) => `<td class="amc">${mini(p.id, iso)}</td>`).join("")}<td class="hrs">${hours(p)}</td></tr>`).join("");
+  const working = ds.map((iso) => PEOPLE.filter((p) => shiftOf(at(p.id, iso))).length);
+  const list = PEOPLE.map((p) => {
+    const short = weeks.filter((mon) => weekHours(p.id, mon) < MIN_HOURS).length;
+    const h = ds.reduce((n, iso) => { const sh = shiftOf(at(p.id, iso)); return n + (sh ? Math.min(netHours(sh), DAY_NORMAL) : 0); }, 0);
+    return `<button class="prow person" data-open-week="${p.id}"><div class="av">${initials(p.name)}</div><div class="who2"><span class="n">${esc(p.name)}</span><span class="r num">${fmtH(h)} this month${short ? ` · <span class="bad">${short} ${short === 1 ? "week" : "weeks"} under ${MIN_HOURS} h</span>` : ""}</span></div><i data-lucide="chevron-right" class="chev"></i></button>`;
+  }).join("");
+  const legend = `<div class="legend desk-only">${S.shifts.map((sh) => `<span><b class="am-l" style="background:color-mix(in srgb, ${sh.color} 14%, #fff);color:var(--ink)">${esc(sh.name[0])}</b> ${esc(sh.name)}</span>`).join("")}<span><b class="am-l off">·</b> Off</span><span><b class="am-l leave"></b> Leave</span><span><i class="otd" style="position:static;display:inline-block"></i> Overtime</span></div>`;
+  return `<div class="card desk"><table class="grid month">
+      <colgroup><col class="who">${ds.map(() => "<col>").join("")}<col style="width:112px"></colgroup>
+      <thead><tr><th>Person</th>${head}<th class="hrs">Hours</th></tr></thead>
+      <tbody>${rows}</tbody><tfoot><tr><td>Working</td>${working.map((n) => `<td class="amc num">${n}</td>`).join("")}<td></td></tr></tfoot></table></div>
+    ${legend}<div class="plist">${list}</div>`;
+}
+
+function weekView() {
+  const ds = days(S.week);
+  const head = ds.map((iso, i) => `<th class="${iso === TODAY ? "today" : i > 4 ? "wkend" : ""}">${DOW[i]} ${dnum(iso)}</th>`).join("");
+  const rows = PEOPLE.map((p, idx) => `<tr>
+      <td class="who"><div class="person"><div class="av">${initials(p.name)}</div><div class="who2"><span class="n">${esc(p.name)}</span><span class="r">${esc(p.role)}</span></div></div></td>
+      ${ds.map((iso) => `<td>${cellHTML(p.id, iso)}</td>`).join("")}
+      <td class="hrs">${hoursCell(p.id, S.week)}</td></tr>`).join("");
+  const working = ds.map((iso) => PEOPLE.filter((p) => shiftOf(at(p.id, iso))).length);
+  const foot = `<tr><td>Working</td>${working.map((n) => `<td class="num">${n}</td>`).join("")}<td></td></tr>`;
+
+  // phone: a day at a time, a person a row
+  const pills = ds.map((iso, i) => `<button data-day="${iso}" aria-pressed="${iso === S.day}" class="${iso === TODAY ? "today" : ""}">${DOW[i]}<b class="num">${dnum(iso)}</b></button>`).join("");
+  const list = PEOPLE.map((p, idx) => {
+    const h = weekHours(p.id, S.week);
+    return `<div class="prow"><div class="person"><div class="av">${initials(p.name)}</div><div class="who2"><span class="n">${esc(p.name)}</span><span class="r num">${h < MIN_HOURS ? `<span class="bad">${fmtH(h)}</span>` : fmtH(h)}${weekOT(p.id, S.week) ? ` <span class="${otOver(p.id, S.week) ? "bad" : ""}">+${fmtH(weekOT(p.id, S.week))}</span>` : ""} this week</span></div></div>${cellHTML(p.id, S.day)}</div>`;
+  }).join("");
+
+  if (S.view === "month") return monthRosterHTML();
+  // A day at a time, a person a row: the phone's way, on a desk too.
+  if (S.view === "day") {
+    const n = PEOPLE.filter((p) => shiftOf(at(p.id, S.day))).length;
+    return `${otWarnHTML(S.week)}<div class="dayview"><div class="days">${pills}</div>
+      <div class="card"><div class="dayhead"><span>${DOW[(new Date(S.day + "T00:00:00Z").getUTCDay() + 6) % 7]} ${dlabel(S.day)}</span><span class="mute num">${n} working</span></div><div class="plist">${list}</div></div></div>`;
+  }
+  return `${otWarnHTML(S.week)}<div class="card desk"><table class="grid">
+      <colgroup><col class="who">${ds.map(() => "<col>").join("")}<col style="width:84px"></colgroup>
+      <thead><tr><th>Person</th>${head}<th class="hrs">Hours</th></tr></thead>
+      <tbody>${rows}</tbody><tfoot>${foot}</tfoot></table></div>
+    <div class="days">${pills}</div>
+    <div class="plist">${list}</div>`;
+}
+
+function swapBarHTML() {
+  if (!S.swapFrom) return "";
+  const [p, d] = S.swapFrom.split("|");
+  const who = PEOPLE.find((x) => x.id === p).name.split(" ")[0];
+  return `<div class="swapbar" role="status"><i data-lucide="repeat-2"></i><span>Swapping <b>${who} · ${dlabel(d)}</b> — press the day to trade with</span><button class="linkbtn" data-act="swapcancel">Cancel</button></div>`;
+}
+function render() {
+  const c = $("#content");
+  const keep = c.scrollTop;
+  c.innerHTML = S.page === "payroll" ? `${storesHTML()}${payHeadHTML()}${payView()}` : S.page === "attendance" ? `${storesHTML()}${attHeadHTML()}${attView()}` : `${storesHTML()}${headHTML()}${swapBarHTML()}${weekView()}`;
+  $("#optSeg").hidden = S.page !== "payroll";
+  $("#optSeg").innerHTML = POPTS.map(([k, l]) => `<button data-popt="${k}" aria-pressed="${S.popt === k}">${k} · ${l}</button>`).join("");
+  $("#phonebar").textContent = { payroll: "Payroll", attendance: "Attendance", roster: "Roster" }[S.page];
+  document.querySelectorAll("[data-page]").forEach((el) => { if (el.tagName === "A") el.classList.toggle("on", el.dataset.page === S.page); else el.setAttribute("aria-pressed", el.dataset.page === S.page); });
+  if (S.sheet) $("#sheet").innerHTML = sheetHTML();
+  icons();
+  c.scrollTop = keep;
+  if (typeof syncSide === "function") syncSide();
+}
+
+/* ───────────────────────── the Attendance page ───────────────────────── */
+function aCellHTML(pid, iso) {
+  const st = attStat(pid, iso);
+  const data = `data-a="${pid}|${iso}"`;
+  const fix = st.rec?.fix ? " fixed" : "";
+  const ot = ["ok", "late"].includes(st.kind) ? dayOT(pid, iso) : 0;
+  const om = ot ? `<span class="otm num">+${fmtH(ot)}</span>` : "";
+  switch (st.kind) {
+    case "leave": return `<div class="acell leave"><span>Leave</span></div>`;
+    case "off": return `<div class="acell off"><span>Off</span></div>`;
+    case "none": case "future": return `<div class="acell none"><span>—</span></div>`;
+    case "absent": return `<button class="acell absent${fix}" ${data}><span>Absent</span></button>`;
+    case "noout": return `<button class="acell noout${fix}" ${data}><span class="num">${st.rec.in} – ?</span></button>`;
+    case "today": return `<button class="acell now" ${data}><span class="num">${st.rec.in} – …</span></button>`;
+    case "late": return `<button class="acell${fix}${ot ? " hasot" : ""}" ${data}><span class="num"><b class="lt">${st.rec.in}</b> – ${st.rec.out}</span>${om}</button>`;
+    default: return `<button class="acell${fix}${ot ? " hasot" : ""}" ${data}><span class="num">${st.rec.in} – ${st.rec.out}</span>${om}</button>`;
+  }
+}
+function attHeadHTML() {
+  const open = openOf();
+  const approved = attApproved();
+  const counts = attCounts();
+  const chip = (v, label, n) => `<button data-afilter="${v}" aria-pressed="${S.afilter === v}">${label}${n === undefined ? "" : ` <span class="cn num">${n}</span>`}</button>`;
+  const why = open.length ? `${open.slice(0, 4).map((x) => `${x.p.name.split(" ")[0]} ${dlabel(x.iso)}`).join(", ")}${open.length > 4 ? ` and ${open.length - 4} more` : ""} still to fix` : "";
+  return `<div class="head">
+    <h1>${esc(STORES[S.store].name)}</h1>
+    ${approved ? `<span class="pubmark"><i data-lucide="check"></i>Approved</span>` : ""}
+    <span class="grow desk-only"></span>
+    <div class="seg" role="tablist">${[["day", "Day"], ["week", "Week"], ["month", "Month"]].map(([v, l]) => `<button data-aview="${v}" aria-pressed="${S.aview === v}">${l}</button>`).join("")}</div>
+    <div class="step"><button class="icbtn" data-act="att-1" aria-label="Previous"><i data-lucide="chevron-left"></i></button>
+      <span class="lbl num">${S.aview === "month" ? monthLabel(S.attMonth) : S.aview === "week" ? weekLabel(mondayOfIso(S.attDate)) : `${DOW[(new Date(S.attDate + "T00:00:00Z").getUTCDay() + 6) % 7]} ${dlabel(S.attDate)}`}</span>
+      <button class="icbtn" data-act="att+1" aria-label="Next"><i data-lucide="chevron-right"></i></button></div>
+    <button class="btn publish" data-act="approve" ${approved || open.length ? "disabled" : ""} title="${why}">${approved ? "Approved" : "Approve month"}</button>
+  </div>
+  <div class="afilters"><div class="seg">${chip("all", "All")}${chip("late", "Late", counts.late)}${chip("absent", "Absent", counts.absent)}${chip("noout", "No clock-out", counts.noout)}</div>
+    ${open.length ? `<span class="open bad">${open.length} to fix before the month can be approved</span>` : ""}</div>`;
+}
+// One compact cell for one day of the month: a letter says what needs saying.
+function aMini(pid, iso) {
+  const st = attStat(pid, iso);
+  const wk = ((new Date(iso + "T00:00:00Z").getUTCDay() + 6) % 7) > 4 ? " wkend" : "";
+  const dn = `${DOW[(new Date(iso + "T00:00:00Z").getUTCDay() + 6) % 7]} ${dlabel(iso)}`;
+  const who = PEOPLE.find((x) => x.id === pid).name.split(" ")[0];
+  const data = `data-a="${pid}|${iso}"`;
+  const fix = st.rec?.fix ? " fixed" : "";
+  const tip = st.rec ? (st.rec.absent ? "Absent" : `${st.rec.in} – ${st.rec.out || "?"}${dayOT(pid, iso) ? ` · overtime ${fmtH(dayOT(pid, iso))}` : ""}`) : st.kind === "leave" ? "Leave" : st.kind === "off" ? "Off" : "";
+  const title = `${who} · ${dn}${tip ? ` · ${tip}` : ""}`;
+  const m = {
+    leave: ["leave", ""], off: ["off", ""], none: ["none", ""], future: ["none", ""],
+  }[st.kind];
+  if (m) return `<div class="am ${m[0]}${wk}" title="${title}">${m[1]}</div>`;
+  const ot = ["ok", "late"].includes(st.kind) ? dayOT(pid, iso) : 0;
+  const body = ot ? [st.kind === "late" ? "late otm" : "ot", `+${ot}`] : { absent: ["absent", "A"], noout: ["noout", "?"], late: ["late", "L"], today: ["now", "•"], ok: ["ok", "•"] }[st.kind];
+  return `<button class="am ${body[0]}${fix}${wk}" ${data} title="${title}">${body[1]}</button>`;
+}
+function attView() {
+  if (S.aview === "week") return attWeekHTML();
+  if (S.aview === "day") return attDayHTML();
+  const ds = attDays();
+  const wanted = (p) => S.afilter === "all" || ds.some((iso) => attStat(p.id, iso).kind === S.afilter);
+  const people = PEOPLE.filter(wanted);
+  const wd = (iso) => (new Date(iso + "T00:00:00Z").getUTCDay() + 6) % 7;
+  const head = ds.map((iso) => `<th class="am-h${wd(iso) > 4 ? " wkend" : ""}${iso === TODAY ? " today" : ""}"><span>${"MTWTFSS"[wd(iso)]}</span><b class="num">${dnum(iso)}</b></th>`).join("");
+  const tot = (p) => {
+    const w = attWeekHours(p.id), pl = attPlanned(p.id), d = w - pl;
+    const k = ds.map((iso) => attStat(p.id, iso).kind);
+    const late = k.filter((x) => x === "late").length, ab = k.filter((x) => x === "absent").length;
+    const otSum = ds.reduce((n, iso) => n + (["ok", "late"].includes(attStat(p.id, iso).kind) ? dayOT(p.id, iso) : 0), 0);
+    return `<td class="tcol num"><span class="hh"><b>${fmtH(Math.round(w))}</b>${Math.abs(d) >= 1 ? `<span class="ot${d < 0 ? " bad" : ""}">${d < 0 ? "−" : "+"}${fmtH(Math.round(Math.abs(d)))}</span>` : ""}</span></td>
+      <td class="tcol num">${otSum ? `<span class="otc">+${fmtH(otSum)}</span>` : `<span class="mute">·</span>`}</td>
+      <td class="tcol num">${late ? `<span class="lt2">${late}</span>` : `<span class="mute">·</span>`}</td>
+      <td class="tcol num">${ab ? `<span class="bad">${ab}</span>` : `<span class="mute">·</span>`}</td>`;
+  };
+  const rows = people.map((p) => `<tr>
+      <td class="who"><button class="person" data-ap="${p.id}"><div class="av">${initials(p.name)}</div><div class="who2"><span class="n">${esc(p.name)}</span><span class="r">${esc(p.role)}</span></div></button></td>
+      ${ds.map((iso) => `<td class="amc">${aMini(p.id, iso)}</td>`).join("")}${tot(p)}</tr>`).join("");
+  const present = ds.map((iso) => iso > TODAY ? "" : PEOPLE.filter((p) => ["ok", "late", "noout", "today"].includes(attStat(p.id, iso).kind)).length);
+  const foot = `<tr><td>Present</td>${present.map((n) => `<td class="amc num">${n}</td>`).join("")}<td colspan="4"></td></tr>`;
+  const list = people.map((p) => {
+    const k = ds.map((iso) => attStat(p.id, iso).kind);
+    const late = k.filter((x) => x === "late").length, ab = k.filter((x) => x === "absent").length, no = k.filter((x) => x === "noout").length;
+    const flags = [ab ? `<span class="bad">${ab} absent</span>` : "", no ? `<span class="lt2">${no} no clock-out</span>` : "", late ? `<span class="lt2">${late} late</span>` : ""].filter(Boolean).join(" · ");
+    return `<button class="prow person" data-ap="${p.id}"><div class="av">${initials(p.name)}</div><div class="who2"><span class="n">${esc(p.name)}</span><span class="r num">${fmtH(Math.round(attWeekHours(p.id)))} worked${flags ? ` · ${flags}` : ""}</span></div><i data-lucide="chevron-right" class="chev"></i></button>`;
+  }).join("");
+  const empty = people.length === 0 ? `<div class="empty-note">Nobody has this in ${monthLabel(S.attMonth)}.</div>` : "";
+  return `<div class="card desk"><table class="grid month">
+      <colgroup><col class="who">${ds.map(() => "<col>").join("")}<col style="width:84px"><col style="width:72px"><col style="width:52px"><col style="width:56px"></colgroup>
+      <thead><tr><th>Person</th>${head}<th class="tcol">Worked</th><th class="tcol">Overtime</th><th class="tcol">Late</th><th class="tcol">Absent</th></tr></thead>
+      <tbody>${rows}</tbody><tfoot>${foot}</tfoot></table>${empty}</div>
+    <div class="legend desk-only"><span><b class="am-l ot">+2</b> Overtime hours</span><span><b class="am-l late">L</b> Late</span><span><b class="am-l absent">A</b> Absent</span><span><b class="am-l noout">?</b> No clock-out</span><span><b class="am-l leave"></b> Leave</span><span><b class="am-l off"></b> Off</span><span><i class="dotb"></i> Corrected</span></div>
+    <div class="plist">${list}</div>`;
+}
+const aWanted = (p, ds) => S.afilter === "all" || ds.some((iso) => attStat(p.id, iso).kind === S.afilter);
+const aPills = (week) => week.map((iso, i) => `<button data-aday="${iso}" aria-pressed="${iso === S.attDate}" class="${iso === TODAY ? "today" : ""}">${DOW[i]}<b class="num">${dnum(iso)}</b></button>`).join("");
+const aPersonRow = (p, iso) => `<div class="prow"><button class="person" data-ap="${p.id}"><div class="av">${initials(p.name)}</div><div class="who2"><span class="n">${esc(p.name)}</span><span class="r">${esc(p.role)}</span></div></button>${aCellHTML(p.id, iso)}</div>`;
+/* Week: people × seven days, the clock times in every cell. */
+function attWeekHTML() {
+  const ds = visDays();
+  const people = PEOPLE.filter((p) => aWanted(p, ds));
+  const head = ds.map((iso, i) => `<th class="${iso === TODAY ? "today" : i > 4 ? "wkend" : ""}">${DOW[i]} ${dnum(iso)}</th>`).join("");
+  const worked = (p) => { const w = ds.reduce((n, iso) => n + workedHours(p.id, iso), 0); return ds.some((iso) => ["ok", "late", "noout", "absent", "today"].includes(attStat(p.id, iso).kind)) ? `<b class="num">${fmtH(Math.round(w))}</b>` : `<span class="mute">—</span>`; };
+  const rows = people.map((p) => `<tr><td class="who"><button class="person" data-ap="${p.id}"><div class="av">${initials(p.name)}</div><div class="who2"><span class="n">${esc(p.name)}</span><span class="r">${esc(p.role)}</span></div></button></td>${ds.map((iso) => `<td>${aCellHTML(p.id, iso)}</td>`).join("")}<td class="hrs">${worked(p)}</td></tr>`).join("");
+  const present = ds.map((iso) => iso > TODAY ? "" : people.filter((p) => ["ok", "late", "noout", "today"].includes(attStat(p.id, iso).kind)).length);
+  return `<div class="card desk"><table class="grid">
+      <colgroup><col class="who">${ds.map(() => "<col>").join("")}<col style="width:84px"></colgroup>
+      <thead><tr><th>Person</th>${head}<th class="hrs">Worked</th></tr></thead>
+      <tbody>${rows}</tbody><tfoot><tr><td>Present</td>${present.map((n) => `<td class="num">${n}</td>`).join("")}<td></td></tr></tfoot></table></div>
+    <div class="days">${aPills(ds)}</div><div class="plist">${people.map((p) => aPersonRow(p, S.attDate)).join("")}</div>`;
+}
+/* Day: one day, a person a row. */
+function attDayHTML() {
+  const week = days(mondayOfIso(S.attDate));
+  const people = PEOPLE.filter((p) => aWanted(p, [S.attDate]));
+  const n = PEOPLE.filter((p) => ["ok", "late", "noout", "today"].includes(attStat(p.id, S.attDate).kind)).length;
+  return `<div class="dayview"><div class="days">${aPills(week)}</div>
+    <div class="card"><div class="dayhead"><span>${DOW[(new Date(S.attDate + "T00:00:00Z").getUTCDay() + 6) % 7]} ${dlabel(S.attDate)}</span><span class="mute num">${n} present</span></div><div class="plist">${people.map((p) => aPersonRow(p, S.attDate)).join("")}</div></div></div>`;
+}
+// One day, one person: what was planned, what was clocked, and the fix.
+function attSheetHTML() {
+  const { p: pid, d: iso } = S.att;
+  const person = PEOPLE.find((x) => x.id === pid);
+  const st = attStat(pid, iso);
+  const close = `<button class="icbtn" data-act="closesheet" aria-label="Close"><i data-lucide="x"></i></button>`;
+  const back = S.attP ? `<button class="icbtn" data-act="backperson" aria-label="Back to ${esc(person.name)}"><i data-lucide="chevron-left"></i></button>` : "";
+  const dname = `${DOW[(new Date(iso + "T00:00:00Z").getUTCDay() + 6) % 7]} ${dlabel(iso)}`;
+  const pill = { ok: ["On time", "ok"], late: [`Late ${st.late} min`, "warn"], absent: ["Absent", "bad"], noout: ["No clock-out", "warn"], today: ["In progress", "mute"] }[st.kind] || ["", "mute"];
+  const rec = st.rec || {};
+  const ready = S.att.reason.trim() !== "" && (S.att.absent || (S.att.in && S.att.out));
+  const ot = dayOT(pid, iso);
+  // Once the month is approved, payroll is counting it. A day is fixed there, as an adjustment.
+  const locked = attApproved();
+  return `<div class="shead">${back}<div class="who2" style="flex:1"><h2>${esc(person.name)}</h2><span class="r">${dname}</span></div>${close}</div>
+    <div class="sbody form"><div class="sform">
+      <div class="afacts">
+        <div><span class="l">Planned</span><span class="v num">${st.sh.name} · ${st.sh.start}–${st.sh.end}</span></div>
+        <div><span class="l">Clocked</span><span class="v num">${rec.absent ? "No punch" : `${rec.in || "—"} – ${rec.out || "?"}`}</span></div>
+        <div><span class="l">Status</span><span class="v ${pill[1]}">${pill[0]}${rec.fix ? " · corrected" : ""}</span></div>
+        <div><span class="l">Source</span><span class="v">${rec.src || "—"}</span></div>
+        ${ot ? `<div><span class="l">Overtime</span><span class="v num" style="color:var(--accent)">+${fmtH(ot)} · agreed in the app</span></div>` : ""}
+      </div>
+      ${rec.fix && rec.note ? `<p class="anote">${esc(rec.note)}</p>` : ""}
+      ${locked ? `<p class="anote">This month is approved, so the day is closed. If it was wrong, add an adjustment to ${esc(person.name.split(" ")[0])}'s pay.</p></div></div>
+        <div class="sfoot sform"><button class="btn" data-adjfrom="${pid}">Add adjustment</button></div>` : `
+      <div class="sub">Correct this day</div>
+      ${S.att.absent ? `<p class="anote">Marked absent. Set the times instead if they came in.</p>` : ""}
+      <div class="row2">
+        <div class="fld"><label for="aIn">In</label><input id="aIn" type="time" value="${S.att.in || ""}"></div>
+        <div class="fld"><label for="aOut">Out</label><input id="aOut" type="time" value="${S.att.out || ""}"></div>
+      </div>
+      <div class="fld"><label for="aReason">Reason</label><input id="aReason" value="${esc(S.att.reason)}" placeholder="Fingerprint would not read"></div>
+    </div></div>
+    <div class="sfoot sform"><span class="sum num" id="aSum">${S.att.absent || !S.att.in || !S.att.out ? "" : `${fmtH(Math.max((mins(S.att.out) - mins(S.att.in) + 1440) % 1440 - ((mins(S.att.out) - mins(S.att.in) + 1440) % 1440 > 360 ? 60 : 0), 0) / 60)} worked`}</span>
+      <button class="btn red" data-apop="absent" ${S.att.reason.trim() ? "" : "disabled"}>Mark absent</button>
+      <button class="btn" data-apop="save" ${ready ? "" : "disabled"}>Save correction</button></div>`}`;
+}
+function attPersonHTML() {
+  const person = PEOPLE.find((x) => x.id === S.attP);
+  const close = `<button class="icbtn" data-act="closesheet" aria-label="Close"><i data-lucide="x"></i></button>`;
+  const w = attWeekHours(person.id), pl = attPlanned(person.id);
+  const label = { ok: "", late: "Late", absent: "Absent", noout: "No clock-out", today: "In progress", leave: "Leave", off: "Off" };
+  const rows = attDays().map((iso) => {
+    const st = attStat(person.id, iso);
+    if (["none", "future"].includes(st.kind)) return "";
+    const dn = `${DOW[(new Date(iso + "T00:00:00Z").getUTCDay() + 6) % 7]} ${dnum(iso)}`;
+    const times = st.rec ? (st.rec.absent ? "—" : `${st.rec.in} – ${st.rec.out || "?"}`) : "";
+    const clickable = st.rec;
+    const tag = `<span class="st ${st.kind}">${label[st.kind]}${st.rec?.fix ? "<i class=\"dotb\"></i>" : ""}</span>`;
+    return `<${clickable ? `button data-a="${person.id}|${iso}"` : "div"} class="drow${clickable ? " click" : ""}"><span class="dn">${dn}</span><span class="dt num">${times}</span>${tag}</${clickable ? "button" : "div"}>`;
+  }).join("");
+  return `<div class="shead"><div class="who2" style="flex:1"><h2>${esc(person.name)}</h2><span class="r num">${monthLabel(S.attMonth)} · ${fmtH(Math.round(w))} worked${Math.abs(w - pl) >= 1 ? ` · ${w < pl ? "−" : "+"}${fmtH(Math.round(Math.abs(w - pl)))}` : ""}</span></div>${close}</div>
+    <div class="sbody">${rows}</div>`;
+}
+function openAtt(pid, iso) {
+  const st = attStat(pid, iso);
+  const rec = st.rec || {};
+  S.att = { p: pid, d: iso, in: rec.in || "", out: rec.out || "", reason: "", absent: !!rec.absent };
+  if (!S.sheet) openSheet(); else drawSheet();
+}
+document.addEventListener("input", (e) => {
+  if (e.target.id === "adjLabel" || e.target.id === "adjAmt") {
+    if (e.target.id === "adjAmt") { const v = parseInt(String(e.target.value).replace(/\D/g, ""), 10) || 0; e.target.value = v ? v.toLocaleString("id-ID") : ""; }
+    S.adjForm[e.target.id === "adjLabel" ? "label" : "amt"] = e.target.value;
+    const ok = S.adjForm.label.trim() !== "" && Number(String(S.adjForm.amt).replace(/\D/g, "")) > 0;
+    $("[data-act=adjsave]").disabled = !ok;
+    return;
+  }
+  if (e.target.id === "rOtS" || e.target.id === "rOtH") {
+    const v = parseInt(String(e.target.value).replace(/\D/g, ""), 10) || 0;
+    e.target.value = v ? v.toLocaleString("id-ID") : "";
+    $(`#${e.target.id}S`).textContent = `${fmtH(4)} → ${rp(4 * v)}`;
+    return;
+  }
+  if (!S.att || !e.target.closest?.("#sheet")) return;
+  const map = { aIn: "in", aOut: "out", aReason: "reason" };
+  if (!map[e.target.id]) return;
+  S.att[map[e.target.id]] = e.target.value;
+  if (e.target.id !== "aReason") S.att.absent = false;
+  const ready = S.att.reason.trim() !== "" && (S.att.absent || (S.att.in && S.att.out));
+  $("[data-apop=save]").disabled = !ready;
+  const sum = $("#aSum");
+  if (S.att.in && S.att.out) { const m = (mins(S.att.out) - mins(S.att.in) + 1440) % 1440; sum.textContent = `${fmtH(Math.max(m - (m > 360 ? 60 : 0), 0) / 60)} worked`; } else sum.textContent = "";
+  $("[data-apop=absent]").disabled = !S.att.reason.trim();
+});
+document.addEventListener("click", (e) => {
+  const b = e.target.closest?.("[data-apop]");
+  if (!b || !S.att || b.disabled) return;
+  const { p, d } = S.att;
+  S.punch[p] ??= {};
+  const was = S.punch[p][d];
+  S.punch[p][d] = b.dataset.apop === "absent"
+    ? { absent: true, fix: true, note: S.att.reason.trim(), src: "HR" }
+    : { in: S.att.in, out: S.att.out, fix: true, note: S.att.reason.trim(), src: "HR" };
+  const name = PEOPLE.find((x) => x.id === p).name.split(" ")[0];
+  S.att = null;
+  if (S.attP) { render(); drawSheet(); } else closeSheet();
+  toast(`${name} · ${dlabel(d)} corrected`, [[p, d, was]]);
+  undoAtt = true;
+});
+let undoAtt = false;
+
+/* ───────────────────────── Payroll ───────────────────────── */
+// A month's pay is a short road: Check what it stands on, Review what changed
+// against last month, Hand the result to Finance. Calculating and approving are
+// the two buttons that move you along it.
+const BASE = { "HR manager": 7500000, Finance: 6000000, Buyer: 6500000, IT: 6000000, Merchandiser: 5500000, "Store head": 5200000, Cashier: 2350000, "Stock keeper": 2500000, Security: 2400000, Admin: 3000000 };
+// Kasbon: a fixed instalment a month. Siti's began in September, Lina's this month.
+const LOANS = { p2: { inst: 125000, n: 2, of: 5 }, p9: { inst: 200000, n: 1, of: 3 } };
+const BANKS = ["BCA", "BRI", "Mandiri", "BNI"];
+const rp = (n) => `${n < 0 ? "−" : ""}Rp ${Math.abs(Math.round(n)).toLocaleString("id-ID")}`;
+const num2 = (n) => Math.round(n).toLocaleString("id-ID");
+const round1000 = (n) => Math.round(n / 1000) * 1000;
+const pph = (gross) => Math.max(0, round1000((gross - 4500000) * 0.05));
+function slipOf(pid) {
+  const person = personById(pid);
+  const base = BASE[person.role] ?? 2400000;
+  let worked = 0, absent = 0, late = 0, otH = 0;
+  for (const iso of attDays()) {
+    const k = attStat(pid, iso).kind;
+    if (k === "absent") absent++;
+    else if (["ok", "late", "noout", "today", "future", "leave"].includes(k)) { worked++; if (k === "late") late++; }
+    otH += dayOT(pid, iso);
+  }
+  const otRate = unitOf(pid).id === "HO" ? S.rates.ho : S.rates.store;
+  const ot = otH * otRate;
+  const adjs = S.adj[pid] ?? [];
+  const bonus = adjs.filter((a) => a.kind === "earn").reduce((n, a) => n + a.amt, 0), other = adjs.filter((a) => a.kind === "ded").reduce((n, a) => n + a.amt, 0);
+  const gross = base + ot + bonus;
+  // Absent without notice costs the day; BPJS is the employee's 4 % (1 health, 2 JHT, 1 JP).
+  const absence = absent * round1000(base / 22), bpjs = round1000(base * 0.04);
+  const loan = LOANS[pid] ?? null, kasbon = loan ? loan.inst : 0;
+  const tax = pph(gross);
+  const net = gross - absence - bpjs - kasbon - other - tax;
+  // Last month: a full month, no overtime and no absence.
+  const prev = base - bpjs - pph(base) - (loan && loan.n > 1 ? loan.inst : 0);
+  const change = (net - prev) / prev;
+  const why = absent ? `${absent} ${absent === 1 ? "day" : "days"} absent` : loan && loan.n === 1 ? "New loan repayment" : adjs.length ? `${adjs[0].label}${adjs.length > 1 ? ` +${adjs.length - 1}` : ""}` : otH ? `+${fmtH(otH)} overtime` : "";
+  return { person, base, worked, absent, late, otH, otRate, ot, gross, absence, bpjs, kasbon, loan, tax, net, prev, change, why, flagged: why !== "", adjs, bonus, other,
+    // The same figures as lists, for the layouts that fold them into two columns.
+    earn: [{ id: "base", label: "Base pay", amt: base, std: true }, ...(ot ? [{ id: "ot", label: "Overtime", amt: ot, chg: true }] : []), ...adjs.filter((a) => a.kind === "earn").map((a, i) => ({ id: `E:${a.label}`, label: a.label, amt: a.amt, chg: true, adj: a, ix: i }))],
+    ded: [...(absence ? [{ id: "abs", label: "Absence", amt: absence, chg: true }] : []), ...(kasbon ? [{ id: "loan", label: "Loan", amt: kasbon, chg: loan.n === 1 }] : []), { id: "bpjs", label: "BPJS", amt: bpjs, std: true }, ...(tax ? [{ id: "tax", label: "PPh 21", amt: tax, std: true }] : []), ...adjs.filter((a) => a.kind === "ded").map((a, i) => ({ id: `D:${a.label}`, label: a.label, amt: a.amt, chg: true, adj: a, ix: i }))],
+    earnTotal: base + ot + bonus, dedTotal: absence + bpjs + kasbon + tax + other, bank: BANKS[hash(pid + "bank") % 4] };
+}
+const slipsOf = (store = curStore()) => store.people.map((p) => slipOf(p.id));
+const payKey = (store = curStore()) => `${store.id}|${S.attMonth}`;
+// What each store still has open. Purwokerto is the one with work.
+function payOf(store = curStore()) {
+  const k = payKey(store);
+  S.pay[k] ??= { fixed: { pay: true, bank: true, ot: true }, approved: false };
+  return S.pay[k];
+}
+// Things that must be settled before the month can be approved. They show up
+// as cells in the matrix; this only counts them.
+function blockersOf(store = curStore()) {
+  const pr = payOf(store);
+  const nm = (id, fallback) => personById(id)?.name.split(" ")[0] ?? fallback;
+  const out = [];
+  if (!attApproved(store)) out.push({ id: "att", text: openOf(store).length ? `${openOf(store).length} days still to fix in attendance` : "Attendance isn't approved yet" });
+  return out;
+}
+// A person with something to settle in this store's month.
+const needOf = (x, pr = payOf()) => (x.person.id === "p7" && !pr.fixed.pay) || (x.person.id === "p6" && !pr.fixed.bank) || (x.person.id === "p8" && !pr.fixed.ot);
+const POPTS = [["A", "Matrix"], ["B", "All stores"], ["C", "Grouped"], ["D", "Difference"], ["E", "Queue"], ["F", "Two columns"], ["G", "Badge"], ["H", "Ledger"], ["I", "Fold"], ["J", "Multi-row"]];
+const pctOf = (x) => `${x.change >= 0 ? "+" : "−"}${(Math.abs(x.change) * 100).toFixed(1)}%`;
+const dot = `<span class="mute">·</span>`;
+function payHeadHTML() {
+  const pr = payOf();
+  const blockers = blockersOf();
+  const slips = slipsOf();
+  const changed = slips.filter((x) => x.flagged).length;
+  const chip = (v, label, n) => `<button data-pfilter="${v}" aria-pressed="${S.pfilter === v}">${label} <span class="cn num">${n}</span></button>`;
+  const ready = STORES.filter((st) => !payOf(st).approved && blockersOf(st).length === 0);
+  const approve = S.popt === "B"
+    ? `<button class="btn publish" data-act="approveready" ${ready.length ? "" : "disabled"} title="${ready.length ? ready.map((st) => st.name).join(", ") : "No store is ready yet"}">Approve & send ready${ready.length ? ` (${ready.length})` : ""}</button>`
+    : `<button class="btn publish" data-act="payapprove" ${pr.approved || blockers.length ? "disabled" : ""} title="${blockers.map((b) => b.text).join(", ")}">${pr.approved ? "Sent to Finance" : "Approve & send to Finance"}</button>`;
+  const filters = ["A", "D", "F", "G", "H", "I", "J"].includes(S.popt)
+    ? `<div class="seg">${chip("all", "All", slips.length)}${chip("changed", "Changed", changed)}</div>` : "";
+  const why = S.popt !== "B" && !pr.approved && blockers.length ? `<span class="open bad">${blockers[0].text}${blockers.length > 1 ? ` and ${blockers.length - 1} more` : ""}${blockers[0].id === "att" ? ` · <button class="linkbtn" data-pgoto="1">Open attendance</button>` : ""}</span>` : "";
+  return `<div class="head">
+    <h1>${S.popt === "B" ? "All stores" : esc(STORES[S.store].name)}</h1>
+    ${pr.approved && S.popt !== "B" ? `<span class="pubmark"><i data-lucide="check"></i>Approved · Finance has it</span>` : ""}
+    <span class="grow desk-only"></span>
+    <div class="step"><button class="icbtn" data-act="mo-1" aria-label="Previous month"><i data-lucide="chevron-left"></i></button>
+      <span class="lbl">${monthLabel(S.attMonth)}</span>
+      <button class="icbtn" data-act="mo+1" aria-label="Next month"><i data-lucide="chevron-right"></i></button></div>
+    <button class="btn ghost desk-only" data-act="rates"><i data-lucide="sliders-horizontal"></i>Rates</button>
+    ${S.popt === "B" ? "" : `<span class="hdtot desk-only"><span class="l">Total net pay</span><b class="num">${rp(slips.reduce((n, x) => n + x.net, 0))}</b></span>`}
+    ${approve}
+  </div>
+  ${filters || why ? `<div class="afilters">${filters}${why}</div>` : ""}`;
+}
+function payView() {
+  return { A: payMatrixHTML, B: payStoresHTML, C: payGroupedHTML, D: payDiffHTML, E: payQueueHTML, F: payLinesHTML, G: payBadgeHTML, H: payLedgerHTML, I: payFoldHTML, J: payStackHTML }[S.popt]();
+}
+const payRows = () => { const pr = payOf(); return slipsOf().filter((x) => S.pfilter === "all" || (S.pfilter === "changed" ? x.flagged : needOf(x, pr))); };
+// The one-line phone list every option falls back to.
+function payPhoneList(shown) {
+  const pr = payOf();
+  return `<div class="plist">${shown.map((x) => `<button class="prow person" data-slip="${x.person.id}"><div class="av">${initials(x.person.name)}</div><div class="who2"><span class="n">${esc(x.person.name)}</span><span class="r${x.flagged || needOf(x, pr) ? " lt2" : ""}">${needOf(x, pr) ? "Needs attention" : x.flagged ? esc(x.why) : esc(x.person.role)}</span></div><span class="rt num"><b>${num2(x.net)}</b>${x.flagged ? `<span class="lt2">${pctOf(x)}</span>` : ""}</span></button>`).join("")}</div>`;
+}
+const fixBtn = (x, pr) => {
+  const id = x.person.id;
+  return id === "p7" && !pr.fixed.pay ? ["pay", "Agree pay"] : id === "p6" && !pr.fixed.bank ? ["bank", "Add account"] : id === "p8" && !pr.fixed.ot ? ["ot", "Mark agreed"] : null;
+};
+
+/* A · Matrix: people × the few parts of their pay. Earnings on the left, what
+   comes off in the middle, the one figure that is paid on the right. A Loan
+   column exists only in a month somebody has one. */
+function payMatrixHTML() {
+  const pr = payOf();
+  const shown = payRows();
+  const hasLoan = slipsOf().some((x) => x.kasbon > 0);
+  const hasAdj = slipsOf().some((x) => x.adjs.length);
+  const row = (x) => {
+    const id = x.person.id;
+    const base = id === "p7" && !pr.fixed.pay ? `<button class="pc need" data-pfix="pay">Agree pay</button>` : num2(x.base);
+    const ot = id === "p8" && !pr.fixed.ot ? `<button class="pc need" data-pfix="ot">Waiting</button>` : x.ot ? `<span class="pc chg" title="${fmtH(x.otH)}">+${num2(x.ot)}</span>` : dot;
+    const sub = id === "p6" && !pr.fixed.bank ? `<button class="pc need sm" data-pfix="bank">Add bank account</button>` : esc(x.person.role);
+    // A loan that has run before is just a number; one that starts now is marked like any other change.
+    const loan = !x.kasbon ? dot : `<span class="pc${x.loan.n === 1 ? " chg" : ""}" title="Instalment ${x.loan.n} of ${x.loan.of} · ${num2(x.loan.inst * (x.loan.of - x.loan.n))} left after this">−${num2(x.kasbon)}</span>`;
+    return `<tr class="click" data-slip="${id}"><td class="who"><div class="person"><div class="av">${initials(x.person.name)}</div><div class="who2"><span class="n">${esc(x.person.name)}</span><span class="r">${sub}</span></div></div></td>
+      <td class="pn2 num">${base}</td><td class="pn2 num">${ot}</td>
+      <td class="pn2 num sep">${x.absence ? `<span class="pc bad2" title="Absent without notice · ${x.absent} ${x.absent === 1 ? "day" : "days"}">−${num2(x.absence)}</span>` : dot}</td>
+      ${hasLoan ? `<td class="pn2 num">${loan}</td>` : ""}
+      <td class="pn2 num">−${num2(x.bpjs)}</td><td class="pn2 num">${x.tax ? `−${num2(x.tax)}` : dot}</td>
+      ${hasAdj ? `<td class="pn2 num">${x.adjs.length ? `<span class="pc chg" title="${esc(x.adjs.map((a) => a.label).join(", "))}">${x.bonus - x.other >= 0 ? "+" : "−"}${num2(Math.abs(x.bonus - x.other))}</span>` : dot}</td>` : ""}
+      <td class="pn2 num net sep"><b>${num2(x.net)}</b></td></tr>`;
+  };
+  const sum = (f) => num2(shown.reduce((n, x) => n + f(x), 0));
+  const foot = `<tr><td>Total · ${shown.length} ${shown.length === 1 ? "person" : "people"}</td><td class="pn2 num">${sum((x) => x.base)}</td><td class="pn2 num">${sum((x) => x.ot)}</td><td class="pn2 num sep">−${sum((x) => x.absence)}</td>${hasLoan ? `<td class="pn2 num">−${sum((x) => x.kasbon)}</td>` : ""}<td class="pn2 num">−${sum((x) => x.bpjs)}</td><td class="pn2 num">−${sum((x) => x.tax)}</td>${hasAdj ? `<td class="pn2 num">${num2(shown.reduce((n, x) => n + x.bonus - x.other, 0))}</td>` : ""}<td class="pn2 num net sep"><b>${sum((x) => x.net)}</b></td></tr>`;
+  const dcols = (hasLoan ? 4 : 3) + (hasAdj ? 1 : 0);
+  return `<div class="card desk"><table class="grid pay matrix">
+      <colgroup><col class="who">${"<col style=\"width:132px\">".repeat(2 + dcols)}<col style="width:160px"></colgroup>
+      <thead>
+        <tr class="grp"><th></th><th colspan="2" class="gh">Earnings</th><th colspan="${dcols}" class="gh sep">Deductions</th><th class="gh sep">Paid</th></tr>
+        <tr><th>Person</th><th class="pn2">Base pay</th><th class="pn2">Overtime</th><th class="pn2 sep">Absence</th>${hasLoan ? `<th class="pn2">Loan</th>` : ""}<th class="pn2">BPJS</th><th class="pn2">PPh 21</th>${hasAdj ? `<th class="pn2">Other</th>` : ""}<th class="pn2 sep">Net pay</th></tr>
+      </thead>
+      <tbody>${shown.map(row).join("")}</tbody><tfoot>${foot}</tfoot></table></div>${payPhoneList(shown)}`;
+}
+
+/* ── F–I: earnings in one column, deductions in one. They differ in how the
+   parts show themselves when there are some. ── */
+const nm1 = (x) => x.person.name.split(" ")[0];
+// What still needs settling for this person, as the one small button.
+function needBtn(x, pr) {
+  const f = fixBtn(x, pr);
+  if (f) return `<button class="pc need sm" data-pfix="${f[0]}">${{ pay: "Agree pay", bank: "Add bank account", ot: "Overtime waiting" }[f[0]]}</button>`;
+  return esc(x.person.role);
+}
+const whoCell = (x, pr) => `<td class="who"><div class="person"><div class="av">${initials(x.person.name)}</div><div class="who2"><span class="n">${esc(x.person.name)}</span><span class="r">${needBtn(x, pr)}</span></div></div></td>`;
+const extrasOf = (list) => list.filter((c) => !c.std);
+const sumRow = (shown, cols) => `<tr><td>Total · ${shown.length} ${shown.length === 1 ? "person" : "people"}</td>${cols}</tr>`;
+const totalsTail = (shown) => `<td class="pn2 num">${num2(shown.reduce((n, x) => n + x.earnTotal, 0))}</td><td class="pn2 num">−${num2(shown.reduce((n, x) => n + x.dedTotal, 0))}</td><td class="pn2 num net sep"><b>${num2(shown.reduce((n, x) => n + x.net, 0))}</b></td>`;
+
+/* F · Two columns: the total, and the parts that are not routine written under it. */
+function payLinesHTML() {
+  const pr = payOf();
+  const shown = payRows();
+  const lines = (list, sign) => { const e = extrasOf(list); return e.length ? `<span class="s${e.some((c) => c.chg) ? " chg" : ""}" title="${e.map((c) => `${c.label} ${num2(c.amt)}`).join(" · ")}">${e.map((c) => `${c.label} ${sign}${num2(c.amt)}`).join(" · ")}</span>` : ""; };
+  const row = (x) => `<tr class="click" data-slip="${x.person.id}">${whoCell(x, pr)}
+    <td class="pn2 two"><span class="t num">${num2(x.earnTotal)}</span>${lines(x.earn.filter((c) => c.id !== "base"), "+")}</td>
+    <td class="pn2 two"><span class="t num">−${num2(x.dedTotal)}</span>${lines(x.ded, "")}</td>
+    <td class="pn2 num net sep"><b>${num2(x.net)}</b></td></tr>`;
+  return `<div class="card desk"><table class="grid pay">
+      <colgroup><col class="who"><col style="width:300px"><col style="width:300px"><col style="width:170px"></colgroup>
+      <thead><tr><th>Person</th><th class="pn2">Earnings</th><th class="pn2">Deductions</th><th class="pn2 sep">Net pay</th></tr></thead>
+      <tbody>${shown.map(row).join("")}</tbody><tfoot>${sumRow(shown, totalsTail(shown))}</tfoot></table></div>${payPhoneList(shown)}`;
+}
+
+/* G · Badge: the total and a small +n when there are extras; a tap opens the parts. */
+function payBadgeHTML() {
+  const pr = payOf();
+  const shown = payRows();
+  const cell = (x, kind) => {
+    const list = kind === "earn" ? x.earn : x.ded;
+    const extra = extrasOf(list);
+    const total = kind === "earn" ? x.earnTotal : x.dedTotal;
+    const bad = extra.some((c) => c.chg);
+    return `<button class="pcell" data-pcomp="${x.person.id}|${kind}"><span class="num">${kind === "ded" ? "−" : ""}${num2(total)}</span>${extra.length ? `<span class="bd${bad ? " chg" : ""}">+${extra.length}</span>` : `<span class="bd none"></span>`}</button>`;
+  };
+  const row = (x) => `<tr class="click" data-slip="${x.person.id}">${whoCell(x, pr)}<td class="pn2">${cell(x, "earn")}</td><td class="pn2">${cell(x, "ded")}</td><td class="pn2 num net sep"><b>${num2(x.net)}</b></td></tr>`;
+  return `<div class="card desk"><table class="grid pay">
+      <colgroup><col class="who"><col style="width:220px"><col style="width:220px"><col style="width:170px"></colgroup>
+      <thead><tr><th>Person</th><th class="pn2">Earnings</th><th class="pn2">Deductions</th><th class="pn2 sep">Net pay</th></tr></thead>
+      <tbody>${shown.map(row).join("")}</tbody><tfoot>${sumRow(shown, totalsTail(shown))}</tfoot></table></div>${payPhoneList(shown)}`;
+}
+function openComp(btn) {
+  const [pid, kind] = btn.dataset.pcomp.split("|");
+  const x = slipOf(pid);
+  const list = kind === "earn" ? x.earn : x.ded;
+  const menu = $("#menu");
+  menu.innerHTML = `<div class="mhead">${esc(nm1(x))} · ${kind === "earn" ? "Earnings" : "Deductions"}</div>${list.map((c) => `<div class="cl${c.chg ? " chg" : ""}"><span>${c.label}</span><span class="num">${kind === "ded" ? "−" : ""}${num2(c.amt)}</span></div>`).join("")}
+    <div class="mrule"></div><div class="cl tot"><span>Total</span><span class="num">${kind === "ded" ? "−" : ""}${num2(kind === "earn" ? x.earnTotal : x.dedTotal)}</span></div>`;
+  menu.classList.remove("off");
+  const r = btn.getBoundingClientRect(), w = menu.offsetWidth, h = menu.offsetHeight;
+  const left = Math.max(8, Math.min(r.right - w, innerWidth - w - 8));
+  const below = r.bottom + 6 + h <= innerHeight - 8;
+  menu.style.left = `${left}px`; menu.style.top = `${below ? r.bottom + 6 : Math.max(8, r.top - 6 - h)}px`;
+  menu.style.setProperty("--origin", `${r.right - left - 24}px ${below ? "top" : "bottom"}`);
+  S.pcompOpen = true;
+}
+
+/* H · Ledger: a row a person, and under it a row a part, in the same two columns. */
+function payLedgerHTML() {
+  const pr = payOf();
+  const shown = payRows();
+  const open = (x) => S.pall || S.pexp[x.person.id];
+  const body = shown.map((x) => {
+    const head = `<tr class="click${open(x) ? " opened" : ""}" data-pexp="${x.person.id}"><td class="who"><div class="person"><i data-lucide="chevron-right" class="exp"></i><div class="av">${initials(x.person.name)}</div><div class="who2"><span class="n">${esc(x.person.name)}</span><span class="r">${needBtn(x, pr)}</span></div></div></td>
+      <td class="pn2 num">${num2(x.earnTotal)}</td><td class="pn2 num">−${num2(x.dedTotal)}</td><td class="pn2 num net sep"><b>${num2(x.net)}</b></td></tr>`;
+    const subs = open(x) ? [...x.earn.map((c) => ({ ...c, side: "e" })), ...x.ded.map((c) => ({ ...c, side: "d" }))].map((c) => `<tr class="lg"><td class="who"><span class="lbl2${c.chg ? " chg" : ""}">${c.label}</span></td><td class="pn2 num">${c.side === "e" ? num2(c.amt) : ""}</td><td class="pn2 num">${c.side === "d" ? `−${num2(c.amt)}` : ""}</td><td class="sep"></td></tr>`).join("") : "";
+    return head + subs;
+  }).join("");
+  return `<div class="card desk"><table class="grid pay ledger">
+      <colgroup><col class="who"><col style="width:220px"><col style="width:220px"><col style="width:170px"></colgroup>
+      <thead><tr><th>Person <button class="linkbtn tog" data-act="pall">${S.pall ? "Collapse all" : "Expand all"}</button></th><th class="pn2">Earnings</th><th class="pn2">Deductions</th><th class="pn2 sep">Net pay</th></tr></thead>
+      <tbody>${body}</tbody><tfoot>${sumRow(shown, totalsTail(shown))}</tfoot></table></div>${payPhoneList(shown)}`;
+}
+
+/* I · Fold: two columns, and a click on a group's name unfolds it into its parts. */
+function payFoldHTML() {
+  const pr = payOf();
+  const shown = payRows();
+  const all = slipsOf();
+  const keys = (kind) => { const seen = new Map(); for (const x of all) for (const c of (kind === "earn" ? x.earn : x.ded)) if (!seen.has(c.id)) seen.set(c.id, c.label); return [...seen]; };
+  const eKeys = keys("earn"), dKeys = keys("ded");
+  const open = S.pfold;
+  const part = (x, kind, id) => { const c = (kind === "earn" ? x.earn : x.ded).find((y) => y.id === id); return c ? `<span class="${c.chg ? "pc chg" : ""}">${kind === "ded" ? "−" : ""}${num2(c.amt)}</span>` : dot; };
+  const eCols = open.earn ? eKeys.length : 1, dCols = open.ded ? dKeys.length : 1;
+  const row = (x) => `<tr class="click" data-slip="${x.person.id}">${whoCell(x, pr)}
+    ${open.earn ? eKeys.map(([id]) => `<td class="pn2 num">${part(x, "earn", id)}</td>`).join("") : `<td class="pn2 num">${num2(x.earnTotal)}${x.earn.some((c) => c.chg) ? `<i class="cd"></i>` : ""}</td>`}
+    ${open.ded ? dKeys.map(([id], i) => `<td class="pn2 num${i === 0 ? " sep" : ""}">${part(x, "ded", id)}</td>`).join("") : `<td class="pn2 num sep">−${num2(x.dedTotal)}${x.ded.some((c) => c.chg) ? `<i class="cd"></i>` : ""}</td>`}
+    <td class="pn2 num net sep"><b>${num2(x.net)}</b></td></tr>`;
+  const sumOf = (kind, id) => num2(shown.reduce((n, x) => n + ((kind === "earn" ? x.earn : x.ded).find((y) => y.id === id)?.amt ?? 0), 0));
+  const foot = `<tr><td>Total · ${shown.length} ${shown.length === 1 ? "person" : "people"}</td>${open.earn ? eKeys.map(([id]) => `<td class="pn2 num">${sumOf("earn", id)}</td>`).join("") : `<td class="pn2 num">${num2(shown.reduce((n, x) => n + x.earnTotal, 0))}</td>`}${open.ded ? dKeys.map(([id]) => `<td class="pn2 num">−${sumOf("ded", id)}</td>`).join("") : `<td class="pn2 num">−${num2(shown.reduce((n, x) => n + x.dedTotal, 0))}</td>`}<td class="pn2 num net sep"><b>${num2(shown.reduce((n, x) => n + x.net, 0))}</b></td></tr>`;
+  const tog = (kind, label) => `<button class="gfold" data-pfold="${kind}" aria-expanded="${!!open[kind]}"><i data-lucide="chevron-right"></i>${label}</button>`;
+  return `<div class="card desk"><table class="grid pay">
+      <colgroup><col class="who">${"<col style=\"width:112px\">".repeat(eCols + dCols)}<col style="width:170px"></colgroup>
+      <thead>
+        <tr class="grp"><th></th><th colspan="${eCols}" class="gh">${tog("earn", "Earnings")}</th><th colspan="${dCols}" class="gh sep">${tog("ded", "Deductions")}</th><th class="gh sep">Paid</th></tr>
+        <tr><th>Person</th>${open.earn ? eKeys.map(([, l]) => `<th class="pn2">${l}</th>`).join("") : `<th class="pn2">Total</th>`}${open.ded ? dKeys.map(([, l], i) => `<th class="pn2${i === 0 ? " sep" : ""}">${l}</th>`).join("") : `<th class="pn2 sep">Total</th>`}<th class="pn2 sep">Net pay</th></tr>
+      </thead>
+      <tbody>${shown.map(row).join("")}</tbody><tfoot>${foot}</tfoot></table></div>${payPhoneList(shown)}`;
+}
+
+/* J · Multi-row: each person is a block; the parts of earnings stack in one
+   column and the parts of deductions in the next, so nothing is a blank cell. */
+function payStackHTML() {
+  const pr = payOf();
+  const shown = payRows();
+  const lines = (list, sign) => `<div class="stk">${list.map((c) => `<div class="ln${c.chg ? " chg" : ""}${c.std ? "" : " ex"}"><span>${esc(c.label)}</span><span class="num">${sign}${num2(c.amt)}</span></div>`).join("")}</div>`;
+  const row = (x) => `<tr class="click stackrow" data-slip="${x.person.id}">${whoCell(x, pr)}
+    <td class="stc">${lines(x.earn, "")}${x.earn.length > 1 ? `<div class="ln tt"><span>Total</span><span class="num">${num2(x.earnTotal)}</span></div>` : ""}</td>
+    <td class="stc">${lines(x.ded, "−")}${x.ded.length > 1 ? `<div class="ln tt"><span>Total</span><span class="num">−${num2(x.dedTotal)}</span></div>` : ""}</td>
+    <td class="pn2 num net sep"><b>${num2(x.net)}</b></td></tr>`;
+  return `<div class="card desk"><table class="grid pay stack">
+      <colgroup><col class="who"><col style="width:340px"><col style="width:340px"><col style="width:170px"></colgroup>
+      <thead><tr><th>Person</th><th>Earnings</th><th>Deductions</th><th class="pn2 sep">Net pay</th></tr></thead>
+      <tbody>${shown.map(row).join("")}</tbody><tfoot>${sumRow(shown, `<td class="stc num">${num2(shown.reduce((n, x) => n + x.earnTotal, 0))}</td><td class="stc num">−${num2(shown.reduce((n, x) => n + x.dedTotal, 0))}</td><td class="pn2 num net sep"><b>${num2(shown.reduce((n, x) => n + x.net, 0))}</b></td>`)}</tfoot></table></div>${payPhoneList(shown)}`;
+}
+
+/* B · All stores: one row a shop, so head office sees the whole month. */
+function payStoresHTML() {
+  const rows = STORES.map((st, i) => {
+    const slips = slipsOf(st), pr = payOf(st), bl = blockersOf(st);
+    const net = slips.reduce((n, x) => n + x.net, 0), prev = slips.reduce((n, x) => n + x.prev, 0);
+    const d = (net - prev) / prev;
+    const att = attApproved(st) ? `<span class="ok">Approved</span>` : openOf(st).length ? `<span class="bad">${openOf(st).length} to fix</span>` : `<span class="mute">Not approved</span>`;
+    const need = slips.filter((x) => needOf(x, pr)).length;
+    const status = pr.approved ? `<span class="ok"><i data-lucide="check" class="seen"></i> Approved</span>` : bl.length ? `<span class="mute">${bl.length} to settle</span>` : `<span class="acc">Ready</span>`;
+    return { st, i, slips, net, prev, d, att, need, status, bl, pr };
+  });
+  const tr = (r) => `<tr class="click" data-pstore="${r.i}"><td class="who"><div class="who2"><span class="n">${esc(r.st.name)}</span><span class="r num">${r.st.id}</span></div></td>
+    <td class="pn2 num">${r.st.people.length}</td><td class="pn2">${r.att}</td><td class="pn2 num net"><b>${num2(r.net)}</b></td><td class="pn2 num${Math.abs(r.d) >= 0.02 ? " lt2" : " mute"}">${r.d >= 0 ? "+" : "−"}${(Math.abs(r.d) * 100).toFixed(1)}%</td><td class="pn2">${r.status}</td></tr>`;
+  const total = rows.reduce((n, r) => n + r.net, 0), people = rows.reduce((n, r) => n + r.st.people.length, 0);
+  const list = rows.map((r) => `<button class="prow person" data-pstore="${r.i}"><div class="who2"><span class="n">${esc(r.st.name)}</span><span class="r num">${r.st.id} · ${r.st.people.length} people</span></div><span class="rt num"><b>${num2(r.net)}</b><span class="${r.pr.approved ? "ok" : r.bl.length ? "mute" : "acc"}">${r.pr.approved ? "Approved" : r.bl.length ? `${r.bl.length} to settle` : "Ready"}</span></span></button>`).join("");
+  return `<div class="card desk"><table class="grid pay">
+      <colgroup><col class="who"><col style="width:90px"><col style="width:150px"><col style="width:170px"><col style="width:110px"><col style="width:150px"></colgroup>
+      <thead><tr><th>Store</th><th class="pn2">People</th><th class="pn2">Attendance</th><th class="pn2">Net pay</th><th class="pn2">Change</th><th class="pn2">Payroll</th></tr></thead>
+      <tbody>${rows.map(tr).join("")}</tbody>
+      <tfoot><tr><td>Total · ${STORES.length} stores</td><td class="pn2 num">${people}</td><td></td><td class="pn2 num net"><b>${num2(total)}</b></td><td></td><td></td></tr></tfoot></table></div>
+    <div class="plist">${list}</div>`;
+}
+function payApproveReady() {
+  const ready = STORES.filter((st) => !payOf(st).approved && blockersOf(st).length === 0);
+  ready.forEach((st) => { payOf(st).approved = true; });
+  render();
+  toast(`${ready.length} ${ready.length === 1 ? "store" : "stores"} approved — Finance has them`);
+}
+
+/* C · Grouped: people under their job, a subtotal on each, a row opens in place. */
+function payGroupedHTML() {
+  const pr = payOf();
+  const slips = slipsOf();
+  const roles = [...new Set(slips.map((x) => x.person.role))];
+  const line = (label, value, cls = "") => `<div class="sl2"><span>${label}</span><span class="num ${cls}">${value}</span></div>`;
+  const body = roles.map((role) => {
+    const group = slips.filter((x) => x.person.role === role);
+    const sub = group.reduce((n, x) => n + x.net, 0);
+    const rows = group.map((x) => {
+      const open = !!S.pexp[x.person.id];
+      const fix = fixBtn(x, pr);
+      const head = `<tr class="click${open ? " opened" : ""}" data-pexp="${x.person.id}"><td class="who"><div class="person"><i data-lucide="chevron-right" class="exp"></i><div class="av">${initials(x.person.name)}</div><div class="who2"><span class="n">${esc(x.person.name)}</span><span class="r">${x.flagged ? esc(x.why) : "&nbsp;"}</span></div></div></td>
+        <td class="pn2 num mute">${num2(x.prev)}</td><td class="pn2 num"><b>${num2(x.net)}</b></td><td class="pn2 num${x.flagged ? " lt2" : ""}">${x.flagged ? pctOf(x) : dot}</td>
+        <td class="pn2">${fix ? `<button class="pc need" data-pfix="${fix[0]}">${fix[1]}</button>` : ""}</td></tr>`;
+      const more = open ? `<tr class="subrow"><td colspan="5"><div class="split"><div><div class="shd">Earnings</div>${line("Base pay", num2(x.base))}${x.ot ? line("Overtime", `+${num2(x.ot)}`, "lt2") : ""}${x.adjs.filter((a) => a.kind === "earn").map((a) => line(esc(a.label), `+${num2(a.amt)}`, "lt2")).join("")}</div>
+        <div><div class="shd">Deductions</div>${line("BPJS", `−${num2(x.bpjs)}`)}${x.tax ? line("PPh 21", `−${num2(x.tax)}`) : ""}${x.absence ? line("Absence", `−${num2(x.absence)}`, "lt2") : ""}${x.kasbon ? line("Loan", `−${num2(x.kasbon)}`, x.loan.n === 1 ? "lt2" : "") : ""}${x.adjs.filter((a) => a.kind === "ded").map((a) => line(esc(a.label), `−${num2(a.amt)}`, "lt2")).join("")}</div>
+        <div class="slact"><button class="btn sm ghost" data-slip="${x.person.id}">Open slip</button></div></div></td></tr>` : "";
+      return head + more;
+    }).join("");
+    return `<tr class="gr"><td colspan="2">${role} <span class="mute">· ${group.length}</span></td><td class="pn2 num"><b>${num2(sub)}</b></td><td colspan="2"></td></tr>${rows}`;
+  }).join("");
+  return `<div class="card desk"><table class="grid pay grouped">
+      <colgroup><col class="who"><col style="width:150px"><col style="width:170px"><col style="width:110px"><col style="width:150px"></colgroup>
+      <thead><tr><th>Person</th><th class="pn2">Last month</th><th class="pn2">Net pay</th><th class="pn2">Change</th><th></th></tr></thead>
+      <tbody>${body}</tbody></table></div>${payPhoneList(slips)}`;
+}
+
+/* D · Difference: what moved comes first, and why, in words. */
+function payDiffHTML() {
+  const pr = payOf();
+  const shown = payRows().slice().sort((a, b) => (needOf(b, pr) - needOf(a, pr)) || (b.flagged - a.flagged) || Math.abs(b.change) - Math.abs(a.change));
+  const chips = (x) => {
+    const c = [];
+    if (x.absence) c.push(`<span class="wy bad2">Absence −${num2(x.absence)}</span>`);
+    if (x.kasbon && x.loan.n === 1) c.push(`<span class="wy chg">New loan −${num2(x.kasbon)}</span>`);
+    if (x.ot) c.push(`<span class="wy chg">Overtime +${num2(x.ot)}</span>`);
+    for (const a of x.adjs) c.push(`<span class="wy chg">${esc(a.label)} ${a.kind === "earn" ? "+" : "−"}${num2(a.amt)}</span>`);
+    const fix = fixBtn(x, pr);
+    if (fix) c.unshift(`<button class="pc need" data-pfix="${fix[0]}">${fix[1]}</button>`);
+    return c.join("") || `<span class="mute">No change</span>`;
+  };
+  const row = (x) => `<tr class="click" data-slip="${x.person.id}"><td class="who"><div class="person"><div class="av">${initials(x.person.name)}</div><div class="who2"><span class="n">${esc(x.person.name)}</span><span class="r">${esc(x.person.role)}</span></div></div></td>
+    <td class="why">${chips(x)}</td><td class="pn2 num mute">${num2(x.prev)}</td><td class="pn2 num net"><b>${num2(x.net)}</b></td><td class="pn2 num${x.flagged ? " lt2" : " mute"}">${x.flagged ? pctOf(x) : "·"}</td></tr>`;
+  return `<div class="card desk"><table class="grid pay diff">
+      <colgroup><col class="who"><col><col style="width:140px"><col style="width:150px"><col style="width:100px"></colgroup>
+      <thead><tr><th>Person</th><th>What moved</th><th class="pn2">Last month</th><th class="pn2">Net pay</th><th class="pn2">Change</th></tr></thead>
+      <tbody>${shown.map(row).join("")}</tbody></table></div>${payPhoneList(shown)}`;
+}
+
+/* E · Queue: three heaps, the one that needs you on top. */
+function payQueueHTML() {
+  const pr = payOf();
+  const slips = slipsOf();
+  const need = slips.filter((x) => needOf(x, pr));
+  const changed = slips.filter((x) => !needOf(x, pr) && x.flagged);
+  const same = slips.filter((x) => !needOf(x, pr) && !x.flagged);
+  const row = (x, mode) => {
+    const fix = fixBtn(x, pr);
+    const note = mode === "need" ? (x.person.id === "p7" ? "No pay agreed" : x.person.id === "p6" ? "No bank account" : "Overtime waiting for a yes") : mode === "chg" ? x.why : x.person.role;
+    return `<div class="qrow" data-slip="${x.person.id}" role="button" tabindex="0"><div class="av">${initials(x.person.name)}</div>
+      <div class="who2"><span class="n">${esc(x.person.name)}</span><span class="r${mode === "same" ? "" : " lt2"}">${esc(note)}</span></div>
+      ${fix ? `<button class="btn sm" data-pfix="${fix[0]}">${fix[1]}</button>` : ""}
+      <span class="num qn"><b>${num2(x.net)}</b>${x.flagged ? `<span class="lt2">${pctOf(x)}</span>` : ""}</span></div>`;
+  };
+  const sec = (key, title, list, mode, openDefault) => {
+    if (!list.length) return "";
+    const open = S.pcol[key] === undefined ? openDefault : S.pcol[key];
+    return `<section class="qsec"><button class="qhead" data-pcol="${key}" aria-expanded="${open}"><i data-lucide="chevron-right"></i><span>${title}</span><span class="cn num">${list.length}</span></button>${open ? `<div class="qbody">${list.map((x) => row(x, mode)).join("")}</div>` : ""}</section>`;
+  };
+  return `<div class="card queue">${sec("need", "Needs attention", need, "need", true)}${sec("chg", "Changed since last month", changed, "chg", true)}${sec("same", "No change", same, "same", false)}</div>`;
+}
+
+// A row of the review table opens that person's slip; the phone's rows are buttons.
+document.addEventListener("click", (e) => {
+  const ex = e.target.closest?.("tr[data-pexp]");
+  if (ex && !e.target.closest("button")) { const id = ex.dataset.pexp; S.pexp[id] = !S.pexp[id]; return render(); }
+  const qr = e.target.closest?.(".qrow[data-slip]");
+  if (qr && !e.target.closest("button")) { S.slip = qr.dataset.slip; render(); return !S.sheet ? openSheet() : drawSheet(); }
+  const ps = e.target.closest?.("tr[data-pstore]");
+  if (ps) { S.store = +ps.dataset.pstore; PEOPLE = STORES[S.store].people; S.popt = "A"; S.pfilter = "all"; return render(); }
+  const tr = e.target.closest?.("tr[data-slip]");
+  if (!tr || e.target.closest("button")) return;
+  S.slip = tr.dataset.slip; S.att = null; S.attP = null;
+  render();
+  if (!S.sheet) openSheet(); else drawSheet();
+});
+function payFix(id) {
+  const pr = payOf();
+  pr.fixed[id] = true;
+  render();
+  if (S.slip) drawSheet();
+  toast({ pay: "Pay agreed", bank: "Account added", ot: "Overtime agreed in the app" }[id]);
+}
+function payApprove() {
+  const pr = payOf();
+  if (blockersOf().length) return;
+  pr.approved = true;
+  render();
+  toast(`${STORES[S.store].name} · ${monthLabel(S.attMonth)} approved and sent to Finance — slips are in the app`);
+}
+// One person's slip: the money in, the money out, and the number to take home.
+function slipSheetHTML() {
+  const x = slipOf(S.slip);
+  const pr = payOf();
+  const close = `<button class="icbtn" data-act="closesheet" aria-label="Close"><i data-lucide="x"></i></button>`;
+  // An adjustment is money the month's rules do not make: a bonus, a correction, a one-off.
+  if (S.adjForm) {
+    const f = S.adjForm;
+    const ready = f.label.trim() !== "" && Number(String(f.amt).replace(/\D/g, "")) > 0;
+    return `<div class="shead"><button class="icbtn" data-act="adjback" aria-label="Back"><i data-lucide="chevron-left"></i></button><div class="who2" style="flex:1"><h2>Add adjustment</h2><span class="r">${esc(x.person.name)} · ${monthLabel(S.attMonth)}</span></div>${close}</div>
+      <div class="sbody form roomy"><div class="sform">
+        <div class="fld"><label>Type</label><div class="seg" style="align-self:flex-start"><button data-adjkind="earn" aria-pressed="${f.kind === "earn"}">Earning</button><button data-adjkind="ded" aria-pressed="${f.kind === "ded"}">Deduction</button></div></div>
+        <div class="fld"><label for="adjLabel">What for</label><input id="adjLabel" value="${esc(f.label)}" placeholder="${f.kind === "earn" ? "Bonus, correction…" : "Uniform, correction…"}" autocomplete="off"></div>
+        <div class="fld"><label for="adjAmt">Amount</label><input id="adjAmt" inputmode="numeric" value="${f.amt}" placeholder="Rp"></div>
+      </div></div>
+      <div class="sfoot sform"><button class="btn" data-act="adjsave" ${ready ? "" : "disabled"}>Add adjustment</button></div>`;
+  }
+  const line = (label, value, opts = {}) => `<${opts.go ? `button data-slipgo="${x.person.id}|${opts.go}"` : "div"} class="sl${opts.go ? " click" : ""}"><span>${label}${opts.sub ? `<span class="mute"> · ${opts.sub}</span>` : ""}</span><span class="num${opts.bad ? " lt2" : ""}">${value}${opts.del !== undefined ? ` <button class="xdel" data-adjdel="${x.person.id}|${opts.del}" aria-label="Remove" ${pr.approved ? "hidden" : ""}><i data-lucide="x"></i></button>` : ""}</span></${opts.go ? "button" : "div"}>`;
+  const adjLine = (a) => line(esc(a.label), rp(a.adj.kind === "earn" ? a.amt : -a.amt), { del: S.adj[x.person.id].indexOf(a.adj), bad: a.adj.kind === "ded", sub: "adjustment" });
+  return `<div class="shead"><div class="who2" style="flex:1"><h2>${esc(x.person.name)}</h2><span class="r num">${monthLabel(S.attMonth)}</span></div>${close}</div>
+    <div class="sbody form roomy"><div class="sform">
+      <div class="slipnet"><span class="l">Take-home</span><span class="v num">${rp(x.net)}</span>${x.flagged ? `<span class="lt2 num">${x.change >= 0 ? "+" : "−"}${(Math.abs(x.change) * 100).toFixed(1)}% on last month · ${esc(x.why)}</span>` : `<span class="mute num">${x.change >= 0 ? "+" : "−"}${(Math.abs(x.change) * 100).toFixed(1)}% on last month</span>`}</div>
+      <div class="sub">Earnings</div>
+      ${line("Base pay", rp(x.base))}${x.ot ? line("Overtime", rp(x.ot), { sub: `${fmtH(x.otH)} × ${rp(x.otRate)}`, go: "ot" }) : ""}${x.earn.filter((c) => c.adj).map(adjLine).join("")}
+      <div class="sub">Deductions</div>
+      ${line("BPJS", rp(-x.bpjs))}${x.tax ? line("PPh 21", rp(-x.tax)) : ""}${x.absence ? line("Absent without notice", rp(-x.absence), { sub: `${x.absent} ${x.absent === 1 ? "day" : "days"}`, go: "absent", bad: true }) : ""}${x.kasbon ? line("Loan repayment", rp(-x.kasbon), { sub: `${x.loan.n} of ${x.loan.of} · ${rp(x.loan.inst * (x.loan.of - x.loan.n))} left`, bad: x.loan.n === 1 }) : ""}${x.ded.filter((c) => c.adj).map(adjLine).join("")}
+    </div></div>
+    <div class="sfoot"><span class="sum num">Paid into ${x.bank}</span>${pr.approved ? `<span class="mute">Approved — a change goes into next month</span>` : `<button class="btn" data-act="adjnew"><i data-lucide="plus"></i>Add adjustment</button>`}</div>`;
+}
+
+/* ───────────────────────── picking a day, then its shift ───────────────────────── */
+// Press a day, or press and drag across several: they are picked. A small menu
+// opens beside the last one with the shifts; one tap on a shift writes it to
+// every picked day. Nothing is "switched on" beforehand.
+const cellsOf = (key) => document.querySelectorAll(`.cell[data-p="${key.split("|")[0]}"][data-d="${key.split("|")[1]}"]`);
+let drag = null;
+function mark(key, on) { cellsOf(key).forEach((c) => c.classList.toggle("sel", on)); }
+function clearSel() { S.sel.forEach((k) => mark(k, false)); S.sel = []; closeMenu(); }
+function shake(el) { el.classList.remove("no"); void el.offsetWidth; el.classList.add("no"); }
+function pickCell(el) {
+  const { p, d } = el.dataset;
+  const key = `${p}|${d}`;
+  if (onLeave(p, d)) { shake(el); drag.blocked = true; return; }
+  if (S.sel.includes(key)) return;
+  S.sel.push(key);
+  mark(key, true);
+}
+document.addEventListener("pointerdown", (e) => {
+  if (S.pcompOpen && !e.target.closest?.("#menu, [data-pcomp]")) { closeMenu(); S.pcompOpen = false; }
+  if (e.target.closest?.("#menu, #sheet, #pop")) return;
+  const el = e.target.closest?.(".cell");
+  if (S.swapFrom) { if (e.target.closest?.(".swapbar")) return; e.preventDefault(); return el ? doSwap(el) : cancelSwap(); }
+  if (!el || e.button > 0) { if (S.sel.length) clearSel(); return; }
+  e.preventDefault();
+  clearSel();
+  drag = { blocked: false, touch: e.pointerType !== "mouse" };
+  pickCell(el);
+});
+document.addEventListener("pointermove", (e) => {
+  if (!drag || drag.touch) return;
+  const el = document.elementFromPoint(e.clientX, e.clientY)?.closest(".cell");
+  if (el) pickCell(el);
+});
+document.addEventListener("pointerup", () => {
+  if (!drag) return;
+  const done = drag; drag = null;
+  if (S.sel.length) openMenu();
+  else if (done.blocked) toast("On leave — the day stays off the roster");
+});
+
+function menuHTML() {
+  const cells = S.sel.map((k) => k.split("|"));
+  const values = cells.map(([p, d]) => at(p, d));
+  const same = (v) => values.every((x) => x === v);
+  const who = cells.length === 1 ? `${PEOPLE.find((x) => x.id === cells[0][0]).name.split(" ")[0]} · ${DOW[(new Date(cells[0][1] + "T00:00:00Z").getUTCDay() + 6) % 7]} ${dnum(cells[0][1])}` : `${cells.length} days`;
+  const working = values.every((v) => shiftOf(v));
+  const otNow = cells.map(([p, d]) => (S.ot[p] || {})[d] || 0);
+  const otSame = otNow.every((n) => n === otNow[0]) ? otNow[0] : null;
+  const rows = S.shifts.map((sh, i) => `<div class="mrow"><button class="mitem" data-pick="${sh.id}" style="--c:${sh.color}">
+      <span class="dot"></span><span class="mn">${esc(sh.name)}</span><span class="mt num">${sh.start}–${sh.end}</span>${same(sh.id) ? `<i data-lucide="check"></i>` : `<span class="mk">${i + 1}</span>`}</button>
+      <button class="medit phone-only" data-edit="${sh.id}" aria-label="Edit ${esc(sh.name)}"><i data-lucide="pencil"></i></button></div>`).join("");
+  return `<div class="mhead">${who}</div>${rows}
+    <div class="mrule"></div>
+    <button class="mitem" data-pick="OFF" style="--c:var(--line-ico)"><i data-lucide="moon" class="mi"></i><span class="mn">Off</span>${same("OFF") ? `<i data-lucide="check"></i>` : `<span class="mk">0</span>`}</button>
+    <button class="mitem" data-pick="CLEAR" style="--c:var(--line-ico)"><i data-lucide="eraser" class="mi"></i><span class="mn">Clear</span></button>
+    ${cells.length === 1 && values[0] ? `<button class="mitem" data-swap="1" style="--c:var(--line-ico)"><i data-lucide="repeat-2" class="mi"></i><span class="mn">Swap with…</span></button>` : ""}
+    ${working ? `<div class="mrule"></div><div class="mot"><span class="mn"><i data-lucide="timer" class="mi"></i>Overtime</span>
+      <span class="ots">${[0, 1, 2, 3, 4].map((n) => `<button data-ot="${n}" aria-pressed="${otSame === n}">${n === 0 ? "None" : `+${n}`}</button>`).join("")}</span></div>` : ""}
+    <button class="mitem phone-only" data-act="add"><i data-lucide="plus" class="mi"></i><span class="mn">New shift</span></button>`;
+}
+function openMenu() {
+  const menu = $("#menu");
+  menu.innerHTML = menuHTML();
+  icons();
+  const last = S.sel[S.sel.length - 1];
+  const anchor = [...cellsOf(last)].find((c) => c.offsetParent !== null) || cellsOf(last)[0];
+  menu.classList.remove("off");
+  if (!phone() && anchor) {
+    const r = anchor.getBoundingClientRect();
+    const w = menu.offsetWidth, h = menu.offsetHeight;
+    const left = Math.max(8, Math.min(r.left, innerWidth - w - 8));
+    const below = r.bottom + 6 + h <= innerHeight - 8;
+    menu.style.left = `${left}px`;
+    menu.style.top = `${below ? r.bottom + 6 : Math.max(8, r.top - 6 - h)}px`;
+    menu.style.setProperty("--origin", `${r.left - left + 24}px ${below ? "top" : "bottom"}`);
+  }
+  $("#menuScrim").hidden = !phone();
+}
+function closeMenu() { $("#menu").classList.add("off"); $("#menuScrim").hidden = true; S.pcompOpen = false; }
+$("#menuScrim").addEventListener("pointerdown", clearSel);
+
+// Swap: one day's plan trades places with another's, a person's or the same person's.
+function startSwap() {
+  S.swapFrom = S.sel[0];
+  S.sel.forEach((k) => mark(k, false)); S.sel = [];
+  closeMenu(); render();
+}
+function cancelSwap() { S.swapFrom = null; render(); }
+function doSwap(el) {
+  const [p1, d1] = S.swapFrom.split("|"), { p: p2, d: d2 } = el.dataset;
+  if (`${p2}|${d2}` === S.swapFrom) return cancelSwap();
+  if (onLeave(p2, d2)) { shake(el); return toast("On leave — that day can't take a shift"); }
+  const pair = [[p1, d1], [p2, d2]];
+  const before = pair.map(([p, d]) => [p, d, S.plan[p][d], (S.ot[p] || {})[d]]);
+  const [a, b] = before;
+  const put = (p, d, v, o) => { if (v === undefined) delete S.plan[p][d]; else S.plan[p][d] = v; S.ot[p] ??= {}; if (o === undefined) delete S.ot[p][d]; else S.ot[p][d] = o; };
+  put(a[0], a[1], b[2], b[3]); put(b[0], b[1], a[2], a[3]);
+  S.swapFrom = null;
+  render();
+  const nm = (pid) => PEOPLE.find((x) => x.id === pid).name.split(" ")[0];
+  document.querySelectorAll(`.cell[data-p="${p1}"][data-d="${d1}"], .cell[data-p="${p2}"][data-d="${d2}"]`).forEach((c) => c.classList.add("landed"));
+  finish({ brush: "SWAP", undo: before, otBlocked: false, blocked: false });
+  toast(p1 === p2 ? `${nm(p1)} · ${dlabel(d1)} ⇄ ${dlabel(d2)}` : `${nm(p1)} ⇄ ${nm(p2)} · ${dlabel(d1)}${d1 === d2 ? "" : ` / ${dlabel(d2)}`} swapped`, before);
+}
+
+// One shift, or Off, or nothing, or some overtime, onto every picked day.
+function pickShift(brush, otValue) {
+  const undo = [];
+  const done = { brush, otValue, undo, otBlocked: false, blocked: false };
+  for (const key of S.sel) {
+    const [p, d] = key.split("|");
+    if (onLeave(p, d)) { done.blocked = true; continue; }
+    const before = S.plan[p][d];
+    const beforeOT = (S.ot[p] || {})[d];
+    if (brush === "OT") {
+      if (!shiftOf(at(p, d))) { done.otBlocked = true; continue; }
+      const next = otValue || undefined;
+      if (next === beforeOT) continue;
+      undo.push([p, d, before, beforeOT]);
+      S.ot[p] ??= {};
+      if (next) S.ot[p][d] = next; else delete S.ot[p][d];
+    } else {
+      const next = brush === "CLEAR" ? undefined : brush;
+      if (before === next) continue;
+      undo.push([p, d, before, beforeOT]);
+      if (next === undefined) delete S.plan[p][d]; else S.plan[p][d] = next;
+      // No shift, no overtime on top of it.
+      if (!shiftOf(next) && S.ot[p]) delete S.ot[p][d];
+    }
+  }
+  const touchedKeys = undo.map(([p, d]) => `${p}|${d}`);
+  S.sel = [];
+  closeMenu();
+  render();
+  touchedKeys.forEach((k) => cellsOf(k).forEach((c) => c.classList.add("landed")));
+  finish(done);
+}
+function finish(done) {
+  // A change that leaves somebody under the weekly minimum says so at once.
+  const touched = new Map();
+  for (const [p, d] of done.undo) { const mon = addDays(d, -((new Date(d + "T00:00:00Z").getUTCDay() + 6) % 7)); touched.set(`${p}|${mon}`, [p, mon]); }
+  const now = [...touched.values()].filter(([p, mon]) => planned(p, mon) && weekHours(p, mon) < MIN_HOURS);
+  const over = [...touched.values()].filter(([p, mon]) => otOver(p, mon));
+  const name = (p) => PEOPLE.find((x) => x.id === p).name.split(" ")[0];
+  if (over.length) {
+    const [p, mon] = over[0];
+    const ot = weekOT(p, mon);
+    toast(ot > OT_WEEK
+      ? `${name(p)} has ${fmtH(ot)} overtime in ${weekLabel(mon)} — over ${OT_WEEK} h`
+      : `${name(p)} has a day over ${OT_DAY} h of overtime`, done.undo);
+  } else if (done.otBlocked && !done.undo.length) toast("Overtime goes on a working day");
+  else if (done.brush === "OT" && done.undo.length) {
+    const [p, d] = done.undo[0];
+    const h = (S.ot[p] || {})[d];
+    toast(h ? `${name(p)} · +${fmtH(h)} overtime, waiting for a yes in the app` : "Overtime taken off", done.undo);
+  } else if (now.length) {
+    const [p, mon] = now[0];
+    toast(`${name(p)} has ${fmtH(weekHours(p, mon))} in ${weekLabel(mon)} — under ${MIN_HOURS} h`, done.undo);
+  } else if (done.brush === "SWAP") { /* doSwap says it */ }
+  else if (done.blocked && !done.undo.length) toast("On leave — the day stays off the roster");
+  else if (done.undo.length > 1) {
+    const sh = shiftOf(done.brush);
+    toast(`${done.brush === "CLEAR" ? "Cleared" : done.brush === "OFF" ? "Off" : sh?.name} · ${done.undo.length} days`, done.undo);
+  }
+}
+
+/* ───────────────────────── actions ───────────────────────── */
+document.addEventListener("click", (e) => {
+  const t = e.target.closest?.("button");
+  if (!t) return;
+  if (t.dataset.swap) return startSwap();
+  if (t.dataset.act === "swapcancel") return cancelSwap();
+  if (t.dataset.pick) return pickShift(t.dataset.pick);
+  if (t.dataset.ot !== undefined) return pickShift("OT", +t.dataset.ot);
+  if (t.dataset.edit) { S.sel.forEach((k) => mark(k, false)); S.sel = []; closeMenu(); return openShift(shiftOf(t.dataset.edit)); }
+  if (t.dataset.aview) { S.aview = t.dataset.aview; return render(); }
+  if (t.dataset.view) {
+    if (t.dataset.view === "month") S.rmonth = addDays(S.week, 3).slice(0, 7);
+    else if (S.view === "month") { const first = mondayOfIso(`${S.rmonth}-01`); S.week = S.rmonth === TODAY.slice(0, 7) ? mondayOfIso(TODAY) : first; S.day = S.week; }
+    S.view = t.dataset.view; return render();
+  }
+  if (t.dataset.openWeek) { S.view = "week"; S.week = mondayOfIso(S.rmonth === TODAY.slice(0, 7) ? TODAY : `${S.rmonth}-01`); S.day = S.week; return render(); }
+  if (t.dataset.store) { S.store = +t.dataset.store; PEOPLE = STORES[S.store].people; S.storesOpen = false; return render(); }
+  if (t.dataset.act === "pickstore") { S.storesOpen = !S.storesOpen; return render(); }
+  if (t.dataset.adjkind) { S.adjForm.kind = t.dataset.adjkind; return drawSheet(); }
+  if (t.dataset.adjdel) { const [pid, ix] = t.dataset.adjdel.split("|"); S.adj[pid].splice(+ix, 1); render(); drawSheet(); return toast("Adjustment removed"); }
+  if (t.dataset.adjfrom) { S.page = "payroll"; S.att = null; S.attP = null; S.slip = t.dataset.adjfrom; S.adjForm = { kind: "ded", label: "", amt: "" }; render(); return drawSheet(); }
+  if (t.dataset.pfix) return payFix(t.dataset.pfix);
+  if (t.dataset.pgoto) { S.page = "attendance"; return render(); }
+  if (t.dataset.pcomp) return openComp(t);
+  if (t.dataset.pfold) { S.pfold[t.dataset.pfold] = !S.pfold[t.dataset.pfold]; return render(); }
+  if (t.dataset.act === "pall") { S.pall = !S.pall; return render(); }
+  if (t.dataset.popt) { S.popt = t.dataset.popt; S.pfilter = "all"; return render(); }
+  if (t.dataset.pstore) { S.store = +t.dataset.pstore; PEOPLE = STORES[S.store].people; S.popt = "A"; S.pfilter = "all"; return render(); }
+  if (t.dataset.pcol) { const k = t.dataset.pcol; const cur = S.pcol[k] === undefined ? k !== "same" : S.pcol[k]; S.pcol[k] = !cur; return render(); }
+  if (t.dataset.pfilter) { S.pfilter = t.dataset.pfilter; return render(); }
+  if (t.dataset.slip) { S.slip = t.dataset.slip; S.att = null; S.attP = null; render(); if (!S.sheet) openSheet(); else drawSheet(); return; }
+  if (t.dataset.slipgo) { const [pid] = t.dataset.slipgo.split("|"); S.slip = null; S.page = "attendance"; S.attP = pid; render(); return drawSheet(); }
+  if (t.dataset.page) { S.page = t.dataset.page; S.sel.forEach((k) => mark(k, false)); S.sel = []; closeMenu(); if (S.sheet) closeSheet(); return render(); }
+  if (t.dataset.afilter) { S.afilter = t.dataset.afilter; return render(); }
+  if (t.dataset.a) { const [p, d] = t.dataset.a.split("|"); return openAtt(p, d); }
+  if (t.dataset.ap) { S.attP = t.dataset.ap; S.att = null; if (!S.sheet) openSheet(); else drawSheet(); return; }
+  if (t.dataset.act === "backperson") { S.att = null; return drawSheet(); }
+  if (t.dataset.aday) { setAttDate(t.dataset.aday); return render(); }
+  if (t.dataset.day) { S.day = t.dataset.day; return render(); }
+  const act = t.dataset.act;
+  if ((act === "wk-1" || act === "wk+1") && S.view === "month") { S.rmonth = addMonths(S.rmonth, act === "wk+1" ? 1 : -1); S.week = mondayOfIso(`${S.rmonth}-01`); S.day = S.week; return render(); }
+  if (act === "wk-1" || act === "wk+1") {
+    const step = act === "wk+1" ? 7 : -7;
+    S.week = addDays(S.week, step); S.day = addDays(S.day, step);
+    return render();
+  }
+  if (act === "mo-1" || act === "mo+1") { setAttDate(`${addMonths(S.attMonth, act === "mo+1" ? 1 : -1)}-01`); return render(); }
+  if (act === "att-1" || act === "att+1") {
+    const dir = act === "att+1" ? 1 : -1;
+    if (S.aview === "month") setAttDate(`${addMonths(S.attMonth, dir)}-01`);
+    else setAttDate(addDays(S.attDate, (S.aview === "week" ? 7 : 1) * dir));
+    return render();
+  }
+  if (act === "approve") return approveWeek();
+  if (act === "rates") { S.ratesOpen = true; S.slip = null; if (!S.sheet) openSheet(); else drawSheet(); return; }
+  if (act === "saverates") {
+    const num = (id) => parseInt(String(document.getElementById(id).value).replace(/\D/g, ""), 10);
+    const st = num("rOtS"), ho = num("rOtH");
+    if (!(st > 0) || !(ho > 0)) return toast("Enter an amount an hour for both");
+    S.rates.store = st; S.rates.ho = ho; S.ratesOpen = false; closeSheet();
+    return toast(`Overtime: stores ${rp(st)}, head office ${rp(ho)} an hour`);
+  }
+  if (act === "adjnew") { S.adjForm = { kind: "earn", label: "", amt: "" }; return drawSheet(); }
+  if (act === "adjback") { S.adjForm = null; return drawSheet(); }
+  if (act === "adjsave") {
+    const f = S.adjForm;
+    (S.adj[S.slip] ??= []).push({ label: f.label.trim(), amt: Number(String(f.amt).replace(/\D/g, "")), kind: f.kind });
+    S.adjForm = null; render(); drawSheet();
+    return toast(`${f.label.trim()} added`);
+  }
+  if (act === "payapprove") return payApprove();
+  if (act === "approveready") return payApproveReady();
+  if (act === "copy") return copyLastWeek();
+  if (act === "shifts") return openSheet();
+  if (act === "closesheet") return closeSheet();
+  if (act === "backsheet") { draft = null; return drawSheet(); }
+  if (act === "publish") return publishWeek();
+  if (act === "add") { S.sel.forEach((k) => mark(k, false)); S.sel = []; closeMenu(); return openShift(null); }
+});
+
+// Attendance is approved when nobody is left absent or without a clock-out:
+// payroll counts these days, so each one has an answer first.
+function approveWeek() {
+  const open = openOf();
+  if (open.length) return toast(`${open[0].p.name.split(" ")[0]} · ${dlabel(open[0].iso)} still needs a fix`);
+  S.aprv[pubKey(STORES[S.store], S.attMonth)] = attSig();
+  render();
+  toast(`${STORES[S.store].name} · ${monthLabel(S.attMonth)} approved — payroll can count it`);
+}
+
+// A roster under the weekly minimum cannot be sent: the people it names are
+// short of hours the company owes them work for.
+function publishMonth() {
+  const store = STORES[S.store];
+  const short = monthShort(S.rmonth);
+  if (short.length) { const r = short[0]; return toast(`${r.p.name.split(" ")[0]} has ${fmtH(r.h)} in the week of ${weekLabel(r.mon)} — everybody needs ${MIN_HOURS} h before the month is published`); }
+  monthWeeks(S.rmonth).forEach((mon) => { S.pub[pubKey(store, mon)] = signature(store, mon); });
+  render();
+  toast(`${store.name} · ${monthLabel(S.rmonth)} published — everyone sees it in their app`);
+}
+function publishWeek() {
+  if (S.view === "month") return publishMonth();
+  const store = STORES[S.store];
+  const short = shortOf(S.week);
+  if (short.length) {
+    const r = short[0];
+    return toast(`${r.p.name.split(" ")[0]} has ${fmtH(r.h)} — everybody needs ${MIN_HOURS} h before the week is published`);
+  }
+  S.pub[pubKey(store, S.week)] = signature(store, S.week);
+  render();
+  toast(`${store.name} · ${weekLabel(S.week)} published — everyone sees it in their app`);
+}
+
+function copyLastWeek() {
+  const undo = [];
+  const last = addDays(S.week, -7);
+  for (const p of PEOPLE) days(S.week).forEach((iso, i) => {
+    if (onLeave(p.id, iso)) return;
+    const from = S.plan[p.id][addDays(last, i)];
+    if (from === undefined || S.plan[p.id][iso] !== undefined) return; // only empty days
+    undo.push([p.id, iso, undefined]);
+    S.plan[p.id][iso] = from;
+  });
+  render();
+  toast(undo.length ? `${undo.length} days copied from ${weekLabel(last)}` : "Nothing empty to fill", undo.length ? undo : null);
+}
+
+document.addEventListener("keydown", (e) => {
+  if (S.swapFrom && e.key === "Escape") return cancelSwap();
+  if (e.target.closest?.("input") || S.sheet || !S.sel.length) return;
+  if (e.key === "Escape") return clearSel();
+  if (/^[1-9]$/.test(e.key) && S.shifts[+e.key - 1]) return pickShift(S.shifts[+e.key - 1].id);
+  if (e.key === "0") return pickShift("OFF");
+  if (e.key === "Backspace" || e.key === "Delete") return pickShift("CLEAR");
+});
+
+/* ───────────────────────── the Shifts sheet ───────────────────────── */
+// One sheet, two modes: the list of shifts, and the form for one of them.
+// Opening a shift swaps the sheet's contents; it does not stack a second
+// sheet. The frame stays put.
+let draft = null;
+function ratesSheetHTML() {
+  const close = `<button class="icbtn" data-act="closesheet" aria-label="Close"><i data-lucide="x"></i></button>`;
+  const f = (id, label, v) => `<div class="fld"><label for="${id}">${label}</label><input id="${id}" inputmode="numeric" value="${v.toLocaleString("id-ID")}"><span class="rsum num" id="${id}S">${fmtH(4)} → ${rp(4 * v)}</span></div>`;
+  return `<div class="shead"><h2>Rates</h2>${close}</div>
+    <div class="sbody form roomy"><div class="sform">
+      <div class="sub">Overtime per hour</div>
+      ${f("rOtS", "Stores", S.rates.store)}
+      ${f("rOtH", "Head office", S.rates.ho)}
+    </div></div>
+    <div class="sfoot sform"><button class="btn" data-act="saverates">Save</button></div>`;
+}
+function sheetHTML() {
+  if (S.ratesOpen) return ratesSheetHTML();
+  if (S.att) return attSheetHTML();
+  if (S.attP) return attPersonHTML();
+  if (S.slip) return slipSheetHTML();
+  const close = `<button class="icbtn" data-act="closesheet" aria-label="Close"><i data-lucide="x"></i></button>`;
+  if (!draft) {
+    const ds = days(S.week);
+    const daysOf = (id) => PEOPLE.reduce((n, p) => n + ds.filter((iso) => S.plan[p.id][iso] === id).length, 0);
+    const rows = S.shifts.map((sh) => `<button class="srow" data-edit="${sh.id}" style="--c:${sh.color}">
+        <span class="tile"><i></i></span>
+        <span class="who2"><span class="n">${esc(sh.name)}</span><span class="r num">${sh.start}–${sh.end} · ${fmtH(netHours(sh))}</span></span>
+        <span class="cnt num">${daysOf(sh.id)} ${daysOf(sh.id) === 1 ? "day" : "days"} this week</span>
+        <i data-lucide="pencil" class="pen"></i>
+      </button>`).join("");
+    return `<div class="shead"><h2>Shifts</h2>${close}</div>
+      <div class="sbody">${rows}</div>
+      <div class="sfoot"><button class="btn" data-act="add"><i data-lucide="plus"></i>New shift</button></div>`;
+  }
+  const valid = draft.name.trim() !== "" && draft.start && draft.end;
+  const back = `<button class="icbtn" data-act="backsheet" aria-label="Back to shifts"><i data-lucide="chevron-left"></i></button>`;
+  return `<div class="shead">${back}<h2>${draft.id ? esc(shiftOf(draft.id).name) : "New shift"}</h2>${close}</div>
+    <div class="sbody form"><div class="sform">
+      <div class="fld"><label for="sName">Name</label><input id="sName" value="${esc(draft.name)}" placeholder="Kantor" autocomplete="off"></div>
+      <div class="row2">
+        <div class="fld"><label for="sStart">Starts</label><input id="sStart" type="time" value="${draft.start}"></div>
+        <div class="fld"><label for="sEnd">Ends</label><input id="sEnd" type="time" value="${draft.end}"></div>
+      </div>
+      <div class="fld"><label>Colour</label><div class="swatches">${COLORS.map((c) => `<button style="--c:${c}" data-color="${c}" aria-pressed="${c === draft.color}" aria-label="Colour"></button>`).join("")}</div></div>
+    </div></div>
+    <div class="sfoot sform"><span class="sum num" id="sSum">${fmtH(netHours(draft))} of work</span>
+      ${draft.id ? `<button class="btn red" data-pop="remove">Remove</button>` : ""}
+      <button class="btn" data-pop="save" ${valid ? "" : "disabled"}>${draft.id ? "Save" : "Add shift"}</button></div>`;
+}
+function drawSheet() { $("#sheet").innerHTML = sheetHTML(); icons(); }
+function openSheet() {
+  S.sheet = true;
+  drawSheet();
+  const sheet = $("#sheet"), scrim = $("#sheetScrim");
+  scrim.hidden = false;
+  sheet.classList.remove("closing");
+  sheet.getBoundingClientRect(); scrim.getBoundingClientRect();
+  sheet.classList.remove("off"); scrim.classList.remove("off");
+}
+function closeSheet() {
+  S.sheet = false; draft = null; S.att = null; S.attP = null; S.slip = null; S.ratesOpen = false; S.adjForm = null;
+  const sheet = $("#sheet"), scrim = $("#sheetScrim");
+  sheet.classList.add("closing", "off"); scrim.classList.add("off");
+  setTimeout(() => { if (!S.sheet) scrim.hidden = true; }, 200);
+  render();
+}
+function openShift(shift) {
+  const used = new Set(S.shifts.map((s) => s.color));
+  draft = shift ? { ...shift } : { id: null, name: "", start: "08:00", end: "17:00", color: COLORS.find((c) => !used.has(c)) || COLORS[0] };
+  if (!S.sheet) openSheet(); else drawSheet();
+  setTimeout(() => $("#sName")?.focus(), 80);
+}
+document.addEventListener("input", (e) => {
+  if (!e.target.closest?.(".sform") || !draft) return;
+  const map = { sName: "name", sStart: "start", sEnd: "end" };
+  if (!map[e.target.id]) return;
+  draft[map[e.target.id]] = e.target.value;
+  $("#sSum").textContent = `${fmtH(netHours(draft))} of work`;
+  $("[data-pop=save]").disabled = !(draft.name.trim() && draft.start && draft.end);
+});
+document.addEventListener("keydown", (e) => {
+  if (!S.sheet) return;
+  if (e.key === "Escape") return draft ? (draft = null, drawSheet()) : (S.att && S.attP) ? (S.att = null, drawSheet()) : closeSheet();
+  if (e.key === "Enter" && e.target.closest?.(".sform")) $("[data-pop=save]")?.click();
+});
+document.addEventListener("click", (e) => {
+  if (!e.target.closest?.("#sheet") || !draft) return;
+  const sw = e.target.closest("[data-color]");
+  if (sw) { draft.color = sw.dataset.color; $("#sheet").querySelectorAll("[data-color]").forEach((b) => b.setAttribute("aria-pressed", b === sw)); return; }
+  const b = e.target.closest("[data-pop]");
+  if (!b || b.disabled) return;
+  if (b.dataset.pop === "save") {
+    const name = draft.name.trim();
+    if (draft.id) Object.assign(shiftOf(draft.id), draft, { name });
+    else { draft.id = "s" + Date.now(); S.shifts.push({ ...draft, name }); }
+    toast(`${name} saved`);
+  }
+  if (b.dataset.pop === "remove") {
+    const used = PEOPLE.some((p) => Object.values(S.plan[p.id]).includes(draft.id));
+    if (used) { toast(`${draft.name} is on the roster — clear those days first`); return; }
+    S.shifts = S.shifts.filter((s) => s.id !== draft.id);
+  }
+  draft = null;
+  render();
+  drawSheet();
+});
+$("#sheetScrim").addEventListener("pointerdown", closeSheet);
+
+/* ───────────────────────── toast + undo ───────────────────────── */
+let toastTimer, undoList = null;
+function toast(text, undo = null) {
+  if (undo === null) undoAtt = false;
+  const t = $("#toast");
+  t.querySelector("span").textContent = text;
+  undoList = undo;
+  $("#undo").hidden = !undo;
+  t.classList.remove("off");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.add("off"), 4000);
+}
+$("#undo").addEventListener("click", () => {
+  if (!undoList) return;
+  if (undoAtt) {
+    for (const [p, d, was] of undoList) S.punch[p][d] = was;
+    undoAtt = false; undoList = null;
+    $("#toast").classList.add("off");
+    return render();
+  }
+  for (const [p, d, before, beforeOT] of undoList.slice().reverse()) {
+    if (before === undefined) delete S.plan[p][d]; else S.plan[p][d] = before;
+    S.ot[p] ??= {};
+    if (beforeOT === undefined) delete S.ot[p][d]; else S.ot[p][d] = beforeOT;
+  }
+  undoList = null;
+  $("#toast").classList.add("off");
+  render();
+});
+
+/* ───────────────────────── prototype bar ───────────────────────── */
+function devBar() {
+  $("#devSeg").innerHTML = [["desk", "Desktop"], ["phone", "Phone"]].map(([v, l]) => `<button aria-pressed="${S.dev === v}" data-dev="${v}">${l}</button>`).join("");
+}
+$("#devSeg").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  S.dev = b.dataset.dev; devBar();
+  $("#phone").hidden = S.dev !== "phone";
+  if (S.dev === "phone") $("#phoneFrame").src = `${location.pathname}?embed=1&view=${S.view}`;
+});
+$("#reset").addEventListener("click", () => { S.store = 0; PEOPLE = STORES[0].people; S.shifts = freshShifts(); S.plan = freshPlan(); S.ot = freshOT(); S.pub = {}; S.week = "2026-10-26"; S.day = TODAY; S.punch = {}; S.aprv = {}; S.att = null; S.attP = null; S.afilter = "all"; S.attMonth = "2026-10"; S.attDate = "2026-10-20"; S.aview = "month"; S.pay = {}; S.slip = null; S.adjForm = null; S.adj = Object.fromEntries(Object.entries(ADJ).map(([k, v]) => [k, [{ ...v }]])); S.pfilter = "all"; S.rates = { store: 8000, ho: 12000 }; S.ratesOpen = false; S.popt = "A"; S.pexp = {}; S.pcol = {}; S.pall = false; S.pfold = { earn: false, ded: false }; render(); });
+addEventListener("resize", () => render());
+
+// The inner sidebar steps aside by itself on the month roster and the month of
+// attendance, the two pages that want every pixel; it comes back with the others.
+let sidePref = "folded";
+const syncSide = () => document.body.classList.toggle("folded", sidePref === "folded" || (S.page === "attendance" && S.aview === "month"));
+syncSide();
+$("#sideSeg").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  sidePref = b.dataset.side;
+  syncSide();
+  $("#sideSeg").querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", x === b));
+  render();
+});
+devBar();
+render();
+</script>
+</body>
+</html>

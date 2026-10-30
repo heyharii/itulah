@@ -320,7 +320,10 @@ impl CatalogueMedia {
     pub fn article_main_key(&self, article_code: &str) -> Result<String, AppError> {
         let article_code = article_code.trim();
         validate_article_code(article_code).map_err(AppError::Validation)?;
-        Ok(format!("{}/{}/main.jpg", self.catalogue_prefix, article_code))
+        Ok(format!(
+            "{}/{}/main.jpg",
+            self.catalogue_prefix, article_code
+        ))
     }
 
     /// Take a photograph away, and its thumbnail with it: a thumbnail left
@@ -413,7 +416,10 @@ impl CatalogueMedia {
     /// read and needs none.
     pub fn locate_versioned(&self, key: String, version: &str) -> Result<ImageLocation, AppError> {
         let mut location = self.locate(key)?;
-        let tag: String = version.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
+        let tag: String = version
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .collect();
         if location.expires_in_seconds.is_none() && !tag.is_empty() {
             let joiner = if location.url.contains('?') { '&' } else { '?' };
             location.url = format!("{}{joiner}v={tag}", location.url);
@@ -587,7 +593,8 @@ async fn article_main_image_upload_url(
     Query(variant): Query<UploadVariant>,
 ) -> Result<Json<Value>, AppError> {
     let media = media(&state)?;
-    let location = media.upload_location(variant.key_for(media.article_main_key(&article_code)?))?;
+    let location =
+        media.upload_location(variant.key_for(media.article_main_key(&article_code)?))?;
     Ok(Json(json!({
         "upload": location,
         "method": "PUT",
@@ -600,7 +607,9 @@ async fn article_main_image_delete(
     Path(article_code): Path<String>,
 ) -> Result<axum::http::StatusCode, AppError> {
     let media = media(&state)?;
-    media.remove(&media.article_main_key(&article_code)?).await?;
+    media
+        .remove(&media.article_main_key(&article_code)?)
+        .await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
@@ -673,7 +682,9 @@ async fn order_photo(
     let media = media(&state)?;
     let key = media.order_photo_key(photo_id);
     if !media.exists(&key).await? {
-        return Err(AppError::NotFound(format!("no order photograph {photo_id}")));
+        return Err(AppError::NotFound(format!(
+            "no order photograph {photo_id}"
+        )));
     }
     Ok(Json(media.locate(key)?))
 }
@@ -871,10 +882,15 @@ mod tests {
     fn an_order_photograph_is_found_by_its_link() {
         let id = "6f2b9a3e-1c4d-4e8f-9a0b-2c3d4e5f6a7b";
         assert_eq!(
-            order_photo_id(&format!("https://img.example.com/catalogue/po-photos/{id}.jpg?v=1")),
+            order_photo_id(&format!(
+                "https://img.example.com/catalogue/po-photos/{id}.jpg?v=1"
+            )),
             Uuid::parse_str(id).ok()
         );
-        assert_eq!(order_photo_id("https://img.example.com/supplier/hm/1.jpg"), None);
+        assert_eq!(
+            order_photo_id("https://img.example.com/supplier/hm/1.jpg"),
+            None
+        );
         assert_eq!(order_photo_id("https://x/po-photos/not-a-uuid.jpg"), None);
     }
 

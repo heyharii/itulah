@@ -69,6 +69,14 @@ pub mod actions {
     /// rung; the bound is the record — only `me` files — and the change is
     /// made by whoever approves it, under [`PROFILE_CHANGE`].
     pub const PROFILE_REQUEST_OWN: &str = "people.profile.request_own";
+    /// Key in somebody's papers for head office to take (owner, 2026-10-25:
+    /// "ngedit data bisa toko, approval HO"): a new employee's personal data
+    /// and scans on their hire proposal, and a change to an existing
+    /// employee's. The place manager's, bounded by `Reach`; the change is made
+    /// by whoever approves it, under [`PROFILE_CHANGE`]. Reading the papers of
+    /// one's own place rides on it too — a form that edits what it may not
+    /// show is a form filled in blind.
+    pub const PROFILE_PROPOSE: &str = "people.profile.propose";
     /// Fill, take off or reset an employee's benefit balance, and state the
     /// benefit's settings (0818). Head office's.
     pub const BENEFIT_MANAGE: &str = "people.benefit.manage";
@@ -921,6 +929,11 @@ pub fn required_role(action_key: &str) -> Role {
         // shape of the feature.
         | actions::HIRE_PROPOSAL_READ
         | actions::HIRE_PROPOSAL_PROPOSE
+        // Keying in a person's papers — the new hire's on their proposal, an
+        // existing employee's as a change — is the place's too (2026-10-25),
+        // bounded by `Reach`. Taking the change is `PROFILE_CHANGE`, which
+        // falls through to Admin below.
+        | actions::PROFILE_PROPOSE
         // Filing a one-off figure — an incentive, a *kasbon* instalment — is
         // the place's, bounded by `Reach` to its own posting. It is the other
         // half of the owner's decision of 2026-09-13: a place that submits a

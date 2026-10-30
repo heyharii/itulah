@@ -67,6 +67,10 @@ pub struct VoucherRow {
     pub issued_by: String,
     pub issued_site: Option<String>,
     pub note: Option<String>,
+    /// A paper voucher: one redemption, no change, the rest forfeited
+    /// (postgres 1006). The till says "sisa hangus" before it is spent.
+    #[serde(default)]
+    pub single_use: bool,
     pub version: i32,
     pub movement_count: i64,
     pub last_movement_at: Option<DateTime<Utc>>,
@@ -315,6 +319,11 @@ pub struct IssueVoucherRequest {
     pub site_id: Option<String>,
     #[serde(default)]
     pub note: Option<String>,
+    /// A paper voucher (the default, postgres 1006) is spent once and gives
+    /// no change: what a basket does not take is forfeited. `false` issues a
+    /// card that keeps its rest for the next visit.
+    #[serde(default)]
+    pub single_use: Option<bool>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -355,7 +364,7 @@ const VOUCHER_COLUMNS: &str = "
            v.expires_at,
            (v.expires_at IS NOT NULL AND v.expires_at <= now()
             AND v.status = 'ACTIVE')                       AS expired,
-           v.issued_at, v.issued_by, v.issued_site, v.note, v.version,
+           v.issued_at, v.issued_by, v.issued_site, v.note, v.single_use, v.version,
            (SELECT count(*) FROM voucher_movement mv
              WHERE mv.voucher_id = v.voucher_id)::bigint   AS movement_count,
            (SELECT max(occurred_at) FROM voucher_movement mv
@@ -425,6 +434,7 @@ fn voucher_from_row(row: &PgRow) -> Result<VoucherRow, AppError> {
         issued_by: row.try_get("issued_by")?,
         issued_site: row.try_get("issued_site")?,
         note: row.try_get("note")?,
+        single_use: row.try_get("single_use")?,
         version: row.try_get("version")?,
         movement_count: row.try_get("movement_count")?,
         last_movement_at: row.try_get("last_movement_at")?,
@@ -856,8 +866,8 @@ pub async fn issue_voucher(
     sqlx::query(
         "INSERT INTO voucher (voucher_id, code, kind, currency, issued_minor,
                               balance_minor, status, member_id, expires_at,
-                              issued_by, issued_site, note)
-         VALUES ($1, $2, $3, $4, $5, $5, 'ACTIVE', $6, $7, $8, $9, $10)",
+                              issued_by, issued_site, note, single_use)
+         VALUES ($1, $2, $3, $4, $5, $5, 'ACTIVE', $6, $7, $8, $9, $10, $11)",
     )
     .bind(voucher_id)
     .bind(&code)
@@ -869,6 +879,7 @@ pub async fn issue_voucher(
     .bind(actor)
     .bind(&site_id)
     .bind(&note)
+    .bind(request.single_use.unwrap_or(true))
     .execute(&mut *tx)
     .await
     .map_err(map_voucher_write_error)?;
@@ -1029,6 +1040,15 @@ pub async fn redeem_voucher(
         note.as_deref(),
     )
     .await?;
+    forfeit_rest_if_single_use(
+        &mut tx,
+        voucher_id,
+        remaining,
+        request.sale_id,
+        site_id.as_deref(),
+        actor,
+    )
+    .await?;
 
     let detail = detail_in_transaction(&mut tx, voucher_id).await?;
     complete_idempotent(&mut tx, idempotency_key, &serde_json::to_value(&detail)?).await?;
@@ -1115,6 +1135,54 @@ pub async fn void_voucher(
     complete_idempotent(&mut tx, idempotency_key, &serde_json::to_value(&detail)?).await?;
     tx.commit().await?;
     Ok(detail)
+}
+
+/// A paper voucher is spent once and gives no change (Hari, 28–29 Oct 2026;
+/// postgres 1006): what its one redemption left is forfeited by a movement of
+/// its own, in the redemption's transaction, and the voucher is SPENT. A
+/// voucher issued with `single_use: false` keeps its rest, as a gift card
+/// does.
+async fn forfeit_rest_if_single_use(
+    tx: &mut Transaction<'_, Postgres>,
+    voucher_id: Uuid,
+    remaining: i64,
+    sale_id: Option<Uuid>,
+    site_id: Option<&str>,
+    actor: &str,
+) -> Result<(), AppError> {
+    if remaining <= 0 {
+        return Ok(());
+    }
+    let single_use: bool =
+        sqlx::query_scalar("SELECT single_use FROM voucher WHERE voucher_id = $1")
+            .bind(voucher_id)
+            .fetch_one(&mut **tx)
+            .await?;
+    if !single_use {
+        return Ok(());
+    }
+    sqlx::query(
+        "UPDATE voucher SET balance_minor = 0, status = $2, version = version + 1
+          WHERE voucher_id = $1",
+    )
+    .bind(voucher_id)
+    .bind(VoucherStatus::Spent.as_str())
+    .execute(&mut **tx)
+    .await
+    .map_err(map_voucher_write_error)?;
+    append_movement(
+        tx,
+        voucher_id,
+        "FORFEIT",
+        -remaining,
+        0,
+        sale_id,
+        site_id,
+        actor,
+        Some("paper voucher: spent once, the rest is not change"),
+    )
+    .await?;
+    Ok(())
 }
 
 /// Append one movement, taking the next position from the rows already there.
@@ -1532,6 +1600,15 @@ pub async fn commit_voucher_hold(
         Some(&format!("checkout {checkout_id}")),
     )
     .await?;
+    forfeit_rest_if_single_use(
+        &mut tx,
+        voucher_id,
+        remaining,
+        request.sale_id,
+        site_id.as_deref(),
+        actor,
+    )
+    .await?;
 
     sqlx::query(
         "UPDATE voucher_authorization
@@ -1750,6 +1827,15 @@ pub async fn commit_voucher_hold_for_fact(
         Some(&note),
     )
     .await?;
+    forfeit_rest_if_single_use(
+        tx,
+        voucher_id,
+        remaining,
+        Some(sale_id),
+        site_id.as_deref(),
+        actor,
+    )
+    .await?;
 
     sqlx::query(
         "UPDATE voucher_authorization
@@ -1861,10 +1947,12 @@ pub async fn issue_in_transaction(
             .expect("a uuid is sixteen bytes"),
     );
     sqlx::query(
+        // Not single-use (1006): a member's points are theirs, and what one
+        // basket did not take stays on the voucher for the next.
         "INSERT INTO voucher (voucher_id, code, kind, currency, issued_minor,
                               balance_minor, status, member_id, expires_at,
-                              issued_by, issued_site, note)
-         VALUES ($1, $2, $3, 'IDR', $4, $4, 'ACTIVE', $5, $6, $7, NULL, $8)",
+                              issued_by, issued_site, note, single_use)
+         VALUES ($1, $2, $3, 'IDR', $4, $4, 'ACTIVE', $5, $6, $7, NULL, $8, false)",
     )
     .bind(voucher_id)
     .bind(&code)

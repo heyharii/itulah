@@ -103,7 +103,7 @@ pub struct StoreServer {
     /// is `SYNCING`.
     pub first_data: Option<StoreFirstData>,
     /// Where the shop's own screens answer on its network
-    /// (`http://store-07.local:8082`), as the server reported it in its
+    /// (`http://192.168.1.20:8082`), as the server reported it in its
     /// heartbeat. Present once `state` is `ONLINE`, when the server reported
     /// one.
     pub app_address: Option<String>,
@@ -157,6 +157,12 @@ pub struct StoreFirstDataStream {
     /// How many there are, when head office knows: the articles in the
     /// catalogue, the price books published, the people on the roster.
     pub count: Option<i64>,
+    /// Commands of this kind the server has taken, and how many were sent:
+    /// what moves while a stream is still coming in, which `done` cannot show
+    /// until its last command (C001, 30 Oct 2026: "0 of 4" for a quarter of an
+    /// hour). Both 0 when the delivery is not told apart.
+    pub taken: i64,
+    pub queued: i64,
 }
 
 /// The store's tills as head office's register holds them.
@@ -931,6 +937,8 @@ fn first_data_of(facts: &StoreFacts) -> StoreFirstData {
             label: (*label).into(),
             done: taken[index] >= queued[index],
             count: first_data_count(facts, key),
+            taken: taken[index],
+            queued: queued[index],
         })
         .collect();
     if streams.is_empty() {
@@ -943,6 +951,8 @@ fn first_data_of(facts: &StoreFacts) -> StoreFirstData {
                 label: "Store data".into(),
                 done,
                 count: None,
+                taken: 0,
+                queued: 0,
             }],
         };
     }
@@ -1737,6 +1747,142 @@ pub async fn disconnect_store_server(
         return Ok(None);
     }
     install_store_server(pool, unit_id, actor).await.map(Some)
+}
+
+
+// ── the picture at the top of the receipt (1009) ─────────────────────────
+
+use crate::cloud::domain::receipt_header::{
+    HeaderBitmap, ReceiptHeader, NARROW_DOTS, NARROW_MAX_ROWS, WIDE_DOTS, WIDE_MAX_ROWS,
+};
+
+/// What the hub sends: both widths, already one bit a dot.
+#[derive(Clone, Debug, serde::Deserialize)]
+pub struct SaveReceiptHeader {
+    pub wide: HeaderBitmap,
+    pub narrow: HeaderBitmap,
+}
+
+/// What the hub reads back.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct ReceiptHeaderView {
+    pub present: bool,
+    pub wide: Option<HeaderBitmap>,
+    pub narrow: Option<HeaderBitmap>,
+    pub updated_by: Option<String>,
+    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// The picture for a site, as a node is told it. Always `Some`: an empty one
+/// tells the node to drop what it held.
+pub async fn receipt_header_for_site(
+    pool: &PgPool,
+    site_id: &str,
+) -> Result<ReceiptHeader, AppError> {
+    use sqlx::Row;
+    let row = sqlx::query(
+        "SELECT wide_width,wide_height,wide_bits,narrow_width,narrow_height,narrow_bits
+           FROM store_receipt_header WHERE site_id=$1",
+    )
+    .bind(site_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(match row {
+        None => ReceiptHeader::default(),
+        Some(row) => ReceiptHeader {
+            wide: Some(HeaderBitmap::from_bytes(
+                row.get::<i16, _>("wide_width") as u16,
+                row.get::<i16, _>("wide_height") as u16,
+                &row.get::<Vec<u8>, _>("wide_bits"),
+            )),
+            narrow: Some(HeaderBitmap::from_bytes(
+                row.get::<i16, _>("narrow_width") as u16,
+                row.get::<i16, _>("narrow_height") as u16,
+                &row.get::<Vec<u8>, _>("narrow_bits"),
+            )),
+        },
+    })
+}
+
+async fn site_of_unit(pool: &PgPool, unit_id: &str) -> Result<String, AppError> {
+    let mut connection = pool.acquire().await?;
+    let facts = one_store(&mut connection, unit_id).await?;
+    facts.site_id.ok_or_else(|| {
+        AppError::Conflict(format!(
+            "{} ({}) has no shop yet, so it has no receipt",
+            facts.name, facts.code
+        ))
+    })
+}
+
+pub async fn read_receipt_header(
+    pool: &PgPool,
+    unit_id: &str,
+) -> Result<ReceiptHeaderView, AppError> {
+    use sqlx::Row;
+    let site_id = site_of_unit(pool, unit_id).await?;
+    let header = receipt_header_for_site(pool, &site_id).await?;
+    let meta = sqlx::query("SELECT updated_by,updated_at FROM store_receipt_header WHERE site_id=$1")
+        .bind(&site_id)
+        .fetch_optional(pool)
+        .await?;
+    Ok(ReceiptHeaderView {
+        present: header.wide.is_some(),
+        wide: header.wide,
+        narrow: header.narrow,
+        updated_by: meta.as_ref().map(|row| row.get("updated_by")),
+        updated_at: meta.as_ref().map(|row| row.get("updated_at")),
+    })
+}
+
+pub async fn save_receipt_header(
+    pool: &PgPool,
+    unit_id: &str,
+    request: &SaveReceiptHeader,
+    actor: &str,
+) -> Result<ReceiptHeaderView, AppError> {
+    if let Some(problem) = request.wide.problem(WIDE_DOTS, WIDE_MAX_ROWS) {
+        return Err(AppError::Validation(format!("80 mm: {problem}")));
+    }
+    if let Some(problem) = request.narrow.problem(NARROW_DOTS, NARROW_MAX_ROWS) {
+        return Err(AppError::Validation(format!("58 mm: {problem}")));
+    }
+    let wide = request.wide.bytes().unwrap_or_default();
+    let narrow = request.narrow.bytes().unwrap_or_default();
+    let site_id = site_of_unit(pool, unit_id).await?;
+    sqlx::query(
+        "INSERT INTO store_receipt_header
+             (site_id,wide_height,wide_bits,narrow_height,narrow_bits,updated_by,updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,now())
+         ON CONFLICT (site_id) DO UPDATE SET
+             wide_height=excluded.wide_height, wide_bits=excluded.wide_bits,
+             narrow_height=excluded.narrow_height, narrow_bits=excluded.narrow_bits,
+             updated_by=excluded.updated_by, updated_at=now()",
+    )
+    .bind(&site_id)
+    .bind(request.wide.height as i16)
+    .bind(wide)
+    .bind(request.narrow.height as i16)
+    .bind(narrow)
+    .bind(actor)
+    .execute(pool)
+    .await?;
+    super::return_policy::tell_every_store(pool, actor).await;
+    read_receipt_header(pool, unit_id).await
+}
+
+pub async fn clear_receipt_header(
+    pool: &PgPool,
+    unit_id: &str,
+    actor: &str,
+) -> Result<ReceiptHeaderView, AppError> {
+    let site_id = site_of_unit(pool, unit_id).await?;
+    sqlx::query("DELETE FROM store_receipt_header WHERE site_id=$1")
+        .bind(&site_id)
+        .execute(pool)
+        .await?;
+    super::return_policy::tell_every_store(pool, actor).await;
+    read_receipt_header(pool, unit_id).await
 }
 
 #[cfg(test)]

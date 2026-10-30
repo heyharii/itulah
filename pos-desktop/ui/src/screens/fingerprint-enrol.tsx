@@ -12,15 +12,16 @@ import { sound } from "@/sound"
 /// Two things about the fingerprint scanner on this POS.
 ///
 /// **`EnrolFingerScreen` — "Daftarkan sidik jari".** The store head records a
-/// finger and head office approves it (owner, 24 Oct 2026: the store only opens
-/// and closes its day; head office does all setup). She opens it from the door
-/// after signing in with her password (`login.tsx`). The screen lists the team
-/// from `GET /api/v1/auth/fingerprints/team`; she picks a person and a finger,
-/// the person presses it three times, the shell merges the presses into one
-/// template (`src-tauri/src/fingerprint.rs`), and the template goes to
-/// `POST /api/v1/auth/fingerprints/submissions`. It opens the POS only once
-/// head office has approved it, so nothing here ever says "terdaftar" for a
-/// finger that is still waiting.
+/// finger, and recording it is her approval — a team member's (owner, 24 Oct
+/// 2026) and her own (25 Oct 2026); head office can withdraw it. She opens it
+/// from the door after signing in with her password (`login.tsx`). The screen
+/// lists the team from `GET /api/v1/auth/fingerprints/team`; she picks a person
+/// and a finger, the person presses it three times, the shell merges the
+/// presses into one template (`src-tauri/src/fingerprint.rs`), and the template
+/// goes to `POST /api/v1/auth/fingerprints/submissions`, which answers
+/// `APPROVED` and opens the POS at once ("Sidik jari aktif"). The "Menunggu"
+/// words below are for a store server from before, which still kept the head's
+/// own finger waiting for head office.
 ///
 /// One finger, one person. The shop's roster is read again when a recording
 /// starts and handed to the scanner, which refuses a finger that matches
@@ -51,6 +52,10 @@ const DIGITS = [
 /// `backend/src/edge/fingerprint.rs`), so a legacy finger that names itself
 /// only in words can still be matched to a cell.
 const wordsOf = (digit: string, side: string) => `${digit} ${side}`
+
+/// One finger per person, the right thumb (Hari, 30 Oct 2026): picking a
+/// person goes straight to recording it, with no finger picker.
+const ONLY_FINGER: api.FingerCode = "RIGHT_THUMB"
 
 const initials = (name: string) =>
   name
@@ -138,7 +143,7 @@ export function EnrolFingerScreen({ onBack }: { onBack: () => void }) {
   function back() {
     if (view.kind === "capture") {
       stop()
-      setView({ kind: "fingers", username: view.username })
+      setView({ kind: "list" })
     } else if (view.kind === "fingers") {
       setView({ kind: "list" })
     } else {
@@ -399,7 +404,7 @@ export function EnrolFingerScreen({ onBack }: { onBack: () => void }) {
                   disabled={!canRecord}
                   onClick={() => {
                     setSent(null)
-                    setView({ kind: "fingers", username: one.username })
+                    void record(one.username, ONLY_FINGER)
                   }}
                 >
                   <span className="av md">{initials(one.display_name)}</span>

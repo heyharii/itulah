@@ -51,6 +51,8 @@ type Ask = {
   readonly epcs?: readonly string[]
   readonly amountMinor?: number | null
   readonly onApproved: (by: Approved) => void
+  /// The sheet was closed without a yes.
+  readonly onCancel?: () => void
   /// The node action itself, when it takes the supervisor's proof directly
   /// (a return): the proof is spent there instead of on `till_approval`.
   /// Answers the node's refusal, or null when it went through.
@@ -69,7 +71,10 @@ export function useApproval(): {
     pending === null ? null : (
       <ApprovalSheet
         request={pending}
-        onClose={() => setPending(null)}
+        onClose={() => {
+          pending.onCancel?.()
+          setPending(null)
+        }}
         onApproved={(by) => {
           setPending(null)
           pending.onApproved(by)

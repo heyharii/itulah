@@ -1,0 +1,1551 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Return policy · Employee discount · prototype</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<style>
+/* Central — generated from tokens.json. Do not edit by hand: change tokens.json (and the hub's styles/index.css or white.css it mirrors), then run node scripts/design-tokens-css.mjs. */
+:root {
+  --ink: #1d1d1f;
+  --text: var(--ink);
+  --body: #6e6e73;
+  --mute: var(--body);
+  --faint: #c7c7cc;
+  --crumb-sep: #aeaeb2;
+  --line-ico: #8e8e93;
+  --canvas: #ffffff;
+  --soft: #fafafb;
+  --soft-2: #f2f2f5;
+  --soft-3: #f5f5f7;
+  --band: #fafafb;
+  --segment-track: #f2f2f4;
+  --row-line: #eeeef1;
+  --hairline: #e8e8ec;
+  --hairline-2: #dcdce1;
+  --hairline-strong: #c7c7cc;
+  --stone: #e8ebf0;
+  --panel: var(--canvas);
+  --scrim: rgba(208, 208, 213, 0.48);
+  --tooltip: #101012;
+  --dark: #191b20;
+  --on-dark: #ffffff;
+  --rail-text: #344054;
+  --rail-mute: #475467;
+  --rail-hover: rgba(0, 0, 0, 0.05);
+  --rail-tile: var(--canvas);
+  --panel-ink: #1d2939;
+  --panel-body: #344054;
+  --panel-mute: #667085;
+  --panel-hover: #f2f4f7;
+  --accent: #2862dc;
+  --accent-bg: #eef3fc;
+  --cta: var(--accent);
+  --cta-hover: #2055c7;
+  --cta-fg: #ffffff;
+  --focus-ring: rgba(40, 98, 220, 0.12);
+  --ok: #36b827;
+  --ok-bg: #d9f4d2;
+  --ok-fg: #248a3d;
+  --warn: #c9892e;
+  --warn-bg: #faeacd;
+  --warn-fg: #a66c1f;
+  --bad: #d70015;
+  --bad-bg: #fbeaea;
+  --bad-fg: #d70015;
+  --bad-hover: #b80013;
+  --info: #2f86d8;
+  --info-bg: #ddebfa;
+  --info-fg: #496b9c;
+  --new-fg: #d6447e;
+  --new-bg: #fdeaf1;
+  --a-orange: #e0823c;
+  --a-green: #46a06a;
+  --a-blue: #4a82f0;
+  --a-pink: #d65b95;
+  --a-violet: #8a6cf0;
+  --fill-green: #38c018;
+  --fill-sky: #4090f0;
+  --fill-orange: #ee8b2e;
+  --app-home: #f08a24;
+  --app-executive: #3a3a3c;
+  --app-merchandise: #e8456b;
+  --app-inventory: #b7791f;
+  --app-ops: #1f9fb4;
+  --app-marketing: #9b51e0;
+  --app-buying: #2f6fed;
+  --app-selling: #2ea44f;
+  --app-finance: #5856d6;
+  --app-finance-new: #1a8fd0;
+  --app-hr: #e9604f;
+  --app-ga: #0f9d8f;
+  --app-library: #8b6b4a;
+  --app-reports: #6d6af2;
+  --app-system: #5b6472;
+  --brand-tile: #2f63d8;
+  --avatar-from: #e8def4;
+  --avatar-to: #f8dde8;
+  --space-a: #ece9f6;
+  --space-mid: #c9bdf0;
+  --space-b: #8b6bd0;
+  --space-core: #5a3ca6;
+  --space-ink: #2b1f55;
+  --space-ink-2: #2f2360;
+  --shadow-sheet: 0 0 0 1px rgba(0, 0, 0, 0.05), 0 2px 8px rgba(0, 0, 0, 0.05), 0 24px 64px rgba(0, 0, 0, 0.14);
+  --shadow-page: 0 0 0 1px rgba(0, 0, 0, 0.05), 0 2px 8px rgba(0, 0, 0, 0.04), 0 24px 72px rgba(0, 0, 0, 0.08);
+  --shadow-panel: 0 0 0 1px rgba(0, 0, 0, 0.05), 0 2px 6px rgba(0, 0, 0, 0.04);
+  --shadow-rail-tile: 0 0 0 1px rgba(16, 24, 40, 0.07), 0 1px 2px rgba(16, 24, 40, 0.08);
+  --shadow-primary: 0 1px 2px rgba(20, 50, 100, 0.1);
+  --shadow-pop: 0 4px 8px rgba(24, 39, 60, 0.04), 0 12px 32px rgba(24, 39, 60, 0.08);
+  --shadow-float: 0 8px 24px rgba(24, 39, 60, 0.06), 0 24px 64px rgba(24, 39, 60, 0.12);
+  --shadow-segment: 0 1px 3px rgba(0, 0, 0, 0.12);
+  --shadow-focus: 0 0 0 2px rgba(40, 98, 220, 0.12);
+  --shadow-board-hover: 0 4px 14px rgba(0, 0, 0, 0.05);
+  --page-gutter: 28px;
+  --phone-gutter: 16px;
+  --page-top: 24px;
+  --head-bottom: 16px;
+  --head-gap: 24px;
+  --figure-pad: 24px;
+  --figures-to-tabs: 32px;
+  --tab-gap: 20px;
+  --tabs-to-bar: 16px;
+  --bar-gap: 8px;
+  --bar-to-table: 12px;
+  --cell-x: 16px;
+  --cell-y: 12px;
+  --float: 12px;
+  --sheet-body-top: 20px;
+  --sheet-body-bottom: 24px;
+  --foot-y: 12px;
+  --section-gap: 24px;
+  --facts-gap-x: 32px;
+  --facts-gap-y: 16px;
+  --label-gap: 8px;
+  --fact-gap: 4px;
+  --icon-gap: 6px;
+  --dot-gap: 7px;
+  --control: 36px;
+  --field: 40px;
+  --tap: 44px;
+  --card-button: 32px;
+  --board-step: 30px;
+  --table-head: 40px;
+  --row: 52px;
+  --sheet-foot: 64px;
+  --nav-row: 36px;
+  --rail-button: 40px;
+  --rail: 68px;
+  --panel-width: 216px;
+  --search: 280px;
+  --sheet-rail: 480px;
+  --sheet-wide: 1040px;
+  --sheet-table: 1024px;
+  --sheet-workspace: 1344px;
+  --dot: 6px;
+  --count-badge: 20px;
+  --switch-w: 30px;
+  --r-inner: 8px;
+  --r-chip: 6px;
+  --r-card: 10px;
+  --r-sheet: 16px;
+  --r-segment-track: 9px;
+  --r-segment: 7px;
+  --r-link: 4px;
+  --r-full: 999px;
+  --t-press: 120ms;
+  --t-hover: 120ms;
+  --t-pop: 160ms;
+  --t-page: 180ms;
+  --t-panel: 200ms;
+  --t-sheet: 280ms;
+  --t-exit: 200ms;
+  --t-drawer: 450ms;
+  --t-swap-in: 160ms;
+  --t-swap-out: 100ms;
+  --t-spring: 500ms;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --spring: linear(0, 0.009, 0.035 2.1%, 0.141, 0.281 6.7%, 0.723 12.9%, 0.938 16.7%, 1.017 19.4%, 1.051 22.3%, 1.057 24.4%, 1.045 28%, 1.011 34.8%, 0.995 41.2%, 0.997 52.1%, 1);
+  --font-sans: "Inter Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", Menlo, monospace;
+}
+.ds-text-panel-title { font-family: var(--font-sans); font-size: 20px; line-height: 28px; font-weight: 600; letter-spacing: -0.4px; }
+.ds-text-title { font-family: var(--font-sans); font-size: 17px; line-height: 24px; font-weight: 600; letter-spacing: -0.3px; }
+.ds-text-lead-figure { font-family: var(--font-sans); font-size: 24px; line-height: 30px; font-weight: 600; letter-spacing: -0.6px; }
+.ds-text-figure { font-family: var(--font-sans); font-size: 16px; line-height: 22px; font-weight: 600; }
+.ds-text-card-name { font-family: var(--font-sans); font-size: 16px; line-height: 20px; font-weight: 600; letter-spacing: -0.16px; }
+.ds-text-section { font-family: var(--font-sans); font-size: 15px; line-height: 20px; font-weight: 600; }
+.ds-text-body { font-family: var(--font-sans); font-size: 15px; line-height: 1.45; font-weight: 400; }
+.ds-text-body-medium { font-family: var(--font-sans); font-size: 15px; line-height: 1.45; font-weight: 500; }
+.ds-text-label { font-family: var(--font-sans); font-size: 15px; line-height: 20px; font-weight: 400; }
+.ds-text-crumb { font-family: var(--font-sans); font-size: 15px; line-height: 18px; font-weight: 400; }
+.ds-text-control { font-family: var(--font-sans); font-size: 15px; line-height: 20px; font-weight: 500; }
+.ds-text-control-strong { font-family: var(--font-sans); font-size: 15px; line-height: 20px; font-weight: 600; }
+.ds-text-count { font-family: var(--font-sans); font-size: 15px; line-height: 1; font-weight: 600; }
+@font-face { font-family: "Inter Variable"; src: url("../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2") format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap; }
+
+.layer .ds-sheet.is-wide{width:min(1200px,calc(100vw - 32px))!important}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:28px 48px}
+.two .col{display:flex;flex-direction:column;gap:28px;min-width:0}
+@media (max-width:700px){.two{grid-template-columns:1fr}}
+.rows2{display:grid;grid-template-columns:1fr 1fr;gap:32px 48px;align-items:start}
+.rows2>*{min-width:0}
+/* One height for every control in the pairs, so the rows line up (29 Oct 2026). */
+.rows2 .ds-input,.rows2 .ds-search input,.rows2 .step,.rows2 .ds-choice{height:48px!important;min-height:48px!important;box-sizing:border-box}
+.rows2 .ds-search{display:block}
+.active-row{display:flex;align-items:center;justify-content:space-between;height:48px;padding:0 16px;border:1px solid var(--hairline-2);border-radius:10px;font-weight:500}
+@media (max-width:700px){.rows2{grid-template-columns:1fr}}
+</style>
+<style>
+/* Central — static renditions of the hub kit (frontend-hub/src/components/ui)
+   in the All white look, for this system's previews. Every value comes from
+   tokens.css (generated from tokens.json) or is the exact value the hub draws
+   (white.css, button-style.ts, sheet.tsx), measured on the running hub. These
+   classes are for previews and prototypes; a screen in the app uses the React
+   component the card names. */
+
+:where(.ds), :where(.ds) * { box-sizing: border-box; }
+.ds {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--ink);
+  background: var(--canvas);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+:where(.ds) :where(button, input, select, textarea) { font: inherit; color: inherit; }
+:where(.ds) :where(p, h1, h2, h3, h4, dl, dd) { margin: 0; }
+.ds-num { font-variant-numeric: tabular-nums; }
+.ds-mute { color: var(--body); }
+.ds-ink { color: var(--ink); }
+.ds-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* Preview scaffolding (not a component): a padded stage and a row of states */
+.ds-stage { padding: 24px 28px; display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.ds-stage--stone { background: var(--stone); }
+.ds-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.ds-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.ds-caption { font-size: 15px; line-height: 20px; color: var(--body); }
+
+/* ── Button (button.tsx · button-style.ts) ───────────────────────────── */
+.ds-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--icon-gap);
+  flex: none; height: var(--control); padding: 0 10px;
+  border: 1px solid transparent; border-radius: var(--r-inner);
+  background: transparent; color: var(--ink);
+  font-size: 15px; line-height: 20px; font-weight: 500; white-space: nowrap;
+  cursor: pointer; text-decoration: none;
+  transition: color var(--t-press) var(--ease-out), background-color var(--t-press) var(--ease-out),
+    border-color var(--t-press) var(--ease-out), box-shadow var(--t-press) var(--ease-out), scale var(--t-press) var(--ease-out);
+}
+.ds-btn:active { scale: 0.97; }
+.ds-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ds-btn[disabled], .ds-btn.is-disabled { opacity: 0.5; pointer-events: none; }
+.ds-btn.is-pending { opacity: 0.75; pointer-events: none; }
+.ds-btn--primary { background: var(--cta); color: var(--cta-fg); font-weight: 600; box-shadow: var(--shadow-primary); }
+.ds-btn--ghost { border-color: var(--hairline-2); background: var(--canvas); color: var(--ink); }
+.ds-btn--quiet { color: var(--ink); }
+.ds-btn--destructive { background: var(--bad-fg); color: var(--on-dark); font-weight: 600; }
+@media (hover: hover) and (pointer: fine) {
+  .ds-btn--primary:hover, .ds-btn--primary.is-hover { background: var(--cta-hover); }
+  .ds-btn--ghost:hover, .ds-btn--ghost.is-hover, .ds-btn--quiet:hover, .ds-btn--quiet.is-hover { background: var(--soft-2); }
+  .ds-btn--destructive:hover, .ds-btn--destructive.is-hover { background: var(--bad-hover); }
+}
+.ds-btn--icon { width: var(--control); padding: 0; }
+.ds-btn--sm { height: 28px; padding: 0 8px; }
+.ds-btn--card { height: var(--card-button); padding: 0 14px; position: relative; }
+.ds-btn--card::after { content: ""; position: absolute; inset: -6px; }
+.ds-btn--foot { padding: 0 16px; }
+.ds-btn--tap { height: var(--tap); padding: 0 16px; }
+.ds-btn--takes-away { color: var(--bad-fg); }
+
+/* ── TintButton (tint-button.tsx): a wash of the accent or of red, never repainted ── */
+.ds-btn--tint, .ds-btn--tint-bad { padding: 0 14px; font-weight: 600; }
+.ds-btn--tint { background: var(--accent-bg); color: var(--accent); }
+.ds-btn--tint-bad { background: var(--bad-bg); color: var(--bad-fg); }
+.ds-btn--tint-row { height: 38px; padding: 0 12px; }
+.ds-btn--tint[disabled], .ds-btn--tint.is-disabled, .ds-btn--tint-bad[disabled], .ds-btn--tint-bad.is-disabled { opacity: 0.4; }
+@media (hover: hover) and (pointer: fine) {
+  .ds-btn--tint:hover, .ds-btn--tint.is-hover { background: color-mix(in srgb, var(--accent) 15%, transparent); }
+  .ds-btn--tint-bad:hover, .ds-btn--tint-bad.is-hover { background: color-mix(in srgb, var(--bad-fg) 15%, transparent); }
+}
+
+/* ── Record link (white.css .record-link · lib/openable.ts) ──────────── */
+.ds-link {
+  border: 0; padding: 0; background: none; font: inherit; cursor: pointer;
+  color: var(--accent); border-radius: var(--r-link);
+  text-decoration-line: underline; text-decoration-color: transparent; text-underline-offset: 3px;
+  transition: text-decoration-color var(--t-hover) var(--ease-out), color var(--t-hover) var(--ease-out);
+}
+.ds-link:hover, .ds-link.is-hover { text-decoration-color: currentColor; }
+.ds-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ds-opens .ds-link { color: inherit; }
+
+/* ── Status, Tag, DocStamp, count (pill.tsx · tag.tsx · doc-stamp.tsx) ── */
+/* Status: a state in a list or a card (pill.tsx Status). The dot carries the tone;
+   the word is ink, and takes colour only when it waits on somebody (warn) or is a problem (bad). */
+.ds-status { display: inline-flex; align-items: center; gap: 8px; min-height: 24px; font-size: 15px; line-height: 20px; font-weight: 400; color: var(--text); white-space: nowrap; }
+.ds-status::before { content: ""; flex: none; width: var(--dot); height: var(--dot); border-radius: var(--r-full); background: var(--mute); }
+.ds-status--ok::before { background: var(--ok); }
+.ds-status--info::before { background: var(--info); }
+.ds-status--new::before { background: var(--new-fg); }
+.ds-status--warn { color: var(--warn-fg); }
+.ds-status--warn::before { background: var(--warn); }
+.ds-status--bad { color: var(--bad-fg); }
+.ds-status--bad::before { background: var(--bad); }
+.ds-status--neutral { color: var(--mute); }
+/* Pill: the ONE state in a sheet's head (pill.tsx Pill in the white look): dot and word in the tone's -fg, 500. */
+.ds-pill { display: inline-flex; align-items: center; gap: var(--dot-gap); min-height: 24px; font-size: 15px; line-height: 20px; font-weight: 500; color: var(--body); white-space: nowrap; }
+.ds-pill::before { content: ""; flex: none; width: var(--dot); height: var(--dot); border-radius: var(--r-full); background: currentColor; }
+.ds-pill--ok { color: var(--ok-fg); }
+.ds-pill--warn { color: var(--warn-fg); }
+.ds-pill--bad { color: var(--bad-fg); }
+.ds-pill--info { color: var(--info-fg); }
+.ds-pill--new { color: var(--new-fg); }
+.ds-pill--neutral { color: var(--body); }
+.ds-tag { display: inline-flex; align-items: center; height: 24px; padding: 0 8px; border-radius: var(--r-chip); box-shadow: inset 0 0 0 1px var(--hairline-2); font-size: 15px; line-height: 20px; font-weight: 600; color: var(--body); white-space: nowrap; }
+.ds-stamp {
+  display: inline-block; padding: 2px 10px; border: 3px double currentColor; border-radius: 6px;
+  transform: rotate(-6deg); opacity: 0.85; mix-blend-mode: multiply; text-align: center; white-space: nowrap;
+  font-size: 18px; line-height: 24px; font-weight: 700; letter-spacing: 0; pointer-events: none;
+}
+.ds-stamp-day, .ds-stamp-note { display: block; font-size: 15px; line-height: 20px; font-variant-numeric: tabular-nums; }
+.ds-stamp-note { font-weight: 500; max-width: 224px; white-space: normal; }
+.ds-stamp--ok { color: var(--ok-fg); }
+.ds-stamp--bad { color: var(--bad-fg); }
+.ds-stamp--warn { color: var(--warn-fg); }
+.ds-stamp--mute { color: var(--mute); }
+.ds-count {
+  display: inline-grid; place-items: center; min-width: var(--count-badge); height: var(--count-badge); padding: 0 5px;
+  border-radius: var(--r-full); background: var(--bad-fg); color: var(--on-dark);
+  font-size: 15px; line-height: 1; font-weight: 600; font-variant-numeric: tabular-nums; box-shadow: 0 0 0 2px var(--panel);
+}
+.ds-dot-alert { display: inline-block; width: 8px; height: 8px; border-radius: var(--r-full); background: var(--bad-fg); box-shadow: 0 0 0 2px var(--stone); }
+
+/* ── Shell: stone, rail, screens panel, floating page (white.css) ────── */
+.ds-shell { display: flex; align-items: stretch; min-height: 420px; background: var(--stone); }
+.ds-rail { flex: none; width: var(--rail); display: flex; flex-direction: column; align-items: center; gap: 8px; padding-top: 12px; }
+.ds-rail-btn { position: relative; display: grid; place-items: center; width: var(--rail-button); height: var(--rail-button); border-radius: var(--r-inner); color: var(--rail-mute); }
+.ds-rail-btn:hover, .ds-rail-btn.is-hover { background: var(--rail-hover); }
+.ds-rail-btn.is-current { background: var(--rail-tile); color: var(--accent); box-shadow: var(--shadow-rail-tile); }
+.ds-rail-btn .ds-dot-alert { position: absolute; top: 6px; right: 6px; }
+.ds-panel { flex: none; width: var(--panel-width); margin: var(--float) var(--float) var(--float) 0; padding: 12px 10px; border-radius: var(--r-sheet); background: var(--panel); box-shadow: var(--shadow-panel); }
+.ds-panel-title { padding: 0 6px 12px; font-size: 20px; line-height: 28px; font-weight: 600; letter-spacing: -0.4px; color: var(--panel-ink); }
+.ds-nav { display: flex; flex-direction: column; gap: 2px; }
+.ds-nav-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; height: var(--nav-row); padding: 0 10px; border-radius: var(--r-inner); font-size: 15px; line-height: 20px; font-weight: 400; color: var(--panel-body); text-decoration: none; }
+.ds-nav-row:hover, .ds-nav-row.is-hover { background: var(--panel-hover); }
+.ds-nav-row.is-active { background: var(--accent-bg); color: var(--accent); font-weight: 600; }
+.ds-nav-row .ds-count { box-shadow: 0 0 0 2px var(--panel); }
+.ds-page { flex: 1; min-width: 0; margin: var(--float) var(--float) var(--float) 0; border-radius: var(--r-sheet); background: var(--canvas); box-shadow: var(--shadow-page); overflow: hidden; }
+
+/* ── Page anatomy: head · figures · tabs · bar · table (white.css) ───── */
+.ds-page-content { padding: var(--page-top) var(--page-gutter); }
+.ds-page-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 calc(-1 * var(--page-gutter)) var(--head-gap); padding: 0 var(--page-gutter) var(--head-bottom); border-bottom: 1px solid var(--hairline); }
+.ds-page-head > div { min-width: 0; }
+.ds-crumb { margin-bottom: var(--label-gap); font-size: 15px; line-height: 18px; color: var(--mute); }
+.ds-title { font-size: 17px; line-height: 24px; font-weight: 600; letter-spacing: -0.3px; color: var(--ink); }
+.ds-kpis { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 16px 0; margin: 0 0 var(--figures-to-tabs) calc(-1 * var(--figure-pad) - 1px); clip-path: inset(-8px -8px -8px calc(var(--figure-pad) + 1px)); }
+.ds-kpi { position: relative; flex: 0 0 auto; min-width: 0; padding: 0 var(--figure-pad); }
+.ds-kpi::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 1px; background: var(--hairline); }
+.ds-kpi-label { font-size: 15px; line-height: 20px; color: var(--mute); }
+.ds-kpi-value { padding-top: var(--fact-gap); font-size: 16px; line-height: 22px; font-weight: 600; color: var(--ink); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ds-kpi-value.is-bad { color: var(--bad-fg); }
+.ds-kpis--in-sheet { margin-bottom: 8px; }
+.ds-tabs { display: flex; gap: var(--tab-gap); margin-bottom: var(--tabs-to-bar); box-shadow: inset 0 -1px 0 var(--hairline); overflow: hidden; }
+.ds-tab { min-height: 40px; padding: 8px 0 11px; border: 0; border-bottom: 2px solid transparent; background: none; font-size: 15px; line-height: 1.45; font-weight: 500; color: var(--mute); white-space: nowrap; cursor: pointer; }
+.ds-tab:hover, .ds-tab.is-hover { color: var(--ink); }
+.ds-tab.is-selected { color: var(--ink); border-bottom-color: var(--ink); }
+.ds-tab-count { margin-left: 6px; color: var(--mute); font-weight: 400; font-variant-numeric: tabular-nums; }
+.ds-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--bar-gap); margin-bottom: var(--bar-to-table); }
+.ds-bar-spacer { flex: 1 1 0; }
+.ds-search { position: relative; flex: 0 1 var(--search); min-width: 160px; }
+.ds-search .ds-ico { position: absolute; left: 10px; top: 50%; margin-top: -8px; color: var(--line-ico); }
+.ds-search input { width: 100%; height: var(--control); padding: 0 12px 0 32px; border: 1px solid var(--hairline-2); border-radius: var(--r-inner); background: var(--canvas); font-size: 15px; color: var(--ink); outline: none; }
+.ds-search input::placeholder { color: var(--line-ico); }
+.ds-search input:focus { border-color: var(--accent); box-shadow: var(--shadow-focus); }
+.ds-band-sentence { font-size: 15px; line-height: 22px; color: var(--body); }
+
+/* ── Table: framed, a band for the heading, hairlines between rows ───── */
+.ds-table-card { border: 1px solid var(--hairline); border-radius: var(--r-card); background: var(--canvas); overflow: clip; }
+.ds-table-scroll { overflow-x: auto; }
+.ds-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 15px; line-height: 1.45; }
+.ds-table th { height: var(--table-head); padding: 0 var(--cell-x); background: var(--band); box-shadow: inset 0 -1px 0 var(--hairline); color: var(--mute); font-weight: 500; text-align: left; white-space: nowrap; }
+.ds-table td { padding: var(--cell-y) var(--cell-x); border-bottom: 1px solid var(--row-line); color: var(--ink); vertical-align: middle; }
+.ds-table tbody tr:last-child td { border-bottom: 0; }
+.ds-table td:first-child { font-weight: 500; }
+.ds-table .ds-sub { display: block; font-weight: 400; color: var(--body); }
+.ds-table .is-num { text-align: right; font-variant-numeric: tabular-nums; }
+.ds-table .is-late { color: var(--bad-fg); }
+.ds-table tfoot td { height: 44px; background: var(--band); border-top: 1px solid var(--hairline); border-bottom: 0; font-weight: 500; }
+.ds-table tr.ds-opens { cursor: pointer; }
+.ds-table tr.ds-opens > td:last-child { position: relative; padding-right: 36px; }
+.ds-table tr.ds-opens > td:last-child::after { content: ""; position: absolute; top: 50%; right: 12px; width: 16px; height: 16px; margin-top: -8px; background: var(--mute); opacity: 0; transition: opacity var(--t-hover) var(--ease-out); -webkit-mask: var(--ds-chev) center / contain no-repeat; mask: var(--ds-chev) center / contain no-repeat; }
+.ds-table tr.ds-opens:hover > td:last-child::after, .ds-table tr.ds-opens.is-hover > td:last-child::after { opacity: 1; }
+.ds-table .ds-sort { display: inline-block; margin-left: 4px; color: var(--mute); }
+
+/* ── Facts and sections (sheet.tsx Facts/Fact · rows.tsx) ────────────── */
+.ds-section { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.ds-section-title { font-size: 15px; line-height: 20px; font-weight: 600; color: var(--ink); }
+.ds-section-count { margin-left: 6px; font-weight: 400; color: var(--mute); }
+.ds-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--facts-gap-y) var(--facts-gap-x); }
+.ds-fact { min-width: 0; }
+.ds-fact--wide { grid-column: span 2; }
+.ds-fact dt { font-size: 15px; line-height: 18px; color: var(--body); }
+.ds-fact dd { margin-top: var(--fact-gap); font-size: 15px; line-height: 22px; color: var(--ink); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.ds-empty-value { color: var(--faint); }
+
+/* ── Fields (field.tsx · form.tsx) ────────────────────────────────────── */
+.ds-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--section-gap); }
+.ds-field { display: flex; flex-direction: column; gap: var(--label-gap); min-width: 0; }
+.ds-field-label { font-size: 15px; line-height: 20px; color: var(--mute); }
+.ds-req { margin-left: 2px; color: var(--bad); }
+.ds-input { width: 100%; height: var(--field); padding: 0 14px; border: 1px solid var(--hairline-2); border-radius: var(--r-inner); background: var(--canvas); font-size: 15px; color: var(--ink); outline: none; transition: border-color var(--t-hover) var(--ease-out), box-shadow var(--t-hover) var(--ease-out); }
+.ds-input::placeholder { color: var(--line-ico); }
+.ds-input:focus, .ds-input.is-focus { border-color: var(--accent); box-shadow: var(--shadow-focus); }
+.ds-input[aria-invalid="true"] { border-color: var(--bad); }
+.ds-input--area { height: auto; min-height: 88px; padding: 10px 14px; resize: vertical; line-height: 22px; }
+.ds-select { position: relative; }
+.ds-select .ds-input { padding-right: 36px; display: flex; align-items: center; }
+.ds-select .ds-ico { position: absolute; right: 12px; top: 50%; margin-top: -8px; color: var(--line-ico); pointer-events: none; }
+.ds-field-error { font-size: 15px; line-height: 20px; color: var(--bad-fg); }
+.ds-switch { position: relative; display: inline-flex; align-items: center; flex: none; width: var(--switch-w); height: 18px; padding: 0; border: 0; border-radius: var(--r-full); background: var(--soft-3); cursor: pointer; transition: background-color var(--t-hover) var(--ease-out); }
+.ds-switch::after { content: ""; position: absolute; left: 2px; width: 14px; height: 14px; border-radius: var(--r-full); background: var(--canvas); transition: translate var(--t-pop) var(--ease-out); }
+.ds-switch.is-on { background: var(--accent); }
+.ds-switch.is-on::after { translate: 12px 0; }
+.ds-switch-pill { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px; border: 1px solid var(--hairline-2); border-radius: var(--r-inner); background: var(--canvas); font-size: 15px; color: var(--ink); white-space: nowrap; }
+.ds-check { display: inline-flex; align-items: center; gap: 8px; font-size: 15px; }
+.ds-check-box { display: inline-grid; place-items: center; width: 14px; height: 14px; border: 1px solid var(--hairline-strong); border-radius: 4px; background: var(--canvas); color: var(--on-dark); }
+.ds-check-box.is-on { border-color: var(--accent); background: var(--accent); }
+.ds-choice { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--hairline-2); border-radius: var(--r-inner); background: var(--canvas); }
+.ds-choice.is-on { background: var(--accent-bg); box-shadow: inset 0 0 0 1px var(--accent); border-color: var(--accent); }
+
+/* ── Segmented (segmented.tsx: Apple's control) ───────────────────────── */
+.ds-seg { display: inline-flex; gap: 2px; padding: 3px; border-radius: var(--r-segment-track); background: var(--segment-track); }
+.ds-seg-item { height: 28px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; color: var(--body); font-size: 15px; font-weight: 500; white-space: nowrap; cursor: pointer; transition: color var(--t-hover) var(--ease-out); }
+.ds-seg-item.is-on { border-radius: var(--r-segment); background: var(--canvas); color: var(--ink); box-shadow: var(--shadow-segment); }
+
+/* ── Sheet (sheet.tsx · sheet-footer.tsx · white.css) ─────────────────── */
+.ds-veil { position: relative; padding: var(--float); background: var(--scrim); -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px); display: flex; justify-content: flex-end; }
+.ds-sheet { position: relative; display: flex; flex-direction: column; width: 100%; max-width: 100%; border-radius: var(--r-sheet); background: var(--canvas); box-shadow: var(--shadow-sheet); overflow: hidden; }
+.ds-sheet--rail { width: var(--sheet-rail); }
+.ds-sheet--wide { width: var(--sheet-wide); }
+.ds-sheet--table { width: var(--sheet-table); }
+.ds-sheet--workspace { width: var(--sheet-workspace); }
+.ds-sheet.is-under::after { content: ""; position: absolute; inset: 0; z-index: 5; border-radius: inherit; background: var(--scrim); -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px); }
+.ds-sheet-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: var(--page-top) var(--page-gutter) var(--head-bottom); border-bottom: 1px solid var(--hairline); }
+.ds-sheet-headtext { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ds-sheet-crumb { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; font-size: 15px; line-height: 18px; color: var(--mute); }
+.ds-sheet-crumb .ds-sep { color: var(--crumb-sep); }
+.ds-sheet-titlerow { display: flex; align-items: center; gap: 10px; min-width: 0; flex-wrap: wrap; }
+.ds-sheet-title { font-size: 17px; line-height: 24px; font-weight: 600; letter-spacing: -0.3px; color: var(--ink); }
+.ds-sheet-caption { font-size: 15px; line-height: 20px; color: var(--mute); }
+.ds-sheet-back { display: inline-flex; align-items: center; gap: 2px; font-size: 15px; color: var(--mute); }
+.ds-sheet-close { display: grid; place-items: center; flex: none; width: 36px; height: 36px; margin: -4px -6px 0 0; border: 0; border-radius: var(--r-inner); background: none; color: var(--ink); cursor: pointer; }
+.ds-sheet-close:hover, .ds-sheet-close.is-hover { background: var(--soft-2); }
+.ds-sheet-body { position: relative; display: flex; flex-direction: column; gap: var(--section-gap); padding: var(--sheet-body-top) var(--page-gutter) var(--sheet-body-bottom); min-width: 0; }
+.ds-sheet-foot { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; min-height: var(--sheet-foot); padding: var(--foot-y) var(--page-gutter); border-top: 1px solid var(--hairline); }
+.ds-sheet-foot .ds-btn { padding: 0 16px; }
+.ds-foot-note { margin-right: auto; font-size: 15px; line-height: 20px; color: var(--mute); }
+.ds-stamp-corner { position: absolute; top: 0; right: 8px; z-index: 1; }
+.ds-swap-out { opacity: 0; transition: opacity var(--t-swap-out) var(--ease-out); }
+.ds-swap-in { opacity: 1; transition: opacity var(--t-swap-in) var(--ease-out); }
+.ds-drawer { width: 100%; border-radius: var(--r-sheet) var(--r-sheet) 0 0; border-top: 1px solid var(--hairline); background: var(--canvas); box-shadow: var(--shadow-float); overflow: hidden; }
+.ds-drawer-grip { width: 36px; height: 4px; margin: 8px auto 4px; border-radius: var(--r-full); background: var(--hairline-strong); }
+.ds-drawer .ds-sheet-head, .ds-drawer .ds-sheet-body, .ds-drawer .ds-sheet-foot { padding-left: var(--phone-gutter); padding-right: var(--phone-gutter); }
+.ds-drawer .ds-sheet-foot .ds-btn { flex: 1; height: var(--tap); }
+
+/* ── Dialog: a centred confirmation only (dialog.tsx) ─────────────────── */
+.ds-dialog { width: 384px; max-width: calc(100% - 32px); padding: 20px; border: 1px solid var(--hairline-2); border-radius: var(--r-card); background: var(--canvas); box-shadow: var(--shadow-float); }
+.ds-dialog-title { font-size: 16px; line-height: 24px; font-weight: 600; letter-spacing: -0.01em; }
+.ds-dialog-body { margin-top: 8px; font-size: 15px; line-height: 22px; color: var(--body); }
+.ds-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+
+/* ── Toast (toast.tsx: Sonner, bottom left) ───────────────────────────── */
+.ds-toast { display: flex; align-items: flex-start; gap: 10px; width: 356px; max-width: 100%; padding: 12px 14px; border: 1px solid var(--hairline); border-radius: var(--r-card); background: var(--canvas); box-shadow: var(--shadow-pop); }
+.ds-toast .ds-ico { margin-top: 2px; }
+.ds-toast-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ds-toast-title { font-size: 15px; font-weight: 500; color: var(--ink); }
+.ds-toast-desc { font-size: 15px; color: var(--body); }
+.ds-toast-action { margin-left: auto; flex: none; padding: 4px 10px; border: 0; border-radius: var(--r-full); background: var(--dark); color: var(--on-dark); font-size: 15px; font-weight: 500; }
+.ds-toast--ok .ds-ico { color: var(--ok-fg); }
+.ds-toast--bad .ds-ico { color: var(--bad-fg); }
+.ds-toast--warn .ds-ico { color: var(--warn-fg); }
+.ds-toast--info .ds-ico { color: var(--info-fg); }
+
+/* ── States (states.tsx · sheet-states.tsx) ───────────────────────────── */
+.ds-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; max-width: 28em; margin: 0 auto; padding: 48px 16px; text-align: center; }
+.ds-empty p { font-size: 15px; line-height: 22px; color: var(--body); }
+.ds-skeleton { display: block; height: 14px; border-radius: 6px; background: var(--soft-2); }
+.ds-banner { display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; border-radius: var(--r-inner); background: var(--info-bg); color: var(--info-fg); font-size: 15px; line-height: 1.625; }
+.ds-banner--bad { background: var(--bad-bg); color: var(--bad-fg); }
+.ds-banner--warn { background: var(--warn-bg); color: var(--warn-fg); }
+.ds-banner--ok { background: var(--ok-bg); color: var(--ok-fg); }
+
+/* ── Phone: card, dock, Fab, tab bar (phone-cards.tsx · shell/dock*.tsx · fab.tsx · bottom-bar.tsx) ── */
+.ds-phone { width: 414px; max-width: 100%; margin: 0 auto; background: var(--canvas); border-radius: 24px; box-shadow: 0 0 0 1px var(--hairline); overflow: hidden; }
+.ds-phone-head { padding: 12px var(--phone-gutter) 8px; }
+.ds-phone-body { display: flex; flex-direction: column; gap: 12px; padding: 8px var(--phone-gutter) 16px; }
+.ds-card { display: flex; flex-direction: column; border: 1px solid var(--hairline); border-radius: var(--r-card); background: var(--canvas); }
+.ds-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 16px; }
+.ds-card-name { font-size: 16px; line-height: 20px; font-weight: 600; letter-spacing: -0.16px; color: var(--ink); }
+.ds-card-line { font-size: 15px; line-height: 20px; color: var(--mute); }
+.ds-card-line b { font-weight: 400; color: var(--ink); }
+.ds-card-figure { display: flex; flex-direction: column; align-items: flex-end; text-align: right; font-variant-numeric: tabular-nums; }
+.ds-lead { font-size: 24px; line-height: 30px; font-weight: 600; letter-spacing: -0.6px; color: var(--ink); }
+.ds-lead-unit { margin-left: 3px; font-size: 15px; font-weight: 400; letter-spacing: 0; color: var(--mute); }
+.ds-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 48px; padding: 0 16px; border-top: 1px solid var(--row-line); font-size: 15px; color: var(--mute); }
+.ds-dock { display: flex; align-items: center; gap: 8px; padding: 9px 12px; }
+.ds-dock-chip { display: inline-flex; align-items: center; gap: 4px; height: var(--tap); padding: 0 14px; border-radius: var(--r-full); background: var(--soft-2); font-size: 15px; font-weight: 500; color: var(--ink); white-space: nowrap; }
+.ds-dock-search { flex: 1; display: inline-flex; align-items: center; gap: 8px; height: var(--tap); padding: 0 14px; border-radius: var(--r-full); background: var(--soft-2); font-size: 15px; color: var(--ink); min-width: 0; }
+.ds-fab { display: inline-grid; place-items: center; flex: none; width: var(--tap); height: var(--tap); border: 0; border-radius: var(--r-full); background: var(--cta); color: var(--cta-fg); cursor: pointer; transition: scale var(--t-press) var(--ease-out); }
+.ds-fab:active { scale: 0.96; }
+.ds-fab--wide { width: 100%; padding: 0 20px; gap: 6px; font-size: 15px; font-weight: 600; }
+.ds-tabbar { display: flex; border-top: 1px solid var(--hairline); background: var(--canvas); padding-bottom: env(safe-area-inset-bottom, 0px); }
+.ds-tabbar-item { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 52px; font-size: 15px; font-weight: 500; color: var(--mute); text-decoration: none; }
+.ds-tabbar-item.is-active { color: var(--accent); }
+
+/* ── Media (thumbnail.tsx · swatch.tsx · garment.tsx) ─────────────────── */
+.ds-thumb { display: grid; place-items: center; flex: none; width: 44px; height: 44px; border-radius: var(--r-inner); background: var(--soft-2); color: var(--line-ico); overflow: hidden; }
+.ds-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.ds-swatch { display: inline-block; flex: none; width: 12px; height: 12px; border-radius: var(--r-full); box-shadow: inset 0 0 0 1px var(--hairline-strong); }
+.ds-avatar { display: inline-grid; place-items: center; flex: none; width: 32px; height: 32px; border-radius: var(--r-full); background: linear-gradient(135deg, var(--avatar-from), var(--avatar-to)); color: var(--ink); font-size: 15px; font-weight: 600; }
+
+/* ── Timeline (timeline.tsx · activity-fold.tsx) ──────────────────────── */
+.ds-timeline { display: flex; flex-direction: column; gap: 0; margin: 0; padding: 0; list-style: none; }
+.ds-timeline li { position: relative; display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 12px; padding-bottom: 16px; }
+.ds-timeline li::before { content: ""; position: absolute; left: 7px; top: 14px; bottom: 0; width: 1px; background: var(--hairline); }
+.ds-timeline li:last-child::before { display: none; }
+.ds-timeline-dot { width: 9px; height: 9px; margin: 6px 0 0 3px; border-radius: var(--r-full); background: var(--hairline-strong); }
+.ds-timeline-dot.is-current { background: var(--ink); }
+.ds-timeline-what { font-size: 15px; line-height: 22px; color: var(--ink); }
+.ds-timeline-who { font-size: 15px; line-height: 20px; color: var(--mute); }
+
+/* ── Number pad (number-pad.tsx) and meter (meter.tsx) ────────────────── */
+.ds-pad { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 0 var(--phone-gutter) 12px; }
+.ds-pad-key { height: 56px; border: 0; border-radius: 16px; background: var(--soft-2); font-size: 24px; font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; transition: scale var(--t-press) var(--ease-out); }
+.ds-pad-key:active { scale: 0.96; }
+.ds-pad-read { padding: 4px var(--phone-gutter) 12px; font-size: 40px; line-height: 44px; font-weight: 600; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.ds-meter { display: block; width: 100%; height: 6px; border-radius: var(--r-full); background: var(--soft-2); overflow: hidden; }
+.ds-meter > span { display: block; height: 100%; border-radius: inherit; background: var(--ok); }
+.ds-meter--warn > span { background: var(--warn); }
+.ds-meter--bad > span { background: var(--bad); }
+
+@media (prefers-reduced-motion: reduce) {
+  .ds *, .ds *::before, .ds *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+  .ds-btn:active, .ds-fab:active { scale: 1; }
+}
+
+/* Icons: lucide (the hub's set), 2px stroke, drawn in currentColor through a mask. */
+.ds-ico{display:inline-block;flex:none;width:16px;height:16px;background:currentColor;-webkit-mask:var(--ds-ico) center/contain no-repeat;mask:var(--ds-ico) center/contain no-repeat}
+.ds-ico--17{width:17px;height:17px}.ds-ico--20{width:20px;height:20px}.ds-ico--14{width:14px;height:14px}
+.ds-ico-plus{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h14'/%3E%3Cpath d='M12 5v14'/%3E%3C/svg%3E")}
+.ds-ico-x{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M18 6 6 18'/%3E%3Cpath d='m6 6 12 12'/%3E%3C/svg%3E")}
+.ds-ico-search{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.3-4.3'/%3E%3C/svg%3E")}
+.ds-ico-chevron-right{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E")}
+.ds-ico-chevron-left{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m15 18-6-6 6-6'/%3E%3C/svg%3E")}
+.ds-ico-chevron-down{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")}
+.ds-ico-check{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E")}
+.ds-ico-printer{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2'/%3E%3Cpath d='M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6'/%3E%3Crect x='6' y='14' width='12' height='8' rx='1'/%3E%3C/svg%3E")}
+.ds-ico-calendar{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 2v4'/%3E%3Cpath d='M16 2v4'/%3E%3Crect width='18' height='18' x='3' y='4' rx='2'/%3E%3Cpath d='M3 10h18'/%3E%3C/svg%3E")}
+.ds-ico-pencil{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z'/%3E%3Cpath d='m15 5 4 4'/%3E%3C/svg%3E")}
+.ds-ico-trash{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 6h18'/%3E%3Cpath d='M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6'/%3E%3Cpath d='M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2'/%3E%3C/svg%3E")}
+.ds-ico-more{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='1'/%3E%3Ccircle cx='19' cy='12' r='1'/%3E%3Ccircle cx='5' cy='12' r='1'/%3E%3C/svg%3E")}
+.ds-ico-filter{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 6h18'/%3E%3Cpath d='M7 12h10'/%3E%3Cpath d='M10 18h4'/%3E%3C/svg%3E")}
+.ds-ico-columns{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='18' height='18' x='3' y='3' rx='2'/%3E%3Cpath d='M9 3v18'/%3E%3Cpath d='M15 3v18'/%3E%3C/svg%3E")}
+.ds-ico-download{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4'/%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3Cpath d='M12 15V3'/%3E%3C/svg%3E")}
+.ds-ico-home{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8'/%3E%3Cpath d='M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'/%3E%3C/svg%3E")}
+.ds-ico-cart{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='8' cy='21' r='1'/%3E%3Ccircle cx='19' cy='21' r='1'/%3E%3Cpath d='M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12'/%3E%3C/svg%3E")}
+.ds-ico-package{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z'/%3E%3Cpath d='M12 22V12'/%3E%3Cpath d='m3.3 7 7.703 4.734a2 2 0 0 0 1.994 0L20.7 7'/%3E%3Cpath d='m7.5 4.27 9 5.15'/%3E%3C/svg%3E")}
+.ds-ico-image{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='18' height='18' x='3' y='3' rx='2' ry='2'/%3E%3Ccircle cx='9' cy='9' r='2'/%3E%3Cpath d='m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21'/%3E%3C/svg%3E")}
+.ds-ico-users{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/%3E%3Ccircle cx='9' cy='7' r='4'/%3E%3Cpath d='M22 21v-2a4 4 0 0 0-3-3.87'/%3E%3Cpath d='M16 3.13a4 4 0 0 1 0 7.75'/%3E%3C/svg%3E")}
+.ds-ico-arrow-left{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m12 19-7-7 7-7'/%3E%3Cpath d='M19 12H5'/%3E%3C/svg%3E")}
+.ds-ico-alert{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cline x1='12' x2='12' y1='8' y2='12'/%3E%3Cline x1='12' x2='12.01' y1='16' y2='16'/%3E%3C/svg%3E")}
+.ds-ico-clock{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpolyline points='12 6 12 12 16 14'/%3E%3C/svg%3E")}
+.ds-ico-store{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7'/%3E%3Cpath d='M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8'/%3E%3Cpath d='M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4'/%3E%3Cpath d='M2 7h20'/%3E%3Cpath d='M22 7v3a2 2 0 0 1-2 2a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 16 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 12 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 8 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 4 12a2 2 0 0 1-2-2V7'/%3E%3C/svg%3E")}
+.ds-ico-undo{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 14 4 9l5-5'/%3E%3Cpath d='M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11'/%3E%3C/svg%3E")}
+.ds-ico-shirt{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z'/%3E%3C/svg%3E")}
+.ds-ico-wallet{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1'/%3E%3Cpath d='M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4'/%3E%3C/svg%3E")}
+.ds-ico-megaphone{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3 11 18-5v12L3 14v-3z'/%3E%3Cpath d='M11.6 16.8a3 3 0 1 1-5.8-1.6'/%3E%3C/svg%3E")}
+:root{--ds-chev:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E")}
+
+</style>
+<style>
+:root{--sheet-rail:560px}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--stone);font-family:Inter,system-ui,sans-serif;color:var(--ink);font-size:15px}
+button{font:inherit}
+
+.proto{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 16px 0 calc(var(--rail) + 4px)}
+.app.ds-shell{min-height:calc(100vh - 48px)}
+.ds-rail .ds-ico{width:18px;height:18px}
+.ds-panel{display:flex;flex-direction:column;align-self:flex-start;min-height:calc(100vh - 72px)}
+.panel-group{margin:14px 10px 6px;color:var(--panel-mute)}
+.ds-page{align-self:flex-start;min-height:calc(100vh - 72px);min-width:0}
+.ds-page-head{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap}
+
+/* icons the kit does not carry: lucide rotate-ccw, tag, layers, fingerprint, gift, receipt */
+.ic-undo{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8'/%3E%3Cpath d='M3 3v5h5'/%3E%3C/svg%3E")}
+.ic-tag{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z'/%3E%3Ccircle cx='7.5' cy='7.5' r='.5' fill='black'/%3E%3C/svg%3E")}
+.ic-layers{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z'/%3E%3Cpath d='m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65'/%3E%3Cpath d='m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65'/%3E%3C/svg%3E")}
+.ic-finger{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 10a2 2 0 0 0-2 2c0 1.02-.1 2.51-.26 4'/%3E%3Cpath d='M14 13.12c0 2.38 0 6.38-1 8.88'/%3E%3Cpath d='M17.29 21.02c.12-.6.43-2.3.5-3.02'/%3E%3Cpath d='M2 12a10 10 0 0 1 18-6'/%3E%3Cpath d='M2 16h.01'/%3E%3Cpath d='M21.8 16c.2-2 .131-5.354 0-6'/%3E%3Cpath d='M5 19.5C5.5 18 6 15 6 12a6 6 0 0 1 .34-2'/%3E%3Cpath d='M8.65 22c.21-.66.45-1.32.57-2'/%3E%3Cpath d='M9 6.8a6 6 0 0 1 9 5.2v2'/%3E%3C/svg%3E")}
+.ic-receipt{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z'/%3E%3Cpath d='M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8'/%3E%3Cpath d='M12 17.5v-11'/%3E%3C/svg%3E")}
+.ic-minus{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h14'/%3E%3C/svg%3E")}
+.ic-equal{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 9h14M5 15h14'/%3E%3C/svg%3E")}
+.ic-pause{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='6' y='4' width='4' height='16' rx='1'/%3E%3Crect x='14' y='4' width='4' height='16' rx='1'/%3E%3C/svg%3E")}
+
+/* tables */
+.ds-table td{vertical-align:top}
+.ds-table td .ds-sub{display:block;color:var(--mute)}
+.ds-table tr.ds-opens{cursor:pointer}
+.ds-table tr.ds-opens:hover td{background:var(--soft)}
+.ds-table tr.is-win td{background:var(--accent-bg)}
+.ds-table tr.is-lost td{color:var(--faint)}
+.ds-table tr.group td{background:var(--band);color:var(--mute);font-weight:500;padding-top:8px;padding-bottom:8px;cursor:default}
+.none{color:var(--faint)}
+.neg{color:var(--bad-fg)}
+.pos{color:var(--ok-fg,var(--ink))}
+.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+
+/* icon radio chips: icon · word · count, one picked */
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{display:inline-flex;align-items:center;gap:8px;height:34px;padding:0 12px;border:1px solid var(--hairline-2);border-radius:var(--r-full);background:var(--canvas);color:var(--ink);cursor:pointer;transition:background-color .12s cubic-bezier(.23,1,.32,1),scale .12s cubic-bezier(.23,1,.32,1)}
+.chip:hover{background:var(--soft)}
+.chip:active{scale:.97}
+.chip .ds-ico{width:15px;height:15px;color:var(--line-ico)}
+.chip .n{color:var(--mute);font-variant-numeric:tabular-nums}
+.chip.is-on{background:var(--accent-bg);border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);color:var(--accent);font-weight:600}
+.chip.is-on .ds-ico,.chip.is-on .n{color:var(--accent)}
+.tools{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.tools .ds-search{width:300px;max-width:100%}
+
+/* the every-article card */
+.base{border:1px solid var(--hairline);border-radius:var(--r-card);background:var(--canvas);box-shadow:var(--shadow-soft);margin-bottom:20px}
+.base-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid var(--hairline)}
+.base-head h2{margin:0;font-size:17px;font-weight:600}
+.base-facts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:20px 32px;padding:18px 20px 20px}
+.base-facts .big{font-size:22px;font-weight:600;letter-spacing:-.4px;font-variant-numeric:tabular-nums}
+.base-facts .big span{font-size:15px;font-weight:400;color:var(--mute);margin-left:4px;letter-spacing:0}
+
+/* check an article */
+.check{border:1px solid var(--hairline);border-radius:var(--r-card);background:var(--canvas);padding:14px 16px;margin-bottom:20px}
+.check-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.check-row .ds-search{flex:1;min-width:240px}
+.check-out{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 24px;margin-top:14px;padding-top:14px;border-top:1px solid var(--hairline);animation:rise 220ms cubic-bezier(.23,1,.32,1)}
+.check-out .why{color:var(--mute)}
+.check-out .days{font-size:22px;font-weight:600;font-variant-numeric:tabular-nums;text-align:right}
+.check-out .till{grid-column:1/-1}
+@keyframes rise{from{opacity:0;translate:0 4px}}
+.hits{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.hit{border:0;background:var(--soft-2);border-radius:var(--r-full);padding:4px 10px;cursor:pointer;color:var(--body)}
+.hit:hover{background:var(--soft-3)}
+
+/* the receipt line, as paper */
+.paper{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:15px;line-height:21px;background:#fbfaf7;border:1px dashed var(--hairline-strong);border-radius:6px;padding:12px 14px;white-space:pre-wrap;color:#2b2b2b;max-width:34ch}
+
+/* sheets: one layer slides in from the right */
+.layer{position:fixed;inset:0;z-index:20;pointer-events:none}
+.layer .scrim{position:absolute;inset:0;background:var(--scrim);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);opacity:0;transition:opacity 340ms cubic-bezier(.32,.72,0,1);pointer-events:auto}
+.layer.is-in .scrim{opacity:1}
+.layer.is-under .scrim{opacity:0}
+.layer .ds-sheet{position:absolute;top:var(--float);bottom:var(--float);right:var(--float);width:var(--sheet-rail);max-width:calc(100vw - 2*var(--float));pointer-events:auto;translate:calc(100% + 24px) 0;transition:translate 340ms cubic-bezier(.32,.72,0,1)}
+.layer.is-in .ds-sheet{translate:0 0}
+.layer.is-out .scrim{transition:opacity 200ms cubic-bezier(.23,1,.32,1);opacity:0}
+.layer.is-out .ds-sheet{transition:translate 200ms cubic-bezier(.23,1,.32,1);translate:calc(100% + 24px) 0}
+.layer.l1 .ds-sheet{right:calc(var(--float) + 12px);top:calc(var(--float) + 12px)}
+.layer .ds-sheet.is-wide{width:720px}
+.ds-sheet-body{flex:1;overflow:auto;gap:40px;padding:28px 36px 32px}
+.ds-sheet-head{padding:28px 36px 20px}
+.ds-sheet-foot{padding:14px 36px;min-height:68px}
+.ds-sheet-foot .grow{flex:1}
+@media (prefers-reduced-motion:reduce){.layer .ds-sheet,.layer .scrim{transition-duration:0ms!important}}
+
+/* sheet parts */
+.tiles{display:grid;gap:10px}
+.tiles.c2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.tiles.c3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.ds-choice{cursor:pointer;min-height:48px;text-align:left;color:var(--ink);transition:background-color .12s,box-shadow .12s,scale .12s cubic-bezier(.23,1,.32,1)}
+.ds-choice:hover{background:var(--soft)}
+.ds-choice.is-on:hover{background:var(--accent-bg)}
+.ds-choice .ds-ico{color:var(--line-ico)}
+.ds-choice.is-on .ds-ico{color:var(--accent)}
+.ds-choice[disabled]{cursor:default;color:var(--faint);background:var(--canvas)}
+.ds-choice[disabled] .ds-ico{color:var(--faint)}
+.ds-choice:active:not([disabled]){scale:.98}
+.ds-choice .two{display:flex;flex-direction:column;min-width:0}
+.ds-choice .two span{color:var(--mute)}
+.ds-choice.is-on .two span{color:var(--accent)}
+.stepper{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.step{display:inline-flex;align-items:center;border:1px solid var(--hairline-2);border-radius:var(--r-inner);height:var(--field);background:var(--canvas)}
+.step button{width:44px;height:100%;border:0;background:none;cursor:pointer;display:grid;place-items:center;color:var(--line-ico)}
+.step button:hover{color:var(--ink)}
+.step input{width:64px;height:100%;border:0;border-left:1px solid var(--hairline);border-right:1px solid var(--hairline);text-align:center;font-size:18px;font-weight:600;font-variant-numeric:tabular-nums;outline:none}
+.step .unit{padding:0 12px;color:var(--mute)}
+.money{display:flex;align-items:center;height:var(--field);border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);padding:0 14px;gap:8px}
+.money:focus-within{border-color:var(--accent);box-shadow:var(--shadow-focus)}
+.money span{color:var(--mute)}
+.money input{flex:1;border:0;outline:none;font-size:18px;font-weight:600;font-variant-numeric:tabular-nums;min-width:0;background:none}
+.picks{display:flex;flex-wrap:wrap;gap:8px}
+.ds-sheet .ds-search{flex:none}
+.sec-head{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:var(--control)}
+.ba{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:10px 14px;align-items:baseline}
+.ba .arrow{color:var(--faint)}
+.ba .after{font-weight:600}
+.lead-row{display:flex;align-items:baseline;gap:10px}
+.lead-row .ds-lead{font-size:32px;line-height:38px}
+.led{display:flex;flex-direction:column}
+.led-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 16px;padding:12px 0;border-bottom:1px solid var(--row-line)}
+.led-row:last-child{border-bottom:0}
+.led-row .what{font-weight:500}
+.led-row .sub{color:var(--mute);grid-column:1}
+.led-row .amt{grid-row:1/3;grid-column:2;align-self:center;font-variant-numeric:tabular-nums;font-weight:600}
+.state-line{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:16px;padding:12px 16px;border:1px solid var(--hairline);border-radius:var(--r-card);background:var(--canvas)}
+.state-line .grow{flex:1}
+.picked-bar{position:sticky;bottom:16px;display:flex;align-items:center;gap:14px;margin-top:12px;padding:10px 12px 10px 18px;border-radius:var(--r-card);background:var(--ink);color:#fff;box-shadow:var(--shadow-pop);animation:rise 200ms cubic-bezier(.23,1,.32,1)}
+.picked-bar .grow{flex:1}
+.picked-bar .clear{border:0;background:none;color:#fff;opacity:.7;cursor:pointer}
+.ds-check-box{cursor:pointer}
+
+/* now: the switch rows the screen has today */
+.now-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 0}
+.now-note{color:var(--mute);max-width:46rem}
+.now-card{border:1px solid var(--hairline);border-radius:var(--r-card);background:var(--canvas);margin-bottom:16px}
+.now-card .h{display:flex;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--hairline)}
+.now-card .h b{font-weight:600}
+.now-card .b{padding:14px 16px}
+.now-dialog{position:fixed;inset:0;z-index:30;display:grid;place-items:center;background:var(--scrim)}
+.now-dialog .box{width:520px;max-width:calc(100vw - 32px);background:var(--canvas);border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:12px;box-shadow:var(--shadow-pop)}
+.now-dialog select{height:36px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--soft-2);padding:0 8px;font:inherit}
+
+.toast-at{position:fixed;left:50%;bottom:24px;z-index:40;translate:-50% 0;transition:opacity 200ms cubic-bezier(.23,1,.32,1),translate 200ms cubic-bezier(.23,1,.32,1)}
+.toast-at.is-hidden{opacity:0;translate:-50% 8px;pointer-events:none}
+
+@media (max-width:900px){.ds-panel{display:none}.base-facts{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:700px){
+  .proto{padding-left:16px}
+  .ds-rail{display:none}
+  .wide{display:none}
+  .tools .ds-search{width:100%}
+  .layer .ds-sheet,.layer .ds-sheet.is-wide{top:auto;left:0;right:0;bottom:0;width:100%;max-width:none;max-height:92vh;border-radius:16px 16px 0 0;translate:0 calc(100% + 24px)}
+  .layer.l1 .ds-sheet{right:0;top:auto}
+  .layer.is-in .ds-sheet{translate:0 0}
+  .layer.is-out .ds-sheet{translate:0 calc(100% + 24px)}
+  .ds-sheet-body,.ds-sheet-head,.ds-sheet-foot{padding-left:20px;padding-right:20px}
+  .tiles.c3{grid-template-columns:1fr}
+  .ba{grid-template-columns:minmax(0,1fr) auto}
+  .ba .arrow,.ba .before{display:none}
+}
+</style>
+</head>
+<body>
+
+<div class="proto">
+  <div class="ds-seg" role="tablist" aria-label="Screen" id="screens"></div>
+  <div class="ds-seg" role="tablist" aria-label="Version" id="versions"></div>
+</div>
+
+<div class="ds app ds-shell">
+  <nav class="ds-rail" aria-label="Departments" id="rail"></nav>
+  <aside class="ds-panel" id="panel"></aside>
+  <main class="ds-page"><div class="ds-page-content" id="page"></div></main>
+</div>
+
+<div id="layers"></div>
+<div class="toast-at is-hidden" id="toast"><div class="ds-toast ds-toast--ok"><span class="ds-ico ds-ico-check"></span><div class="ds-toast-text"><div class="ds-toast-title" id="toast-text">Saved</div></div></div></div>
+
+<script>
+// ── shared ──────────────────────────────────────────────────────────────
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c])
+const rp = (n) => `Rp ${Math.abs(n).toLocaleString("id-ID")}`
+const signed = (n) => (n < 0 ? `−${rp(n)}` : `+${rp(n)}`)
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+const BULAN = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"]
+const TODAY = new Date(2026, 9, 29)
+const dayOf = (d) => `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`
+const plus = (n) => { const d = new Date(TODAY); d.setDate(d.getDate() + n); return d }
+const tile = (attrs, icon, word, sub, on, disabled) =>
+  `<button type="button" class="ds-choice ${on ? "is-on" : ""}" ${attrs} aria-pressed="${!!on}" ${disabled ? "disabled" : ""}><span class="ds-ico ${icon}"></span>${sub ? `<span class="two">${word}<span>${sub}</span></span>` : word}</button>`
+const chip = (attrs, icon, word, n, on) =>
+  `<button type="button" class="chip ${on ? "is-on" : ""}" role="radio" aria-checked="${!!on}" ${attrs}>${icon ? `<span class="ds-ico ${icon}"></span>` : ""}${word}${n !== undefined ? ` <span class="n">${n}</span>` : ""}</button>`
+const head = (crumb, title, actions = "") => `<div class="ds-page-head"><div><div class="ds-crumb">${crumb}</div><h1 class="ds-title">${title}</h1></div><div>${actions}</div></div>`
+const btn = (attrs, word, icon) => `<button class="ds-btn ds-btn--primary" ${attrs}>${icon ? `<span class="ds-ico ${icon}"></span>` : ""}${word}</button>`
+const smallBtn = (attrs, word) => `<button class="ds-btn ds-btn--primary ds-btn--sm" ${attrs}>${word}</button>`
+const status = (on, yes = "On", no = "Paused") => `<span class="ds-status ds-status--${on ? "ok" : "neutral"}">${on ? yes : no}</span>`
+
+// ── return policy data ──────────────────────────────────────────────────
+const DIVISIONS = ["Wanita", "Pria", "Anak Laki-laki", "Anak Perempuan", "Perlengkapan Bayi", "Sandal dan Sepatu", "Tas", "Aksesoris", "Non Divisi"]
+const TAGS = ["Kemeja", "Kaos", "Celana", "Jaket", "Blus", "Gaun", "Rok", "Denim", "Rajut", "Pakaian Dalam", "Pakaian Renang", "Sepatu", "Aksesori", "Formal", "Basic", "Musiman", "Lengan Panjang", "Lengan Pendek"]
+const ARTICLES = [
+  { id: "10000231", name: "Kemeja Batik Parang", division: "Pria", tags: ["Kemeja", "Formal", "Lengan Panjang"] },
+  { id: "10000418", name: "Gamis Sage", division: "Wanita", tags: ["Gaun", "Musiman"] },
+  { id: "10000102", name: "Kaos Polos Hitam", division: "Pria", tags: ["Kaos", "Basic", "Lengan Pendek"] },
+  { id: "10000377", name: "Sneakers Canvas Putih", division: "Sandal dan Sepatu", tags: ["Sepatu"] },
+  { id: "10000390", name: "Sandal Kulit Coklat", division: "Sandal dan Sepatu", tags: ["Aksesori"] },
+  { id: "10000512", name: "Dress Anak Floral", division: "Anak Perempuan", tags: ["Gaun"] },
+  { id: "10000655", name: "Bra Seamless Nude", division: "Wanita", tags: ["Pakaian Dalam"] },
+  { id: "10000701", name: "Celana Chino Navy", division: "Pria", tags: ["Celana", "Basic"] },
+  { id: "10000733", name: "Baju Renang Anak", division: "Anak Laki-laki", tags: ["Pakaian Renang"] },
+]
+const KIND = {
+  ARTICLE: { word: "Article", icon: "ds-ico-shirt", rank: 3 },
+  TAG: { word: "Tag", icon: "ic-tag", rank: 2 },
+  DIVISION: { word: "Division", icon: "ic-layers", rank: 1 },
+}
+const BASE = { days: 7, hangTag: true, receipt: true, same: true, sameCost: true, sameSupplier: true, by: "Dewi Lestari", at: "21 Oct 2026" }
+let RULES = [
+  { id: "r1", name: "Pakaian dalam", kind: "TAG", targets: ["Pakaian Dalam", "Pakaian Renang"], days: 7, on: true, never: true },
+  { id: "r2", name: "Seasonal", kind: "TAG", targets: ["Musiman"], days: 30, on: true },
+  { id: "r3", name: "Footwear", kind: "DIVISION", targets: ["Sandal dan Sepatu"], days: 14, on: true },
+  { id: "r4", name: "Kids", kind: "DIVISION", targets: ["Anak Laki-laki", "Anak Perempuan", "Perlengkapan Bayi"], days: 10, on: true },
+  { id: "r5", name: "Batik Parang", kind: "ARTICLE", targets: ["10000231"], days: 7, on: true, never: true },
+]
+const articleOf = (id) => ARTICLES.find((a) => a.id === id)
+const targetWord = (rule) => rule.kind === "ARTICLE" ? rule.targets.map((id) => `${articleOf(id)?.name ?? id}`).join(", ") : rule.targets.join(", ")
+// The domain's rule: article beats tag beats division beats every article;
+// two equally specific matches keep the longer window. Paused rules never match.
+function resolve(article) {
+  const hits = RULES.filter((r) => r.on && (
+    (r.kind === "ARTICLE" && r.targets.includes(article.id)) ||
+    (r.kind === "TAG" && r.targets.some((t) => article.tags.includes(t))) ||
+    (r.kind === "DIVISION" && r.targets.includes(article.division))))
+  // As cloud's resolve_exchangeable (1006): the most specific matches decide,
+  // and among them a single "never" is the answer. A never rule gives no window.
+  const top = Math.max(0, ...hits.map((r) => KIND[r.kind].rank))
+  const no = hits.find((r) => KIND[r.kind].rank === top && r.never)
+  if (no) return { win: no, hits: [no, ...hits.filter((r) => r !== no)], never: true }
+  const open = hits.filter((r) => !r.never)
+  open.sort((a, b) => KIND[b.kind].rank - KIND[a.kind].rank || b.days - a.days)
+  return { win: open[0] ?? null, hits: open }
+}
+// The struk names the rule that refuses it: "* Pakaian dalam tidak bisa ditukar".
+const neverLine = (name) => `* ${name} tidak bisa ditukar`
+function receiptLines(days, base = BASE) {
+  const d = plus(days)
+  const out = [`Penukaran barang paling lambat ${d.getDate()} ${BULAN[d.getMonth()]} ${d.getFullYear()}.`]
+  if (base.hangTag) out.push("Hang tag harus utuh dan masih terpasang.")
+  if (base.receipt) out.push("Struk tidak boleh hilang.")
+  return out.join("\n")
+}
+
+// ── employee discount data ──────────────────────────────────────────────
+const UNITS = ["Store 01", "Store 02", "Store 03", "Store 05", "Head office", "Gudang"]
+let PEOPLE = [
+  { id: "e1", name: "Rina Kartika", role: "Kepala toko", unit: "Store 01", bal: 350000, spent: 150000, filled: 500000, last: [27, "Store 01"] },
+  { id: "e2", name: "Budi Santoso", role: "Kasir", unit: "Store 01", bal: 500000, spent: 0, filled: 500000, last: null },
+  { id: "e3", name: "Siti Nurhaliza", role: "Pramuniaga", unit: "Store 02", bal: 0, spent: 500000, filled: 500000, last: [12, "Store 02"] },
+  { id: "e4", name: "Agus Prasetyo", role: "Kasir", unit: "Store 02", bal: 215000, spent: 285000, filled: 500000, last: [25, "Store 03"] },
+  { id: "e5", name: "Dewi Lestari", role: "Marketing", unit: "Head office", bal: 1000000, spent: 0, filled: 500000, last: null },
+  { id: "e6", name: "Fajar Ramadhan", role: "Picker", unit: "Gudang", bal: 89000, spent: 411000, filled: 500000, last: [28, "Store 05"] },
+  { id: "e7", name: "Maya Anggraini", role: "Pramuniaga", unit: "Store 03", bal: 500000, spent: 0, filled: 500000, last: null },
+  { id: "e8", name: "Hendra Wijaya", role: "Kepala toko", unit: "Store 03", bal: 0, spent: 500000, filled: 500000, last: [3, "Store 03"] },
+  { id: "e9", name: "Putri Ayu", role: "Kasir", unit: "Store 05", bal: 320000, spent: 180000, filled: 500000, last: [20, "Store 05"] },
+  { id: "e10", name: "Yusuf Hidayat", role: "Finance", unit: "Head office", bal: 750000, spent: 250000, filled: 500000, last: [19, "Store 01"] },
+  { id: "e11", name: "Lina Marlina", role: "Pramuniaga", unit: "Store 05", bal: 0, spent: 0, filled: 0, last: null },
+  { id: "e12", name: "Rizky Firmansyah", role: "Packer", unit: "Gudang", bal: 440000, spent: 60000, filled: 500000, last: [9, "Store 02"] },
+]
+let SETTING = { on: true, minutes: 5, by: "Yusuf Hidayat", since: "1 Oct 2026" }
+const SETTING_LOG = [
+  { what: "On · code lasts 5 minutes", who: "Yusuf Hidayat", when: "1 Oct 2026", why: "Benefit starts" },
+]
+const personOf = (id) => PEOPLE.find((p) => p.id === id)
+// What was filled this month, the hand fills made here included.
+const filledOf = (p) => p.filled + (p.extra ?? []).filter((m) => m.kind === "ADD").reduce((s, m) => s + m.amt, 0)
+const lastWord = (p) => (p.last ? `${p.last[0]} Oct · ${p.last[1]}` : "—")
+// Each person's moves, newest first; the spends follow the figures above.
+function movesOf(p) {
+  const out = []
+  if (p.spent > 0) {
+    const first = Math.round(p.spent * 0.6 / 1000) * 1000
+    out.push({ kind: "SPEND", amt: -(p.spent - first), where: p.last?.[1] ?? p.unit, day: p.last?.[0] ?? 20, ref: `S${(p.last?.[1] ?? "01").slice(-2)}-2610-0${(p.id.length * 137 + p.bal % 700 + 100)}` })
+    out.push({ kind: "SPEND", amt: -first, where: p.unit.startsWith("Store") ? p.unit : (p.last?.[1] ?? "Store 01"), day: 8, ref: `S${(p.unit.startsWith("Store") ? p.unit : (p.last?.[1] ?? "Store 01")).slice(-2)}-2610-0${(p.id.length * 211 + p.spent % 500 + 120)}` })
+  }
+  if (p.id === "e4") out.splice(1, 0, { kind: "RETURN", amt: 85000, where: "Store 03", day: 24, ref: "S03-2610-0418" })
+  if (p.filled > 0) out.push({ kind: "ADD", amt: p.filled, by: "Yusuf Hidayat", day: 1, why: "October" })
+  if (p.id === "e5") out.push({ kind: "ADD", amt: 500000, by: "Yusuf Hidayat", day: 1, why: "September", month: "Sep" })
+  return [...(p.extra ?? []), ...out]
+}
+const MOVE = {
+  ADD: ["Added", "ds-ico-plus"],
+  REMOVE: ["Taken off", "ic-minus"],
+  RESET: ["Set to", "ic-equal"],
+  SPEND: ["Spent", "ic-receipt"],
+  RETURN: ["Returned", "ic-undo"],
+}
+
+// ── the switches at the top ─────────────────────────────────────────────
+const SCREENS = [{ id: "rp", label: "Return policy" }, { id: "ed", label: "Employee discount" }]
+const VERSIONS = [{ id: "now", label: "Now" }, { id: "a", label: "A ★" }, { id: "b", label: "B" }]
+let screen = "rp"
+let version = "a"
+let rpFilter = "all"
+let rpCheck = ""
+let edFilter = "all"
+let edNeedle = ""
+let edTab = "balances"
+let mvFilter = "all"
+let picked = new Set()
+let nowDialog = null
+
+function seg(id, items, cur, key) {
+  document.getElementById(id).innerHTML = items.map((one) => `<button class="ds-seg-item ${one.id === cur ? "is-on" : ""}" role="tab" aria-selected="${one.id === cur}" data-${key}="${one.id}">${one.label}</button>`).join("")
+}
+function chrome() {
+  const rail = [["ds-ico-search", "Search"], ["ds-ico-cart", "Procurement"], ["ds-ico-package", "Inventory"], ["ic-tag", "Commercial"], ["ds-ico-store", "Sales"], ["ds-ico-users", "People"]]
+  const cur = screen === "rp" ? "Commercial" : "People"
+  document.getElementById("rail").innerHTML = rail.map(([icon, word]) => `<span class="ds-rail-btn ${word === cur ? "is-current" : ""}" aria-label="${word}"><span class="ds-ico ${icon}"></span></span>`).join("")
+  const rows = screen === "rp"
+    ? [["Pricelist"], ["Promotions"], ["Campaigns"], ["Vouchers"], ["Return policy", 1]]
+    : [["Overview"], ["Employees"], ["Attendance"], [null, "Pay"], ["Payroll"], ["Claims"], [version === "now" ? "Benefit" : "Employee discount", 1], ["Loans"]]
+  document.getElementById("panel").innerHTML = `<div class="ds-panel-title">${cur}</div><div class="ds-nav">${rows.map(([w, on]) => w === null ? `<div class="panel-group">${on}</div>` : `<span class="ds-nav-row ${on ? "is-active" : ""}">${w}</span>`).join("")}</div>`
+}
+
+function render() {
+  seg("screens", SCREENS, screen, "s")
+  if (screen === "rp" && version === "c") version = "a"
+  seg("versions", screen === "ed" ? [...VERSIONS, { id: "c", label: "C · Complete" }] : VERSIONS, version, "v")
+  chrome()
+  const page = document.getElementById("page")
+  if (screen === "rp") page.innerHTML = version === "now" ? rpNow() : rpPage()
+  else page.innerHTML = version === "now" ? edNow() : edPage()
+  wireInputs()
+}
+
+// ── Return policy · Now ─────────────────────────────────────────────────
+function rpNow() {
+  const sw = (on, word, dis) => `<div class="now-row" style="${dis ? "opacity:.5" : ""}"><span>${word}</span><span class="ds-switch ${on ? "is-on" : ""}"></span></div>`
+  return head("Marketing", "Return policy", btn("data-now-add", "Tambah kebijakan", "ds-ico-plus")) +
+    `<div class="now-card"><div class="h"><b>Berlaku untuk semua artikel</b><span class="ds-mute">Terakhir diubah ${BASE.by}</span></div>
+      <div class="b" style="display:grid;grid-template-columns:16rem 1fr;gap:16px">
+        <label class="ds-field"><span class="ds-field-label">Batas retur (hari)</span><input class="ds-input" value="${BASE.days}"><span class="ds-mute">Dihitung dari tanggal penjualan. Hari penjualan adalah hari ke-0.</span></label>
+        <div>${sw(BASE.hangTag, "Hang tag harus utuh dan masih terpasang")}${sw(BASE.receipt, "Struk tidak boleh hilang")}
+          <div style="border-top:1px solid var(--hairline);margin-top:8px;padding-top:10px"><b>Tukar barang yang sama</b>
+          <p class="now-note">Barang boleh ditukar dengan artikel yang sama walau harga jualnya sedang diskon hari ini. Harga jual tidak dibandingkan; HPP dan supplier yang menentukan barang itu masih barang yang sama. Selisih harga tetap dihitung seperti biasa di kasir.</p>
+          ${sw(BASE.same, "Izinkan tukar artikel yang sama")}${sw(BASE.sameCost, "HPP harus sama")}${sw(BASE.sameSupplier, "Supplier harus sama")}</div></div></div>
+      <div class="b" style="display:flex;justify-content:space-between;gap:12px;border-top:1px solid var(--hairline)"><span class="now-note">Kebijakan khusus di bawah menang atas angka ini; artikel menang atas tag, tag menang atas divisi. Perubahan berlaku untuk penjualan berikutnya — struk yang sudah tercetak tidak berubah.</span>${btn("", "Simpan")}</div>
+      <div class="b" style="background:var(--soft);border-top:1px solid var(--hairline)"><div class="ds-mute">Contoh di struk</div>${receiptLines(BASE.days).replace(/\n/g, " ")}</div></div>
+    <div class="now-card"><div class="h"><b>Kebijakan khusus</b><span class="ds-mute">${RULES.length} kebijakan</span></div>
+      ${RULES.map((r) => `<div class="b" style="display:flex;gap:16px;align-items:center;border-top:1px solid var(--hairline)"><div style="flex:1"><b>${esc(r.name)}</b> ${status(r.on, "Berlaku", "Dijeda")}<div class="ds-mute">${KIND[r.kind].word} · ${r.targets.join(", ")}</div></div><span><b>${r.days}</b> hari</span><span class="ds-ico ds-ico-trash" style="color:var(--mute)"></span></div>`).join("")}</div>
+    ${nowDialog === "rp" ? `<div class="now-dialog" data-now-close><div class="box" onclick="event.stopPropagation()"><b style="font-size:18px">Kebijakan retur baru</b>
+      <label class="ds-field"><span class="ds-field-label">Nama kebijakan</span><input class="ds-input" placeholder="Contoh: Pakaian dalam"></label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><label class="ds-field"><span class="ds-field-label">Berlaku untuk</span><select><option>Tag</option><option>Divisi</option><option>Artikel</option><option>Semua artikel</option></select></label><label class="ds-field"><span class="ds-field-label">Batas retur (hari)</span><input class="ds-input" value="7"></label></div>
+      <label class="ds-field"><span class="ds-field-label">Artikel</span><input class="ds-input" placeholder="10000001, 10000002"><span class="ds-mute">Kode artikel, pisahkan dengan koma.</span></label>
+      <label class="ds-field"><span class="ds-field-label">Catatan</span><input class="ds-input"><span class="ds-mute">Tampil di layar ini saja, tidak di struk.</span></label>
+      <div style="display:flex;justify-content:flex-end;gap:8px">${btn("data-now-close", "Simpan")}</div></div></div>` : ""}`
+}
+
+// ── Return policy · A and B ─────────────────────────────────────────────
+function baseCard() {
+  const same = BASE.same ? ["On", [BASE.sameCost && "same cost", BASE.sameSupplier && "same supplier"].filter(Boolean).join(" · ")] : ["Off", ""]
+  return `<div class="base"><div class="base-head"><h2>Every article</h2>${smallBtn("data-edit-base", "Edit")}</div>
+    <div class="base-facts">
+      <div><div class="ds-mute">Return within</div><div class="big">${BASE.days}<span>days</span></div></div>
+      <div><div class="ds-mute">Hang tag</div><div class="big" style="font-size:17px">${BASE.hangTag ? "Must be on" : "Not needed"}</div></div>
+      <div><div class="ds-mute">Receipt</div><div class="big" style="font-size:17px">${BASE.receipt ? "Needed" : "Not needed"}</div></div>
+      <div><div class="ds-mute">Same-item exchange</div><div class="big" style="font-size:17px">${same[0]}${same[1] ? `<span>${same[1]}</span>` : ""}</div></div>
+    </div></div>`
+}
+function checkCard() {
+  const text = rpCheck.trim().toLowerCase()
+  const found = text ? ARTICLES.find((a) => a.id.includes(text) || a.name.toLowerCase().includes(text)) : null
+  let out = ""
+  if (found) {
+    const { win, hits, never } = resolve(found)
+    const days = win ? win.days : BASE.days
+    const why = win ? `${KIND[win.kind].word} rule “${esc(win.name)}”` : "Every article"
+    const beaten = hits.slice(1).map((r) => `“${esc(r.name)}” ${r.never ? "never" : `${r.days} d`}`).join(", ")
+    out = `<div class="check-out" aria-live="polite">
+      <div><b>${esc(found.name)}</b> <span class="ds-mute">${found.id} · ${found.division}${found.tags.length ? " · " + found.tags.join(", ") : ""}</span>
+        <div class="why">From ${why}${beaten ? ` · beats ${beaten}` : ""}</div></div>
+      <div class="days">${never ? "Never" : `${days} days<div class="ds-mute" style="font-size:15px;font-weight:400">until ${dayOf(plus(days))}</div>`}</div>
+      <div class="till"><div class="paper">${never ? neverLine(win.name) : receiptLines(days)}</div></div></div>`
+  } else if (text) out = `<div class="check-out"><span class="ds-mute">No article matches.</span></div>`
+  return `<div class="check"><div class="check-row"><label class="ds-search"><span class="ds-ico ds-ico-search"></span><input id="rp-check" type="text" placeholder="Check an article" aria-label="Check an article" value="${esc(rpCheck)}" autocomplete="off"></label></div>
+    ${!text ? `<div class="hits">${ARTICLES.slice(0, 5).map((a) => `<button class="hit" data-try="${a.id}">${esc(a.name)}</button>`).join("")}</div>` : ""}${out}</div>`
+}
+function rpCounts() {
+  return {
+    all: RULES.length,
+    ARTICLE: RULES.filter((r) => r.kind === "ARTICLE").length,
+    TAG: RULES.filter((r) => r.kind === "TAG").length,
+    DIVISION: RULES.filter((r) => r.kind === "DIVISION").length,
+    paused: RULES.filter((r) => !r.on).length,
+    never: RULES.filter((r) => r.never).length,
+  }
+}
+function rpShown() {
+  return RULES.filter((r) => rpFilter === "all" || (rpFilter === "paused" ? !r.on : rpFilter === "never" ? r.never : r.kind === rpFilter))
+}
+function ruleRow(r, winId) {
+  return `<tr class="ds-opens ${r.id === winId ? "is-win" : ""} ${!r.on ? "is-lost" : ""}" data-rule="${r.id}">
+    <td>${esc(r.name)}</td>
+    <td><span style="display:inline-flex;gap:8px;align-items:center"><span class="ds-ico ${KIND[r.kind].icon}" style="color:var(--line-ico)"></span>${esc(targetWord(r))}</span></td>
+    <td class="num">${r.never ? "Never" : `${r.days} days`}</td><td class="wide">${status(r.on)}</td></tr>`
+}
+function rpPage() {
+  const c = rpCounts()
+  const filters = `<div class="chips" role="radiogroup" aria-label="Kind">${chip('data-rpf="all"', "", "All", c.all, rpFilter === "all")}${chip('data-rpf="ARTICLE"', KIND.ARTICLE.icon, "Article", c.ARTICLE, rpFilter === "ARTICLE")}${chip('data-rpf="TAG"', KIND.TAG.icon, "Tag", c.TAG, rpFilter === "TAG")}${chip('data-rpf="DIVISION"', KIND.DIVISION.icon, "Division", c.DIVISION, rpFilter === "DIVISION")}${chip('data-rpf="never"', "ds-ico-x", "Never", c.never, rpFilter === "never")}${chip('data-rpf="paused"', "ic-pause", "Paused", c.paused, rpFilter === "paused")}</div>`
+  const found = rpCheck.trim() ? ARTICLES.find((a) => a.id.includes(rpCheck.trim().toLowerCase()) || a.name.toLowerCase().includes(rpCheck.trim().toLowerCase())) : null
+  const winId = found ? resolve(found).win?.id ?? "base" : null
+  const cols = `<colgroup><col style="width:30%"><col><col style="width:120px"><col class="wide" style="width:120px"></colgroup>`
+  const thead = `<thead><tr><th>Return policy</th><th>Applies to</th><th class="is-num">Return within</th><th class="wide">Status</th></tr></thead>`
+  if (version === "a") {
+    const rows = rpShown()
+    return head("Commercial", "Return policy", btn("data-new-rule", "New return policy", "ds-ico-plus")) + baseCard() + checkCard() +
+      `<div class="tools">${filters}</div>` +
+      (rows.length ? `<div class="ds-table-card"><table class="ds-table">${cols}${thead}<tbody>${rows.map((r) => ruleRow(r, winId)).join("")}</tbody></table></div>` : `<div class="ds-empty"><p>Nothing here.</p></div>`)
+  }
+  // B: one ladder — every rule in the order it wins, Every article last.
+  const order = ["ARTICLE", "TAG", "DIVISION"]
+  const body = order.map((k) => {
+    const rows = RULES.filter((r) => r.kind === k).sort((a, b) => Number(!!b.never) - Number(!!a.never) || b.days - a.days)
+    return `<tr class="group"><td colspan="4"><span style="display:inline-flex;gap:8px;align-items:center"><span class="ds-ico ${KIND[k].icon}"></span>${KIND[k].word}</span></td></tr>` +
+      (rows.length ? rows.map((r) => ruleRow(r, winId)).join("") : `<tr><td colspan="4" class="none">—</td></tr>`)
+  }).join("") + `<tr class="group"><td colspan="4">Every article</td></tr>
+    <tr class="ds-opens ${winId === "base" ? "is-win" : ""}" data-edit-base><td>Every article</td><td>${[BASE.hangTag && "Hang tag on", BASE.receipt && "Receipt", BASE.same && "Same-item exchange"].filter(Boolean).join(" · ")}</td><td class="num">${BASE.days} days</td><td class="wide">${status(true)}</td></tr>`
+  return head("Commercial", "Return policy", btn("data-new-rule", "New return policy", "ds-ico-plus")) + checkCard() +
+    `<div class="ds-table-card"><table class="ds-table">${cols}<thead><tr><th>Rule</th><th>Applies to</th><th class="is-num">Return within</th><th class="wide">Status</th></tr></thead><tbody>${body}</tbody></table></div>`
+}
+
+// the sheets
+let ruleDraft = null
+let artNeedle = ""
+function daysField(val, key) {
+  return `<div class="stepper"><span class="step"><button type="button" data-step="${key}:-1" aria-label="One day less"><span class="ds-ico ic-minus ds-ico--14"></span></button><input id="days-${key}" inputmode="numeric" value="${val}" aria-label="Days"><button type="button" data-step="${key}:1" aria-label="One day more"><span class="ds-ico ds-ico-plus ds-ico--14"></span></button></span>
+    <span class="chips">${[3, 7, 14, 30].map((n) => chip(`data-days="${key}:${n}"`, "", `${n} days`, undefined, val === n)).join("")}</span></div>`
+}
+function ruleSheet() {
+  const d = ruleDraft
+  // One picker for every kind: what is picked sits on top as chips, the search
+  // under it adds more. Tags and divisions list everything left when the box is
+  // empty; articles wait for a word.
+  const pool = d.kind === "DIVISION" ? DIVISIONS.map((t) => ({ code: t, word: t })) : d.kind === "TAG" ? TAGS.map((t) => ({ code: t, word: t })) : ARTICLES.map((a) => ({ code: a.id, word: a.name, sub: a.id }))
+  const noun = d.kind === "ARTICLE" ? "articles" : d.kind === "TAG" ? "tags" : "divisions"
+  const q = artNeedle.trim().toLowerCase()
+  const left = pool.filter((one) => !d.targets.includes(one.code) && (q === "" ? d.kind !== "ARTICLE" : `${one.word} ${one.sub ?? ""}`.toLowerCase().includes(q)))
+  const label = (code) => pool.find((one) => one.code === code)?.word ?? code
+  const targets = `${d.targets.length ? `<div class="picks" style="margin-bottom:12px">${d.targets.map((code) => `<button class="chip is-on" data-target="${esc(code)}" aria-label="Remove ${esc(label(code))}">${esc(label(code))}<span class="ds-ico ds-ico-x"></span></button>`).join("")}</div>` : ""}
+       <label class="ds-search"><span class="ds-ico ds-ico-search"></span><input id="art-needle" type="text" placeholder="Search ${noun}" aria-label="Search ${noun}" value="${esc(artNeedle)}" autocomplete="off"></label>
+       ${left.length ? `<div class="picks" style="margin-top:12px">${left.slice(0, 12).map((one) => chip(`data-target="${esc(one.code)}"`, "ds-ico-plus", esc(one.word), one.sub, false)).join("")}${left.length > 12 ? `<span class="ds-mute" style="align-self:center">+${left.length - 12}</span>` : ""}</div>` : q ? `<p class="ds-mute" style="margin:12px 0 0">Nothing matches.</p>` : ""}`
+  return sheet({
+    crumb: "Return policy",
+    title: d.isNew ? "New return policy" : d.name || "Return policy",
+    wide: true,
+    // Paired rows, so each pair starts on one line (Hari, 29 Oct 2026): Name |
+    // Return time, Applies to | Return within, the targets | Status. No preview.
+    body: `<div class="rows2">
+      <section class="ds-section"><h3 class="ds-section-title">Name</h3><input class="ds-input" id="rule-name" aria-label="Name" value="${esc(d.name)}"></section>
+      <section class="ds-section"><h3 class="ds-section-title">Return time</h3><div class="tiles c2">${tile('data-never="0"', "ic-undo", "Within days", "", !d.never)}${tile('data-never="1"', "ds-ico-x", "Never", "", d.never)}</div></section>
+      <section class="ds-section"><h3 class="ds-section-title">Applies to</h3><div class="tiles c3">${["DIVISION", "TAG", "ARTICLE"].map((k) => tile(`data-kind="${k}"`, KIND[k].icon, KIND[k].word, "", d.kind === k)).join("")}</div></section>
+      <div>${d.never ? "" : `<section class="ds-section"><h3 class="ds-section-title">Return within</h3>${daysField(d.days, "rule")}</section>`}</div>
+      <section class="ds-section"><h3 class="ds-section-title">${d.kind === "ARTICLE" ? "Articles" : d.kind === "TAG" ? "Tags" : "Divisions"}${d.targets.length ? `<span class="ds-section-count">${d.targets.length}</span>` : ""}</h3>${targets}${d.tried && !d.targets.length ? '<div class="ds-field-error">Pick at least one</div>' : ""}</section>
+      <section class="ds-section"><h3 class="ds-section-title">Status</h3><label class="active-row"><span>Active</span><button type="button" class="ds-switch ${d.on ? "is-on" : ""}" role="switch" aria-checked="${d.on}" aria-label="Active" data-on="${d.on ? 0 : 1}"></button></label></section>
+    </div>`,
+    foot: `${d.isNew ? "" : `<button class="ds-btn ds-btn--primary" data-remove-rule>Remove</button>`}<span class="grow"></span>${btn("data-save-rule", d.isNew ? "Add return policy" : "Save")}`,
+  })
+}
+let baseDraft = null
+function baseSheet() {
+  const d = baseDraft
+  return sheet({
+    crumb: "Return policy",
+    title: "Every article",
+    caption: `Changed by ${BASE.by} · ${BASE.at}`,
+    body: `<section class="ds-section"><h3 class="ds-section-title">Return within</h3>${daysField(d.days, "base")}</section>
+      <section class="ds-section"><h3 class="ds-section-title">Needs</h3><div class="tiles c2">${tile('data-flip="hangTag"', "ic-tag", "Hang tag on", "", d.hangTag)}${tile('data-flip="receipt"', "ic-receipt", "Receipt", "", d.receipt)}</div></section>
+      <section class="ds-section"><h3 class="ds-section-title">Same-item exchange</h3><div class="tiles c3">${tile('data-flip="same"', "ic-undo", "Allowed", "", d.same)}${tile('data-flip="sameCost"', "ds-ico-wallet", "Same cost", "", d.same && d.sameCost, !d.same)}${tile('data-flip="sameSupplier"', "ds-ico-cart", "Same supplier", "", d.same && d.sameSupplier, !d.same)}</div></section>`,
+    foot: `<span class="grow"></span>${btn("data-save-base", "Save")}`,
+  })
+}
+
+// ── Employee discount · Now ─────────────────────────────────────────────
+function edNow() {
+  const total = PEOPLE.reduce((s, p) => s + p.bal, 0)
+  return head("People · Pay", "Benefit", btn("data-now-fill", "Fill balances")) +
+    `<div class="tools"><label class="ds-search"><span class="ds-ico ds-ico-search"></span><input type="text" placeholder="Search people"></label><span class="grow" style="flex:1"></span><span>Benefit is on · a code lasts ${SETTING.minutes} minutes</span><button class="ds-btn ds-btn--ghost">Change</button></div>
+    <div class="ds-table-card" style="padding:8px 16px"><p>Total balance <b>${rp(total)}</b> · ${PEOPLE.length} employees</p><table class="ds-table"><thead><tr><th style="width:32px"></th><th>Employee</th><th>Unit</th><th class="is-num">Balance</th><th class="is-num">Last moved</th></tr></thead>
+    <tbody>${PEOPLE.map((p) => `<tr><td><span class="ds-check-box"></span></td><td>${p.name}</td><td>${p.unit}</td><td class="num">${rp(p.bal)}</td><td class="num">${p.last ? p.last[0] + " Oct 2026" : "1 Oct 2026"}</td></tr>`).join("")}</tbody></table>
+    <div style="padding:8px 0;border-top:1px solid var(--hairline)"><span class="ds-check"><span class="ds-check-box"></span>Select everyone shown</span></div></div>
+    ${nowDialog === "ed" ? `<div class="now-dialog" data-now-close><div class="box" onclick="event.stopPropagation()"><b style="font-size:18px">Fill balances</b>
+      <label class="ds-field"><span class="ds-field-label">People</span><select><option>Pick people…</option></select></label><span class="ds-check"><span class="ds-check-box"></span>Everyone shown</span>
+      <label class="ds-field"><span class="ds-field-label">Action</span><select><option>Add to balance</option><option>Take off</option><option>Reset</option></select></label>
+      <label class="ds-field"><span class="ds-field-label">Amount</span><input class="ds-input"></label><label class="ds-field"><span class="ds-field-label">Why</span><input class="ds-input"></label>
+      <div style="display:flex;justify-content:flex-end">${btn("data-now-close", "Submit")}</div></div></div>` : ""}`
+}
+
+// ── Employee discount · A and B ─────────────────────────────────────────
+const edCounts = () => ({
+  all: PEOPLE.length,
+  has: PEOPLE.filter((p) => p.bal > 0).length,
+  empty: PEOPLE.filter((p) => p.bal === 0).length,
+  used: PEOPLE.filter((p) => p.spent > 0).length,
+})
+function edShown() {
+  const n = edNeedle.trim().toLowerCase()
+  return PEOPLE.filter((p) => (edFilter === "all" || (edFilter === "has" && p.bal > 0) || (edFilter === "empty" && p.bal === 0) || (edFilter === "used" && p.spent > 0) || (edFilter === "stopped" && p.stopped)) &&
+    (n === "" || `${p.name} ${p.unit} ${p.role}`.toLowerCase().includes(n)))
+}
+function edPage() {
+  const total = PEOPLE.reduce((s, p) => s + p.bal, 0)
+  const spent = PEOPLE.reduce((s, p) => s + p.spent, 0)
+  const filled = PEOPLE.reduce((s, p) => s + filledOf(p), 0)
+  const c = edCounts()
+  const kpis = `<div class="ds-kpis">
+    <div class="ds-kpi"><div class="ds-kpi-label">Balance owed</div><div class="ds-kpi-value">${rp(total)}</div></div>
+    <div class="ds-kpi"><div class="ds-kpi-label">Spent in Oct</div><div class="ds-kpi-value">${rp(spent)}</div></div>
+    <div class="ds-kpi"><div class="ds-kpi-label">Filled in Oct</div><div class="ds-kpi-value">${rp(filled)}</div></div>
+    <div class="ds-kpi"><div class="ds-kpi-label">Empty</div><div class="ds-kpi-value ${c.empty ? "is-bad" : ""}">${c.empty}</div></div></div>`
+  const line = `<div class="state-line">${status(SETTING.on, "On", "Off")}<span><span class="ds-ico ic-finger" style="color:var(--line-ico);vertical-align:-3px"></span> Opened by finger</span><span class="ds-mute">Code lasts ${SETTING.minutes} min</span><span class="grow"></span>${smallBtn("data-setting", "Change")}</div>`
+  if (version === "c") return head("People · Pay", "Employee discount", btn("data-fill", "Fill balances", "ds-ico-plus")) + cPage(c)
+  const tabs = version === "b" ? `<div class="ds-tabs" role="tablist">${[["balances", "Balances", PEOPLE.length], ["moves", "Movements", allMoves().length]].map(([k, w, n]) => `<button class="ds-tab ${edTab === k ? "is-selected" : ""}" role="tab" aria-selected="${edTab === k}" data-tab="${k}">${w}<span class="ds-tab-count">${n}</span></button>`).join("")}</div>` : ""
+  const body = version === "b" && edTab === "moves" ? movesTable() : balancesTable(c)
+  return head("People · Pay", "Employee discount", btn("data-fill", "Fill balances", "ds-ico-plus")) + kpis + line + tabs + body
+}
+function balancesTable(c) {
+  const rows = edShown()
+  const all = rows.length > 0 && rows.every((p) => picked.has(p.id))
+  const box = (on, attrs) => `<span class="ds-check-box ${on ? "is-on" : ""}" role="checkbox" aria-checked="${on}" tabindex="0" ${attrs}>${on ? '<span class="ds-ico ds-ico-check" style="width:10px;height:10px;color:#fff"></span>' : ""}</span>`
+  return `<div class="tools"><label class="ds-search"><span class="ds-ico ds-ico-search"></span><input id="ed-needle" type="text" placeholder="Search people" aria-label="Search people" value="${esc(edNeedle)}"></label>
+      <div class="chips" role="radiogroup" aria-label="Show">${chip('data-edf="all"', "", "All", c.all, edFilter === "all")}${chip('data-edf="has"', "ds-ico-wallet", "Has balance", c.has, edFilter === "has")}${chip('data-edf="empty"', "ic-minus", "Empty", c.empty, edFilter === "empty")}${chip('data-edf="used"', "ic-receipt", "Used in Oct", c.used, edFilter === "used")}</div></div>
+    ${rows.length ? `<div class="ds-table-card"><table class="ds-table"><colgroup><col style="width:44px"><col><col class="wide" style="width:150px"><col style="width:150px"><col class="wide" style="width:150px"><col class="wide" style="width:170px"></colgroup>
+      <thead><tr><th>${box(all, 'data-pick-all')}</th><th>Employee</th><th class="wide">Unit</th><th class="is-num">Balance</th><th class="is-num wide">Spent in Oct</th><th class="wide">Last used</th></tr></thead>
+      <tbody>${rows.map((p) => `<tr class="ds-opens" data-person="${p.id}"><td>${box(picked.has(p.id), `data-pick="${p.id}"`)}</td><td>${esc(p.name)}<span class="ds-sub">${p.role}${p.stopped && version === "c" ? ' · <span style="color:var(--bad-fg)">Stopped</span>' : ""}</span></td><td class="wide">${p.unit}</td><td class="num ${p.bal === 0 ? "none" : ""}">${rp(p.bal)}</td><td class="num wide">${p.spent ? rp(p.spent) : '<span class="none">—</span>'}</td><td class="wide">${p.last ? lastWord(p) : '<span class="none">—</span>'}</td></tr>`).join("")}</tbody></table></div>` : `<div class="ds-empty"><p>Nobody matches.</p></div>`}
+    ${picked.size ? `<div class="picked-bar"><b>${picked.size} picked</b><button class="clear" data-unpick>Clear</button><span class="grow"></span>${version === "c" ? `<button class="ds-btn ds-btn--destructive" data-stop-picked>Stop ${picked.size}</button>` : ""}${btn("data-fill", `Fill ${picked.size} balance${picked.size === 1 ? "" : "s"}`)}</div>` : ""}`
+}
+function allMoves() {
+  return PEOPLE.flatMap((p) => movesOf(p).map((m) => ({ ...m, p }))).sort((a, b) => b.day - a.day)
+}
+function movesTable() {
+  const all = allMoves()
+  const n = (k) => all.filter((m) => m.kind === k).length
+  const rows = all.filter((m) => mvFilter === "all" || m.kind === mvFilter)
+  return `<div class="tools"><div class="chips" role="radiogroup" aria-label="Kind">${chip('data-mvf="all"', "", "All", all.length, mvFilter === "all")}${["SPEND", "RETURN", "ADD", "REMOVE", "RESET"].map((k) => chip(`data-mvf="${k}"`, MOVE[k][1], MOVE[k][0], n(k), mvFilter === k)).join("")}</div></div>
+    ${rows.length ? `<div class="ds-table-card"><table class="ds-table"><colgroup><col style="width:120px"><col><col style="width:130px"><col style="width:150px"><col class="wide"></colgroup>
+      <thead><tr><th>Date</th><th>Employee</th><th>What</th><th class="is-num">Amount</th><th class="wide">Where · why</th></tr></thead>
+      <tbody>${rows.map((m) => `<tr class="ds-opens" data-person="${m.p.id}"><td>${m.day} ${m.month ?? "Oct"} 2026</td><td>${esc(m.p.name)}</td><td>${MOVE[m.kind][0]}</td><td class="num ${m.amt < 0 ? "neg" : ""}">${signed(m.amt)}</td><td class="wide">${m.where ? `${m.where} · ${m.ref}` : `${m.by} · ${esc(m.why)}`}</td></tr>`).join("")}</tbody></table></div>` : `<div class="ds-empty"><p>Nothing here.</p></div>`}`
+}
+
+// ── C · Complete: Balances · Spending · Movements · Rules ───────────────
+let cTab = "balances"
+let period = "oct"
+let group = "emp"
+const ED = {
+  auto: true, mode: "TOPUP", day: 1,
+  roles: { "Kepala toko": 750000, Kasir: 500000, Pramuniaga: 500000, Marketing: 500000, Finance: 500000, Picker: 400000, Packer: 400000 },
+  perReceipt: 500000, perMonth: 0,
+  exDiv: ["Non Divisi"], exTag: [],
+  carry: "CARRY", leaver: true,
+}
+PEOPLE.find((p) => p.id === "e8").stopped = true
+const STORES = ["Store 01", "Store 02", "Store 03", "Store 05"]
+const AMOUNTS = [85000, 129000, 149000, 199000, 99000, 245000]
+const MON = { 8: "Aug", 9: "Sep", 10: "Oct" }
+// Every receipt paid with balance: October from the moves above, Aug–Sep made up.
+function SPENDS() {
+  const out = []
+  PEOPLE.forEach((p, i) => {
+    movesOf(p).filter((m) => m.kind === "SPEND").forEach((m, k) => out.push({ p, month: 10, day: m.day, store: m.where, amt: -m.amt, div: DIVISIONS[(i + k) % 7], ref: m.ref }))
+    if (p.id === "e11") return
+    for (const month of [8, 9]) for (let k = 0; k <= i % 3; k++) {
+      out.push({ p, month, day: 3 + ((i * 7 + k * 5) % 25), store: p.unit.startsWith("Store") ? p.unit : STORES[(i + k) % 4], amt: AMOUNTS[(i + k + month) % 6], div: DIVISIONS[(i * 2 + k) % 7], ref: `S0${(i % 5) + 1}-26${month < 10 ? "0" : ""}${month}-0${300 + i * 13 + k}` })
+    }
+  })
+  return out.sort((a, b) => b.month - a.month || b.day - a.day)
+}
+const PERIODS = [["oct", "This month", (x) => x.month === 10], ["sep", "Last month", (x) => x.month === 9], ["all", "Since 1 Aug", () => true]]
+const GROUPS = [["emp", "Employee", "ds-ico-users", (x) => x.p.name], ["store", "Store", "ds-ico-store", (x) => x.store], ["div", "Division", "ic-layers", (x) => x.div], ["role", "Role", "ds-ico-shirt", (x) => x.p.role]]
+const inPeriod = () => SPENDS().filter(PERIODS.find((one) => one[0] === period)[2])
+
+function cPage(c) {
+  const total = PEOPLE.reduce((s, p) => s + p.bal, 0)
+  const rows = inPeriod()
+  const spent = rows.reduce((s, x) => s + x.amt, 0)
+  const kpis = `<div class="ds-kpis">
+    <div class="ds-kpi"><div class="ds-kpi-label">Balance owed</div><div class="ds-kpi-value">${rp(total)}</div></div>
+    <div class="ds-kpi"><div class="ds-kpi-label">Spent this month</div><div class="ds-kpi-value">${rp(SPENDS().filter((x) => x.month === 10).reduce((s, x) => s + x.amt, 0))}</div></div>
+    <div class="ds-kpi"><div class="ds-kpi-label">Next fill</div><div class="ds-kpi-value">${ED.auto ? `1 Nov` : "—"}</div></div>
+    <div class="ds-kpi"><div class="ds-kpi-label">Stopped</div><div class="ds-kpi-value ${PEOPLE.some((p) => p.stopped) ? "is-bad" : ""}">${PEOPLE.filter((p) => p.stopped).length}</div></div></div>`
+  const tabs = `<div class="ds-tabs" role="tablist">${[["balances", "Balances", PEOPLE.length], ["spending", "Spending", SPENDS().length], ["moves", "Movements", allMoves().length], ["rules", "Rules"]].map(([k, w, n]) => `<button class="ds-tab ${cTab === k ? "is-selected" : ""}" role="tab" aria-selected="${cTab === k}" data-ctab="${k}">${w}${n !== undefined ? `<span class="ds-tab-count">${n}</span>` : ""}</button>`).join("")}</div>`
+  let body = ""
+  if (cTab === "balances") body = balancesTable({ ...c, stopped: PEOPLE.filter((p) => p.stopped).length }).replace('</div></div>\n    ', `${chip('data-edf="stopped"', "ic-pause", "Stopped", PEOPLE.filter((p) => p.stopped).length, edFilter === "stopped")}</div></div>\n    `)
+  if (cTab === "moves") body = movesTable()
+  if (cTab === "rules") body = rulesTab()
+  if (cTab === "spending") {
+    const g = GROUPS.find((one) => one[0] === group)
+    const by = new Map()
+    for (const x of rows) {
+      const key = g[3](x)
+      const cur = by.get(key) ?? { key, n: 0, amt: 0, sub: group === "emp" ? `${x.p.role} · ${x.p.unit}` : "" }
+      cur.n += 1; cur.amt += x.amt
+      by.set(key, cur)
+    }
+    const list = [...by.values()].sort((a, b) => b.amt - a.amt)
+    const people = new Set(rows.map((x) => x.p.id)).size
+    body = `<div class="tools"><div class="chips" role="radiogroup" aria-label="Period">${PERIODS.map(([k, w]) => chip(`data-period="${k}"`, "ds-ico-calendar", w, undefined, period === k)).join("")}</div>
+        <span style="flex:1"></span><div class="chips" role="radiogroup" aria-label="By">${GROUPS.map(([k, w, icon]) => chip(`data-group="${k}"`, icon, w, undefined, group === k)).join("")}</div></div>
+      <div class="ds-kpis">
+        <div class="ds-kpi"><div class="ds-kpi-label">Total spent</div><div class="ds-kpi-value">${rp(spent)}</div></div>
+        <div class="ds-kpi"><div class="ds-kpi-label">Receipts</div><div class="ds-kpi-value">${rows.length}</div></div>
+        <div class="ds-kpi"><div class="ds-kpi-label">Employees who used it</div><div class="ds-kpi-value">${people} <span class="ds-mute" style="font-size:15px;font-weight:400">of ${PEOPLE.length}</span></div></div>
+        <div class="ds-kpi"><div class="ds-kpi-label">Per receipt</div><div class="ds-kpi-value">${rows.length ? rp(Math.round(spent / rows.length / 100) * 100) : "—"}</div></div></div>
+      ${list.length ? `<div class="ds-table-card"><table class="ds-table"><colgroup><col><col style="width:120px"><col style="width:170px"><col class="wide" style="width:110px"></colgroup>
+        <thead><tr><th>${g[1]}</th><th class="is-num">Receipts</th><th class="is-num">Spent</th><th class="is-num wide">Share</th></tr></thead>
+        <tbody>${list.map((one) => `<tr class="ds-opens" data-grp="${esc(one.key)}"><td>${esc(one.key)}${one.sub ? `<span class="ds-sub">${one.sub}</span>` : ""}</td><td class="num">${one.n}</td><td class="num">${rp(one.amt)}</td><td class="num wide">${Math.round((one.amt / spent) * 100)}%</td></tr>`).join("")}
+        <tr><td><b>Total</b></td><td class="num"><b>${rows.length}</b></td><td class="num"><b>${rp(spent)}</b></td><td class="wide"></td></tr></tbody></table></div>` : `<div class="ds-empty"><p>Nothing spent.</p></div>`}`
+  }
+  return kpis + tabs + body
+}
+function receiptsSheet(key) {
+  const g = GROUPS.find((one) => one[0] === group)
+  const rows = inPeriod().filter((x) => g[3](x) === key)
+  const total = rows.reduce((s, x) => s + x.amt, 0)
+  return sheet({
+    crumb: `Spending · ${PERIODS.find((one) => one[0] === period)[1]}`,
+    title: key,
+    caption: `${rows.length} receipts`,
+    wide: true,
+    body: `<div><div class="ds-mute">Spent</div><div class="lead-row"><span class="ds-lead">${rp(total)}</span></div></div>
+      <div class="ds-table-card"><table class="ds-table"><colgroup><col style="width:110px"><col><col class="wide" style="width:120px"><col class="wide" style="width:150px"><col style="width:130px"></colgroup>
+      <thead><tr><th>Date</th><th>${group === "emp" ? "Receipt" : "Employee"}</th><th class="wide">Store</th><th class="wide">Division</th><th class="is-num">Amount</th></tr></thead>
+      <tbody>${rows.map((x) => `<tr><td>${x.day} ${MON[x.month]}</td><td>${group === "emp" ? x.ref : esc(x.p.name)}</td><td class="wide">${x.store}</td><td class="wide">${x.div}</td><td class="num">${rp(x.amt)}</td></tr>`).join("")}</tbody></table></div>`,
+    foot: `<span class="grow"></span>${btn("data-export", "Export", "ds-ico-download")}`,
+  })
+}
+
+// Rules: one card per question, each with its own Edit.
+function ruleCard(title, edit, facts) {
+  return `<div class="base"><div class="base-head"><h2>${title}</h2>${smallBtn(edit, "Edit")}</div><div class="base-facts">${facts.map(([k, v]) => `<div><div class="ds-mute">${k}</div><div class="big" style="font-size:17px">${v}</div></div>`).join("")}</div></div>`
+}
+function rulesTab() {
+  const amounts = [...new Set(Object.values(ED.roles))].sort((a, b) => b - a)
+  return ruleCard("Monthly fill", "data-ed-edit=fill", [
+      ["Fill", ED.auto ? `On · day ${ED.day}` : "Off — by hand only"],
+      ["How", ED.mode === "TOPUP" ? "Top up to the amount" : "Add the amount"],
+      ["Amount", ED.auto ? amounts.map(rp).join(" / ") : "—"],
+      ["Roles", `${Object.keys(ED.roles).length}`],
+    ]) +
+    ruleCard("Limits", "data-ed-edit=limit", [
+      ["Per receipt", ED.perReceipt ? rp(ED.perReceipt) : "No limit"],
+      ["Per month", ED.perMonth ? rp(ED.perMonth) : "No limit"],
+      ["With promos", "Not together"],
+      ["Stores", "Every store"],
+    ]) +
+    ruleCard("Can't buy", "data-ed-edit=ex", [
+      ["Divisions", ED.exDiv.length ? ED.exDiv.join(", ") : "—"],
+      ["Tags", ED.exTag.length ? ED.exTag.join(", ") : "—"],
+    ]) +
+    ruleCard("Unused balance", "data-ed-edit=life", [
+      ["At month end", ED.carry === "CARRY" ? "Carries over" : ED.carry === "MONTH" ? "Back to 0" : "Carries over"],
+      ["On 31 Dec", ED.carry === "YEAR" ? "Back to 0" : ED.carry === "MONTH" ? "Back to 0" : "Carries over"],
+      ["Leaving", ED.leaver ? "Back to 0 on last day" : "Kept"],
+    ]) +
+    `<div class="base"><div class="base-head"><h2>At the till</h2>${smallBtn("data-setting", "Edit")}</div><div class="base-facts">
+      <div><div class="ds-mute">Employee discount</div><div class="big" style="font-size:17px">${SETTING.on ? "On" : "Off"}</div></div>
+      <div><div class="ds-mute">Opened by</div><div class="big" style="font-size:17px">Finger</div></div>
+      <div><div class="ds-mute">Code lasts</div><div class="big" style="font-size:17px">${SETTING.minutes} min</div></div>
+      <div><div class="ds-mute">Return</div><div class="big" style="font-size:17px">Balance comes back</div></div></div></div>`
+}
+let edDraft = null
+let exNeedle = { div: "", tag: "" }
+function moneyField(id, val, chipsList, key) {
+  return `<label class="money"><span>Rp</span><input id="${id}" inputmode="numeric" value="${val ? val.toLocaleString("id-ID") : ""}" placeholder="No limit"></label>
+    ${chipsList ? `<div class="chips" style="margin-top:10px">${chipsList.map((n) => chip(`data-lim="${key}:${n}"`, "", n ? rp(n) : "No limit", undefined, val === n)).join("")}</div>` : ""}`
+}
+function picker(kind, pool, picked) {
+  const q = exNeedle[kind].trim().toLowerCase()
+  const left = pool.filter((t) => !picked.includes(t) && (q === "" || t.toLowerCase().includes(q)))
+  return `${picked.length ? `<div class="picks" style="margin-bottom:12px">${picked.map((t) => `<button class="chip is-on" data-ex="${kind}:${esc(t)}">${esc(t)}<span class="ds-ico ds-ico-x"></span></button>`).join("")}</div>` : ""}
+    <label class="ds-search"><span class="ds-ico ds-ico-search"></span><input id="ex-${kind}" type="text" placeholder="Search ${kind === "div" ? "divisions" : "tags"}" value="${esc(exNeedle[kind])}" autocomplete="off"></label>
+    ${left.length ? `<div class="picks" style="margin-top:12px">${left.slice(0, 12).map((t) => chip(`data-ex="${kind}:${esc(t)}"`, "ds-ico-plus", esc(t), undefined, false)).join("")}</div>` : q ? '<p class="ds-mute" style="margin:12px 0 0">Nothing matches.</p>' : ""}`
+}
+function edRuleSheet(which) {
+  const d = edDraft
+  const foot = `<span class="grow"></span>${btn("data-ed-save", "Save")}`
+  if (which === "fill") return sheet({
+    crumb: "Rules", title: "Monthly fill",
+    body: `<section class="ds-section"><h3 class="ds-section-title">Fill</h3><div class="tiles c2">${tile('data-edset="auto:1"', "ds-ico-calendar", "Every month", `Day ${d.day}`, d.auto)}${tile('data-edset="auto:0"', "ds-ico-pencil", "By hand only", "", !d.auto)}</div></section>
+      ${d.auto ? `<section class="ds-section"><h3 class="ds-section-title">How</h3><div class="tiles c2">${tile('data-edset="mode:TOPUP"', "ic-equal", "Top up to", "Never above the amount", d.mode === "TOPUP")}${tile('data-edset="mode:ADD"', "ds-ico-plus", "Add", "Piles up", d.mode === "ADD")}</div></section>
+      <section class="ds-section"><h3 class="ds-section-title">Amount per role<span class="ds-section-count">${Object.keys(d.roles).length}</span></h3>
+        <div class="ba" style="grid-template-columns:minmax(0,1fr) 220px;align-items:center">${Object.entries(d.roles).map(([role, amt], i) => `<span>${role}<span class="ds-mute"> · ${PEOPLE.filter((p) => p.role === role).length}</span></span><label class="money"><span>Rp</span><input data-role="${esc(role)}" inputmode="numeric" value="${amt.toLocaleString("id-ID")}" aria-label="${esc(role)}"></label>`).join("")}</div></section>` : ""}`,
+    foot,
+  })
+  if (which === "limit") return sheet({
+    crumb: "Rules", title: "Limits",
+    body: `<section class="ds-section"><h3 class="ds-section-title">Per receipt</h3>${moneyField("lim-rec", d.perReceipt, [0, 250000, 500000, 1000000], "rec")}</section>
+      <section class="ds-section"><h3 class="ds-section-title">Per month</h3>${moneyField("lim-mon", d.perMonth, [0, 500000, 1000000], "mon")}</section>`,
+    foot,
+  })
+  if (which === "ex") return sheet({
+    crumb: "Rules", title: "Can't buy",
+    body: `<section class="ds-section"><h3 class="ds-section-title">Divisions${d.exDiv.length ? `<span class="ds-section-count">${d.exDiv.length}</span>` : ""}</h3>${picker("div", DIVISIONS, d.exDiv)}</section>
+      <section class="ds-section"><h3 class="ds-section-title">Tags${d.exTag.length ? `<span class="ds-section-count">${d.exTag.length}</span>` : ""}</h3>${picker("tag", TAGS, d.exTag)}</section>`,
+    foot,
+  })
+  return sheet({
+    crumb: "Rules", title: "Unused balance",
+    body: `<section class="ds-section"><h3 class="ds-section-title">Unused balance</h3><div class="tiles c3">${tile('data-edset="carry:CARRY"', "ds-ico-wallet", "Carries over", "", d.carry === "CARRY")}${tile('data-edset="carry:YEAR"', "ds-ico-calendar", "0 on 31 Dec", "", d.carry === "YEAR")}${tile('data-edset="carry:MONTH"', "ic-undo", "0 every month", "", d.carry === "MONTH")}</div></section>
+      <section class="ds-section"><h3 class="ds-section-title">Leaving</h3><div class="tiles c2">${tile('data-edset="leaver:1"', "ic-minus", "0 on last day", "", d.leaver)}${tile('data-edset="leaver:0"', "ds-ico-wallet", "Kept", "", !d.leaver)}</div></section>`,
+    foot,
+  })
+}
+let edWhich = null
+document.addEventListener("click", (event) => {
+  const nv = event.target.closest("[data-never]")
+  if (nv) { ruleDraft.never = nv.dataset.never === "1"; redrawTop(); return }
+  const t = event.target.closest("[data-ctab],[data-period],[data-group],[data-grp],[data-export],[data-ed-edit],[data-edset],[data-lim],[data-ex],[data-ed-save],[data-stop],[data-stop-picked]")
+  if (!t) return
+  const d = t.dataset
+  if (d.ctab) { cTab = d.ctab; picked.clear(); render() }
+  else if (d.period) { period = d.period; render() }
+  else if (d.group) { group = d.group; render() }
+  else if (d.grp) push(() => receiptsSheet(d.grp))
+  else if (d.export !== undefined) toast("Exported to Excel")
+  else if (d.edEdit) { edWhich = d.edEdit; edDraft = JSON.parse(JSON.stringify(ED)); exNeedle = { div: "", tag: "" }; push(() => edRuleSheet(edWhich)) }
+  else if (d.edset) { const [k, v] = d.edset.split(":"); edDraft[k] = v === "1" ? true : v === "0" ? false : v; redrawTop() }
+  else if (d.lim) { const [k, v] = d.lim.split(":"); edDraft[k === "rec" ? "perReceipt" : "perMonth"] = Number(v); redrawTop() }
+  else if (d.ex) { const i = d.ex.indexOf(":"); const kind = d.ex.slice(0, i), v = d.ex.slice(i + 1); const list = kind === "div" ? edDraft.exDiv : edDraft.exTag; const at = list.indexOf(v); at >= 0 ? list.splice(at, 1) : list.push(v); redrawTop() }
+  else if (d.edSave !== undefined) {
+    document.querySelectorAll("[data-role]").forEach((el) => (edDraft.roles[el.dataset.role] = Number(el.value.replace(/\D/g, "")) || 0))
+    for (const [id, key] of [["lim-rec", "perReceipt"], ["lim-mon", "perMonth"]]) { const el = document.getElementById(id); if (el) edDraft[key] = Number(el.value.replace(/\D/g, "")) || 0 }
+    Object.assign(ED, edDraft); toast("Rules saved"); pop()
+  }
+  else if (d.stop) { const p = personOf(d.stop); p.stopped = !p.stopped; toast(p.stopped ? `${p.name} stopped` : `${p.name} resumed`); redrawTop(); render() }
+  else if (d.stopPicked !== undefined) { picked.forEach((id) => (personOf(id).stopped = true)); toast(`${picked.size} stopped`); picked.clear(); render() }
+})
+document.addEventListener("input", (event) => {
+  const id = event.target.id
+  if (id === "ex-div" || id === "ex-tag") { exNeedle[id.slice(3)] = event.target.value; redrawTop(id) }
+})
+
+// sheets
+function personSheet(id) {
+  const p = personOf(id)
+  const moves = movesOf(p)
+  return sheet({
+    crumb: "Employee discount",
+    title: p.name,
+    caption: `${p.role} · ${p.unit}`,
+    body: `<div><div class="ds-mute">Balance</div><div class="lead-row"><span class="ds-lead">${rp(p.bal)}</span></div></div>
+      ${version === "c" ? `<dl class="ds-facts"><div class="ds-fact"><dt>Monthly fill</dt><dd>${ED.auto ? `${rp(ED.roles[p.role] ?? 0)} · ${p.role}` : "Off"}</dd></div><div class="ds-fact"><dt>Spent since start</dt><dd>${rp(SPENDS().filter((x) => x.p === p).reduce((s, x) => s + x.amt, 0))}</dd></div><div class="ds-fact"><dt>Spending</dt><dd>${p.stopped ? '<span style="color:var(--bad-fg)">Stopped</span>' : "Allowed"}</dd></div></dl>` : ""}
+      <dl class="ds-facts"><div class="ds-fact"><dt>Spent in Oct</dt><dd>${rp(p.spent)}</dd></div><div class="ds-fact"><dt>Filled in Oct</dt><dd>${rp(filledOf(p))}</dd></div><div class="ds-fact"><dt>Last used</dt><dd>${lastWord(p)}</dd></div><div class="ds-fact"><dt>Finger</dt><dd>${p.id === "e11" ? "Not enrolled" : "Enrolled"}</dd></div></dl>
+      <section class="ds-section"><h3 class="ds-section-title">Movements<span class="ds-section-count">${moves.length}</span></h3>
+        ${moves.length ? `<div class="led">${moves.map((m) => `<div class="led-row"><span class="what">${MOVE[m.kind][0]}${m.kind === "RESET" ? ` ${rp(m.to)}` : ""}</span><span class="amt ${m.amt < 0 ? "neg" : ""}">${m.kind === "RESET" ? "" : signed(m.amt)}</span><span class="sub">${m.day} ${m.month ?? "Oct"} 2026 · ${m.where ? `${m.where} · ${m.ref}` : `${m.by} · ${esc(m.why)}`}</span></div>`).join("")}</div>` : `<p class="ds-mute">No movement yet.</p>`}</section>`,
+    foot: `${version === "c" ? (p.stopped ? btn(`data-stop="${p.id}"`, "Resume") : `<button class="ds-btn ds-btn--destructive" data-stop="${p.id}">Stop</button>`) : ""}<span class="grow"></span>${btn(`data-fill-one="${p.id}"`, "Fill balance")}`,
+  })
+}
+let fill = null // { ids, action, amount, why, tried }
+function fillSheet() {
+  const f = fill
+  const people = f.ids.map(personOf)
+  const amount = Number(f.amount || 0)
+  const after = (p) => f.action === "ADD" ? p.bal + amount : f.action === "REMOVE" ? Math.max(0, p.bal - amount) : amount
+  const verb = f.action === "ADD" ? `Add ${rp(amount)}` : f.action === "REMOVE" ? `Take off ${rp(amount)}` : `Set to ${rp(amount)}`
+  const who = people.length === 1 ? people[0].name.split(" ")[0] : `${people.length} people`
+  const ready = people.length > 0 && f.amount !== "" && (f.action === "RESET" || amount > 0) && f.why.trim() !== ""
+  const quick = f.action === "RESET" ? [0, 250000, 500000] : [100000, 250000, 500000]
+  return sheet({
+    crumb: "Employee discount",
+    title: "Fill balances",
+    wide: true,
+    body: `<section class="ds-section"><div class="sec-head"><h3 class="ds-section-title">People<span class="ds-section-count">${people.length}</span></h3></div>
+        <div class="picks">${people.map((p) => `<button class="chip is-on" data-unfill="${p.id}">${esc(p.name)}<span class="ds-ico ds-ico-x"></span></button>`).join("")}
+        ${chip('data-fill-all', "ds-ico-users", "Everyone", PEOPLE.length, false)}${UNITS.map((u) => chip(`data-fill-unit="${u}"`, "ds-ico-store", u, PEOPLE.filter((p) => p.unit === u).length, false)).join("")}</div>
+        ${f.tried && !people.length ? '<div class="ds-field-error">Pick at least one person</div>' : ""}</section>
+      <section class="ds-section"><h3 class="ds-section-title">Do</h3><div class="tiles c3">${["ADD", "REMOVE", "RESET"].map((k) => tile(`data-act="${k}"`, MOVE[k][1], k === "ADD" ? "Add" : k === "REMOVE" ? "Take off" : "Set to", "", f.action === k)).join("")}</div></section>
+      <section class="ds-section"><h3 class="ds-section-title">Amount</h3><label class="money"><span>Rp</span><input id="fill-amount" inputmode="numeric" value="${f.amount === "" ? "" : Number(f.amount).toLocaleString("id-ID")}" aria-label="Amount"></label>
+        <div class="chips" style="margin-top:10px">${quick.map((n) => chip(`data-amt="${n}"`, "", rp(n), undefined, f.amount !== "" && amount === n)).join("")}</div></section>
+      <label class="ds-field"><span class="ds-field-label">Why<span class="ds-req">*</span></span><input class="ds-input" id="fill-why" value="${esc(f.why)}" placeholder="November">${f.tried && !f.why.trim() ? '<span class="ds-field-error">Say why</span>' : ""}</label>
+      ${people.length && f.amount !== "" ? `<section class="ds-section"><h3 class="ds-section-title">Before → after</h3><div class="ba">${people.slice(0, 8).map((p) => `<span>${esc(p.name)}</span><span class="num before ds-mute">${rp(p.bal)}</span><span class="arrow">→</span><span class="num after">${rp(after(p))}</span>`).join("")}${people.length > 8 ? `<span class="ds-mute">and ${people.length - 8} more</span>` : ""}</div></section>` : ""}`,
+    foot: `<span class="grow"></span><button class="ds-btn ds-btn--primary" data-do-fill ${ready ? "" : 'aria-disabled="true" style="opacity:.45"'}>${f.amount === "" ? "Fill" : `${verb} ${f.action === "RESET" ? "for" : "to"} ${who}`}</button>`,
+  })
+}
+let setDraft = null
+function settingSheet() {
+  const d = setDraft
+  return sheet({
+    crumb: "Employee discount",
+    title: "Setting",
+    caption: `Since ${SETTING.since} · ${SETTING.by}`,
+    body: `<section class="ds-section"><h3 class="ds-section-title">Employee discount</h3><div class="tiles c2">${tile('data-set-on="1"', "ds-ico-check", "On", "", d.on)}${tile('data-set-on="0"', "ic-pause", "Off", "", !d.on)}</div></section>
+      <section class="ds-section"><h3 class="ds-section-title">Opened by</h3><div class="tiles c2">${tile("", "ic-finger", "Finger", "At every till with a reader", true, true)}${tile("", "ds-ico-image", "Code", "From the employee app", true, true)}</div></section>
+      <section class="ds-section"><h3 class="ds-section-title">Code lasts</h3><div class="stepper"><span class="step"><button type="button" data-step="min:-1" aria-label="One minute less"><span class="ds-ico ic-minus ds-ico--14"></span></button><input id="days-min" inputmode="numeric" value="${d.minutes}" aria-label="Minutes"><button type="button" data-step="min:1" aria-label="One minute more"><span class="ds-ico ds-ico-plus ds-ico--14"></span></button></span><span class="ds-mute">minutes</span></div></section>
+      <label class="ds-field"><span class="ds-field-label">Why<span class="ds-req">*</span></span><input class="ds-input" id="set-why" value="${esc(d.why)}"></label>
+      <section class="ds-section"><h3 class="ds-section-title">History</h3><ul class="ds-timeline">${SETTING_LOG.map((h, i) => `<li><span class="ds-timeline-dot ${i === 0 ? "is-current" : ""}"></span><div><div class="ds-timeline-what">${esc(h.what)}</div><div class="ds-timeline-who">${h.who} · ${h.when} · ${esc(h.why)}</div></div></li>`).join("")}</ul></section>`,
+    foot: `<span class="grow"></span>${btn("data-save-setting", "Save")}`,
+  })
+}
+
+// ── sheets and layers ───────────────────────────────────────────────────
+const stack = []
+function sheet({ crumb, title, caption, body, foot, wide }) {
+  return `<div class="ds-sheet${wide ? " is-wide" : ""}" role="dialog" aria-label="${esc(title)}">
+    <div class="ds-sheet-head"><div class="ds-sheet-headtext"><div class="ds-sheet-crumb"><span>${esc(crumb)}</span></div>
+      <div class="ds-sheet-titlerow"><h2 class="ds-sheet-title">${esc(title)}</h2></div>${caption ? `<div class="ds-sheet-caption">${caption}</div>` : ""}</div>
+      <button class="ds-sheet-close" data-close aria-label="Close"><span class="ds-ico ds-ico-x ds-ico--17"></span></button></div>
+    <div class="ds-sheet-body">${body}</div>
+    <div class="ds-sheet-foot">${foot}</div></div>`
+}
+function push(draw) {
+  stack.push(draw)
+  const host = document.createElement("div")
+  host.className = `layer l${stack.length - 1}`
+  host.innerHTML = `<div class="scrim" data-close></div>${draw()}`
+  document.getElementById("layers").appendChild(host)
+  document.querySelectorAll("#layers .layer").forEach((one, i, all) => one.classList.toggle("is-under", i < all.length - 1))
+  requestAnimationFrame(() => requestAnimationFrame(() => host.classList.add("is-in")))
+  wireSheet()
+}
+function redrawTop(focusId) {
+  const hosts = document.querySelectorAll("#layers .layer")
+  const host = hosts[hosts.length - 1]
+  if (!host) return
+  const scroll = host.querySelector(".ds-sheet-body").scrollTop
+  const active = focusId ?? document.activeElement?.id
+  const at = document.activeElement?.selectionStart
+  host.querySelector(".ds-sheet").outerHTML = stack[stack.length - 1]()
+  host.querySelector(".ds-sheet").style.transition = "none"
+  host.querySelector(".ds-sheet-body").scrollTop = scroll
+  wireSheet()
+  const el = active && document.getElementById(active)
+  if (el) { el.focus(); if (at != null && el.setSelectionRange) try { el.setSelectionRange(el.value.length, el.value.length) } catch {} }
+}
+function pop() {
+  const hosts = document.querySelectorAll("#layers .layer")
+  const host = hosts[hosts.length - 1]
+  if (!host) return
+  stack.pop()
+  host.classList.add("is-out")
+  host.classList.remove("is-in")
+  setTimeout(() => host.remove(), 210)
+  ;[...hosts].slice(0, -1).forEach((one, i, left) => one.classList.toggle("is-under", i < left.length - 1))
+  render()
+}
+function closeAll() {
+  stack.length = 0
+  document.getElementById("layers").innerHTML = ""
+}
+let toastTimer
+function toast(text) {
+  document.getElementById("toast-text").textContent = text
+  const el = document.getElementById("toast")
+  el.classList.remove("is-hidden")
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => el.classList.add("is-hidden"), 1800)
+}
+
+// ── inputs ──────────────────────────────────────────────────────────────
+function keep(id, fn) {
+  const el = document.getElementById(id)
+  if (!el) return
+  el.addEventListener("input", () => {
+    fn(el.value)
+    const at = el.selectionStart
+    render()
+    const again = document.getElementById(id)
+    again.focus()
+    again.setSelectionRange(at, at)
+  })
+}
+function wireInputs() {
+  keep("rp-check", (v) => (rpCheck = v))
+  keep("ed-needle", (v) => (edNeedle = v))
+}
+function wireSheet() {
+  const name = document.getElementById("rule-name")
+  name?.addEventListener("input", () => (ruleDraft.name = name.value))
+  const art = document.getElementById("art-needle")
+  art?.addEventListener("input", () => { artNeedle = art.value; redrawTop("art-needle") })
+  for (const key of ["rule", "base", "min"]) {
+    const el = document.getElementById(`days-${key}`)
+    el?.addEventListener("change", () => setDays(key, Number(el.value.replace(/\D/g, "")) || 1))
+  }
+  const amt = document.getElementById("fill-amount")
+  amt?.addEventListener("input", () => { fill.amount = amt.value.replace(/\D/g, ""); redrawTop("fill-amount") })
+  const why = document.getElementById("fill-why")
+  why?.addEventListener("input", () => { fill.why = why.value; redrawTop("fill-why") })
+  const sw = document.getElementById("set-why")
+  sw?.addEventListener("input", () => (setDraft.why = sw.value))
+}
+function setDays(key, n) {
+  if (key === "rule") ruleDraft.days = Math.min(365, Math.max(1, n))
+  if (key === "base") baseDraft.days = Math.min(365, Math.max(1, n))
+  if (key === "min") setDraft.minutes = Math.min(60, Math.max(1, n))
+  redrawTop()
+}
+
+// ── clicks ──────────────────────────────────────────────────────────────
+document.addEventListener("click", (event) => {
+  const t = event.target.closest("[data-s],[data-v],[data-rpf],[data-edf],[data-mvf],[data-tab],[data-try],[data-rule],[data-new-rule],[data-edit-base],[data-close],[data-kind],[data-target],[data-step],[data-days],[data-on],[data-flip],[data-save-rule],[data-remove-rule],[data-save-base],[data-person],[data-pick],[data-pick-all],[data-unpick],[data-fill],[data-fill-one],[data-unfill],[data-fill-all],[data-fill-unit],[data-act],[data-amt],[data-do-fill],[data-setting],[data-set-on],[data-save-setting],[data-now-add],[data-now-fill],[data-now-close]")
+  if (!t) return
+  const d = t.dataset
+  if (d.s) { screen = d.s; closeAll(); nowDialog = null; render() }
+  else if (d.v) { version = d.v; closeAll(); nowDialog = null; render() }
+  else if (d.nowAdd !== undefined) { nowDialog = "rp"; render() }
+  else if (d.nowFill !== undefined) { nowDialog = "ed"; render() }
+  else if (d.nowClose !== undefined) { nowDialog = null; render() }
+  else if (d.rpf) { rpFilter = d.rpf; render() }
+  else if (d.edf) { edFilter = d.edf; render() }
+  else if (d.mvf) { mvFilter = d.mvf; render() }
+  else if (d.tab) { edTab = d.tab; render() }
+  else if (d.try) { rpCheck = articleOf(d.try).name; render() }
+  else if (d.rule) { const r = RULES.find((x) => x.id === d.rule); ruleDraft = { ...r, targets: [...r.targets], isNew: false }; artNeedle = ""; push(ruleSheet) }
+  else if (d.newRule !== undefined) { ruleDraft = { id: `r${Date.now()}`, name: "", kind: "TAG", targets: [], days: 14, on: true, isNew: true }; artNeedle = ""; push(ruleSheet) }
+  else if (d.editBase !== undefined) { baseDraft = { ...BASE }; push(baseSheet) }
+  else if (d.close !== undefined) pop()
+  else if (d.kind) { if (ruleDraft.kind !== d.kind) { ruleDraft.kind = d.kind; ruleDraft.targets = []; artNeedle = "" } redrawTop() }
+  else if (d.target) { const i = ruleDraft.targets.indexOf(d.target); if (i >= 0) ruleDraft.targets.splice(i, 1); else { ruleDraft.targets.push(d.target); if (ruleDraft.kind === "ARTICLE") artNeedle = "" } redrawTop() }
+  else if (d.step) { const [k, s] = d.step.split(":"); const cur = k === "rule" ? ruleDraft.days : k === "base" ? baseDraft.days : setDraft.minutes; setDays(k, cur + Number(s)) }
+  else if (d.days) { const [k, n] = d.days.split(":"); setDays(k, Number(n)) }
+  else if (d.on) { ruleDraft.on = d.on === "1"; redrawTop() }
+  else if (d.flip) { baseDraft[d.flip] = !baseDraft[d.flip]; redrawTop() }
+  else if (d.saveRule !== undefined) {
+    if (!ruleDraft.name.trim() || !ruleDraft.targets.length) { ruleDraft.tried = true; if (!ruleDraft.name.trim()) ruleDraft.name = ""; redrawTop(); return }
+    const { isNew, tried, ...row } = ruleDraft
+    if (isNew) RULES.push(row); else RULES = RULES.map((r) => (r.id === row.id ? row : r))
+    toast(isNew ? `${row.name} added` : `${row.name} saved`); pop()
+  }
+  else if (d.removeRule !== undefined) { RULES = RULES.filter((r) => r.id !== ruleDraft.id); toast(`${ruleDraft.name} removed`); pop() }
+  else if (d.saveBase !== undefined) { Object.assign(BASE, baseDraft, { by: "Dewi Lestari", at: dayOf(TODAY) }); toast("Every article saved"); pop() }
+  else if (d.pick) { event.stopPropagation(); picked.has(d.pick) ? picked.delete(d.pick) : picked.add(d.pick); render() }
+  else if (d.pickAll !== undefined) { const rows = edShown(); const all = rows.every((p) => picked.has(p.id)); rows.forEach((p) => (all ? picked.delete(p.id) : picked.add(p.id))); render() }
+  else if (d.unpick !== undefined) { picked.clear(); render() }
+  else if (d.person) push(() => personSheet(d.person))
+  else if (d.fill !== undefined) { fill = { ids: [...picked], action: "ADD", amount: "", why: "" }; push(fillSheet) }
+  else if (d.fillOne) { fill = { ids: [d.fillOne], action: "ADD", amount: "", why: "" }; push(fillSheet) }
+  else if (d.unfill) { fill.ids = fill.ids.filter((x) => x !== d.unfill); redrawTop() }
+  else if (d.fillAll !== undefined) { fill.ids = PEOPLE.map((p) => p.id); redrawTop() }
+  else if (d.fillUnit) { fill.ids = [...new Set([...fill.ids, ...PEOPLE.filter((p) => p.unit === d.fillUnit).map((p) => p.id)])]; redrawTop() }
+  else if (d.act) { fill.action = d.act; redrawTop() }
+  else if (d.amt) { fill.amount = d.amt; redrawTop() }
+  else if (d.doFill !== undefined) {
+    const amount = Number(fill.amount || 0)
+    if (!fill.ids.length || fill.amount === "" || (fill.action !== "RESET" && amount <= 0) || !fill.why.trim()) { fill.tried = true; redrawTop(); return }
+    for (const id of fill.ids) {
+      const p = personOf(id)
+      const before = p.bal
+      p.bal = fill.action === "ADD" ? p.bal + amount : fill.action === "REMOVE" ? Math.max(0, p.bal - amount) : amount
+      p.extra = [{ kind: fill.action, amt: p.bal - before, to: p.bal, by: "Yusuf Hidayat", day: 29, why: fill.why.trim() }, ...(p.extra ?? [])]
+    }
+    toast(`${fill.ids.length} balance${fill.ids.length === 1 ? "" : "s"} filled`)
+    picked.clear(); fill = null
+    closeAll(); render()
+  }
+  else if (d.setting !== undefined) { setDraft = { on: SETTING.on, minutes: SETTING.minutes, why: "" }; push(settingSheet) }
+  else if (d.setOn) { setDraft.on = d.setOn === "1"; redrawTop() }
+  else if (d.saveSetting !== undefined) {
+    if (!setDraft.why.trim()) return
+    SETTING = { on: setDraft.on, minutes: setDraft.minutes, by: "Yusuf Hidayat", since: dayOf(TODAY) }
+    SETTING_LOG.unshift({ what: `${setDraft.on ? "On" : "Off"} · code lasts ${setDraft.minutes} minutes`, who: "Yusuf Hidayat", when: dayOf(TODAY), why: setDraft.why.trim() })
+    toast("Setting saved"); pop()
+  }
+})
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") { if (stack.length) pop(); else if (nowDialog) { nowDialog = null; render() } }
+})
+
+render()
+</script>
+</body>
+</html>

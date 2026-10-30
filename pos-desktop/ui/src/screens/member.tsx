@@ -1,9 +1,9 @@
 /// Member — the prototype's `memberView`, `memberChosen`, `registerMember` and
-/// `memNew` (pos-classic-prototype.html). F5 finds a member by the card the
+/// `memNew` (pos-classic-prototype.html). ⇧5 finds a member by the card the
 /// shopper holds up or the phone they read out; head office answers with a name
-/// and points, and Enter adds them to the sale. ⇧F5 (or the last row) opens the
+/// and points, and Enter adds them to the sale. ⇧⇧5 (or the last row) opens the
 /// registration form: phone, name, gender, birth place and date are required,
-/// address and email are not. F5 on the sale screen opens that form directly
+/// address and email are not. ⇧5 on the sale screen opens that form directly
 /// with one more optional field, "No. transaksi": the struk of a sale already
 /// rung, which the new member is then tied to (and earns its points).
 ///
@@ -148,7 +148,7 @@ export function MemberSheet({
   /// The member already on the sale: footer "<name> ada di transaksi ini".
   current?: api.Member | null
   onAttach?: (member: api.Member, registered: boolean) => void
-  /// F5: registering only registers — the member is chosen at Bayar — and the
+  /// ⇧5: registering only registers — the member is chosen at Bayar — and the
   /// form carries the optional "No. transaksi". Called with the new member and,
   /// when a struk number was given and the node tied it, what it answered.
   onRegistered?: (member: api.Member, tied: api.MemberOnSale | null) => void
@@ -254,7 +254,7 @@ export function MemberSheet({
         event.preventDefault()
         if (mode === "register" && !direct) back()
         else leave()
-      } else if (event.key === "F5" && event.shiftKey) {
+      } else if (event.shiftKey && event.code === "Digit5") {
         event.preventDefault()
         if (mode !== "register") openForm()
       }
@@ -414,7 +414,7 @@ export function MemberSheet({
       onAttach?.(member, true)
       return
     }
-    // F5 with a struk: the member is tied to that sale and earns its points.
+    // ⇧5 with a struk: the member is tied to that sale and earns its points.
     if (wantedNo === "") {
       setBusy(false)
       onRegistered(member, null)
@@ -756,7 +756,7 @@ export function MemberSheet({
               <b>Daftar member baru</b>
               <span>{/^\d{6,}$/.test(digitsTyped) && answer === null ? `Nomor ${typed.trim()}` : ""}</span>
             </span>
-            <span className="kbd">⇧F5</span>
+            <span className="kbd">Shift+5</span>
           </button>
         </div>
       </div>

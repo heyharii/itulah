@@ -717,6 +717,8 @@ body[data-device=tablet] .action-bar kbd,body[data-device=tablet] .pay-cta kbd,b
    23 Oct 2026: "sesuaikan aja dengan prototype"). Its own tokens, scoped. ── */
 .pdoor{--ink:#1d1d1f;--body:#6e6e73;--faint:#c7c7cc;--soft-2:#f2f2f5;--segment-track:#f2f2f4;--hairline-2:#dcdce1;--stone:#e8ebf0;--accent:#2862dc;--accent-bg:#eef3fc;--ok:#36b827;--bad:#d70015;--bad-fg:#d70015;--avatar-from:#e8def4;--avatar-to:#f8dde8;--shadow-page:0 0 0 1px rgba(0,0,0,.05),0 2px 8px rgba(0,0,0,.04),0 24px 72px rgba(0,0,0,.08);--shadow-focus:0 0 0 2px rgba(40,98,220,.12);--field:40px;--r-inner:8px;--r-sheet:16px;--ease-out:cubic-bezier(.23,1,.32,1);--ease-in-out:cubic-bezier(.77,0,.175,1);
   position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--stone);color:var(--ink);font-size:15px;line-height:1.45;letter-spacing:normal}
+/* a short window scrolls instead of cutting the join button off (riza-1, 30 Oct 2026) */
+.pdoor{overflow-y:auto;justify-content:safe center;padding:16px 0}
 .pdoor *{box-sizing:border-box}
 .pdoor p{margin:0}
 .pdoor button{font:inherit;border:0;background:none;color:inherit;cursor:pointer;padding:0;margin:0}
@@ -737,6 +739,12 @@ body[data-device=tablet] .action-bar kbd,body[data-device=tablet] .pay-cta kbd,b
 .pdoor .d-sims button{height:30px;padding:0 10px;border-radius:7px;font-weight:600;color:var(--accent);background:var(--accent-bg)}
 .pdoor .d-sims button.ok{color:#1d7a32;background:#e7f6ea}
 .pdoor .d-sims button.bad{color:var(--bad-fg);background:#fdecee}
+/* a store server on this same PC, not this till's shop: move here (Laptop install) */
+.pdoor .d-move{margin-top:14px;display:flex;align-items:center;gap:14px;width:min(440px,100%);padding:12px 12px 12px 16px;border-radius:var(--r-inner);background:#fff;box-shadow:inset 0 0 0 1px var(--hairline-2)}
+.pdoor .d-move-text{flex:1;min-width:0;display:flex;flex-direction:column;text-align:left}
+.pdoor .d-move-text b{font-weight:600;color:var(--ink)}
+.pdoor .d-move-text span{color:var(--body)}
+.pdoor .d-move .btn{height:36px;padding:0 14px;white-space:nowrap}
 /* the Kepala toko's approval, the prototype's sheet: a card over the till */
 .pdoor.papr{z-index:90;background:rgba(29,29,31,.32);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);animation:posFade var(--t-panel) var(--ease-out)}
 .pdoor .sup{width:400px;max-width:calc(100vw - 32px);padding:26px 28px 22px;border-radius:var(--r-sheet);background:#fff;box-shadow:var(--shadow-page);display:flex;flex-direction:column;align-items:center;text-align:center;animation:posPop var(--t-panel) var(--ease-out) both}
@@ -910,21 +918,21 @@ body[data-device=tablet] .action-bar kbd,body[data-device=tablet] .pay-cta kbd,b
 .edc-row{display:grid;grid-template-columns:minmax(0,1fr) 220px;align-items:center;gap:14px}
 .edc-row>span:first-child{display:flex;flex-direction:column;line-height:20px}
 .edc-row strong{font-weight:600}
-.closing-paper{display:none}
+.th-print{display:none}
+/* Cash papers go to the 80 mm thermal printer: the paper, then one cut piece per
+   denomination, each ending in a page break so the printer cuts after it. */
 @media print{
-  body *{visibility:hidden}
-  .closing-paper,.closing-paper *{visibility:visible}
-  .closing-paper{display:block;position:absolute;left:0;top:0;width:76mm;padding:2mm;color:#000;font:12px/1.4 ui-monospace,Menlo,monospace}
-  .closing-paper .cp-co{font-weight:700;font-size:14px}
-  .closing-paper .cp-title{margin-top:6px;font-weight:700;letter-spacing:.05em}
-  .closing-paper dl{display:grid;grid-template-columns:auto 1fr;gap:1px 8px;margin:6px 0}
-  .closing-paper .cp-sec{margin-top:6px;font-weight:700}
-  .closing-paper table{width:100%;border-collapse:collapse}
-  .closing-paper td{border:1px solid #000;padding:1px 4px}
-  .closing-paper td+td{text-align:right}
-  .closing-paper .cp-tot{text-align:right;font-weight:700;margin-top:4px}
-  .closing-paper .cp-sign{display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;margin-top:10px}
-  .closing-paper .cp-line{margin-top:28px;border-top:1px solid #000}
+  body>*:not(.th-print){display:none!important}
+  .th-print{display:block;width:76mm;padding:2mm;background:#fff;color:#000;font-size:12px;line-height:1.4}
+  .th-print .th-logo b{font-size:22px;line-height:24px}
+  .th-print .th-logo i{font-size:12px;line-height:14px}
+  .th-print .th-sign .line{height:36px}
+  .th-print .th-paper:not(:last-child){break-after:page;page-break-after:always}
+  .th-print .th-cuts{display:block}
+  .th-print .th-cut{padding:3mm 0;box-shadow:none;font-size:12px;line-height:1.4;break-after:page;page-break-after:always;break-inside:avoid}
+  .th-print .th-cut:last-child{break-after:auto;page-break-after:auto}
+  .th-print .th-lab-v{font-size:22px;line-height:28px}
+  .th-print .th-lab-v.th-sm{font-size:16px;line-height:22px}
 }
 
 /* the discount sheet: what the node applied, one row each */
@@ -936,3 +944,7 @@ body[data-device=tablet] .action-bar kbd,body[data-device=tablet] .pay-cta kbd,b
 .kind-pill{display:inline-flex;align-items:center;height:22px;margin-left:8px;padding:0 8px;border-radius:6px;font-size:15px;font-weight:500;vertical-align:1px;background:#f2f2f5;color:#6e6e73}
 .kind-pill.kind-return{background:#faeacd;color:#a66c1f}
 .kind-pill.kind-void{background:#fdeeee;color:#d70015}
+/* − Kurangi on a line of several: the number it becomes (30 Oct 2026). */
+.less-name{margin:0;font-size:17px;font-weight:600;color:var(--ink)}
+.less-qty{display:block;width:100%;margin-top:8px;height:56px;padding:0 14px;border:1px solid var(--line);border-radius:10px;font-size:28px;font-weight:600;color:var(--ink);background:#fff}
+.less-qty:focus{outline:0;border-color:var(--accent);box-shadow:0 0 0 3px rgb(55 98 216/.16)}

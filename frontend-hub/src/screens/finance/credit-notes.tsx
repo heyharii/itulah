@@ -38,9 +38,7 @@ import {
   financeKeys,
   listBills,
   postCreditNote,
-  refundCreditNote,
 } from "@/lib/queries/finance"
-import { useUnits } from "@/lib/queries/organisation"
 import {
   recordSettlement,
   supplierReturnKeys,
@@ -54,13 +52,7 @@ import {
   parseMinor,
   todayIso,
 } from "@/screens/finance/chart"
-import {
-  moneyAccountValue,
-  parseMoneyAccountValue,
-  useCategoryName,
-  useMeaningLabel,
-  useMoneyAccounts,
-} from "@/screens/finance/hooks"
+import { useCategoryName } from "@/screens/finance/hooks"
 import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
 import {
   AccountAndCategory,
@@ -196,6 +188,14 @@ function CreditNotesScreen() {
             <option value="REFUNDED">Lunas</option>
           </Select>
         </span>
+        {/* 7Soft's Returns bar: how many returns this list holds, and what
+            they come to. The list answers whole (the server clamps it at
+            `LIMIT`), so the figure is the list's own and not a page's. */}
+        <span className="ml-auto text-[0.9375rem] text-body tabular-nums">
+          {count(notes.data.length)}{" "}
+          {notes.data.length === 1 ? "return" : "returns"} ·{" "}
+          {money(notes.data.reduce((sum, row) => sum + row.total_minor, 0))}
+        </span>
       </div>
 
       {notes.data.length >= LIMIT && (
@@ -239,7 +239,7 @@ function CreditNotesScreen() {
               <Grid followRows>
                 <thead>
                   <tr>
-                    <Th>No faktur</Th>
+                    <Th>Retur no</Th>
                     <Th>Tanggal</Th>
                     <Th>Supplier</Th>
                     <Th>Faktur diretur</Th>
@@ -633,107 +633,16 @@ export function CreditNoteDetail({
           </div>
         )}
 
-        {state === "POSTED" && <Refund note={note} onDone={refresh} />}
+        {state === "POSTED" && (
+          <div className="border-t border-hairline pt-3">
+            <span className="text-[0.9375rem] text-mute">
+              In the books. The next bill from this supplier absorbs it — a
+              return is an exchange of goods, so no money comes back here.
+            </span>
+          </div>
+        )}
       </div>
     </Sheet>
-  )
-}
-
-/// The second act: the supplier sent the money rather than letting the next
-/// bill absorb the credit.
-///
-/// Its own date, because that is when the money moved, and its own bank line
-/// for the reconciliation to find. The money lands in the books of the unit
-/// that owns the note's site, so the accounts offered are that unit's.
-function Refund({ note, onDone }: { note: CreditNote; onDone: () => void }) {
-  const [asking, setAsking] = useState(false)
-  const [account, setAccount] = useState("")
-  const [date, setDate] = useState(todayIso)
-
-  const units = useUnits()
-  const unit =
-    (units.data ?? []).find((one) =>
-      one.sites.some((site) => site.id === note.site_id)
-    )?.id ?? ""
-  const accounts = useMoneyAccounts(unit)
-  const meaning = useMeaningLabel()
-
-  const refund = useMutation({
-    mutationFn: () => {
-      const picked = parseMoneyAccountValue(account)
-      return refundCreditNote(note.credit_note_id, {
-        account_key: picked.account_key,
-        account_qualifier: picked.account_qualifier,
-        refund_date: date,
-      })
-    },
-    onSuccess: onDone,
-  })
-
-  if (!asking) {
-    return (
-      <div className="flex items-center justify-between gap-3 border-t border-hairline pt-3">
-        <span className="text-[0.9375rem] text-mute">
-          In the books. The next bill from this supplier can absorb it, or the
-          supplier can send the money back.
-        </span>
-        <Button variant="ghost" onClick={() => setAsking(true)}>
-          Record refund
-        </Button>
-      </div>
-    )
-  }
-
-  return (
-    <div className="flex flex-col gap-3 border-t border-hairline pt-3">
-      <Problem error={refund.error} />
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Received into" required>
-          <Select
-            value={account}
-            disabled={accounts.length === 0}
-            onChange={setAccount}
-          >
-            <option value="">Choose an account</option>
-            {accounts.map((row) => (
-              <option
-                key={moneyAccountValue(row)}
-                value={moneyAccountValue(row)}
-              >
-                {meaning(row.account_key)}
-                {row.account_qualifier === ""
-                  ? ""
-                  : ` · ${row.account_qualifier}`}
-                {` — ${row.account_name}`}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Refund date" required>
-          <Day value={date} onChange={setDate} clearable={false} />
-        </Field>
-      </div>
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-[0.9375rem] text-mute">
-          {accounts.length === 0
-            ? "No cash or bank account is mapped for this unit."
-            : `${money(note.total_minor)} comes back and the debt it had answered is owed again.`}
-        </span>
-        <div className="flex items-center gap-3">
-          <Button data-cancel variant="quiet" onClick={() => setAsking(false)}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            pending={refund.isPending}
-            disabled={account === "" || date === ""}
-            onClick={() => refund.mutate()}
-          >
-            {refund.isPending ? "Submitting…" : "Submit"}
-          </Button>
-        </div>
-      </div>
-    </div>
   )
 }
 

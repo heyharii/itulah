@@ -164,12 +164,9 @@ pub async fn owed_work(state: &AppState) -> Result<Vec<OwedWork>, AppError> {
             });
     }
     // A Gudang with no pick area has nothing waiting in one.
-    let picking = crate::cloud::postgres::sites::pool_of_role(
-        &mut *connection,
-        &site,
-        PoolRole::Picking,
-    )
-    .await?;
+    let picking =
+        crate::cloud::postgres::sites::pool_of_role(&mut *connection, &site, PoolRole::Picking)
+            .await?;
     let mut waiting: BTreeMap<Uuid, i64> = BTreeMap::new();
     if let Some(pool) = picking {
         for row in sqlx::query(PICK_AREA_WAITING)
@@ -396,10 +393,7 @@ pub async fn owed_work(state: &AppState) -> Result<Vec<OwedWork>, AppError> {
     .await?
     {
         totals.insert(
-            (
-                row.try_get("allotment_id")?,
-                row.try_get("destination_id")?,
-            ),
+            (row.try_get("allotment_id")?, row.try_get("destination_id")?),
             (row.try_get("was")?, row.try_get("now")?),
         );
     }

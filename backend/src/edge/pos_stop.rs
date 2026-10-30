@@ -39,7 +39,7 @@ use serde::Serialize;
 use crate::cloud::domain::PosStops;
 use crate::edge::contracts::EdgeError;
 use crate::edge::till::{seat_label, SEAT_PREFIX};
-use crate::sync::device::{KIND_TILL, STATUS_ACTIVE, STATUS_SUSPENDED};
+use crate::sync::device::{KIND_TILL, KIND_WAREHOUSE, STATUS_ACTIVE, STATUS_SUSPENDED};
 
 fn stamp(at: DateTime<Utc>) -> String {
     at.to_rfc3339_opts(SecondsFormat::Micros, true)
@@ -134,6 +134,21 @@ pub struct TillStanding {
     pub till: Option<TillStop>,
     /// The drawer still open at this till's seat.
     pub open_shift: Option<OpenDrawer>,
+    /// Whether this node holds the pairing the till asked about: `false` for
+    /// a till joined to the server this one replaced. Absent when not asked.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub paired: Option<bool>,
+}
+
+/// Whether `pairing_id` is a terminal this node knows and has not let go.
+pub fn is_paired(connection: &Connection, pairing_id: &str) -> bool {
+    connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM edge_terminal WHERE terminal_id = ?1 AND status = ?2)",
+            params![pairing_id.trim(), STATUS_ACTIVE],
+            |row| row.get::<_, bool>(0),
+        )
+        .unwrap_or(true)
 }
 
 /// The store's stop, when head office has stopped or removed it.
@@ -283,6 +298,30 @@ fn machine_stop(connection: &Connection, terminal_id: &str) -> Option<TillStop> 
         .optional()
         .ok()
         .flatten()
+        .or_else(|| warehouse_stop(connection, terminal_id))
+}
+
+/// A warehouse PC's own stop (Central Gudang, 25 Oct 2026), by the name it
+/// asks with — its label, "Gudang 1" — since it has no seat to be found by.
+/// A removed one whose name a new PC has taken is not this machine's stop.
+fn warehouse_stop(connection: &Connection, name: &str) -> Option<TillStop> {
+    connection
+        .query_row(
+            "SELECT label, status, status_changed_at, status_reason
+               FROM edge_terminal t
+              WHERE t.kind = ?2 AND t.status <> ?3
+                AND (t.terminal_id = ?1 OR t.label = ?1)
+                AND NOT EXISTS (SELECT 1 FROM edge_terminal a
+                                 WHERE a.kind = ?2 AND a.status = ?3
+                                   AND (a.terminal_id = ?1 OR a.label = ?1))
+              ORDER BY t.status_changed_at DESC
+              LIMIT 1",
+            params![name.trim(), KIND_WAREHOUSE, STATUS_ACTIVE],
+            till_stop_row,
+        )
+        .optional()
+        .ok()
+        .flatten()
 }
 
 fn store_refusal(stop: &StopNote) -> EdgeError {
@@ -411,5 +450,6 @@ pub fn standing(connection: &Connection, terminal_id: &str) -> TillStanding {
         store: store_stop(connection),
         till,
         open_shift,
+        paired: None,
     }
 }

@@ -134,21 +134,39 @@ fn host_label(node_id: &str) -> String {
     }
 }
 
-/// Where the shop's own screens answer on its network, by the name this node
-/// advertises: `http://store-07.local:8082`. What the heartbeat carries to the
-/// hub, which shows it and draws it as a QR once the server is ready.
+/// Where the shop's own screens answer on its network: the PC's LAN address,
+/// `http://192.168.1.20:8082`. What the heartbeat carries to the hub, which
+/// shows it and draws it as a QR once the server is ready, and what the setup
+/// page links to.
 ///
-/// `None` where that name would lead nowhere: a node listening on loopback
-/// only, or one with `ITULAH_MDNS=off`, is not advertised on the LAN.
+/// Not the advertised `store-07.local` name: a browser resolves `.local` only
+/// where the OS asks multicast DNS, which Android's Chrome does not and
+/// Windows does not reliably for a name served from its own machine — the
+/// server PC's own browser said "page can't be found". The name is still
+/// advertised for the tills, which browse for it themselves; it is the
+/// fallback here only when the PC has no LAN address to give.
+///
+/// `None` where nothing would lead here: a node listening on loopback only, or
+/// one with `ITULAH_MDNS=off`, is not offered on the LAN.
 pub fn app_address(node_id: &str, bind: SocketAddr) -> Option<String> {
     if switched_off() || bind.ip().is_loopback() {
         return None;
     }
-    Some(format!(
-        "http://{}.local:{}",
-        host_label(node_id),
-        bind.port()
-    ))
+    let port = bind.port();
+    Some(match lan_ip() {
+        Some(ip) => format!("http://{ip}:{port}"),
+        None => format!("http://{}.local:{port}", host_label(node_id)),
+    })
+}
+
+/// The address the OS would send from to reach beyond the LAN: the one the
+/// shop's other machines reach this PC at. Connecting a UDP socket sends
+/// nothing; it only asks the routing table. `None` on a PC with no route out.
+fn lan_ip() -> Option<std::net::IpAddr> {
+    let socket = std::net::UdpSocket::bind(("0.0.0.0", 0)).ok()?;
+    socket.connect(("8.8.8.8", 80)).ok()?;
+    let ip = socket.local_addr().ok()?.ip();
+    (!ip.is_loopback() && !ip.is_unspecified()).then_some(ip)
 }
 
 fn switched_off() -> bool {

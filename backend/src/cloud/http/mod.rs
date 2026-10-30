@@ -44,7 +44,6 @@ pub mod chat;
 pub mod claims;
 pub mod clock;
 pub mod colours;
-pub mod item_photo;
 /// The payroll component catalogue, its ratified rates, and the one-off
 /// figures a place files. See `domain::component`.
 pub mod components;
@@ -55,6 +54,7 @@ pub mod delegation;
 pub mod discipline;
 pub mod discussion;
 pub mod documents;
+pub mod dossier;
 pub mod employment;
 pub mod enrolment;
 /// The store exceptions list: what goes wrong in stores, for head office and
@@ -73,8 +73,6 @@ pub mod flows;
 pub mod ga;
 /// GA's papers, originals and operating expenses (0974).
 pub mod ga_records;
-/// Projects (0997): GA's store openings and renovations, and Finance's capitalising.
-pub mod projects;
 pub mod giro_print;
 pub mod grievance;
 pub mod hire;
@@ -85,6 +83,7 @@ pub mod hr_scheduler;
 pub mod integrity;
 pub mod interunit;
 pub mod invitations;
+pub mod item_photo;
 pub mod jobs;
 pub mod leave;
 pub mod leave_extras;
@@ -106,12 +105,16 @@ pub mod payments_lane;
 pub mod people;
 pub mod performance;
 pub mod po_import;
+/// Projects (0997): GA's store openings and renovations, and Finance's capitalising.
+pub mod projects;
 pub mod punch;
+pub mod purchase_order_links;
 pub mod push;
 pub mod records;
 pub mod reports;
-pub mod purchase_order_links;
 pub mod return_notes;
+pub mod point_policy;
+pub mod return_policy;
 pub mod return_proofs;
 pub mod roles;
 pub mod roster;
@@ -119,6 +122,7 @@ pub mod scope;
 pub mod search;
 // lane-A
 pub mod advance;
+pub mod article_setup_drafts;
 pub mod finance_control;
 pub mod finance_setup;
 pub mod financing;
@@ -126,7 +130,6 @@ pub mod name_suggestions;
 pub mod prepaid;
 pub mod principal;
 pub mod quantity_checks;
-pub mod article_setup_drafts;
 pub mod sales_posting;
 pub mod setup;
 pub mod statement_intake;
@@ -134,13 +137,10 @@ pub mod stock_ledger;
 pub mod store_money;
 /// A shop's own Send of its reject (owner, 23 Oct 2026).
 pub mod store_reject_return;
-/// Unmatched sales: matched at head office (owner, 23 Oct 2026).
-pub mod unmatched_sales;
 /// Opening a store: the Stores list and page, "Open store", installing the
 /// store's server, and a device's test page. See `postgres/stores.rs`.
 pub mod stores;
 pub mod supplier_banks;
-pub mod whatsapp;
 pub mod supplier_contacts;
 pub mod suppliers;
 pub mod sync_generation;
@@ -149,8 +149,11 @@ pub mod tax;
 pub mod terminal;
 pub mod unit_register;
 pub mod units;
+/// Unmatched sales: matched at head office (owner, 23 Oct 2026).
+pub mod unmatched_sales;
 pub mod vocabulary;
 pub mod vouchers;
+pub mod whatsapp;
 
 /// Exact browser origins from config. Unset means same-origin only.
 fn cors_layer(config: &AppConfig) -> CorsLayer {
@@ -544,8 +547,18 @@ pub fn router(state: AppState) -> Router {
     .route("/api/v1/stores/{unit}", get(stores::detail))
     .route("/api/v1/stores/{unit}/open", post(stores::open))
     .route("/api/v1/stores/{unit}/tills", put(stores::set_till_seats))
+    // The picture at the top of the store's receipts (1009).
+    .route(
+        "/api/v1/stores/{unit}/receipt-header",
+        get(stores::read_receipt_header)
+            .put(stores::save_receipt_header)
+            .delete(stores::clear_receipt_header),
+    )
     // One person, one device at the store: head office's switch.
-    .route("/api/v1/stores/{unit}/one-device", put(stores::set_one_device))
+    .route(
+        "/api/v1/stores/{unit}/one-device",
+        put(stores::set_one_device),
+    )
     // Head office stops a store, a cashier or (through the device register) a
     // till on the POS, and removes a store that closed for good (0990). The
     // Tills tab's read follows reach; the writes are Admin's, at the path and
@@ -555,7 +568,10 @@ pub fn router(state: AppState) -> Router {
     // on the store's People tab (24 Oct 2026).
     .route("/api/v1/stores/{unit}/fingers", get(stores::fingers))
     // One person at the store: shift, sales, POS used, activity, stop.
-    .route("/api/v1/stores/{unit}/people/{user_id}", get(stores::person))
+    .route(
+        "/api/v1/stores/{unit}/people/{user_id}",
+        get(stores::person),
+    )
     .route(
         "/api/v1/stores/{unit}/fingers/approve-all",
         post(stores::approve_all_fingers),
@@ -965,10 +981,7 @@ pub fn router(state: AppState) -> Router {
     )
     // The cashier's ask (owner, 25 Oct 2026): how many points, a code to the
     // shopper's WhatsApp, and the till's wait for the shopper's yes.
-    .route(
-        "/api/v1/sync/points/redeem-requests",
-        post(sync_redeem_ask),
-    )
+    .route("/api/v1/sync/points/redeem-requests", post(sync_redeem_ask))
     .route(
         "/api/v1/sync/points/redeem-requests/{request_id}/progress",
         post(sync_redeem_ask_progress),
@@ -1784,6 +1797,39 @@ pub fn router(state: AppState) -> Router {
         "/api/v1/employees/{id}/personal-data/amendments",
         post(employment::amend_personal_data),
     )
+    // A person's papers (1001): the file in one read, the detail set and
+    // the scans written by head office, and a store's change waiting on it.
+    .route("/api/v1/employees/{id}/dossier", get(dossier::read_dossier))
+    .route("/api/v1/employees/{id}/details", put(dossier::save_details))
+    .route(
+        "/api/v1/employees/{id}/documents",
+        post(dossier::file_documents),
+    )
+    .route(
+        "/api/v1/employees/{id}/data-updates",
+        post(dossier::file_data_update),
+    )
+    .route("/api/v1/data-updates", get(dossier::data_update_queue))
+    .route(
+        "/api/v1/data-updates/{id}/decision",
+        post(dossier::decide_data_update),
+    )
+    .route(
+        "/api/v1/data-updates/{id}/withdrawal",
+        post(dossier::withdraw_data_update),
+    )
+    .route(
+        "/api/v1/employee-documents/{id}/content",
+        get(dossier::document_content),
+    )
+    .route(
+        "/api/v1/employee-documents/{id}/removal",
+        post(dossier::remove_document),
+    )
+    .route(
+        "/api/v1/hire-proposals/{id}/dossier",
+        get(dossier::read_hire_dossier).put(dossier::save_hire_dossier),
+    )
     .route(
         "/api/v1/employees/{id}/contracts",
         get(employment::read_contracts).post(employment::add_contract),
@@ -2258,6 +2304,42 @@ pub fn router(state: AppState) -> Router {
         "/api/v1/commercial/coupons/{code}/cancel",
         post(coupons::cancel_coupon_code),
     )
+    // The return promise: the fleet's window, the exceptions, and the sentence
+    // a till prints. Reading is the screen; writing is Marketing's.
+    .route(
+        "/api/v1/commercial/return-policy",
+        get(return_policy::read_catalogue),
+    )
+    .route(
+        "/api/v1/commercial/return-policy/settings",
+        put(return_policy::save_settings),
+    )
+    .route(
+        "/api/v1/commercial/return-policy/policies",
+        post(return_policy::save_policy),
+    )
+    .route(
+        "/api/v1/commercial/return-policy/policies/{policy_id}",
+        delete(return_policy::delete_policy),
+    )
+    // The point policy: the everyday rate and its exceptions. Its points add
+    // to a promotion's (1008).
+    .route(
+        "/api/v1/commercial/point-policy",
+        get(point_policy::read_catalogue),
+    )
+    .route(
+        "/api/v1/commercial/point-policy/settings",
+        put(point_policy::save_settings),
+    )
+    .route(
+        "/api/v1/commercial/point-policy/policies",
+        post(point_policy::save_policy),
+    )
+    .route(
+        "/api/v1/commercial/point-policy/policies/{policy_id}",
+        delete(point_policy::delete_policy),
+    )
     // Where a supplier's money is supposed to land. Nested under the
     // supplier because that is the only place anybody asks the question,
     // and because it puts the supplier's id in the path — which is what
@@ -2527,10 +2609,7 @@ pub fn router(state: AppState) -> Router {
     )
     // The fingers HR enrolled, for the POS of the store server that asks
     // (24 Oct 2026). Its own `x-sync-key`, never a session.
-    .route(
-        "/api/v1/sync/pos-fingers",
-        post(terminal::sync_pos_fingers),
-    )
+    .route("/api/v1/sync/pos-fingers", post(terminal::sync_pos_fingers))
     // The fingers a store head recorded at the POS, waiting for head
     // office's yes (24 Oct 2026). The same key, never a session.
     .route(
@@ -2776,7 +2855,10 @@ pub fn router(state: AppState) -> Router {
     )
     .route("/api/v1/payroll/loans", get(pay::all_loans))
     .route("/api/v1/payroll/loans/{id}/stop", post(pay::stop_loan))
-    .route("/api/v1/payroll/loans/{id}/repayments", post(pay::repay_loan))
+    .route(
+        "/api/v1/payroll/loans/{id}/repayments",
+        post(pay::repay_loan),
+    )
     .route("/api/v1/payroll/slips", get(pay::period_slips))
     .route("/api/v1/payroll/readiness", get(pay::payroll_readiness))
     .route("/api/v1/payroll/annual-tax", get(pay::annual_tax_all))
@@ -3364,7 +3446,7 @@ async fn create_allotment_batch(
                 tracing::error!(failed_index = index, error = ?error, "allotment batch item failed");
                 return Ok(Json(
                     json!({"items":items,"failed_index":index,"problem":error.to_string()}),
-                ))
+                ));
             }
         }
     }
@@ -4543,6 +4625,8 @@ async fn sync_voucher_check(
         "expires_at": voucher.expires_at,
         "expired": voucher.expired,
         "member_name": voucher.member_name,
+        // A paper voucher: spent once, no change (1006).
+        "single_use": voucher.single_use,
     })))
 }
 
@@ -4615,7 +4699,11 @@ async fn relay_member_site(
 fn relay_member_id(raw: &str) -> Result<String, AppError> {
     let trimmed = raw.trim();
     let digits: String = trimmed.chars().filter(char::is_ascii_digit).collect();
-    let id = if !digits.is_empty() && trimmed.chars().all(|c| c.is_ascii_digit() || " -.·".contains(c)) {
+    let id = if !digits.is_empty()
+        && trimmed
+            .chars()
+            .all(|c| c.is_ascii_digit() || " -.·".contains(c))
+    {
         digits
     } else {
         trimmed.to_owned()
@@ -5364,13 +5452,23 @@ async fn raise_purchase_order(
 
 /// One order with what has actually arrived against it. The received figure
 /// is summed from the DC's receipts on every read, never stored.
+///
+/// Carries `version`, which the order sheet sends back as `If-Match` when it
+/// saves an edit (1002).
 async fn purchase_order_detail(
     State(s): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Value>, AppError> {
-    Ok(Json(
-        infrastructure::purchase_order_status(&s.db, id).await?,
-    ))
+    // Read before the order itself. A change landing between the two reads
+    // then shows as a newer order under an older version, and the next edit
+    // is refused and reopened; read after, it would be an older order under
+    // the newer version, and the edit would write over the change unseen.
+    let version = infrastructure::purchase_order_version(&s.db, id).await?;
+    let mut detail = infrastructure::purchase_order_status(&s.db, id).await?;
+    if let Some(fields) = detail.as_object_mut() {
+        fields.insert("version".into(), json!(version));
+    }
+    Ok(Json(detail))
 }
 
 async fn list_purchase_orders(
@@ -5411,7 +5509,8 @@ async fn list_unidentified_receipts(
     Query(page): Query<UnidentifiedPage>,
 ) -> Result<Json<Value>, AppError> {
     let (items, next_cursor) =
-        infrastructure::unidentified_receipts_page(&s.db, page.limit, page.cursor.as_deref()).await?;
+        infrastructure::unidentified_receipts_page(&s.db, page.limit, page.cursor.as_deref())
+            .await?;
     Ok(Json(json!({ "items": items, "next_cursor": next_cursor })))
 }
 
@@ -5644,6 +5743,20 @@ async fn decide_price_amendment(
         request.note.as_deref(),
     )
     .await?;
+    // Only a price approved for the rest of the order rewrites its line, so
+    // only that moves the order's version (1002). After the decision, which
+    // has already committed: a failure here leaves the decision standing and
+    // the order's line guards still refuse a stale edit's old price, so it is
+    // logged rather than turned into an error for a decision that was made.
+    if request.outcome == crate::cloud::domain::PriceAmendmentOutcome::Approved
+        && reach == infrastructure::AmendmentReach::Remaining
+    {
+        if let Err(error) =
+            infrastructure::bump_purchase_order_version_for_price_amendment(&s.db, request_id).await
+        {
+            tracing::warn!(%error, %request_id, "could not move the order's version after a price approval");
+        }
+    }
     Ok(Json(json!({
         "request_id": request_id,
         "outcome": request.outcome,
@@ -5669,10 +5782,18 @@ async fn close_purchase_line_short(
     Path(id): Path<Uuid>,
     Json(request): Json<CloseShortRequest>,
 ) -> Result<Json<Value>, AppError> {
-    Ok(Json(
+    let closed =
         infrastructure::close_purchase_line_short(&s.db, id, &request.closed_by, &request.reason)
-            .await?,
-    ))
+            .await?;
+    // The order's version moves with the close (1002), so an edit opened
+    // before it is told the order changed. After the close, which has already
+    // committed: a failure here leaves the close standing and the revise
+    // path's line guards still refuse to undo it, so it is logged rather than
+    // turned into an error for a close that happened.
+    if let Err(error) = infrastructure::bump_purchase_order_version_for_line(&s.db, id).await {
+        tracing::warn!(%error, po_line_id = %id, "could not move the order's version after a close short");
+    }
+    Ok(Json(closed))
 }
 
 /// Query-string helpers, shared.

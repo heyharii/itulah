@@ -69,7 +69,7 @@ import { GlyphName } from "@/screens/maintenance/parts"
 import { useFittedVisibility } from "@/screens/procurement/shared"
 import type { GaInspectionRow, GaMaintenanceTaskRow } from "@itulah/contract"
 
-/// Service Schedule — the quiet half of maintenance.
+/// Routine Service — the quiet half of maintenance.
 ///
 /// # Two lists, one page
 ///
@@ -100,7 +100,7 @@ export function Schedule() {
   return (
     <PageContent>
       <PageHeader
-        title="Service Schedule"
+        title="Routine Service"
         small
         actions={
           // On a phone the one thing this page makes is the round button in

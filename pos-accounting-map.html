@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jurnal POS C001</title>
+<style>
+:root{--ink:#111827;--ink-2:#4b5563;--ink-3:#6b7280;--hair:#e5e7eb;--hair-2:#d1d5db;--bg:#fff;--soft:#f9fafb;--blue:#2563eb;--blue-t:#eff6ff;--green:#047857;--green-t:#ecfdf5;--red:#b91c1c;--red-t:#fef2f2;--amber:#92400e;--amber-t:#fffbeb}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Inter","Segoe UI",sans-serif}
+.wrap{max-width:1180px;margin:0 auto;padding:40px 32px 80px}
+h1{font-size:28px;margin:0 0 6px}
+h2{font-size:20px;margin:48px 0 16px}
+.meta{color:var(--ink-3)}
+nav{display:flex;flex-wrap:wrap;gap:8px;margin:24px 0 8px}
+nav a{border:1px solid var(--hair-2);border-radius:999px;padding:6px 14px;color:var(--ink);text-decoration:none}
+nav a:hover{background:var(--soft)}
+.case{border:1px solid var(--hair);border-radius:12px;margin:0 0 16px;overflow:hidden}
+.case-head{display:flex;gap:12px;align-items:center;padding:14px 20px;background:var(--soft);border-bottom:1px solid var(--hair)}
+.case-head b{font-size:16px}
+.case-head .ex{color:var(--ink-3);margin-left:auto;text-align:right}
+.chip{display:inline-block;border-radius:999px;padding:2px 10px;font-size:15px;white-space:nowrap}
+.ok{background:var(--green-t);color:var(--green)}
+.no{background:var(--amber-t);color:var(--amber)}
+.zero{background:var(--blue-t);color:var(--blue)}
+table{width:100%;border-collapse:collapse}
+th,td{padding:10px 20px;text-align:left;border-bottom:1px solid var(--hair);vertical-align:top}
+th{color:var(--ink-3);font-weight:500}
+tr:last-child td{border-bottom:0}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+td.code{font-variant-numeric:tabular-nums;color:var(--ink-2);white-space:nowrap;width:150px}
+td.cr{padding-left:48px}
+.why{padding:12px 20px;color:var(--ink-2);border-top:1px solid var(--hair)}
+.sub{padding:12px 20px;background:var(--soft);border-top:1px solid var(--hair);border-bottom:1px solid var(--hair);color:var(--ink-2)}
+.total td{font-weight:600;background:var(--soft)}
+.gap{border:1px solid #fde68a;background:var(--amber-t);border-radius:12px;padding:16px 20px;margin:0 0 12px}
+.gap b{display:block;margin-bottom:4px}
+@media (max-width:720px){.wrap{padding:24px 16px 64px}th,td{padding:8px 12px}td.cr{padding-left:28px}td.code{width:auto}.case-head{flex-wrap:wrap}.case-head .ex{margin-left:0;text-align:left;width:100%}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Jurnal POS · C001</h1>
+  <div class="meta">Akun dari Laporan_Master_Account1 (Central Fashion Store) · aturan dari backend/src/cloud/domain/sales_posting.rs dan stock_ledger.rs</div>
+  <nav id="nav"></nav>
+
+  <h2 id="hari">Satu hari toko, jadi satu jurnal</h2>
+  <div id="day"></div>
+
+  <h2 id="kasus">Per kasus</h2>
+  <div id="cases"></div>
+
+  <h2 id="gap">Belum ada di COA atau perlu keputusan</h2>
+  <div id="gaps"></div>
+</div>
+<script>
+// Leaf = 10-digit client account + 2-digit unit (00 HO, 01 C001 … 13 C013).
+const A = {
+  kas:      ["10110010010", "Cash on Hand"],
+  modal:    ["10110010030", "Modal Kasir"],
+  bankBCA:  ["10110020010", "Cash In Bank Giro Bank BCA"],
+  bankMDR:  ["10110020020", "Cash In Bank Giro Bank Mandiri"],
+  piutDeb:  ["10111010020", "Piutang Debit Card"],
+  piutKK:   ["10111010010", "Piutang Kartu Kredit"],
+  piutKT:   ["10111020020", "Piutang Kepala Toko"],
+  persed:   ["10112010010", "Persediaan Barang Dagangan"],
+  kantong:  ["10112020010", "Kantong Belanja Plastik Ukuran KECIL"],
+  pjTunai:  ["40101100010", "Penjualan Tunai"],
+  pjDebBCA: ["40101110010", "Penjualan Debit Card Bank BCA"],
+  pjDebMDR: ["40101110020", "Penjualan Debit Card Bank Mandiri"],
+  pjVisa:   ["40101120010", "Penjualan Kartu Kredit VISA Card"],
+  pjMaster: ["40101120020", "Penjualan Kartu Kredit MASTER Card"],
+  diskon:   ["40102130010", "Discount / Potongan Penjualan"],
+  retur:    ["40102140010", "Retur Penjualan"],
+  hpp:      ["50101100010", "Harga Pokok Pembelian"],
+  supplies: ["60101100010", "Biaya Customer Supplies"],
+  mdr:      ["60101100020", "Credit Card Expenses"],
+  bulat:    ["80101100020", "Selisih pembulatan"],
+  lain:     ["80101100070", "Pendapatan (Biaya) Lain-Lain"],
+};
+const unit = 1;
+// 12 digits: the 10-digit leaf, then the unit's two digits.
+const leaf = k => A[k][0].slice(0, 10) + String(unit).padStart(2, "0");
+const rp = n => "Rp " + n.toLocaleString("id-ID");
+
+const STATUS = { ok: ["ok", "Otomatis"], zero: ["zero", "Tanpa jurnal"], no: ["no", "Belum"] };
+
+const CASES = [
+  { id: "tunai", t: "Jual tunai", ex: "Kemeja Rp 300.000, bayar Rp 500.000, kembali Rp 200.000", s: "ok",
+    l: [["kas", 300000, 0], ["pjTunai", 0, 300000]],
+    stock: [["hpp", 180000, 0], ["persed", 0, 180000]],
+    w: "Kembalian sudah dipotong; yang masuk jurnal hanya uang yang tinggal di laci." },
+  { id: "debit", t: "Jual debit BCA", ex: "Rp 450.000 di EDC BCA, MDR contoh 1%", s: "ok",
+    l: [["bankBCA", 445500, 0], ["mdr", 4500, 0], ["pjDebBCA", 0, 450000]],
+    stock: [["hpp", 270000, 0], ["persed", 0, 270000]],
+    w: "EDC toko langsung ke Cash in Bank bank EDC-nya (keputusan 1 Okt). MDR dibukukan saat itu juga. Tanpa EDC yang terdaftar, debitnya ke Piutang Debit Card sampai settlement." },
+  { id: "kredit", t: "Jual kartu kredit VISA", ex: "Rp 600.000 di EDC BCA, MDR contoh 2%", s: "ok",
+    l: [["bankBCA", 588000, 0], ["mdr", 12000, 0], ["pjVisa", 0, 600000]],
+    stock: [["hpp", 360000, 0], ["persed", 0, 360000]],
+    w: "Akun penjualan ikut jaringan kartu (VISA / MASTER), banknya ikut EDC." },
+  { id: "qris", t: "Jual QRIS", ex: "Rp 150.000 di EDC BCA, MDR contoh 0,7%", s: "ok",
+    l: [["bankBCA", 148950, 0], ["mdr", 1050, 0], ["pjDebBCA", 0, 150000]],
+    stock: [["hpp", 90000, 0], ["persed", 0, 90000]],
+    w: "COA tidak punya akun Penjualan QRIS, jadi QRIS masuk Penjualan Debit Card bank EDC-nya." },
+  { id: "split", t: "Bayar campur (tunai + debit)", ex: "Rp 500.000: Rp 200.000 tunai, Rp 300.000 debit Mandiri, MDR 1%", s: "ok",
+    l: [["kas", 200000, 0], ["bankMDR", 297000, 0], ["mdr", 3000, 0], ["pjTunai", 0, 200000], ["pjDebMDR", 0, 300000]],
+    stock: [["hpp", 300000, 0], ["persed", 0, 300000]],
+    w: "Tiap cara bayar masuk ke akun penjualannya sendiri." },
+  { id: "promo", t: "Promo / diskon barang", ex: "Kaos Rp 150.000 promo 20%, dibayar tunai Rp 120.000", s: "ok",
+    l: [["kas", 120000, 0], ["pjTunai", 0, 120000]],
+    stock: [["hpp", 90000, 0], ["persed", 0, 90000]],
+    w: "Penjualan dicatat net. Potongan promo tidak masuk 4010213, sama seperti buku klien 2025 (P18). Laporan promo tetap ada di data POS. Kalau HO mau penjualan bruto, nyalakan Discount accounting: Penjualan Rp 150.000 dan Discount Rp 30.000." },
+  { id: "voucher", t: "Bayar pakai voucher", ex: "Belanja Rp 200.000: voucher Rp 50.000, sisa tunai", s: "ok",
+    l: [["kas", 150000, 0], ["diskon", 50000, 0], ["pjTunai", 0, 200000]],
+    stock: [["hpp", 120000, 0], ["persed", 0, 120000]],
+    w: "Voucher gratis, jadi waktu dipakai dicatat sebagai potongan penjualan (keputusan 13)." },
+  { id: "benefit", t: "Diskon karyawan (saldo benefit)", ex: "Belanja Rp 250.000: saldo Rp 100.000, sisa tunai", s: "ok",
+    l: [["kas", 150000, 0], ["diskon", 100000, 0], ["pjTunai", 0, 250000]],
+    stock: [["hpp", 150000, 0], ["persed", 0, 150000]],
+    w: "Saldo karyawan = potongan penjualan, bukan biaya pegawai dan bukan natura PPh 21 (1 Okt)." },
+  { id: "murah", t: "Tukar barang, pengganti lebih murah", ex: "Kembali Rp 300.000, ambil Rp 250.000", s: "ok",
+    l: [["retur", 300000, 0], ["pjTunai", 0, 250000], ["lain", 0, 50000]],
+    stock: [["persed", 180000, 0], ["hpp", 0, 180000], ["hpp", 150000, 0], ["persed", 0, 150000]],
+    w: "Uang tidak keluar dari laci (keputusan 11). Selisih Rp 50.000 tinggal di toko dan masuk Pendapatan (Biaya) Lain-Lain." },
+  { id: "mahal", t: "Tukar barang, pengganti lebih mahal", ex: "Kembali Rp 250.000, ambil Rp 300.000, tambah tunai Rp 50.000", s: "ok",
+    l: [["retur", 250000, 0], ["kas", 50000, 0], ["pjTunai", 0, 300000]],
+    stock: [["persed", 150000, 0], ["hpp", 0, 150000], ["hpp", 180000, 0], ["persed", 0, 180000]],
+    w: "Barang yang kembali membayar Rp 250.000 dari pengganti, tunai membayar sisanya." },
+  { id: "lebihbanyak", t: "Retur + beli barang baru lebih banyak", ex: "Kembali 1 kemeja Rp 250.000, ambil 2 kaos Rp 300.000 + celana Rp 200.000, sisa Rp 250.000 bayar debit BCA, MDR contoh 1%", s: "ok",
+    l: [["retur", 250000, 0], ["bankBCA", 247500, 0], ["mdr", 2500, 0], ["pjTunai", 0, 250000], ["pjDebBCA", 0, 250000]],
+    stock: [["persed", 150000, 0], ["hpp", 0, 150000], ["hpp", 290000, 0], ["persed", 0, 290000]],
+    w: "Barang yang kembali membayar Rp 250.000 dari belanjaan baru dan masuk Penjualan Tunai, seperti tukar biasa. Sisa Rp 250.000 masuk akun penjualan cara bayarnya (di sini Debit BCA). Total penjualan Rp 500.000 = semua barang baru yang keluar." },
+  { id: "kantong", t: "Kantong belanja", ex: "25 kantong × Rp 500", s: "ok",
+    l: [["supplies", 12500, 0], ["kantong", 0, 12500]],
+    w: "Kantong yang keluar bersama penjualan = Biaya Customer Supplies." },
+  { id: "modal", t: "Modal kasir (buka kasir)", ex: "Modal Rp 500.000", s: "ok",
+    l: [["modal", 500000, 0], ["kas", 0, 500000]],
+    w: "Modal kasir dipisah dari kas penjualan (keputusan 9)." },
+  { id: "kurang", t: "Tutup kasir, uang kurang", ex: "Kurang Rp 20.000", s: "ok",
+    l: [["piutKT", 20000, 0], ["kas", 0, 20000]],
+    w: "Kurang kas jadi piutang kepala toko (keputusan 9)." },
+  { id: "lebih", t: "Tutup kasir, uang lebih", ex: "Lebih Rp 10.000", s: "ok",
+    l: [["kas", 10000, 0], ["lain", 0, 10000]], w: "" },
+  { id: "setor", t: "Setor ke bank", ex: "Setor Rp 1.130.000 ke BCA", s: "ok",
+    l: [["bankBCA", 1130000, 0], ["kas", 0, 1130000]], w: "" },
+  { id: "bulat", t: "Selisih pembulatan", ex: "Selisih dokumen retur vs barisnya Rp 100", s: "ok",
+    l: [["bulat", 100, 0], ["kas", 0, 100]],
+    w: "Hanya untuk selisih kecil antara dokumen retur dan baris refund-nya. Tidak dipakai untuk menampung selisih lain." },
+  { id: "poin", t: "Member point didapat", ex: "+31 poin", s: "no", l: [],
+    w: "Belum ada jurnal. COA klien tidak punya akun kewajiban poin, dan nilai satu poin belum diputuskan." },
+  { id: "tunda", t: "Tunda / batal tunda", ex: "", s: "zero", l: [], w: "Belum ada penjualan, jadi tidak ada jurnal." },
+  { id: "ppn", t: "PPN", ex: "", s: "zero", l: [], w: "PPN tidak dibukukan (P11). Harga termasuk pajak, dan pajak hanya dilaporkan." },
+  { id: "online", t: "Penjualan online", ex: "", s: "zero", l: [], w: "Ditolak: toko tidak jual online (keputusan 14), walau COA punya akun Penjualan Online." },
+];
+
+const DAY = [
+  ["kas", 1200000, 0, "Tunai, termasuk tambahan tukar barang"],
+  ["bankBCA", 1182450, 0, "Debit BCA, VISA dan QRIS di EDC BCA, net MDR"],
+  ["mdr", 17550, 0, "MDR"],
+  ["diskon", 150000, 0, "Voucher Rp 50.000 + saldo karyawan Rp 100.000"],
+  ["retur", 550000, 0, "Dua tukar barang"],
+  ["pjTunai", 0, 1850000, "Tunai + voucher/saldo + pengganti tukar barang"],
+  ["pjDebBCA", 0, 600000, "Debit BCA Rp 450.000 + QRIS Rp 150.000"],
+  ["pjVisa", 0, 600000, ""],
+  ["lain", 0, 50000, "Sisa tukar ke barang lebih murah"],
+];
+
+function lines(rows, withNote) {
+  return rows.map(([k, d, c, note]) => `<tr>
+    <td class="code">${leaf(k)}</td>
+    <td class="${c ? "cr" : ""}">${A[k][1]}${withNote && note ? `<div class="meta">${note}</div>` : ""}</td>
+    <td class="num">${d ? rp(d) : ""}</td><td class="num">${c ? rp(c) : ""}</td></tr>`).join("");
+}
+function sum(rows, i) { return rows.reduce((s, r) => s + r[i], 0) }
+
+function draw() {
+  const name = "C001";
+  document.getElementById("day").innerHTML = `<div class="case">
+    <div class="case-head"><b>SALE_DAY · ${name}</b><span class="chip ok">Otomatis</span><span class="ex">Gabungan contoh kasus di bawah</span></div>
+    <table><thead><tr><th>Akun</th><th>Nama</th><th class="num">Debit</th><th class="num">Kredit</th></tr></thead>
+    <tbody>${lines(DAY, true)}<tr class="total"><td></td><td>Total</td><td class="num">${rp(sum(DAY, 1))}</td><td class="num">${rp(sum(DAY, 2))}</td></tr></tbody></table>
+    <div class="why">HPP dan kantong belanja masuk jurnal harian sendiri (COGS_DAY) dari kartu stok. Modal, setoran dan selisih kas masuk saat kejadiannya.</div></div>`;
+
+  document.getElementById("cases").innerHTML = CASES.map(c => {
+    const [cls, label] = STATUS[c.s];
+    const head = `<thead><tr><th>Akun</th><th>Nama</th><th class="num">Debit</th><th class="num">Kredit</th></tr></thead>`;
+    const all = c.l.concat(c.stock || []);
+    const body = all.length ? `<table>${head}<tbody>${lines(all)}</tbody></table>` : "";
+    return `<div class="case" id="${c.id}"><div class="case-head"><b>${c.t}</b><span class="chip ${cls}">${label}</span><span class="ex">${c.ex}</span></div>${body}${c.w ? `<div class="why">${c.w}</div>` : ""}</div>`;
+  }).join("");
+}
+
+const GAPS = [
+  ["Member point", "COA klien tidak punya akun kewajiban poin. Perlu satu akun (misal di 20123 Hutang Lain-lain), nilai Rupiah per poin, dan perkiraan berapa yang hangus. Setelah itu poin bisa dijurnal saat didapat dan saat dipakai (PSAK 72)."],
+  ["QRIS", "COA tidak punya Penjualan QRIS, jadi QRIS masuk Penjualan Debit Card bank EDC-nya. Kalau klien mau QRIS terpisah, perlu akun 40101110xx baru."],
+  ["Kartu kredit selain VISA / MASTER", "Hanya ada VISA dan MASTER. JCB, AMEX, atau kartu kredit lokal belum punya akun penjualan."],
+  ["Debit bank lain", "Penjualan debit hanya ada untuk BCA, Mandiri, BRI dan BNI. EDC Danamon, BTN atau bank lain belum punya akun penjualan."],
+  ["Promo", "Promo dicatat net (sama dengan buku klien 2025). Discount / Potongan Penjualan hanya berisi voucher dan saldo karyawan. Kalau klien mau promo tampil di 4010213, nyalakan Discount accounting."],
+  ["Kantong per ukuran", "COA punya 10 akun kantong (plastik/kertas × ukuran). Toko perlu mencatat ukuran kantong yang keluar, kalau tidak semua masuk satu akun."],
+];
+document.getElementById("gaps").innerHTML = GAPS.map(([t, w]) => `<div class="gap"><b>${t}</b>${w}</div>`).join("");
+
+document.getElementById("nav").innerHTML = [["hari", "Satu hari"], ...CASES.map(c => [c.id, c.t]), ["gap", "Belum ada"]].map(([id, t]) => `<a href="#${id}">${t}</a>`).join("");
+draw();
+</script>
+</body>
+</html>

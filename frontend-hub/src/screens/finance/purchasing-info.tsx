@@ -6,19 +6,22 @@ import { useMemo, useState } from "react"
 import { Card } from "@/components/ui/card"
 import { ExportButton } from "@/components/ui/export-button"
 import { DataTable, type DataTableProps } from "@/components/ui/data-table"
+import { FilterChips } from "@/components/ui/filter-chips"
 import { FilterPanel } from "@/components/ui/filter-panel"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { Status } from "@/components/ui/pill"
 import { CellMoney } from "@/components/ui/rows-switch"
 import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState, LoadingState } from "@/components/ui/states"
 import type { ExportSheet } from "@/lib/export-xlsx"
 import { useFilters } from "@/lib/filters"
-import { count, day } from "@/lib/format"
+import { count, day, money } from "@/lib/format"
 import {
   billItemLines,
   financeKeys,
   listCreditNotes,
   payablesAgingQuery,
+  projectionGirosQuery,
 } from "@/lib/queries/finance"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { SiteName, SupplierName } from "@/screens/finance/parts"
@@ -64,6 +67,9 @@ interface TableProps<T extends RowData> {
   readonly more?: DataTableProps<T>["more"]
   /// 7Soft's XLS: the tab as a sheet, every row. Present on every tab.
   readonly sheet: () => ExportSheet
+  /// Figures and chips that belong under the bar and above the table: the
+  /// screen's own KPIs, the way `<Toolbar>` keeps the tabs above them.
+  readonly before?: React.ReactNode
 }
 
 /// One list of 7Soft's Info Pembelian: the toolbar (tabs, the shell's boxes,
@@ -81,6 +87,7 @@ function InfoTable<T extends RowData>({
   loading = false,
   more,
   sheet,
+  before,
 }: TableProps<T>) {
   const [query, setQuery] = useState("")
   const filters = useFilters(columns)
@@ -112,6 +119,7 @@ function InfoTable<T extends RowData>({
           disabled={loading || rows.length === 0}
         />
       </Toolbar>
+      {before}
       {loading ? (
         <LoadingState>Reading…</LoadingState>
       ) : rows.length === 0 ? (
@@ -209,6 +217,8 @@ interface SupplierRow {
   /// What is owed to them today — the hub's own column; 7Soft's list does not
   /// carry it.
   readonly owed: number
+  /// The part of it that is past its date: the ageing's four late buckets.
+  readonly late: number
 }
 
 const supplierColumns: ColumnDef<TableSetup, SupplierRow>[] = [
@@ -294,6 +304,23 @@ const supplierColumns: ColumnDef<TableSetup, SupplierRow>[] = [
     ),
   },
   {
+    // 7Soft's Overdue column, and the one figure the ageing already answers
+    // per supplier: the part of the balance that is past its date.
+    accessorKey: "late",
+    header: "Overdue",
+    size: 160,
+    enableSorting: false,
+    meta: { align: "right", card: "metric", priority: 2 },
+    cell: ({ row }) =>
+      row.original.late === 0 ? (
+        dash
+      ) : (
+        <span className="font-medium text-bad-fg tabular-nums">
+          <CellMoney minor={row.original.late} />
+        </span>
+      ),
+  },
+  {
     accessorKey: "active",
     header: "Aktif",
     size: 110,
@@ -310,7 +337,9 @@ const supplierColumns: ColumnDef<TableSetup, SupplierRow>[] = [
 /// 7Soft's SUPPLIER tab: every supplier with its terms, and what is owed to
 /// each. A row opens that supplier's Kartu Hutang. Code, name, address, phone,
 /// contact, term and active come from the supplier master; 7Soft's Lokasi, Fax
-/// and Limit hutang are not fields of it and read "—".
+/// and Limit hutang are not fields of it and read "—". Sisa hutang and Overdue
+/// are the server's own ageing, per supplier — the same read that feeds the
+/// four figures and the chips above the list.
 export function SuppliersTab({
   lead,
   controls,
@@ -322,12 +351,31 @@ export function SuppliersTab({
 }) {
   const suppliers = useSuppliers()
   const aging = useQuery(payablesAgingQuery(todayIso(), null))
+  const giros = useQuery(projectionGirosQuery())
+  /// The chips 7Soft's supplier list offers, less "Giro out": nothing on the
+  /// wire ties a giro to a supplier (only the party's printed name), so a chip
+  /// that could not answer is not drawn — see the backend list in the report.
+  const [chip, setChip] = useState<"all" | "owing" | "overdue">("all")
   const owed = useMemo(
     () =>
       new Map(
         (aging.data?.suppliers ?? []).map((row) => [
           row.supplier_id,
           row.buckets.total_minor,
+        ])
+      ),
+    [aging.data]
+  )
+  /// What is late: the ageing's four past-due buckets, added.
+  const late = useMemo(
+    () =>
+      new Map(
+        (aging.data?.suppliers ?? []).map((row) => [
+          row.supplier_id,
+          row.buckets.days_1_30_minor +
+            row.buckets.days_31_60_minor +
+            row.buckets.days_61_90_minor +
+            row.buckets.days_over_90_minor,
         ])
       ),
     [aging.data]
@@ -343,15 +391,83 @@ export function SuppliersTab({
         term: one.default_payment_terms_code ?? "",
         active: one.status === "ACTIVE" ? "Active" : "Inactive",
         owed: owed.get(one.supplier_code) ?? 0,
+        late: late.get(one.supplier_code) ?? 0,
       })),
-    [suppliers.data, owed]
+    [suppliers.data, owed, late]
+  )
+  const shown = useMemo(
+    () =>
+      chip === "all"
+        ? rows
+        : rows.filter((one) =>
+            chip === "owing" ? one.owed > 0 : one.late > 0
+          ),
+    [rows, chip]
+  )
+  /// 7Soft's four supplier figures. "Due this week" reads "—": the ageing
+  /// buckets by age, not by the next seven days, and no per-supplier due date
+  /// is on the wire (the backend list in the report names the read it needs).
+  const totals = aging.data?.total
+  const owedAll = totals?.total_minor ?? 0
+  const lateAll =
+    (totals?.days_1_30_minor ?? 0) +
+    (totals?.days_31_60_minor ?? 0) +
+    (totals?.days_61_90_minor ?? 0) +
+    (totals?.days_over_90_minor ?? 0)
+  const outGiros = (giros.data ?? []).filter((one) =>
+    ["ISSUED", "DELIVERED", "DUE"].includes(one.status)
+  )
+  const before = (
+    <>
+      <KpiStrip className="xl:grid-cols-4">
+        <Kpi
+          label="Owed"
+          value={money(owedAll)}
+          onClick={() => setChip("all")}
+        />
+        <Kpi
+          label="Overdue"
+          value={
+            <span className={lateAll > 0 ? "text-bad-fg" : undefined}>
+              {money(lateAll)}
+            </span>
+          }
+          onClick={() => setChip("overdue")}
+        />
+        <Kpi label="Due this week" value="—" />
+        <Kpi
+          label="Giro still out"
+          value={`${count(outGiros.length)} · ${money(
+            outGiros.reduce((sum, one) => sum + one.amount_minor, 0)
+          )}`}
+        />
+      </KpiStrip>
+      <div className="mb-3.5 flex flex-wrap items-center gap-1.5">
+        <FilterChips
+          label="Supplier"
+          value={chip === "all" ? null : chip}
+          options={[
+            { value: null, label: "All" },
+            { value: "owing", label: "Owing" },
+            { value: "overdue", label: "Overdue" },
+          ]}
+          onChange={(next) =>
+            setChip((next ?? "all") as "all" | "owing" | "overdue")
+          }
+        />
+        <span className="text-[0.9375rem] text-body">
+          {count(shown.length)} {shown.length === 1 ? "supplier" : "suppliers"}
+        </span>
+      </div>
+    </>
   )
   return (
     <InfoTable<SupplierRow>
       lead={lead}
       controls={controls}
+      before={before}
       columns={supplierColumns}
-      rows={rows}
+      rows={shown}
       getId={(row) => row.code}
       searchLabel="Search suppliers"
       onRowClick={(row) => onOpen(row.code)}
@@ -372,6 +488,7 @@ export function SuppliersTab({
           xText("Jangka", 12),
           xMoney("Limit hutang"),
           xMoney("Sisa hutang"),
+          xMoney("Overdue"),
           xText("Aktif", 10),
         ],
         rows: rows.map((one) => [
@@ -385,6 +502,7 @@ export function SuppliersTab({
           one.term,
           null,
           one.owed,
+          one.late,
           one.active,
         ]),
       })}

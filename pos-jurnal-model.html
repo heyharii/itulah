@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Model Jurnal</title>
+<style>
+:root{--ink:#111827;--ink-2:#4b5563;--ink-3:#6b7280;--hair:#e5e7eb;--hair-2:#d1d5db;--soft:#f9fafb;--blue-t:#eff6ff}
+*{box-sizing:border-box}
+body{margin:0;background:#fff;color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Inter","Segoe UI",sans-serif}
+.wrap{max-width:1100px;margin:0 auto;padding:40px 32px}
+h1{font-size:22px;margin:0 0 4px}
+.meta{color:var(--ink-3);margin-bottom:20px}
+table{width:100%;border-collapse:collapse;border:1px solid var(--hair-2)}
+th{background:var(--soft);text-align:left;font-weight:600;padding:10px 14px;border:1px solid var(--hair-2)}
+td{height:40px;padding:0 14px;vertical-align:middle;border-left:1px solid var(--hair-2);border-right:1px solid var(--hair-2)}
+tr.step td{border-top:1px solid var(--hair-2)}
+td.trx{width:34%}
+tr.step td{padding-top:0}
+.trx .line{display:flex;justify-content:space-between;gap:16px}
+td.sum{font-weight:600}
+td.sub{padding-left:30px;color:var(--ink-2)}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;width:120px}
+td.cr{padding-left:40px}
+tr.total td{border-top:2px solid var(--ink);font-weight:600;background:var(--soft)}
+.head td{background:var(--blue-t);font-weight:600;border-top:1px solid var(--hair-2)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>12. Retur + beli barang baru lebih banyak</h1>
+  <div class="meta">Toko C001 · angka contoh</div>
+  <table>
+    <thead><tr><th>Transaksi</th><th>Nama Akun</th><th class="num">Dr</th><th class="num">Cr</th></tr></thead>
+    <tbody id="body"></tbody>
+  </table>
+</div>
+<script>
+// One step = what happened (left) and the journal it makes (right).
+const STEPS = [
+  { trx: [["Barang kembali", "", "sum"], ["Kemeja Batik", "-Rp 250.000", "sub"]],
+    j: [["Retur Penjualan C001", 250000, 0], ["Penjualan Tunai C001", 0, 250000]] },
+  { trx: [["Barang baru", "Rp 500.000", "sum"], ["Kaos × 2", "Rp 300.000", "sub"], ["Celana", "Rp 200.000", "sub"]],
+    j: [] },
+  { trx: [["Sisa dibayar EDC Debit BCA", "Rp 250.000", "sum"], ["MDR 1%", "-Rp 2.500", "sub"], ["Masuk bank HO", "Rp 247.500", "sub"]],
+    j: [["Credit Card Expenses C001", 2500, 0], ["Hutang Affiliasi Pembiayaan HO - C001", 247500, 0], ["Penjualan Debit Card Bank BCA C001", 0, 250000]] },
+  { trx: [["Uang EDC masuk bank HO", "Rp 247.500", "sum"]],
+    j: [["Cash In Bank Tabungan BCA HO", 247500, 0], ["Piutang Affiliasi Pembiayaan CIKUPA - HO", 0, 247500]] },
+  { trx: [["Stok keluar (HPP)", "Rp 290.000", "sum"]],
+    j: [["Harga Pokok Pembelian C001", 290000, 0], ["Persediaan Barang Dagangan C001", 0, 290000]] },
+  { trx: [["Stok kembali (HPP)", "Rp 150.000", "sum"]],
+    j: [["Persediaan Barang Dagangan C001", 150000, 0], ["Harga Pokok Pembelian C001", 0, 150000]] },
+];
+const rp = n => n ? n.toLocaleString("id-ID") : "";
+let html = "", d = 0, k = 0;
+// One table row per line, so each transaction line sits level with a journal line.
+for (const s of STEPS) {
+  const rows = Math.max(s.trx.length, s.j.length);
+  for (let i = 0; i < rows; i++) {
+    const t = s.trx[i], jl = s.j[i];
+    if (jl) { d += jl[1]; k += jl[2]; }
+    html += `<tr class="${i === 0 ? "step" : ""}">
+      <td class="trx ${t ? t[2] : ""}">${t ? `<div class="line"><span>${t[0]}</span><span>${t[1]}</span></div>` : ""}</td>
+      <td class="${jl && jl[2] ? "cr" : ""}">${jl ? jl[0] : ""}</td>
+      <td class="num">${jl ? rp(jl[1]) : ""}</td><td class="num">${jl ? rp(jl[2]) : ""}</td></tr>`;
+  }
+}
+html += `<tr class="total"><td></td><td>Total</td><td class="num">${rp(d)}</td><td class="num">${rp(k)}</td></tr>`;
+document.getElementById("body").innerHTML = html;
+</script>
+</body>
+</html>

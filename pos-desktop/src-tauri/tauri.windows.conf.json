@@ -1,6 +1,8 @@
 {
   "bundle": {
-    "targets": ["msi"],
+    "targets": [
+      "msi"
+    ],
     "resources": {
       "rfid-native/UHFAPI.dll": "rfid-native/UHFAPI.dll",
       "rfid-native/libusb-1.0.dll": "rfid-native/libusb-1.0.dll",
@@ -11,8 +13,15 @@
     },
     "windows": {
       "wix": {
-        "fragmentPaths": ["wix/uninstall-guard.wxs"],
-        "componentGroupRefs": ["CentralPosUninstallGuard"]
+        "fragmentPaths": [
+          "wix/uninstall-guard.wxs"
+        ],
+        "componentGroupRefs": [
+          "CentralPosUninstallGuard"
+        ]
+      },
+      "nsis": {
+        "installerHooks": "windows/installer-hooks.nsh"
       }
     }
   }

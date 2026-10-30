@@ -637,7 +637,7 @@ export function ScheduleSection({
 }) {
   return (
     <SheetSection
-      title="Service schedule & inspections"
+      title="Routine service & inspections"
       aside={
         <SectionAside>
           <TextAction aria-label="Add task" onClick={onAddTask}>

@@ -9,11 +9,10 @@
               [-d CloudUrl=https://… (the build's ITULAH_DEFAULT_CLOUD_URL)]
               -o central-store-server-1.2.3-x64.msi
 
-  Interactive:   double-click. One dialog, "Connect this PC to Central", asks
-                 for the install code from Central › Stores › the store ›
-                 Server (XXXXX-XXXXX). Then it installs and starts the service,
-                 which claims the code on its first start. "Skip" installs
-                 without a code and opens the browser setup page instead.
+  Interactive:   double-click. It installs and starts the service, then opens
+                 the installer window (the setup page as an Edge app window):
+                 check this PC, the install code from Central › Stores › the
+                 store › Server, installing, Ready.
   Silent:        msiexec /i central-store-server-1.2.3-x64.msi /qn ENROLL_CODE=7K4P9-QX2MA
                  CLOUD_URL is optional: it defaults to the Central address the
                  build was made with (also baked into store.exe itself).
@@ -44,6 +43,10 @@
 
     <Property Id="ENROLL_CODE" Secure="yes" Hidden="yes" />
     <Property Id="FORCE_UNINSTALL" Secure="yes" />
+    <!-- Restart Manager stays on: with it disabled (MSIRESTARTMANAGERCONTROL)
+         Windows Installer's own files-in-use check loops on InstallValidate
+         for the running service (riza-1, 30 Oct 2026). An upgrade therefore
+         asks once, "Close the applications", already chosen. -->
     <!-- Central's address, from the build (-d CloudUrl=…), so nobody types it.
          `msiexec … CLOUD_URL=…` still overrides it. -->
     <?ifndef CloudUrl?>
@@ -69,6 +72,16 @@
                          Name="itulah Store tray" Type="string"
                          Value="powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File &quot;[#TrayScript]&quot;" />
         </Component>
+        <!-- central-store: links, which the setup page's buttons open: they
+             run `store.exe prepare-pc` after Windows' administrator question
+             (edge/laptop.rs). -->
+        <Component Id="Protocol" Bitness="always64">
+          <RegistryKey Root="HKLM" Key="Software\Classes\central-store">
+            <RegistryValue Type="string" Value="URL:Central Store Server" KeyPath="yes" />
+            <RegistryValue Name="URL Protocol" Type="string" Value="" />
+            <RegistryValue Key="shell\open\command" Type="string" Value="&quot;[#StoreExe]&quot; open-link &quot;%1&quot;" />
+          </RegistryKey>
+        </Component>
         <Directory Id="WebFolder" Name="web" />
       </Directory>
     </StandardDirectory>
@@ -78,7 +91,7 @@
         <Component Id="MenuShortcuts" Guid="0c9f2a61-5b7e-4f3d-8a2c-1e6d4b9f7a35">
           <util:InternetShortcut Id="SetupShortcut"
                                  Name="Central Store Server — Setup and status"
-                                 Target="http://localhost:8082/setup" />
+                                 Target="http://127.0.0.1:8082/setup" />
           <RemoveFolder Id="RemoveMenuFolder" On="uninstall" />
           <RegistryValue Root="HKLM" Key="Software\itulah\Store" Name="menu"
                          Type="integer" Value="1" KeyPath="yes" />
@@ -89,6 +102,7 @@
     <Feature Id="Main">
       <ComponentRef Id="Program" />
       <ComponentRef Id="Tray" />
+      <ComponentRef Id="Protocol" />
       <!-- The shop's web apps the node serves; harvested at build time. -->
       <Files Directory="WebFolder" Include="$(BinDir)\web\**" />
       <ComponentRef Id="MenuShortcuts" />
@@ -102,6 +116,12 @@
     <CustomAction Id="InstallService" FileRef="StoreExe"
                   ExeCommand="install-service"
                   Execute="deferred" Impersonate="no" Return="check" />
+    <!-- What broke at C015 on 28 Oct, fixed while the installer has an
+         administrator's rights: the shop's network Private (the firewall
+         rule opens Private networks only) and no sleep on mains. -->
+    <CustomAction Id="PreparePc" FileRef="StoreExe"
+                  ExeCommand="prepare-pc"
+                  Execute="deferred" Impersonate="no" Return="ignore" />
     <!-- Removing the product asks `store.exe can-uninstall` first (as SYSTEM,
          which may read the data folder) and stops there, nothing changed,
          unless head office released the server and nothing would be lost.
@@ -126,21 +146,24 @@
     <CustomAction Id="StartTray" Directory="INSTALLFOLDER"
                   ExeCommand="powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File &quot;[#TrayScript]&quot;"
                   Execute="immediate" Impersonate="yes" Return="asyncNoWait" />
-    <!-- After an interactive first install where the code was skipped, open
-         the setup page for the person sitting there. With a code, the service
-         connects by itself and nothing opens. -->
+    <!-- After an interactive install, the installer window itself: the setup
+         page (edge/enrolment_setup.html) as an Edge app window, no address
+         bar — check this PC, the install code, installing, Ready. On an
+         upgrade it opens on Ready. 127.0.0.1, not localhost: setup listens
+         on IPv4 loopback only. -->
     <CustomAction Id="OpenSetup" Directory="INSTALLFOLDER"
-                  ExeCommand="explorer.exe http://localhost:8082/setup"
-                  Execute="immediate" Impersonate="yes" Return="ignore" />
+                  ExeCommand="powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command &quot;try { Start-Process msedge -ArgumentList '--app=http://127.0.0.1:8082/setup','--window-size=960,680' -ErrorAction Stop } catch { Start-Process 'http://127.0.0.1:8082/setup' }&quot;"
+                  Execute="immediate" Impersonate="yes" Return="asyncNoWait" />
 
-    <!-- The one question the installer asks. Modelled on WixUI_Minimal (same
-         dialog set and sequence), without its licence page. Skipped on an
-         upgrade, a repair, a removal and in silent installs; skipped too
-         when ENROLL_CODE is already on the command line. -->
+    <!-- No dialog of its own: double-click, Windows asks for administrator
+         rights, a progress bar, then the installer window above — no
+         "Completed" page of WiX's own: Ready is the finish. The code
+         is asked there, after the PC is checked. Silent installs still take
+         ENROLL_CODE on the command line. -->
     <UI Id="CentralStoreUI">
-      <TextStyle Id="WixUI_Font_Normal" FaceName="Tahoma" Size="8" />
-      <TextStyle Id="WixUI_Font_Bigger" FaceName="Tahoma" Size="12" />
-      <TextStyle Id="WixUI_Font_Title" FaceName="Tahoma" Size="9" Bold="yes" />
+      <TextStyle Id="WixUI_Font_Normal" FaceName="Segoe UI" Size="9" />
+      <TextStyle Id="WixUI_Font_Bigger" FaceName="Segoe UI" Size="12" />
+      <TextStyle Id="WixUI_Font_Title" FaceName="Segoe UI" Size="9" Bold="yes" />
 
       <Property Id="DefaultUIFont" Value="WixUI_Font_Normal" />
       <Property Id="WixUI_Mode" Value="Minimal" />
@@ -154,41 +177,6 @@
       <DialogRef Id="ResumeDlg" />
       <DialogRef Id="UserExit" />
 
-      <Dialog Id="EnrollDlg" Width="370" Height="270" Title="Central Store Server">
-        <Control Id="Title" Type="Text" X="20" Y="15" Width="330" Height="18" Transparent="yes" NoPrefix="yes"
-                 Text="{\WixUI_Font_Bigger}Connect this PC to Central" />
-        <Control Id="Description" Type="Text" X="20" Y="45" Width="330" Height="30" Transparent="yes" NoPrefix="yes"
-                 Text="Enter the install code from Central &gt; Stores &gt; your store &gt; Server. This PC then becomes that store's server." />
-        <Control Id="CodeLabel" Type="Text" X="20" Y="96" Width="330" Height="12" Transparent="yes" NoPrefix="yes"
-                 Text="Install code" />
-        <!-- {11}: XXXXX-XXXXX. The Connect button stays disabled until the
-             code has its dash; store.exe checks the rest when it stages it.
-             WiX v4+ writes a control's conditions as attributes (as its own
-             WelcomeEulaDlg does); a <Condition> child no longer builds. -->
-        <Control Id="CodeEdit" Type="Edit" X="20" Y="110" Width="150" Height="18" Property="ENROLL_CODE" Text="{11}" Sunken="yes" />
-        <Control Id="CodeHint" Type="Text" X="20" Y="134" Width="330" Height="12" Transparent="yes" NoPrefix="yes"
-                 Text="It looks like 7K4P9-QX2MA." />
-        <Control Id="SkipHint" Type="Text" X="20" Y="190" Width="330" Height="30" Transparent="yes" NoPrefix="yes"
-                 Text="No code yet? Choose Skip: the server installs and a setup page opens in the browser where the code can be entered later." />
-        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
-        <Control Id="Connect" Type="PushButton" X="232" Y="243" Width="64" Height="17" Default="yes" Text="Connect"
-                 DisableCondition="NOT (ENROLL_CODE &gt;&lt; &quot;-&quot;)"
-                 EnableCondition="ENROLL_CODE &gt;&lt; &quot;-&quot;" />
-        <Control Id="Skip" Type="PushButton" X="168" Y="243" Width="56" Height="17" Text="Skip" />
-        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="Cancel" />
-      </Dialog>
-
-      <Publish Dialog="EnrollDlg" Control="Connect" Event="EndDialog" Value="Return" />
-      <!-- Skipping clears whatever half a code was typed. -->
-      <Publish Dialog="EnrollDlg" Control="Skip" Property="ENROLL_CODE" Value="{}" Order="1" />
-      <Publish Dialog="EnrollDlg" Control="Skip" Event="EndDialog" Value="Return" Order="2" />
-      <Publish Dialog="EnrollDlg" Control="Cancel" Event="EndDialog" Value="Exit" />
-      <Publish Dialog="ExitDialog" Control="Finish" Event="EndDialog" Value="Return" Order="999" />
-
-      <InstallUISequence>
-        <Show Dialog="EnrollDlg" Before="ProgressDlg"
-              Condition="NOT Installed AND NOT ENROLL_CODE AND NOT WIX_UPGRADE_DETECTED" />
-      </InstallUISequence>
     </UI>
     <UIRef Id="WixUI_Common" />
 
@@ -205,10 +193,12 @@
               Condition="NOT REMOVE AND ENROLL_CODE" />
       <Custom Action="InstallService" After="StageCode"
               Condition="NOT REMOVE" />
+      <Custom Action="PreparePc" After="InstallService"
+              Condition="NOT REMOVE" />
       <Custom Action="StartTray" After="InstallFinalize"
               Condition="NOT REMOVE AND UILevel &gt;= 4" />
       <Custom Action="OpenSetup" After="StartTray"
-              Condition="NOT Installed AND NOT ENROLL_CODE AND UILevel &gt;= 4" />
+              Condition="NOT REMOVE AND UILevel &gt;= 4" />
     </InstallExecuteSequence>
   </Package>
 </Wix>

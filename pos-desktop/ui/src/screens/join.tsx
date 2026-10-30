@@ -23,6 +23,7 @@
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 
+import { isGudang } from "@/edition"
 import { Icon } from "@/icons"
 import {
   beginJoin,
@@ -48,11 +49,22 @@ type Stage =
   | { readonly kind: "approved"; readonly view: JoinView }
   | { readonly kind: "refused"; readonly view: JoinView }
 
+/// What this machine is called on these screens: Central Gudang is a
+/// warehouse PC, never a POS.
+const THIS = isGudang ? "PC gudang ini" : "POS ini"
+
 /// Often enough that this screen changes soon after head office has answered;
 /// rarely enough that five waiting POS are not a load on anybody's node.
 const POLL_MS = 3000
 
-export function JoinScreen({ onDone }: { onDone: () => void }) {
+export function JoinScreen({
+  onDone,
+  start,
+}: {
+  onDone: () => void
+  /// A node already chosen — the store server on this PC the door offered.
+  start?: FoundNode
+}) {
   const [stage, setStage] = useState<Stage>({ kind: "loading" })
 
   // A request left waiting when the app closed is picked up where it was:
@@ -65,13 +77,15 @@ export function JoinScreen({ onDone }: { onDone: () => void }) {
       setStage(
         held.ok && held.value !== null
           ? { kind: "waiting", view: held.value }
-          : { kind: "find" },
+          : start !== undefined
+            ? { kind: "confirm", node: start }
+            : { kind: "find" },
       )
     })()
     return () => {
       alive = false
     }
-  }, [])
+  }, [start])
 
   return (
     <div id="app" data-screen="sale">
@@ -80,7 +94,7 @@ export function JoinScreen({ onDone }: { onDone: () => void }) {
         <div className="page-inner" style={{ maxWidth: 620 }}>
           <div className="page-head">
             <div>
-              <h1>Gabungkan POS ini ke server toko</h1>
+              <h1>Gabungkan {THIS} ke server toko</h1>
             </div>
             {/* Leaving while waiting keeps the request: it is picked up again,
                 same code, the next time this screen opens. */}
@@ -245,7 +259,7 @@ function FindNode({ onPick }: { onPick: (node: FoundNode) => void }) {
                   </small>
                 </span>
                 {current ? (
-                  <span className="badge plain">Server POS ini</span>
+                  <span className="badge plain">Server {THIS}</span>
                 ) : (
                   <span className="badge ok">Terkonfirmasi</span>
                 )}
@@ -340,14 +354,14 @@ function ConfirmNode({
       </div>
 
       <div className="notice">
-        Kantor pusat menyetujui POS ini di Central. Layar ini menampilkan{" "}
+        Kantor pusat menyetujui {THIS} di Central. Layar ini menampilkan{" "}
         <strong>kode</strong> dan <strong>nomor verifikasi</strong> untuk
         dicocokkan.
       </div>
 
       {alreadyPaired && (
         <div className="notice warn">
-          POS ini sudah terpasang sebagai <strong>{config?.terminal_id}</strong>.
+          {isGudang ? "PC gudang ini" : "POS ini"} sudah terpasang sebagai <strong>{config?.terminal_id}</strong>.
           Setelah disetujui, kredensial lamanya diganti. Agar namanya tetap,
           minta kantor pusat menyetujuinya sebagai{" "}
           <strong>pengganti {config?.terminal_id}</strong>.
@@ -443,7 +457,7 @@ function Waiting({
         <h3 style={{ textAlign: "center" }}>Menunggu persetujuan kantor pusat</h3>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
           <div>
-            <span className="label">Kode POS</span>
+            <span className="label">{isGudang ? "Kode PC gudang" : "Kode POS"}</span>
             <div className="join-code num">{view.code}</div>
           </div>
           <div>
@@ -452,7 +466,7 @@ function Waiting({
           </div>
         </div>
         <p className="muted" style={{ fontSize: 15, textAlign: "left" }}>
-          Kantor pusat menyetujui POS ini di Central.
+          Kantor pusat menyetujui {THIS} di Central.
         </p>
         <p className="muted num" style={{ fontSize: 15, textAlign: "left" }}>
           {view.node !== null ? siteTitle(view.node) : view.base_url}
@@ -500,7 +514,7 @@ function Approved({ view, onDone }: { view: JoinView; onDone: () => void }) {
       <span className="seal">
         <Icon name="check" />
       </span>
-      <h3>POS ini sudah tergabung</h3>
+      <h3>{isGudang ? "PC gudang ini" : "POS ini"} sudah tergabung</h3>
       <div className="join-code">{view.label}</div>
       <p className="muted num" style={{ fontSize: 15 }}>
         {siteTitle(view.node)} · {view.base_url}

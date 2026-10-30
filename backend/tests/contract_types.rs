@@ -433,6 +433,15 @@ fn the_wire_types_are_written_for_the_browser() {
         OpenStoresAnswer,
         StartBooksRequest,
     );
+    // Marketing's point policy (1008): the everyday rate and its exceptions.
+    for_contract!(
+        &config,
+        PointPolicyCatalogue,
+        PointPolicySettingsRow,
+        PointPolicyRow,
+        SavePointPolicySettings,
+        SavePointPolicyRequest,
+    );
     // Opening a store: the Stores list and page with their readiness checks,
     // head office's "Open store", the install code for the store's server,
     // and the device register with its test pages.
@@ -2095,6 +2104,35 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("FileDataRequestBody: {e}"));
     inventory_backend::cloud::http::data_requests::DecideDataRequestBody::export_all(&config)
         .unwrap_or_else(|e| panic!("DecideDataRequestBody: {e}"));
+    // A person's papers (1001).
+    for_contract!(
+        &config,
+        EmployeeDetailsView,
+        EmployeeDocumentView,
+        HireDossierPersonal,
+        PersonalChanges,
+        EmployeeDataUpdateView,
+    );
+    inventory_backend::cloud::http::dossier::EmployeeDossierView::export_all(&config)
+        .unwrap_or_else(|e| panic!("EmployeeDossierView: {e}"));
+    inventory_backend::cloud::http::dossier::HireDossierView::export_all(&config)
+        .unwrap_or_else(|e| panic!("HireDossierView: {e}"));
+    inventory_backend::cloud::http::dossier::DocumentFiling::export_all(&config)
+        .unwrap_or_else(|e| panic!("DocumentFiling: {e}"));
+    inventory_backend::cloud::http::dossier::SaveDetailsBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("SaveDetailsBody: {e}"));
+    inventory_backend::cloud::http::dossier::FileDocumentsBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("FileDocumentsBody: {e}"));
+    inventory_backend::cloud::http::dossier::FileDataUpdateBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("FileDataUpdateBody: {e}"));
+    inventory_backend::cloud::http::dossier::DecideDataUpdateBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("DecideDataUpdateBody: {e}"));
+    inventory_backend::cloud::http::dossier::WithdrawDataUpdateBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("WithdrawDataUpdateBody: {e}"));
+    inventory_backend::cloud::http::dossier::SaveHireDossierBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("SaveHireDossierBody: {e}"));
+    inventory_backend::cloud::http::dossier::RemoveDocumentBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("RemoveDocumentBody: {e}"));
     inventory_backend::cloud::postgres::BenefitBalanceRow::export_all(&config)
         .unwrap_or_else(|e| panic!("BenefitBalanceRow: {e}"));
     inventory_backend::cloud::postgres::BenefitMovementRow::export_all(&config)

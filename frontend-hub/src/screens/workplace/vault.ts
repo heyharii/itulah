@@ -1,5 +1,6 @@
 import type { FileInContext } from "@itulah/contract"
 
+import type { GaPaper } from "@/lib/queries/ga-records"
 import {
   documentContentUrl,
   fileUrl,
@@ -79,6 +80,34 @@ export interface VaultRow {
   /// fetched after the tile has painted.
   readonly href: string | null
   readonly docDate: string | null
+  /// The paper GA keeps behind this file — its number, what it is about and
+  /// where its hard copy is. Absent for a file that has none.
+  readonly paper?: GaPaper | null
+}
+
+/// A paper GA has filed before it was scanned: it has a record and a hard
+/// copy, and no bytes yet, so the document drawer does not list it.
+export function fromPaper(paper: GaPaper): VaultRow {
+  return {
+    key: `document:${paper.document_id}`,
+    id: paper.document_id,
+    source: "FILED",
+    name: paper.title,
+    title: paper.title,
+    summary: null,
+    folder: [],
+    tags: [],
+    room: null,
+    contentType: "",
+    byteSize: 0,
+    available: true,
+    processing: null,
+    at: paper.issued_on ?? "",
+    by: "",
+    href: null,
+    docDate: null,
+    paper,
+  }
 }
 
 export function fromDocument(document: WorkplaceDocument): VaultRow {
@@ -151,6 +180,7 @@ export function placeOf(row: VaultRow): string {
 /// (owner, 17 Oct 2026, library-tidy-options.html A). "Ready" is a filter
 /// choice, never drawn in a row.
 export function stateOf(row: VaultRow): string {
+  if (row.paper != null && !row.paper.has_scan) return "No scan"
   if (!row.available) return "Missing"
   if (row.processing === "FAILED") return "Not read"
   if (row.processing !== null && row.processing !== "COMPLETED")

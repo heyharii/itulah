@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Profil barang · kasir</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<style>
+:root{--ink:#1d1d1f;--body:#4b5563;--mute:#6b7280;--faint:#9ca3af;--hairline:#e6e6e9;--hairline-2:#d9d9de;--soft:#f6f6f7;--soft-2:#eeeef0;--accent:#2563d9;--accent-bg:#ebf1fd;--ok:#15803d;--ok-bg:#e9f7ee;--bad:#d70015;--bad-bg:#fdecee;--warn:#b45309;--warn-bg:#fff4e5;--r:12px;--shadow:0 24px 60px rgba(15,23,42,.18),0 2px 8px rgba(15,23,42,.08)}
+*{box-sizing:border-box}
+html,body{margin:0;background:#e9ebef;font:15px/1.45 Inter,system-ui,sans-serif;color:var(--ink);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+.top{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;padding:12px 20px;background:rgba(233,235,239,.92);backdrop-filter:blur(10px);border-bottom:1px solid var(--hairline-2)}
+.top b{font-size:17px}
+.seg{display:inline-flex;gap:2px;padding:3px;border-radius:9px;background:#dfe1e6}
+.seg button{height:30px;padding:0 12px;border:0;border-radius:7px;background:none;cursor:pointer;white-space:nowrap}
+.seg button.on{background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.12);font-weight:600}
+.lbl{color:var(--mute)}
+
+/* the till behind, dimmed */
+.stage{position:relative;height:calc(100vh - 58px);min-height:700px;overflow:hidden}
+.till{position:absolute;inset:0;padding:18px 24px;filter:blur(1.5px);opacity:.55}
+.till .bar{height:44px;border-radius:10px;background:#fff;margin-bottom:12px}
+.till .row{height:58px;border-radius:8px;background:#fff;margin-bottom:6px}
+.veil{position:absolute;inset:0;background:rgba(30,35,45,.28);display:grid;place-items:center;padding:24px}
+
+/* the dialog */
+.dlg{background:#fff;border-radius:16px;box-shadow:var(--shadow);display:flex;flex-direction:column;max-height:100%;overflow:hidden;animation:pop 220ms cubic-bezier(.23,1,.32,1) both}
+@keyframes pop{from{opacity:0;scale:.97}}
+@media (prefers-reduced-motion:reduce){.dlg{animation:none}}
+.head{display:flex;align-items:flex-start;gap:16px;padding:20px 24px 16px;border-bottom:1px solid var(--hairline)}
+.head .ttl{flex:1;min-width:0;margin:0;font-size:20px;line-height:26px;font-weight:600;letter-spacing:-.01em}
+.head .sub{margin-top:2px;color:var(--mute);font-variant-numeric:tabular-nums}
+.x{flex:none;display:grid;place-items:center;width:36px;height:36px;border:0;border-radius:9px;background:none;cursor:pointer;color:var(--body)}
+.x:hover{background:var(--soft-2);color:var(--ink)}
+.x svg{width:20px;height:20px}
+.kbd{display:inline-grid;place-items:center;min-width:22px;height:20px;padding:0 5px;border-radius:5px;background:var(--soft-2);box-shadow:inset 0 0 0 1px var(--hairline-2);font-size:13px;font-weight:500;color:var(--body)}
+.ph{border-radius:12px;background:var(--soft);overflow:hidden;display:grid;place-items:center}
+.ph img{width:100%;height:100%;object-fit:cover;display:block}
+.ph .none{display:flex;flex-direction:column;align-items:center;gap:8px;color:var(--faint)}
+.ph .none svg{width:40px;height:40px}
+.price{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 12px}
+.price .now{font-size:30px;line-height:36px;font-weight:700;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.price s{color:var(--mute);font-size:17px;font-variant-numeric:tabular-nums}
+.pill{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:999px;font-weight:600;white-space:nowrap}
+.pill.promo{background:var(--accent-bg);color:var(--accent)}
+.pill.ok{background:var(--ok-bg);color:var(--ok)}
+.pill.bad{background:var(--bad-bg);color:var(--bad)}
+.pill.warn{background:var(--warn-bg);color:var(--warn)}
+.pill .dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{display:inline-flex;align-items:center;height:28px;padding:0 10px;border-radius:7px;background:var(--soft-2);color:var(--ink);font-weight:500}
+.facts{display:grid;gap:0;margin:0}
+.facts>div{display:grid;grid-template-columns:110px 1fr;gap:12px;align-items:baseline;padding:10px 0;border-bottom:1px solid var(--hairline)}
+.facts>div:last-child{border-bottom:0}
+.facts dt{color:var(--mute)}
+.facts dd{margin:0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.mono{font-variant-numeric:tabular-nums;letter-spacing:.01em}
+.sec{color:var(--mute);margin:0 0 8px}
+.qty{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-radius:10px;background:var(--soft)}
+.qty b{font-size:17px}
+.foot{display:flex;align-items:center;gap:10px;padding:12px 24px;border-top:1px solid var(--hairline);color:var(--mute)}
+.foot .sp{flex:1}
+.btn{display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 16px;border:0;border-radius:9px;background:var(--accent);color:#fff;font-weight:600;cursor:pointer}
+.btn .kbd{background:rgba(255,255,255,.18);box-shadow:inset 0 0 0 1px rgba(255,255,255,.35);color:#fff}
+.ghost{background:#fff;color:var(--ink);box-shadow:inset 0 0 0 1px var(--hairline-2)}
+.ghost .kbd{background:var(--soft-2);box-shadow:inset 0 0 0 1px var(--hairline-2);color:var(--body)}
+
+/* Now: what the till shows today */
+.now{width:560px}
+.now .body{overflow:auto;padding:20px 28px}
+.now .ph{width:100%;aspect-ratio:1/1;max-width:480px;margin:0 auto 16px}
+
+/* A: photo left, facts right — nothing scrolls */
+.a{width:min(920px,100%)}
+.a .body{display:grid;grid-template-columns:360px minmax(0,1fr);gap:28px;padding:24px}
+.a .ph{aspect-ratio:3/4;width:100%}
+.a .right{display:flex;flex-direction:column;gap:18px;min-width:0}
+.a .status{display:flex;flex-wrap:wrap;gap:6px}
+
+/* B: one column, photo a strip, two-column facts */
+.b{width:min(620px,100%)}
+.b .body{overflow:auto;padding:20px 24px;display:flex;flex-direction:column;gap:16px}
+.b .ph{width:100%;aspect-ratio:16/9}
+.b .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 20px}
+.b .grid dt{color:var(--mute)}
+.b .grid dd{margin:2px 0 0;font-weight:500;font-variant-numeric:tabular-nums}
+
+/* C: A with the article's stock, colour × size */
+.c{width:min(980px,100%)}
+.c .body{display:grid;grid-template-columns:320px minmax(0,1fr);gap:28px;padding:24px}
+.c .ph{aspect-ratio:3/4;width:100%}
+.c .right{display:flex;flex-direction:column;gap:16px;min-width:0}
+.c .status{display:flex;flex-wrap:wrap;gap:6px}
+.stock{border:1px solid var(--hairline);border-radius:12px;overflow:hidden}
+.stock-top{display:flex;justify-content:space-between;align-items:baseline;padding:12px 14px;border-bottom:1px solid var(--hairline)}
+.stock-top b{font-size:20px;font-variant-numeric:tabular-nums}
+.stock-top b.neg{color:var(--bad)}
+.mx{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+.mx th,.mx td{height:38px;padding:0 12px;text-align:center;border-bottom:1px solid var(--hairline)}
+.mx thead th{height:32px;background:var(--soft);color:var(--mute);font-weight:500}
+.mx tbody th{text-align:left;font-weight:500;color:var(--body);white-space:nowrap}
+.mx td{font-weight:600}
+.mx td.zero{color:var(--faint);font-weight:400}
+.mx td.neg{color:var(--bad)}
+.mx td.cur{box-shadow:inset 0 0 0 2px var(--accent);background:var(--accent-bg);color:var(--accent);border-radius:6px}
+.mx tbody tr:last-child th,.mx tbody tr:last-child td{border-bottom:0}
+.stock-foot{padding:8px 14px;background:var(--soft);color:var(--mute);border-top:1px solid var(--hairline)}
+@media (max-width:820px){.c .body{grid-template-columns:1fr}.c .ph{aspect-ratio:4/3}}
+@media (max-width:820px){.a .body{grid-template-columns:1fr}.a .ph{aspect-ratio:4/3}}
+</style>
+</head>
+<body>
+<header class="top">
+  <b>Profil barang</b>
+  <span class="lbl">Versi</span><div class="seg" id="ver"></div>
+  <span class="lbl">Barang</span><div class="seg" id="item"></div>
+</header>
+<div class="stage">
+  <div class="till"><div class="bar"></div><div class="row"></div><div class="row"></div><div class="row"></div></div>
+  <div class="veil" id="veil"></div>
+</div>
+<script>
+const IMG = 'https://storage.googleapis.com/itulah-media-21f41328/supplier/'
+const ITEMS = [
+  { id: 'blouse', name: 'Blouse Tangan Panjang HITAM ALL SIZE', sku: '00000006001', art: '00000006', bc: '800000006001', div: 'Ladies', tags: ['BLOUSE', 'TANGAN_PANJANG'], price: 199000, promo: ['Gajian Oktober 30%', 59700], img: IMG + '0022/ITM-FB63187E.jpg?v=1792296152423', qty: 1, marks: [] },
+  { id: 'polo', name: 'Polo Shirts PUTIH ALL SIZE', sku: '00000010001', art: '00000010', bc: '800000010001', div: 'Men', tags: ['POLO_SHIRT', 'TANGAN_PENDEK'], price: 165000, promo: ['Gajian Oktober 30%', 49500], img: IMG + '0033/ITM-5174E8E3.jpg?v=1792294062189', qty: 2, marks: [] },
+  { id: 'gamis', name: 'GAMIS 119 HITAM ALL SIZE', sku: '00000001001', art: '00000001', bc: '800000001001', div: 'Ladies', tags: ['BORDIR', 'GAMIS'], price: 308000, promo: null, img: IMG + '0009/ITM-C43313F3.jpg?v=1791268597463', qty: 1, marks: [] },
+  { id: 'jaket', name: '87167 Jaket HITAM M', sku: '00000004003', art: '00000004', bc: '800000004003', div: 'Ladies', tags: ['CASUAL', 'JAKET', 'JEANS'], price: 194000, promo: ['Gajian Oktober 30%', 58200], img: null, qty: 1, marks: ['Stok minus'] },
+  { id: 'polo13', name: 'Polo Shirts COKLAT L', sku: '00000013104', art: '00000013', bc: '800000013104', div: 'Men', tags: ['POLO_SHIRT', 'TANGAN_PENDEK'], price: 165000, promo: ['Gajian Oktober 30%', 49500], img: null, qty: 1, marks: [] },
+  { id: 'kaki', name: 'Bombi Kaos Kaki 3in1', sku: '00000025001', art: '00000025', bc: '800000025001', div: 'Men', tags: ['PAKAIAN_DALAM'], price: 29000, promo: null, img: null, qty: 3, marks: [], never: 'Pakaian dalam' },
+]
+const VERS = [['now', 'Sekarang'], ['a', 'A · Foto kiri ★'], ['b', 'B · Satu kolom'], ['c', 'C · A + stok artikel']]
+/* Stock on this shop's floor, every SKU of the article: colour down, size
+   across. The SKU on the till is ringed. Numbers from store-01, 29 Oct 2026
+   (blouse, jaket, gamis, polo putih); polo 13 and kaos kaki are made up. */
+const STOCK = {
+  blouse: { sizes: ['All size'], rows: [['HITAM', [4]], ['PUTIH', [2]]], cur: ['HITAM', 0] },
+  polo: { sizes: ['All size'], rows: [['PUTIH', [9]]], cur: ['PUTIH', 0] },
+  gamis: { sizes: ['All size'], rows: [['HITAM', [10]], ['CREME', [10]], ['COKLAT', [2]], ['PINK', [3]]], cur: ['HITAM', 0] },
+  jaket: { sizes: ['M'], rows: [['HITAM', [9]], ['NAVY', [9]]], cur: ['HITAM', 0] },
+  polo13: { sizes: ['M', 'L', 'XL', 'XXL'], rows: [['ABU TUA', [3, 0, 2, 1]], ['COKLAT', [2, 4, 0, 1]], ['HITAM', [5, 3, 2, 0]]], cur: ['COKLAT', 1] },
+  kaki: { sizes: ['All size'], rows: [['ASSORTED', [-2]]], cur: ['ASSORTED', 0] },
+}
+let V = 'a', I = 'blouse'
+try { V = localStorage.getItem('ip.v') || V; I = localStorage.getItem('ip.i') || I } catch {}
+const rp = n => 'Rp ' + n.toLocaleString('id-ID')
+const sku83 = s => s.slice(0, 8) + '·' + s.slice(8)
+const nice = t => t.toLowerCase().replace(/_/g, ' ').replace(/^./, c => c.toUpperCase())
+const until = () => { const d = new Date(2026, 9, 29); d.setDate(d.getDate() + 7); return d.getDate() + ' Nov 2026' }
+const X = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>'
+const NOPH = '<div class="none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/></svg>Belum ada foto</div>'
+const photo = it => `<div class="ph">${it.img ? `<img src="${it.img}" alt="">` : NOPH}</div>`
+const priceNow = it => it.price - (it.promo ? it.promo[1] : 0)
+const swap = it => it.never ? `<span class="pill bad"><span class="dot"></span>Tidak bisa ditukar · ${it.never}</span>` : `<span class="pill ok"><span class="dot"></span>Bisa ditukar s/d ${until()}</span>`
+
+function now(it) {
+  // As the till draws it today: tags twice (in Divisi and Tag), raw codes, a
+  // long photo that pushes the price below the fold, a secondary Tutup.
+  const tg = it.tags.join(', ')
+  const rows = [['SKU', sku83(it.sku)], ['Kode artikel', it.art], ['Barcode', it.bc], ['Divisi', `${it.div} · ${tg}`], ['Tag', tg], ['Harga', rp(priceNow(it)) + (it.promo ? ` <s>${rp(it.price)}</s>` : '')], ['Jumlah', it.qty], ['Keterangan', [it.promo && it.promo[0].replace(' 30%', ''), ...it.marks].filter(Boolean).join(' · ') || '—']]
+  return `<section class="dlg now"><div class="head"><p class="ttl">${it.name}</p><button class="x" aria-label="Tutup">${X}</button></div>
+    <div class="body">${photo(it)}<dl class="facts">${rows.map(([k, v]) => `<div><dt>${k}</dt><dd style="text-align:right">${v}</dd></div>`).join('')}</dl></div>
+    <div class="foot"><span class="sp"></span><button class="btn ghost">Tutup <span class="kbd">Esc</span></button></div></section>`
+}
+
+function a(it) {
+  return `<section class="dlg a"><div class="head"><div style="flex:1;min-width:0"><p class="ttl">${it.name}</p><div class="sub">${sku83(it.sku)}</div></div><button class="x" aria-label="Tutup (Esc)">${X}</button></div>
+    <div class="body">${photo(it)}
+      <div class="right">
+        <div><div class="price"><span class="now">${rp(priceNow(it))}</span>${it.promo ? `<s>${rp(it.price)}</s>` : ''}</div>
+          <div class="status" style="margin-top:10px">${it.promo ? `<span class="pill promo">${it.promo[0]} · −${rp(it.promo[1])}</span>` : ''}${swap(it)}${it.marks.map(m => `<span class="pill warn"><span class="dot"></span>${m}</span>`).join('')}</div></div>
+        <div><p class="sec">Divisi ${it.div}</p><div class="chips">${it.tags.map(t => `<span class="chip">${nice(t)}</span>`).join('')}</div></div>
+        <dl class="facts">
+          <div><dt>Kode artikel</dt><dd class="mono">${it.art}</dd></div>
+          <div><dt>Barcode</dt><dd class="mono">${it.bc}</dd></div>
+        </dl>
+        <div class="qty" style="margin-top:auto"><span>Di keranjang</span><b>${it.qty} pcs · ${rp(priceNow(it) * it.qty)}</b></div>
+      </div>
+    </div></section>`
+}
+
+function stockBlock(it) {
+  const st = STOCK[it.id]
+  const mine = st.rows.find(r => r[0] === st.cur[0])[1][st.cur[1]]
+  const total = st.rows.reduce((a, r) => a + r[1].reduce((x, n) => x + Math.max(0, n), 0), 0)
+  const cell = (n, on) => `<td class="${on ? 'cur' : ''}${n <= 0 ? (n < 0 ? ' neg' : ' zero') : ''}">${n}</td>`
+  return `<div class="stock">
+    <div class="stock-top"><span>Stok toko ini</span><b class="${mine <= 0 ? 'neg' : ''}">${mine} pcs</b></div>
+    <table class="mx"><thead><tr><th></th>${st.sizes.map(z => `<th>${z}</th>`).join('')}</tr></thead>
+      <tbody>${st.rows.map(([c, ns]) => `<tr><th>${nice(c)}</th>${ns.map((n, k) => cell(n, c === st.cur[0] && k === st.cur[1])).join('')}</tr>`).join('')}</tbody></table>
+    <div class="stock-foot">${st.rows.length * st.sizes.length} SKU · ${total} pcs di toko</div>
+  </div>`
+}
+
+function c(it) {
+  return `<section class="dlg c"><div class="head"><div style="flex:1;min-width:0"><p class="ttl">${it.name}</p><div class="sub">${sku83(it.sku)} · artikel ${it.art}</div></div><button class="x" aria-label="Tutup (Esc)">${X}</button></div>
+    <div class="body">${photo(it)}
+      <div class="right">
+        <div><div class="price"><span class="now">${rp(priceNow(it))}</span>${it.promo ? `<s>${rp(it.price)}</s>` : ''}</div>
+          <div class="status" style="margin-top:10px">${it.promo ? `<span class="pill promo">${it.promo[0]} · −${rp(it.promo[1])}</span>` : ''}${swap(it)}${it.marks.map(m => `<span class="pill warn"><span class="dot"></span>${m}</span>`).join('')}</div></div>
+        ${stockBlock(it)}
+        <div class="chips"><span class="chip">${it.div}</span>${it.tags.map(t => `<span class="chip">${nice(t)}</span>`).join('')}<span class="chip mono">${it.bc}</span></div>
+        <div class="qty" style="margin-top:auto"><span>Di keranjang</span><b>${it.qty} pcs · ${rp(priceNow(it) * it.qty)}</b></div>
+      </div>
+    </div></section>`
+}
+
+function b(it) {
+  return `<section class="dlg b"><div class="head"><div style="flex:1;min-width:0"><p class="ttl">${it.name}</p><div class="sub">${sku83(it.sku)} · ${it.div}</div></div><button class="x" aria-label="Tutup (Esc)">${X}</button></div>
+    <div class="body">${photo(it)}
+      <div class="price"><span class="now">${rp(priceNow(it))}</span>${it.promo ? `<s>${rp(it.price)}</s><span class="pill promo">${it.promo[0]}</span>` : ''}</div>
+      <div class="chips">${swap(it)}${it.marks.map(m => `<span class="pill warn"><span class="dot"></span>${m}</span>`).join('')}</div>
+      <dl class="grid">
+        <div><dt>Kode artikel</dt><dd>${it.art}</dd></div>
+        <div><dt>Barcode</dt><dd>${it.bc}</dd></div>
+        <div><dt>Tag</dt><dd>${it.tags.map(nice).join(', ')}</dd></div>
+        <div><dt>Di keranjang</dt><dd>${it.qty} pcs</dd></div>
+      </dl>
+    </div></section>`
+}
+
+function render() {
+  document.getElementById('ver').innerHTML = VERS.map(([k, l]) => `<button class="${k === V ? 'on' : ''}" data-v="${k}">${l}</button>`).join('')
+  document.getElementById('item').innerHTML = ITEMS.map(it => `<button class="${it.id === I ? 'on' : ''}" data-i="${it.id}">${it.name.split(' ').slice(0, 2).join(' ')}</button>`).join('')
+  const it = ITEMS.find(x => x.id === I)
+  document.getElementById('veil').innerHTML = V === 'now' ? now(it) : V === 'a' ? a(it) : V === 'b' ? b(it) : c(it)
+}
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-v],[data-i]')
+  if (!t) return
+  if (t.dataset.v) V = t.dataset.v
+  if (t.dataset.i) I = t.dataset.i
+  try { localStorage.setItem('ip.v', V); localStorage.setItem('ip.i', I) } catch {}
+  render()
+})
+render()
+</script>
+</body>
+</html>

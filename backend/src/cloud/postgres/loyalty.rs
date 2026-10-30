@@ -696,10 +696,12 @@ pub async fn ask_redeem_request(
         not_sent = Some(format!("{member_id} is not a phone number"));
     } else {
         let store: Option<String> = match asker.site_id {
-            Some(site) => sqlx::query_scalar("SELECT name FROM site WHERE id = $1")
-                .bind(site)
-                .fetch_optional(pool)
-                .await?,
+            Some(site) => {
+                sqlx::query_scalar("SELECT name FROM site WHERE id = $1")
+                    .bind(site)
+                    .fetch_optional(pool)
+                    .await?
+            }
             None => None,
         };
         let grouped = crate::cloud::whatsapp::grouped;
@@ -713,10 +715,12 @@ pub async fn ask_redeem_request(
         );
         match crate::cloud::whatsapp::send(member_id, &text).await {
             Ok(_) => {
-                sqlx::query("UPDATE member_redeem_request SET sent_at = now() WHERE request_id = $1")
-                    .bind(request_id)
-                    .execute(pool)
-                    .await?;
+                sqlx::query(
+                    "UPDATE member_redeem_request SET sent_at = now() WHERE request_id = $1",
+                )
+                .bind(request_id)
+                .execute(pool)
+                .await?;
                 sent_to = Some(crate::cloud::whatsapp::masked(member_id));
             }
             Err(error) => not_sent = Some(error.to_string()),
@@ -772,7 +776,10 @@ pub async fn redeem_ask_progress(
     let voucher = if request.status == RedeemRequestStatus::Confirmed {
         // Answered from what was written: the same key returns the voucher
         // already issued (`redeem_points_to_voucher`).
-        Some(confirm_redeem_request(pool, request_id, asked_by.as_deref().unwrap_or("member")).await?)
+        Some(
+            confirm_redeem_request(pool, request_id, asked_by.as_deref().unwrap_or("member"))
+                .await?,
+        )
     } else {
         None
     };
@@ -894,7 +901,10 @@ pub async fn list_redeem_requests(
     .bind(member_id.trim())
     .fetch_all(pool)
     .await?;
-    Ok(rows.iter().map(|row| redeem_request_from(row, now)).collect())
+    Ok(rows
+        .iter()
+        .map(|row| redeem_request_from(row, now))
+        .collect())
 }
 
 /// The one answer every failed lookup gives.

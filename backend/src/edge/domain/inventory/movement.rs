@@ -47,6 +47,10 @@ pub enum MovementCause {
     /// `system/handed_over`. Written only on head office's word
     /// (`inventory.in_transit.release.v1`), never by a hand at the site.
     HandedOver,
+    /// A replacement server booking the stock its store already holds at
+    /// head office, under the subject ids head office knows (C001, 30 Oct
+    /// 2026). Written once, on head office's answer, never by a hand.
+    StockHandover,
 }
 
 impl MovementCause {
@@ -68,6 +72,7 @@ impl MovementCause {
             Self::Identification => "IDENTIFICATION",
             Self::Tagging => "TAGGING",
             Self::HandedOver => "HANDED_OVER",
+            Self::StockHandover => "STOCK_HANDOVER",
         }
     }
 }
@@ -99,6 +104,7 @@ impl FromStr for MovementCause {
             "IDENTIFICATION" => Ok(Self::Identification),
             "TAGGING" => Ok(Self::Tagging),
             "HANDED_OVER" => Ok(Self::HandedOver),
+            "STOCK_HANDOVER" => Ok(Self::StockHandover),
             _ => Err(MovementError::UnknownCause(value.to_owned())),
         }
     }
@@ -305,6 +311,17 @@ pub fn validate_transition(cause: MovementCause, line: &MovementLine) -> Result<
                     place: SystemPlace::HandedOver
                 }
             )
+        }
+        // The store's stock as head office last saw it, wherever it stood —
+        // shelf, pocket or Missing — booked by a server that replaced the one
+        // that held it.
+        MovementCause::StockHandover => {
+            matches!(
+                line.from,
+                Place::System {
+                    place: SystemPlace::Opening
+                }
+            ) && matches!(line.to, Place::Operational { .. })
         }
         MovementCause::SupplierReturn => {
             on_hand(&line.from)

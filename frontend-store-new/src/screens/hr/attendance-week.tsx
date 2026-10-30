@@ -178,7 +178,7 @@ export function WeekView({
                         >
                           <span
                             className={cn(
-                              "w-[4.5rem] shrink-0 text-[0.875rem] tabular-nums",
+                              "w-[4.5rem] shrink-0 text-[0.9375rem] tabular-nums",
                               date === today
                                 ? "font-semibold text-accent"
                                 : "text-body",
@@ -196,7 +196,7 @@ export function WeekView({
                             )}
                           </span>
                           {row?.day?.arrival != null && (
-                            <span className="shrink-0 text-[0.875rem] text-body tabular-nums">
+                            <span className="shrink-0 text-[0.9375rem] text-body tabular-nums">
                               {clockOf(row.day.arrival)}–
                               {clockOf(row.day.departure)}
                             </span>
@@ -223,14 +223,14 @@ export function WeekView({
                 </colgroup>
                 <thead>
                   <tr>
-                    <th className="sticky left-0 z-10 h-10 border-b border-hairline bg-soft px-3.5 text-left text-eyebrow font-medium text-body">
+                    <th className="sticky left-0 z-10 h-10 border-b border-hairline bg-soft px-3.5 text-left text-meta font-medium text-body">
                       Employee
                     </th>
                     {days.map((date) => (
                       <th
                         key={date}
                         className={cn(
-                          "h-10 border-b border-hairline px-1 text-center text-eyebrow font-medium",
+                          "h-10 border-b border-hairline px-1 text-center text-meta font-medium",
                           date === today
                             ? "bg-accent-bg text-accent"
                             : "bg-soft text-body",

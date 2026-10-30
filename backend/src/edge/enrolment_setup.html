@@ -3,106 +3,107 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Connect to Central</title>
+<title>Central Store Server Setup</title>
+<!--
+  The store server's installer window (store-opening-prototype.html, part
+  "Laptop install"). The MSI opens it as an Edge app window on
+  http://127.0.0.1:8082/setup. Four steps: check this PC (every row is
+  something that broke at C015 on 28 Oct 2026), the install code, installing
+  — connected, data arriving — and Ready, which the running node keeps
+  serving afterwards. Loopback only, before and after enrolment.
+-->
 <style>
   :root {
-    --bg: #f6f6f4; --card: #ffffff; --text: #1b1b19; --muted: #6b6b66;
-    --line: #e4e4df; --accent: #1f5eff; --ok: #1a7f4b; --warn: #a15c00; --bad: #b3261e;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #121211; --card: #1c1c1a; --text: #ededea; --muted: #9a9a94;
-      --line: #2e2e2b; --accent: #6b95ff; --ok: #4cc38a; --warn: #f0a847; --bad: #ff7a70;
-    }
+    --ink: #20242c; --body: #565f6d; --mute: #666f7d;
+    --hairline: #e6e6e9; --edge: #dadade; --soft: #f8f8f9; --soft-2: #f0f0f2; --soft-3: #f6f6f7;
+    --accent: #2563eb; --ok: #137a37; --warn: #a64a08; --bad: #be123c;
+    --okdot: #36b827; --warndot: #c9892e; --baddot: #d05151;
+    --mono: "Cascadia Mono", ui-monospace, Consolas, monospace;
+    --ease-out: cubic-bezier(.23, 1, .32, 1);
   }
   * { box-sizing: border-box; }
+  html, body { height: 100%; }
   body {
-    margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 16px;
-    background: var(--bg); color: var(--text);
-    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    margin: 0; background: #fff; color: var(--ink);
+    font: 15px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
   }
-  main {
-    width: 100%; max-width: 440px; background: var(--card); border: 1px solid var(--line);
-    border-radius: 14px; padding: 28px;
-  }
-  h1 { font-size: 20px; margin: 0 0 4px; letter-spacing: -0.01em; }
-  p { margin: 0 0 16px; color: var(--muted); }
-  label { display: block; font-size: 13px; font-weight: 600; margin: 16px 0 6px; }
+  button { font: inherit; cursor: pointer; border: 0; background: none; color: inherit; }
+  .inst { display: grid; grid-template-columns: 230px minmax(0, 1fr); min-height: 100vh; }
+  .side { background: var(--soft-3); border-right: 1px solid var(--hairline); padding: 26px 20px; display: flex; flex-direction: column; gap: 4px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; margin-bottom: 20px; }
+  .mark { width: 22px; height: 22px; border-radius: 6px; background: #111214; display: inline-grid; place-items: center; position: relative; flex-shrink: 0; }
+  .mark::before { content: ""; width: 10px; height: 10px; border: 2px solid #fff; border-right-color: transparent; border-radius: 50%; transform: rotate(45deg); }
+  .mark::after { content: ""; position: absolute; right: 4px; top: 9px; width: 4px; height: 4px; border-radius: 50%; background: #2f6fed; }
+  .stp { display: flex; align-items: center; gap: 10px; height: 36px; color: var(--mute); }
+  .stp i { width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid var(--edge); display: grid; place-items: center; font-style: normal; transition: background-color 200ms ease, border-color 200ms ease; }
+  .stp.on { color: var(--ink); font-weight: 500; }
+  .stp.on i { border-color: var(--accent); background: var(--accent); }
+  .stp.done { color: var(--body); }
+  .stp.done i { border-color: var(--okdot); background: var(--okdot); }
+  .ver { margin-top: auto; color: var(--mute); }
+  .main { padding: 30px 34px 26px; display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+  h1 { margin: 0; font-size: 21px; line-height: 28px; font-weight: 600; letter-spacing: -0.01em; }
+  .lede { color: var(--body); margin: -10px 0 0; }
+  .rows { border: 1px solid var(--hairline); border-radius: 10px; }
+  .row { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--hairline); }
+  .row:last-child { border-bottom: 0; }
+  .row .t { font-weight: 500; }
+  .row .d { display: block; color: var(--body); overflow-wrap: anywhere; }
+  .row.warn .d, .row.bad .d { color: var(--warn); }
+  .row.bad .d { color: var(--bad); }
+  .row .d.mono { font-family: var(--mono); color: var(--ink); }
+  .tick { width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid var(--edge); display: grid; place-items: center; transition: background-color 200ms ease, border-color 200ms ease; }
+  .tick svg { width: 12px; height: 12px; }
+  .ok .tick { background: var(--okdot); border-color: var(--okdot); }
+  .warn .tick { background: var(--warndot); border-color: var(--warndot); }
+  .bad .tick { background: var(--baddot); border-color: var(--baddot); }
+  .now .tick { border-color: var(--accent); border-top-color: transparent; animation: spin 700ms linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .now .tick { animation-duration: 2s; } }
+  .btn { height: 36px; padding: 0 16px; border-radius: 8px; font-weight: 500; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; transition: transform 160ms var(--ease-out), opacity 150ms ease; }
+  .btn:active:not(:disabled) { transform: scale(.97); }
+  .btn:disabled { opacity: .45; cursor: default; }
+  .btn.primary { background: var(--accent); color: #fff; }
+  .btn.cap { background: #fff; border: 1px solid var(--edge); border-radius: 999px; }
+  .btn.sm { height: 32px; padding: 0 14px; }
+  .foot { margin-top: auto; display: flex; justify-content: flex-end; align-items: center; gap: 12px; }
+  .foot .grow { flex: 1; color: var(--mute); }
   input {
-    width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line);
-    background: transparent; color: var(--text); font: inherit;
+    height: 47px; width: 100%; border: 1px solid var(--edge); border-radius: 8px; padding: 0 14px;
+    font: 600 20px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ink);
   }
-  input#code { font: 600 20px/1.2 ui-monospace, "Cascadia Mono", monospace; letter-spacing: 0.08em; text-transform: uppercase; }
+  input#cloud { font: 15px/1 inherit; letter-spacing: 0; text-transform: none; }
   input:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
-  button {
-    margin-top: 20px; width: 100%; padding: 11px; border: 0; border-radius: 8px;
-    background: var(--accent); color: #fff; font: 600 15px/1 inherit; cursor: pointer;
-  }
-  button:disabled { opacity: 0.6; cursor: default; }
-  .error { color: var(--bad); font-size: 13px; margin-top: 12px; min-height: 1em; }
-  .address {
-    margin: 4px 0 16px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px;
-  }
-  .address small { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
-  .address a {
-    font: 600 17px/1.3 ui-monospace, "Cascadia Mono", monospace; color: var(--accent);
-    word-break: break-all; text-decoration: none;
-  }
-  .address a:hover { text-decoration: underline; }
-  .meta { font-size: 13px; color: var(--muted); display: flex; gap: 8px; align-items: center; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); flex: none; }
-  .dot.live { animation: pulse 1.6s ease-in-out infinite; }
-  .dot.ok { background: var(--ok); }
-  @keyframes pulse { 50% { opacity: 0.35; } }
-  @media (prefers-reduced-motion: reduce) { .dot.live { animation: none; } }
+  input.bad { border-color: var(--baddot); }
+  .err { color: var(--bad); min-height: 1.5em; margin-top: -8px; }
+  .view { display: flex; flex-direction: column; gap: 18px; flex: 1; animation: in 240ms var(--ease-out) both; }
+  @keyframes in { from { opacity: 0; transform: translateY(6px); } }
   [hidden] { display: none !important; }
+  @media (max-width: 640px) { .inst { grid-template-columns: 1fr; } .side { display: none; } }
 </style>
 </head>
 <body>
-<main>
-  <section id="idle" hidden>
-    <h1>Connect this PC to Central</h1>
-    <p>Enter the install code from Central › Stores › your store › Server.</p>
-    <form id="form">
-      <label for="code">Install code</label>
-      <input id="code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXXX-XXXXX" maxlength="13" required autofocus>
-      <!-- Only for a build that does not carry Central's address: the installer
-           normally has it baked in and this stays hidden. -->
-      <div id="cloud-row" hidden>
-        <label for="cloud">Cloud address</label>
-        <input id="cloud" type="url" placeholder="https://…">
-      </div>
-      <button id="submit" type="submit">Connect</button>
-      <div class="error" id="idle-error" role="alert"></div>
-    </form>
-  </section>
-
-  <section id="connected" hidden>
-    <h1 id="connected-title" aria-live="polite">Connected · Getting data</h1>
-    <p id="connected-site"></p>
-    <div class="address" id="address" hidden>
-      <small>Store app</small>
-      <a id="address-link"></a>
-    </div>
-    <div class="meta"><span class="dot live" id="connected-dot"></span><span id="connected-note">This can take a minute. You can close this page: the server carries on.</span></div>
-    <div class="error" id="connected-error" role="alert"></div>
-  </section>
-</main>
+<div class="inst">
+  <aside class="side">
+    <div class="brand"><span class="mark"></span>Central Store Server</div>
+    <div id="steps"></div>
+    <div class="ver" id="ver"></div>
+  </aside>
+  <main class="main" id="main"></main>
+</div>
 <script>
   const $ = (id) => document.getElementById(id);
-  // idle | connected
-  let shown = null;
-  // When this page first saw the claim accepted, for the fallback wording.
-  let connectedAt = 0;
-  // Set once the node answers as itself rather than as the setup page.
-  let running = false;
-  let lastSite = "";
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+  const DASH = '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round"><path d="M6 12h12"/></svg>';
+  const STEPS = ["Check this PC", "Install code", "Install", "Ready"];
+  const FIX = { network: ["Make it Private", "primary"], awake: ["Keep awake", "cap"] };
 
-  function show(name) {
-    for (const id of ["idle", "connected"]) $(id).hidden = id !== name;
-    if (name === "connected" && shown !== "connected") connectedAt = Date.now();
-    shown = name;
-  }
+  // check | code | install | ready
+  let view = null, shownView = null, shownHtml = "";
+  let report = null, setup = null, health = null, identity = null, running = false;
+  let claimError = "", fixing = null, fixError = "", refused = false, startingOver = false;
 
   async function getJson(path) {
     try {
@@ -113,113 +114,184 @@
     }
   }
 
-  // The DNS label the node advertises itself under: its id, lowercase letters,
-  // digits and hyphens (edge/discovery.rs host_label).
-  function hostLabel(originId) {
-    const label = String(originId || "").trim().toLowerCase()
-      .replace(/[^a-z0-9]/g, "-").replace(/^-+|-+$/g, "").slice(0, 63);
-    return label || "itulah-store";
+  function row(tone, title, detail, action, mono) {
+    const mark = tone === "ok" ? CHECK : tone === "warn" || tone === "bad" ? DASH : "";
+    return `<div class="row ${tone || ""}"><span class="tick">${mark}</span><span><span class="t">${esc(title)}</span>` +
+      `<span class="d ${mono ? "mono" : ""}">${esc(detail)}</span></span>${action || ""}</div>`;
   }
-
-  function siteName(identity) {
-    const words = [identity.site_code, identity.site_name].filter((word) => word && word.trim());
-    return words.length ? words.join(" · ") : identity.site_id;
-  }
-
-  // The "Connected" screen. `ready` is true once the node has its data from
-  // Central, `identity` is the node's own answer when it is running.
-  function connected({ site, ready, identity, note }) {
-    show("connected");
-    if (site) lastSite = site;
-    $("connected-title").textContent = ready ? "Ready" : "Connected · Getting data";
-    $("connected-site").textContent = lastSite ? "This PC is the store server for " + lastSite + "." : "";
-    $("connected-dot").className = "dot " + (ready ? "ok" : "live");
-    if (identity && identity.origin_id) {
-      const address = "http://" + hostLabel(identity.origin_id) + ".local:" + (location.port || "8082");
-      $("address-link").textContent = address;
-      $("address-link").href = address;
-      $("address").hidden = false;
+  const check = (id) => (report && report.checks.find((c) => c.id === id)) || null;
+  const checkRow = (c) => {
+    const fix = c.fix && FIX[c.fix];
+    const action = fix ? `<button class="btn ${fix[1]} sm" data-fix="${c.fix}" ${fixing ? "disabled" : ""}>${fixing === c.fix ? "Changing…" : fix[0]}</button>` : "";
+    return row(c.tone, c.title, c.detail, action);
+  };
+  const siteName = () => {
+    if (identity) {
+      const words = [identity.site_code, identity.site_name].filter((w) => w && w.trim());
+      if (words.length) return words.join(" · ");
     }
-    $("connected-note").textContent = ready
-      ? "Open the store app on tills and tablets at this address."
-      : note || "This can take a minute. You can close this page: the server carries on.";
+    return (setup && (setup.site_label || setup.site_id)) || "";
+  };
+  const storeName = () => (identity && identity.site_name) || siteName() || "The store";
+
+  function sideHtml(at) {
+    return STEPS.map((s, i) => `<div class="stp ${i < at ? "done" : i === at ? "on" : ""}"><i>${i < at ? CHECK : ""}</i>${s}</div>`).join("");
   }
 
-  function render(state) {
-    if (state.state === "IDLE") {
-      show("idle");
-      // Central's address is normally baked into the installer. Ask for it
-      // only when there is none (a developer's build).
-      const known = Boolean(state.cloud_url);
-      $("cloud-row").hidden = known;
-      $("cloud").required = !known;
-      if (known) $("cloud").value = state.cloud_url;
-      // Keep what a failed Connect just said until the next try.
-      if (state.error) $("idle-error").textContent = state.error;
-    } else if (state.state === "WAITING") {
-      // Claimed. Normally approved within seconds; if it is not, say who decides.
-      const slow = shown === "connected" && Date.now() - connectedAt > 45000;
-      connected({
-        site: state.site_label || state.site_id,
-        ready: false,
-        note: slow ? "Connected. Head office will confirm." : "",
-      });
-      $("connected-error").textContent = state.error || "";
-    } else if (state.state === "ENROLLED") {
-      connected({ site: state.site_label || state.site_id, ready: false });
+  function render() {
+    const at = STEPS.indexOf({ check: "Check this PC", code: "Install code", install: "Install", ready: "Ready", refused: "Check this PC" }[view]);
+    $("steps").innerHTML = sideHtml(at);
+    if (report && report.version) $("ver").textContent = "Version " + report.version;
+    const fresh = shownView !== view;
+    // Typing in the code box survives the refresh.
+    const typed = $("code") ? $("code").value : "";
+    let html = "";
+    if (view === "check") {
+      const rows = report ? report.checks.map(checkRow).join("") : row("now", "Checking this PC", "A few seconds");
+      const blocked = !report || report.checks.some((c) => c.blocks);
+      html = `<h1>Check this PC</h1><div class="rows">${rows}</div>
+        <div class="err" role="alert">${esc(fixError)}</div>
+        <div class="foot"><button class="btn primary" id="go-code" ${blocked ? "disabled" : ""}>Continue</button></div>`;
+    } else if (view === "code") {
+      const askCloud = setup && !setup.cloud_url;
+      html = `<h1>Connect this PC to Central</h1>
+        <p class="lede">Install code from Central: Stores › your store › Server</p>
+        <form id="form" style="display:flex;flex-direction:column;gap:18px;flex:1">
+          <input id="code" class="${claimError ? "bad" : ""}" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXXX-XXXXX" maxlength="13" required aria-label="Install code">
+          ${askCloud ? `<input id="cloud" type="url" placeholder="Central's address, https://…" required aria-label="Central's address">` : ""}
+          <div class="err" role="alert">${esc(claimError)}</div>
+          <div class="foot"><button class="btn" type="button" id="back">Back</button><button class="btn primary" id="install" type="submit">Install</button></div>
+        </form>`;
+    } else if (view === "install") {
+      const connected = running || (setup && setup.state === "ENROLLED");
+      const failed = setup && setup.error && !connected;
+      const app = check("store_app"), fw = check("firewall");
+      html = `<h1>Installing</h1><div class="rows">
+        ${row("ok", "Service", "ItulahStore · starts with Windows")}
+        ${app ? checkRow(app) : row("now", "Store app", "")}
+        ${fw ? checkRow(fw) : ""}
+        ${row(connected ? "ok" : failed ? "warn" : "now", "Central", connected ? (siteName() ? "Connected as " + siteName() : "Connected") : failed ? setup.error : "Connecting" + (setup && setup.site_label ? " as " + setup.site_label : ""))}
+        ${row(connected ? "now" : "", storeName() + "'s data", "Articles, prices, staff and payment methods")}
+      </div>`;
+    } else if (view === "refused") {
+      html = `<h1>This PC was ${esc(storeName())}'s server</h1><div class="rows">
+        ${row("bad", "Central", "Central no longer knows this PC: its store was removed or its server disconnected")}
+      </div>
+      <div class="err" role="alert">${esc(fixError)}</div>
+      <div class="foot"><span class="grow">${startingOver ? "Waiting for Windows…" : ""}</span>
+        <button class="btn primary" id="start-over" ${startingOver ? "disabled" : ""}>Start as a new store</button></div>`;
+    } else if (view === "ready") {
+      const address = (report && report.address) || "";
+      const net = check("network");
+      const rest = report ? report.checks.filter((c) => ["firewall", "power", "awake", "pos"].includes(c.id)).map(checkRow).join("") : "";
+      html = `<h1>${esc(storeName())}'s server is ready</h1><div class="rows">
+        ${row("ok", "Store app", address, address ? `<button class="btn cap sm" data-open="${esc(address)}">Open</button>` : "", true)}
+        ${net ? checkRow(net) : ""}
+        ${row("ok", "Central", siteName() ? "Connected as " + siteName() : "Connected")}
+        ${rest}
+      </div>
+      <div class="err" role="alert">${esc(fixError)}</div>
+      <div class="foot"><button class="btn primary" id="finish">Finish</button></div>`;
+    }
+    // Only when something changed: replacing the panel every three seconds
+    // could swallow a click that landed while it was being replaced.
+    if (!fresh && html === shownHtml) return;
+    shownHtml = html;
+    $("main").innerHTML = `<div class="view" ${fresh ? "" : 'style="animation:none"'}>${html}</div>`;
+    shownView = view;
+    if (view === "code" && $("code")) {
+      $("code").value = typed;
+      if (fresh) $("code").focus();
     }
   }
 
-  // Once approved the setup server hands over to the node itself, which keeps
-  // the same address. Its own open endpoints say whether it has its data yet:
-  // head office's auth policy arrives with the first sync.
+  // Once approved the setup server hands over to the node itself on the same
+  // address; its own open endpoints say whether it has its data yet: head
+  // office's auth policy arrives with the first sync.
   async function probeNode() {
-    const health = await getJson("/api/v1/health");
-    if (!health || health.status !== "ok") return false;
-    const identity = await getJson("/api/v1/node/identity");
+    const answer = await getJson("/api/v1/health");
+    if (!answer || answer.status !== "ok") return false;
+    health = answer;
+    identity = (await getJson("/api/v1/node/identity")) || identity;
     running = true;
-    connected({
-      site: identity ? siteName(identity) : "",
-      ready: Boolean(health.auth_policy),
-      identity,
-    });
     return true;
   }
 
-  async function refresh() {
-    if (await probeNode()) return;
-    if (running) {
-      // The node was answering a moment ago and is not: it is restarting.
-      connected({ ready: false, note: "The server is restarting." });
-      return;
-    }
-    const state = await getJson("/setup/state");
-    if (state) render(state);
-    else if (shown === "connected" && Date.now() - connectedAt > 90000) {
-      connected({ ready: false, note: "Connected. Head office will confirm." });
-    }
+  // Central refuses this PC's key: its store was removed or its server
+  // disconnected, and the PC is to start again as a new store's.
+  function isRefused(status) {
+    const sync = status && status.status && status.status.sync;
+    if (!sync || !/403|forbidden/i.test(sync.last_error || "")) return false;
+    return !sync.last_success_at || new Date(sync.last_error_at) > new Date(sync.last_success_at);
   }
 
-  $("form").addEventListener("submit", async (event) => {
+  async function refresh() {
+    report = (await getJson("/setup/checks")) || report;
+    if (await probeNode()) {
+      refused = isRefused(await getJson("/console/status"));
+      view = refused ? "refused" : health.auth_policy ? "ready" : "install";
+    } else {
+      // Not the node: the setup server, after an install or a start-over.
+      const state = await getJson("/setup/state");
+      if (state) {
+        setup = state;
+        running = false;
+        refused = false;
+        if (setup.state === "WAITING" || setup.state === "ENROLLED") view = "install";
+        else if (!view || view === "install" || view === "refused") view = "check";
+      }
+    }
+    // Typing a code is not interrupted by the refresh.
+    if (view === "code" && shownView === "code") return;
+    render();
+  }
+
+  document.addEventListener("click", async (event) => {
+    const t = (s) => event.target.closest(s);
+    let el;
+    if (t("#go-code")) { view = "code"; claimError = ""; render(); return; }
+    if (t("#back")) { view = "check"; render(); return; }
+    if (t("#finish")) { window.close(); return; }
+    if (t("#start-over")) {
+      // The old data moves aside (kept) and the server waits for a new code;
+      // Windows asks for an administrator's yes (`store.exe start-over`).
+      startingOver = true; render();
+      window.location.href = "central-store://start-over";
+      setTimeout(() => { startingOver = false; render(); }, 30000);
+      return;
+    }
+    if ((el = t("[data-open]"))) { window.open(el.dataset.open, "_blank"); return; }
+    if ((el = t("[data-fix]"))) {
+      // The service may not change Windows' settings itself: the link runs
+      // `store.exe prepare-pc`, and Windows asks for an administrator's yes.
+      fixing = el.dataset.fix; fixError = ""; render();
+      window.location.href = "central-store://prepare-pc";
+      setTimeout(() => { fixing = null; render(); }, 20000);
+    }
+  });
+
+  document.addEventListener("submit", async (event) => {
+    if (event.target.id !== "form") return;
     event.preventDefault();
-    $("submit").disabled = true;
-    $("idle-error").textContent = "";
+    $("install").disabled = true;
+    claimError = "";
     try {
       const response = await fetch("/setup/claim", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ code: $("code").value, cloud_url: $("cloud").value }),
+        body: JSON.stringify({ code: $("code").value, cloud_url: $("cloud") ? $("cloud").value : "" }),
       });
       const body = await response.json();
-      if (!response.ok) $("idle-error").textContent = body.error || "Failed.";
-      else render(body);
+      if (!response.ok) { claimError = body.error || "This code is not valid."; render(); }
+      else { setup = body; view = "install"; render(); }
     } catch (error) {
-      $("idle-error").textContent = "The local server is not answering: " + error;
-    } finally {
-      $("submit").disabled = false;
+      claimError = "The server is not answering: " + error;
+      render();
     }
   });
 
+  view = "check";
+  render();
   refresh();
   setInterval(refresh, 3000);
 </script>

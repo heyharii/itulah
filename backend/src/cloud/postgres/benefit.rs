@@ -569,8 +569,8 @@ pub async fn benefit_holder_by(
 }
 
 /// Spend part of a basket from the balance `key` names. Refused for a sale
-/// that already spent once, for more than is left, for a basket on promotion,
-/// and for the cashier's own balance.
+/// that already spent once, for more than is left, and for the cashier's own
+/// balance.
 #[allow(clippy::too_many_arguments)]
 pub async fn spend_benefit(
     pool: &PgPool,
@@ -592,11 +592,10 @@ pub async fn spend_benefit(
             "a spend names the sale it pays".into(),
         ));
     }
-    if basket_has_promotion {
-        return Err(AppError::Conflict(
-            "the employee benefit does not combine with a promotion".into(),
-        ));
-    }
+    // The benefit combines with a promotion after all (owner, 29 Oct 2026):
+    // the promotion prices the piece and the balance is one way to pay it.
+    // The flag still arrives from older tills and is no longer a refusal.
+    let _ = basket_has_promotion;
     let mut tx = pool.begin().await?;
     let (enabled, _) = setting_now(&mut tx).await?;
     if !enabled {

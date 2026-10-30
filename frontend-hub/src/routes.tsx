@@ -67,7 +67,6 @@ const FOLDER_OF: Readonly<Record<string, string>> = {
   "/chat": "workplace",
   "/discussions": "workplace",
   "/library": "workplace",
-  "/library/papers": "workplace",
 }
 function loaderFor(path: string) {
   const folder = FOLDER_OF[path] ?? path.split("/")[1]

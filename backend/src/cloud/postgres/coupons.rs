@@ -1367,10 +1367,11 @@ async fn ensure_book_coupon_set(
     code: &str,
     actor: &str,
 ) -> Result<(), AppError> {
-    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM coupon_code WHERE code = $1)")
-        .bind(code)
-        .fetch_one(&mut **tx)
-        .await?;
+    let exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM coupon_code WHERE code = $1)")
+            .bind(code)
+            .fetch_one(&mut **tx)
+            .await?;
     if exists {
         return Ok(());
     }
@@ -1600,7 +1601,10 @@ async fn commit_fact_hold(
         )));
     }
     let sale_site_id = sale_site_id.trim();
-    if site_id.as_deref().is_some_and(|held_for| held_for != sale_site_id) {
+    if site_id
+        .as_deref()
+        .is_some_and(|held_for| held_for != sale_site_id)
+    {
         return Ok(FactCommit::Skipped(format!(
             "the sale came from {sale_site_id:?}, but its coupon hold was granted to {site_id:?}"
         )));

@@ -142,24 +142,28 @@ export function TradeChart({
       </div>
 
       {/* The chart for anyone who cannot see it, and for whoever wants the
-          figures themselves: the tooltip only ever adds to what is here. */}
-      <table className="sr-only">
-        <caption>{on.label}</caption>
-        <thead>
-          <tr>
-            <th scope="col">{unit === "day" ? "Day" : "Hour"}</th>
-            <th scope="col">{on.label}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {points.map((point) => (
-            <tr key={point.key}>
-              <th scope="row">{point.title}</th>
-              <td>{on.show(point[on.key])}</td>
+          figures themselves: the tooltip only ever adds to what is here.
+          A table ignores sr-only's 1px height, so a div holds it: bare, its
+          ninety rows stretched the page and gave it a second scrollbar. */}
+      <div className="sr-only">
+        <table>
+          <caption>{on.label}</caption>
+          <thead>
+            <tr>
+              <th scope="col">{unit === "day" ? "Day" : "Hour"}</th>
+              <th scope="col">{on.label}</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {points.map((point) => (
+              <tr key={point.key}>
+                <th scope="row">{point.title}</th>
+                <td>{on.show(point[on.key])}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </Card>
   )
 }

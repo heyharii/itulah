@@ -91,6 +91,7 @@ import { saying, span } from "@/screens/system/units"
 
 const KIND_LABEL: Record<DeviceKind, string> = {
   TILL: "POS",
+  WAREHOUSE: "Warehouse PC",
   HANDHELD: "Handheld",
   RFID_READER: "RFID reader",
   PRINTER: "Printer",
@@ -1198,7 +1199,7 @@ function ConfigFacts({ device }: { device: RegistryDevice }) {
       </>
     )
   }
-  if (device.kind === "TILL") {
+  if (device.kind === "TILL" || device.kind === "WAREHOUSE") {
     const peripherals =
       config.peripherals && typeof config.peripherals === "object"
         ? Object.keys(config.peripherals as Record<string, unknown>)
@@ -1255,6 +1256,7 @@ function ConfigFacts({ device }: { device: RegistryDevice }) {
 function switchedWhere(device: RegistryDevice): string {
   switch (device.kind) {
     case "TILL":
+    case "WAREHOUSE":
     case "PRINTER":
       return "This node runs a version that cannot take a device decision from head office yet. Switch it at the shop, or update the node."
     case "ATTENDANCE_TERMINAL":

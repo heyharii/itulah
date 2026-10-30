@@ -1788,6 +1788,36 @@ pub async fn simulate(
     let result = pricing_engine::price_cart(&pricing.snapshot, &context, &cart)
         .map_err(|error| AppError::Validation(error.to_string()))?;
 
+    // The point policy's points, added to the promotions' as a till adds them
+    // (1008, `edge::pricing::quote_with_coupon_holds`). Member points only.
+    let policy_points: Vec<i64> = if request.customer_id.is_some() {
+        let policy = super::point_policy::point_policy_snapshot(pool).await?;
+        let day = (at + chrono::Duration::minutes(i64::from(utc_offset_minutes))).date_naive();
+        let rated: Vec<(Option<i64>, i64)> = cart
+            .iter()
+            .zip(result.lines.iter())
+            .map(|(line, priced)| {
+                let rate = match line.article_code.as_deref() {
+                    Some(article_code) => policy.rate_for(
+                        Some(&crate::cloud::domain::PointArticle {
+                            article_code,
+                            division_code: line.division.as_deref(),
+                            tags: &line.tags,
+                        }),
+                        &request.site_id,
+                        day,
+                    ),
+                    None => policy.rate_for(None, &request.site_id, day),
+                };
+                (rate, priced.line_total.minor)
+            })
+            .collect();
+        crate::cloud::domain::point_policy::award(&rated)
+    } else {
+        vec![0; result.lines.len()]
+    };
+    let policy_total: i64 = policy_points.iter().sum();
+
     let lines: Vec<Value> = result
         .lines
         .iter()
@@ -1885,7 +1915,8 @@ pub async fn simulate(
                 "points": share.points,
             })).collect::<Vec<Value>>(),
         })).collect::<Vec<Value>>(),
-        "points_earned": result.points_earned,
+        "point_policy_points": policy_points,
+        "points_earned": result.points_earned.saturating_add(policy_total),
         "discount_total_minor": result.discount_total.minor,
         "total_minor": result.total.minor,
         // `total` is the goods. `amount_due` is what has to be settled, and for

@@ -1,9 +1,5 @@
 import { warmQuery, type PrefetchMap } from "@/lib/prefetch"
 import {
-  benefitBalancesQuery,
-  benefitSettingsQuery,
-} from "@/lib/queries/hr-benefit"
-import {
   allWarningLettersQuery,
   changeProposalsQuery,
 } from "@/lib/queries/hr-employees"
@@ -64,13 +60,6 @@ export const prefetch: PrefetchMap = {
     warmQuery(client, claimBenefitRulesQuery()),
   "/people/claim-types": (client) => warmQuery(client, claimTypesQuery()),
 
-  // Benefit
-  "/people/benefit": (client) =>
-    Promise.all([
-      warmQuery(client, benefitBalancesQuery()),
-      warmQuery(client, benefitSettingsQuery()),
-    ]),
-
   // Settings · Organization
   "/people/settings/company": (client) => warmQuery(client, companyQuery()),
   "/people/settings/group": (client) =>
@@ -115,9 +104,6 @@ export const prefetch: PrefetchMap = {
     warmQuery(client, absenceRulesQuery()),
   "/people/settings/rates": (client) =>
     warmQuery(client, statutoryRatesQuery()),
-  "/people/settings/benefit": (client) =>
-    warmQuery(client, benefitSettingsQuery()),
-
   // Settings · Access
   "/people/roles": (client) => warmQuery(client, rolesQuery()),
   "/people/settings/checklists": (client) =>

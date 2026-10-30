@@ -152,6 +152,16 @@ export function label(status: string | null | undefined): string {
   return words.charAt(0).toUpperCase() + words.slice(1)
 }
 
+/// A stored code as words in Title Case: "SANDAL_SEPATU" → "Sandal Sepatu".
+export function words(code: string | null | undefined): string {
+  if (!code) return "—"
+  return code
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .trim()
+    .replace(/\b\p{L}/gu, (letter) => letter.toUpperCase())
+}
+
 /// The letter an avatar shows for a name: the first LETTER, not the first
 /// character — "👨‍💼 Budi" is a B, where `charAt(0)` hands back half of an emoji
 /// and the avatar draws a replacement mark. A name with no letter at all falls

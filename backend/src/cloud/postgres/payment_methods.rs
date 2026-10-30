@@ -52,8 +52,9 @@ pub struct SavePaymentMethodRequest {
     pub tender_type: String,
     #[serde(default)]
     pub bank_code: String,
-    /// Defaults by tender: cash IN_DRAWER, vouchers and points NONE, the rest
-    /// VIA_RECEIVABLE.
+    /// Defaults by tender: cash IN_DRAWER, vouchers/points/benefit NONE,
+    /// debit/credit/QRIS DIRECT_TO_BANK (owner, 1 Oct 2026), and an e-wallet
+    /// VIA_RECEIVABLE until its provider pays.
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
     pub settlement_mode: Option<String>,
@@ -139,6 +140,14 @@ pub async fn save_payment_method(
         None => match tender.as_str() {
             "CASH" => "IN_DRAWER".into(),
             "VOUCHER" | "POINTS" | "BENEFIT" => "NONE".into(),
+            // Debit, credit and QRIS are taken on a shop's EDC, and the owner
+            // wants that money on Cash in Bank the day it is taken (1 Oct
+            // 2026; 0722). A method created without a mode is a method nobody
+            // decided, and the wrong default here is what put new banks on
+            // Piutang Debit Card / Piutang Kartu Kredit.
+            "DEBIT_CARD" | "CREDIT_CARD" | "QRIS" => "DIRECT_TO_BANK".into(),
+            // An e-wallet is owed by its provider until it pays, which is not
+            // the same fact as a card taken on our own EDC.
             _ => "VIA_RECEIVABLE".into(),
         },
     };

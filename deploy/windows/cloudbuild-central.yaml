@@ -1,0 +1,20 @@
+# Windows Central installer on Cloud Build, no Windows PC needed.
+#   deploy/windows/stage-central.sh        stages the tree and submits this
+#   deploy/windows/fetch-central.sh <id>   downloads the installer afterwards,
+#                                          then scripts/publish.sh signs it
+# The Cloud Build account cannot write to a bucket, so the installer is pushed
+# as a scratch image (itulah/win-central:<build id>) and fetched from the
+# registry — the same route cloudbuild-pos.yaml takes.
+steps:
+  - name: rust:1.98-bookworm
+    entrypoint: bash
+    args: ["deploy/windows/build-central.sh"]
+  - name: gcr.io/cloud-builders/docker
+    args: ["build", "-t", "asia-southeast2-docker.pkg.dev/${PROJECT_ID}/itulah/win-central:${BUILD_ID}",
+           "-f", "deploy/windows/Dockerfile.out", "out"]
+images:
+  - asia-southeast2-docker.pkg.dev/${PROJECT_ID}/itulah/win-central:${BUILD_ID}
+options:
+  machineType: E2_HIGHCPU_32
+  logging: CLOUD_LOGGING_ONLY
+timeout: 3600s

@@ -105,7 +105,7 @@ struct Form {
     group: &'static str,
 }
 
-const FORMS: [Form; 10] = [
+const FORMS: [Form; 12] = [
     Form {
         key: "goods_out",
         prefix: "SKB",
@@ -146,6 +146,20 @@ const FORMS: [Form; 10] = [
         key: "employment",
         prefix: "SKK",
         title: "Surat Keterangan Kerja",
+        group: "people",
+    },
+    // The employment contract, drafted from the person's record and edited
+    // on the paper before it is printed and signed (owner, 2026-10-25).
+    Form {
+        key: "pkwt",
+        prefix: "PKWT",
+        title: "Perjanjian Kerja Waktu Tertentu",
+        group: "people",
+    },
+    Form {
+        key: "pkwtt",
+        prefix: "PKWTT",
+        title: "Perjanjian Kerja Waktu Tidak Tertentu",
         group: "people",
     },
     Form {

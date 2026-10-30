@@ -995,7 +995,9 @@ pub async fn supply_book(
     allowed(&principal, Role::Supervisor, "read the supply register")?;
     refuse_unknown_parameters(
         &params,
-        &["site", "status", "q", "category", "overdue", "cursor", "limit"],
+        &[
+            "site", "status", "q", "category", "overdue", "cursor", "limit",
+        ],
     )?;
     let today = state.clock.now().date_naive();
     let overdue = match single_value(&params, "overdue").as_deref() {

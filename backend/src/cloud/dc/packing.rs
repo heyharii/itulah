@@ -442,10 +442,10 @@ async fn load_koli(connection: &mut PgConnection, koli_id: Uuid) -> Result<Koli,
     let row = sqlx::query(&format!(
         "{KOLI_SELECT} WHERE k.koli_id = $1 AND k.voided_at IS NULL"
     ))
-        .bind(koli_id)
-        .fetch_optional(&mut *connection)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("koli {koli_id}")))?;
+    .bind(koli_id)
+    .fetch_optional(&mut *connection)
+    .await?
+    .ok_or_else(|| AppError::NotFound(format!("koli {koli_id}")))?;
     koli_from_row(&row)
 }
 

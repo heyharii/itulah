@@ -779,7 +779,7 @@ function daysLate(nextDue: string): number {
 function ServiceTable({ tasks }: { tasks: readonly GaMaintenanceTaskRow[] }) {
   if (tasks.length === 0) return null
   return (
-    <SheetSection title="Service schedule" aside={count(tasks.length)}>
+    <SheetSection title="Routine service" aside={count(tasks.length)}>
       <MiniTable head={["Task", left("Every"), "Next due"]}>
         {tasks.map((task) => {
           const late = task.next_due === null ? 0 : daysLate(task.next_due)
@@ -815,7 +815,7 @@ function ServiceTable({ tasks }: { tasks: readonly GaMaintenanceTaskRow[] }) {
   )
 }
 
-/// A supply request's stage, in the words the Supply Requests screen prints.
+/// A supply request's stage, in the words the Supplies screen prints.
 function supplyStage(status: string): {
   word: string
   tone: "warn" | "accent" | "info" | "ok" | "bad"

@@ -60,6 +60,11 @@ pub fn lane_g_routes(router: Router<AppState>) -> Router<AppState> {
         // is a decision with an actor: a price outside tolerance may be
         // accepted here, and a quantity above what was accepted may not.
         .route("/api/v1/finance/bills/{id}/match", post(bill_match))
+        // What the bill is made of, line by line. The screen 7Soft calls
+        // Faktur Pembelian prints quantity × price for each delivery line;
+        // the rows have been written since 0052 but never read back, so the
+        // only way to see them was the database.
+        .route("/api/v1/finance/bills/{id}/lines", get(bill_item_lines))
         // Order, delivery, bill — the three-way exception report. Deliveries
         // nobody has billed, with ageing, beside bills nobody has matched, and
         // the figure `2012001002` should be carrying.
@@ -199,6 +204,48 @@ pub async fn bill_match(
     Ok(Json(
         infrastructure::bill_match(&state.db, invoice_id, &request, &principal.username).await?,
     ))
+}
+
+/// One item line of a supplier invoice, as the paper states it.
+#[derive(serde::Serialize, sqlx::FromRow)]
+pub struct BillItemLine {
+    pub line_number: i32,
+    pub article_code: Option<String>,
+    pub description: String,
+    pub quantity: i64,
+    pub unit_price_minor: i64,
+    pub line_amount_minor: i64,
+    pub tax_minor: i64,
+    pub po_number: Option<String>,
+    pub receipt_number: Option<String>,
+}
+
+pub async fn bill_item_lines(
+    State(state): State<AppState>,
+    Path(invoice_id): Path<Uuid>,
+) -> Result<Json<Vec<BillItemLine>>, AppError> {
+    let rows = sqlx::query_as::<_, BillItemLine>(
+        "SELECT l.line_number,
+                pol.article_code,
+                l.description,
+                l.quantity,
+                l.unit_price_minor,
+                l.line_amount_minor,
+                l.tax_minor,
+                po.po_number,
+                gr.receipt_number
+           FROM supplier_invoice_line l
+           LEFT JOIN purchase_order_line pol ON pol.po_line_id = l.po_line_id
+           LEFT JOIN purchase_order po ON po.purchase_order_id = pol.purchase_order_id
+           LEFT JOIN goods_receipt_line grl ON grl.receipt_line_id = l.receipt_line_id
+           LEFT JOIN goods_receipt gr ON gr.receipt_id = grl.receipt_id
+          WHERE l.invoice_id = $1
+          ORDER BY l.line_number",
+    )
+    .bind(invoice_id)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(rows))
 }
 
 pub async fn three_way_report(

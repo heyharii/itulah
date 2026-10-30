@@ -9,19 +9,19 @@
 //!
 //! # What a device is (CONTEXT.md, "The fleet")
 //!
-//! A machine enrolled to a node — a till, a handheld, a network RFID reader, a
-//! network printer, an EDC, an attendance terminal. It inherits its site and
-//! unit from its node and carries neither itself. **Peripherals** (the
-//! customer display, a USB desk reader, the cash drawer, a scanner, a USB
-//! printer) are not devices: they are configuration of the one till they hang
-//! off, and travel in that till's `config.peripherals`. A person's phone or
-//! laptop is a session, not a device.
+//! A machine enrolled to a node — a till, a warehouse PC, a handheld, a network
+//! RFID reader, a network printer, an EDC, an attendance terminal. It inherits
+//! its site and unit from its node and carries neither itself.
+//! **Peripherals** (the customer display, a USB desk reader, the cash drawer,
+//! a scanner, a USB printer) are not devices: they are configuration of the
+//! one till they hang off, and travel in that till's `config.peripherals`. A
+//! person's phone or laptop is a session, not a device.
 //!
 //! # How each kind reaches head office's register
 //!
 //! | Kind | Authority | On the register |
 //! |------|-----------|-----------------|
-//! | TILL, PRINTER | the node (`edge_terminal`, `edge_printer`) | reported in the heartbeat; switchable from the hub by `device.status.set.v1` |
+//! | TILL, WAREHOUSE, PRINTER | the node (`edge_terminal`, `edge_printer`) | reported in the heartbeat; switchable from the hub by `device.status.set.v1` |
 //! | HANDHELD, RFID_READER | head office's `rfid_device`, sent in the auth policy | reported by the node under the kind head office registered the key as (`device_kinds`, postgres 0623 / sqlite 0056) |
 //! | ATTENDANCE_TERMINAL | head office's `attendance_terminal` (People) | linked by head office itself, never reported (postgres 0624) |
 //! | EDC | Finance's `edc_terminal` | linked by head office itself, never reported (postgres 0624) |
@@ -94,16 +94,22 @@ use crate::sync::enrolment::MachineFacts;
 // ---- Kinds and statuses ------------------------------------------------------
 
 pub const KIND_TILL: &str = "TILL";
+/// A PC in the store's back room running Central Gudang, the warehouse edition
+/// of the POS (25 Oct 2026): it joins its node the way a till does and signs
+/// people in the same way, but it moves stock and never sells — it takes no
+/// till seat and opens no drawer.
+pub const KIND_WAREHOUSE: &str = "WAREHOUSE";
 pub const KIND_HANDHELD: &str = "HANDHELD";
 pub const KIND_RFID_READER: &str = "RFID_READER";
 pub const KIND_PRINTER: &str = "PRINTER";
 pub const KIND_EDC: &str = "EDC";
 pub const KIND_ATTENDANCE_TERMINAL: &str = "ATTENDANCE_TERMINAL";
 
-/// Every kind the registry admits. The `device.kind` CHECK in migration 0604
-/// names exactly these.
-pub const KINDS: [&str; 6] = [
+/// Every kind the registry admits. The `device.kind` CHECK (postgres 0604,
+/// widened by 1000) names exactly these.
+pub const KINDS: [&str; 7] = [
     KIND_TILL,
+    KIND_WAREHOUSE,
     KIND_HANDHELD,
     KIND_RFID_READER,
     KIND_PRINTER,
@@ -142,14 +148,20 @@ pub fn may_become(from: &str, to: &str) -> bool {
     is_status(to) && from != STATUS_REVOKED && from != to
 }
 
-/// The kinds whose credential and status live on the node itself — a till in
-/// `edge_terminal`, a printer in `edge_printer` — and which head office can
-/// therefore suspend or revoke by sending the node a command. Every other kind
-/// keeps its authority where it already is (`rfid_device` in the centre's
-/// auth policy, `attendance_terminal`, `edc_terminal`) and is switched there;
-/// the registry only shows it.
+/// The kinds whose credential and status live on the node itself — a till or
+/// a warehouse PC in `edge_terminal`, a printer in `edge_printer` — and which
+/// head office can therefore suspend or revoke by sending the node a command.
+/// Every other kind keeps its authority where it already is (`rfid_device` in
+/// the centre's auth policy, `attendance_terminal`, `edc_terminal`) and is
+/// switched there; the registry only shows it.
 pub fn node_owns(kind: &str) -> bool {
-    matches!(kind, KIND_TILL | KIND_PRINTER)
+    matches!(kind, KIND_TILL | KIND_WAREHOUSE | KIND_PRINTER)
+}
+
+/// The kinds that join a node by asking for a code ([`JoinRequest`]): a till,
+/// and a warehouse PC, which is the same app in another edition.
+pub fn joins_by_code(kind: &str) -> bool {
+    matches!(kind, KIND_TILL | KIND_WAREHOUSE)
 }
 
 // ---- What a node reports -------------------------------------------------------
@@ -437,6 +449,19 @@ pub const MAX_OPEN_JOINS: i64 = 5;
 /// What a new till's label starts with: "Kasir 1", "Kasir 2", …
 pub const TILL_LABEL_PREFIX: &str = "Kasir";
 
+/// What a new warehouse PC's label starts with: "Gudang 1", "Gudang 2", …
+/// Never a seat: a till seat is a "Kasir N" (`edge::till::seat_label`).
+pub const WAREHOUSE_LABEL_PREFIX: &str = "Gudang";
+
+/// The prefix of a new device's label, by the kind that joined.
+pub fn label_prefix(kind: &str) -> &'static str {
+    if kind == KIND_WAREHOUSE {
+        WAREHOUSE_LABEL_PREFIX
+    } else {
+        TILL_LABEL_PREFIX
+    }
+}
+
 /// A fresh join code, uniformly random over Crockford's alphabet.
 pub fn random_join_code() -> String {
     // Same alphabet and the same exact-uniform masking as the node's code.
@@ -466,12 +491,18 @@ pub fn join_verification(code: &str, key_sha256: &str) -> String {
 /// so a shop that replaced "Kasir 2" and did not say so gets a new "Kasir 2"
 /// rather than a "Kasir 5" beside three others.
 pub fn next_till_label<'a>(taken: impl IntoIterator<Item = &'a str>) -> String {
+    next_label(TILL_LABEL_PREFIX, taken)
+}
+
+/// The next free "{prefix} N", the same way: "Gudang 1" beside "Kasir 1" and
+/// "Kasir 2", each kind counting its own.
+pub fn next_label<'a>(prefix: &str, taken: impl IntoIterator<Item = &'a str>) -> String {
     let used: std::collections::BTreeSet<u32> = taken
         .into_iter()
         .filter_map(|label| {
             label
                 .trim()
-                .strip_prefix(TILL_LABEL_PREFIX)
+                .strip_prefix(prefix)
                 .and_then(|rest| rest.trim().parse::<u32>().ok())
         })
         .collect();
@@ -479,7 +510,7 @@ pub fn next_till_label<'a>(taken: impl IntoIterator<Item = &'a str>) -> String {
     while used.contains(&number) {
         number += 1;
     }
-    format!("{TILL_LABEL_PREFIX} {number}")
+    format!("{prefix} {number}")
 }
 
 /// `POST /api/v1/devices/join`, sent by a till that has no credential yet.
@@ -489,7 +520,8 @@ pub struct JoinRequest {
     /// this and nothing else; the till signs with it from then on, exactly as
     /// a till paired the old way does (`edge/fingerprint.rs`).
     pub key_sha256: String,
-    /// `TILL` when absent, and today the only kind that joins this way.
+    /// `TILL` when absent; `WAREHOUSE` from Central Gudang. No other kind
+    /// joins this way.
     #[serde(default)]
     pub kind: Option<String>,
     #[serde(default)]
@@ -548,12 +580,20 @@ pub enum JoinStatus {
 
 // ---- Head office lets a till in ------------------------------------------------
 
+fn till_kind() -> String {
+    KIND_TILL.to_string()
+}
+
 /// A till waiting to join, as the node's heartbeat tells head office
 /// (`DeviceFacts::joins_waiting`). The same facts the till shows on its own
 /// screen: nothing here is a secret.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct WaitingJoin {
     pub join_id: Uuid,
+    /// `TILL` or `WAREHOUSE`. `TILL` from a node older than warehouse PCs,
+    /// which only ever held tills.
+    #[serde(default = "till_kind")]
+    pub kind: String,
     /// In its display form, as the till prints it.
     pub code: String,
     pub verification: String,

@@ -174,6 +174,19 @@ export async function shellCall<T>(
 const hand = (next: NodeConfig) =>
   shellCall<NodeConfig>("set_node_config", { next })
 
+/// Give the shell a new token, or none, on the config the shell holds NOW.
+///
+/// The copy this window keeps can be stale: joining a store, the pairing
+/// screen and a bench's simulated finger are written by the shell itself
+/// after the window read it. Handing that copy back with a token on it put the
+/// old store's address, terminal or finger back (Central Gudang on riza,
+/// 30 Oct 2026). Falls back to the window's copy only when the shell will not
+/// say.
+async function handToken(token: string | null, fallback: NodeConfig): Promise<ShellReply<NodeConfig>> {
+  const now = await shellCall<NodeConfig>("node_config")
+  return hand({ ...(now.ok ? now.value : fallback), token })
+}
+
 // ── the one session ─────────────────────────────────────────────────────
 
 type Held = {
@@ -206,9 +219,8 @@ const STILL_SIGNED_IN_EVERY_MS = 15_000
 async function endedElsewhere(said: string): Promise<void> {
   const config = held.config
   if (config === null || held.me === null) return
-  const cleared: NodeConfig = { ...config, token: null }
-  await hand(cleared)
-  put({ config: cleared, me: null, problem: said })
+  const cleared = await handToken(null, config)
+  put({ config: cleared.ok ? cleared.value : { ...config, token: null }, me: null, problem: said })
 }
 
 if (typeof window !== "undefined") {
@@ -287,9 +299,8 @@ function open(): Promise<void> {
       put({ config, ready: true, problem: who.problem })
       return
     }
-    const cleared: NodeConfig = { ...config, token: null }
-    await hand(cleared)
-    put({ config: cleared, ready: true })
+    const cleared = await handToken(null, config)
+    put({ config: cleared.ok ? cleared.value : { ...config, token: null }, ready: true })
   })()
   return opening
 }
@@ -324,7 +335,7 @@ async function signIn(username: string, password: string): Promise<boolean> {
     return false
   }
 
-  const saved = await hand({ ...config, token })
+  const saved = await handToken(token, config)
   if (!saved.ok) {
     put({ problem: saved.problem })
     return false
@@ -406,7 +417,7 @@ async function signInWithFinger(
   if (token === "") {
     return "The node accepted that fingerprint but sent no token."
   }
-  const saved = await hand({ ...config, token })
+  const saved = await handToken(token, config)
   if (!saved.ok) return saved.problem
   const who = await me()
   if (!who.ok) {
@@ -445,7 +456,7 @@ async function signInWithPin(username: string, pin: string): Promise<string | nu
   if (token === "") {
     return "The node accepted that PIN but sent no token."
   }
-  const saved = await hand({ ...config, token })
+  const saved = await handToken(token, config)
   if (!saved.ok) return saved.problem
   const who = await me()
   if (!who.ok) {
@@ -562,6 +573,11 @@ export async function supervisorByPin(
   }
 }
 
+/// The Kepala toko who last opened this till for a cashier ("Diserahkan" on
+/// the MODAL AWAL slip); null when the cashier opened it alone.
+let handedBy: { readonly username: string; readonly name: string } | null = null
+export const handedOverBy = () => handedBy
+
 /// "Buka atas nama" (owner, 23 Oct 2026): the Kepala toko is signed in here,
 /// and the till is handed over to the cashier she picked. The node answers
 /// with that cashier's session and ends the head's, so the shell's token is
@@ -570,6 +586,11 @@ export async function supervisorByPin(
 /// Returns the node's own refusal text, or null when the till is the cashier's.
 async function openFor(username: string): Promise<string | null> {
   await open()
+  // The head hands the float over: her name goes on the MODAL AWAL slip.
+  handedBy =
+    held.me?.username != null
+      ? { username: held.me.username, name: held.me.display_name ?? held.me.username }
+      : null
   const config = held.config
   if (config === null) {
     return held.problem ?? "The terminal settings cannot be read from here."
@@ -578,7 +599,7 @@ async function openFor(username: string): Promise<string | null> {
   if (!reply.ok) return reply.problem
   const token = reply.body?.token ?? ""
   if (token === "") return "The node opened the till but sent no token."
-  const saved = await hand({ ...config, token })
+  const saved = await handToken(token, config)
   if (!saved.ok) return saved.problem
   const who = await me()
   if (!who.ok) {
@@ -591,6 +612,7 @@ async function openFor(username: string): Promise<string | null> {
 
 /// Hand the terminal back to nobody.
 async function signOut(): Promise<void> {
+  handedBy = null
   // The node is told first, while the shell still holds the token that says
   // who is leaving. Clearing the shell first would make this call anonymous
   // and leave the session open at the node.
@@ -603,9 +625,8 @@ async function signOut(): Promise<void> {
     put({ me: null, problem: null })
     return
   }
-  const cleared: NodeConfig = { ...config, token: null }
-  await hand(cleared)
-  put({ config: cleared, me: null, problem: null })
+  const cleared = await handToken(null, config)
+  put({ config: cleared.ok ? cleared.value : { ...config, token: null }, me: null, problem: null })
 }
 
 /// Point this terminal at a node.
@@ -758,6 +779,10 @@ export type Session = {
   readonly openFor: (username: string) => Promise<string | null>
   readonly signOut: () => Promise<void>
 }
+
+/// Who is signed in, as the last sign-in already learnt it: the door needs the
+/// name at once and need not ask the node a second time.
+export const signedInNow = () => held.me
 
 export function useSession(): Session {
   const now = useSyncExternalStore(watch, snapshot)

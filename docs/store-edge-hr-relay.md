@@ -45,7 +45,9 @@ The list matches exactly the calls `frontend-store-new` makes, and nothing
 more:
 
 - **The team and reference data:** `employees/me/reach`, the team list, one
-  employee's record and profile, `org/positions`, `people-policy`, and the
+  employee's record and profile, one employee's placements (who they report
+  to, read only — a new boss is a `TRANSFER` change proposal carrying
+  `reports_to`), `org/positions`, `people-policy`, and the
   `payroll/components` catalogue.
 - **Roster:** reading it, planning a day, reading attendance shifts, and
   deciding a roster swap.

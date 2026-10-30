@@ -192,7 +192,7 @@ function MonthList({
   }
   const open = (employeeId: string) =>
     void navigate({
-      to: "/people",
+      to: "/people/employee",
       search: { employee: employeeId },
     } as never)
   /// Days of the month a stretch covers, ends included.

@@ -1,394 +1,600 @@
-import {
-  useMutation,
-  useQueries,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query"
-import { Send } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { ChevronLeft, ChevronRight, Plus, X } from "lucide-react"
+import { useMemo, useState } from "react"
 
-import { Button } from "@/components/ui/button"
-import { Fab } from "@/components/ui/fab"
-import { Pill } from "@/components/ui/pill"
-import { Stat, StatStrip } from "@/components/ui/stat-strip"
-import { EmptyState } from "@/components/ui/states"
+import { CENTRAL_KEY_PREFIX } from "@/lib/cloud"
 import {
   adjustmentsQuery,
-  attendanceOf,
-  hrKeys,
+  fileAdjustment,
   payComponentsQuery,
+  withdrawAdjustment,
   type StoreScope,
 } from "@/lib/queries/hr"
-import {
-  assessed,
-  batchSent,
-  cancelLines,
-  factsSpan,
-  monthFacts,
-  payMonths,
-  refileLines,
-  storeLines,
-  type PayLine,
-} from "@/lib/queries/payroll"
-import { centreState, describeCentre } from "@/screens/hr/centre"
-import { AdjustDialog, type AdjustTarget } from "@/screens/hr/pay-adjust"
-import { PayCard } from "@/screens/hr/pay-card"
-import { DockMonth, MonthStepper } from "@/screens/hr/pay-month"
-import { RefusedBanner } from "@/screens/hr/refused"
+import { batchSent, payMonths, usableComponents } from "@/lib/queries/payroll"
+import { describeCentre } from "@/screens/hr/centre"
+import { useRp } from "@/screens/hr/rp/context"
+import { initials, monthLabel } from "@/screens/hr/rp/dates"
+import { RpFrame, RpSheet, SheetHead } from "@/screens/hr/rp/kit"
 import { teamRows, useTeam } from "@/screens/hr/words"
 import { HrWorkspace } from "@/screens/hr/workspace"
-import type {
-  EmployeeList,
-  PayComponentView,
-  PayrollAdjustmentRow,
-} from "@itulah/contract"
+import type { PayrollAdjustmentRow } from "@itulah/contract"
 
-/// Payroll, for a shop — each person's month as a card, the shop's own
-/// adjustments on it, and the month sent to head office.
+/// Payroll — the hub's Payroll page (`frontend-hub/src/screens/people/rp/
+/// payroll-page.tsx`, route `/people/payroll`) for one shop: the title row with
+/// the month stepper, a person a row with what is added to their month in one
+/// column and what is taken off in the next, and the one figure on the right;
+/// a row opens a sheet of those lines with a × on each line the shop may still
+/// take back, and "Add adjustment" files a new one.
 ///
-/// The owner's design (`store-money-prototype.html`, `renderPay`): pay is
-/// worked out at head office from HO's components, and the shop never sees
-/// them. A card is a person — name, role, the month's days, lateness and
-/// absences — with their total on the right; its foot is what the SHOP added
-/// or took off, each line in its own words, and "Adjust" / "Cancel
-/// adjustment". "Send to HO" sends the month once, inside a window head office
-/// sets; earlier months are stepped back through and read, not changed.
+/// # What a shop can feed here
 ///
-/// # What is real here
+/// The hub's rows are payslips — base pay, overtime, BPJS, PPh 21, take-home —
+/// and the runs behind them. Those are head office's and the relay carries
+/// none of them (`domain/relay.rs`: no payroll but the place's own one-off
+/// figures), so the lines here are only what **this shop filed** into the
+/// month's batch: an incentive, a commission, a shortage. The figure on the
+/// right is those lines' net, not anybody's pay, and there is no Calculate,
+/// no Approve & send to Finance, no Rates, no total net pay.
 ///
-/// Everything drawn is read from the centre; nothing is made up to fill the
-/// prototype's shape (`lib/queries/payroll.ts` has the whole mapping):
+/// # Filed by the place, decided by head office
 ///
-///  - the days, the lateness and the absences are each person's derived
-///    attendance over the calendar month, up to today;
-///  - the lines are the month's one-offs this shop filed, and Adjust and
-///    Cancel adjustment file and withdraw them;
-///  - the total is a dash, because the centre does not relay a person's pay
-///    to a shop;
-///  - "Sent to HO" is said only when a one-off of the month is no longer
-///    withdrawable, which is the centre saying its batch was submitted — and
-///    with no date, because the date is the run's, and the run is not relayed;
-///  - "Send to HO" is drawn where the prototype draws it, and stays off: the
-///    centre relays no submission and has no sending window, and the line
-///    under it says so.
-///
-/// # The phone
-///
-/// The month is the dock's stepper and "Send to HO" the dock's button, at the
-/// thumb; the cards are the page. On a desk both sit in the bar over the cards.
+/// A figure is frozen the moment the place files it and can be taken back only
+/// while the batch is still the place's: `withdrawable` says which side of
+/// that line a row is on. Once any figure of the month is past it the month
+/// has gone to head office, and a change goes into next month.
 export function HrPay() {
-  return <HrWorkspace>{(scope) => <Payroll scope={scope} />}</HrWorkspace>
-}
-
-function Payroll({ scope }: { scope: StoreScope }) {
-  const [today] = useState(() => new Date())
-  const months = payMonths(today)
-  const current = months[months.length - 1] ?? ""
-  const [period, setPeriod] = useState(current)
-
-  const team = useTeam(scope)
-  const adjustments = useQuery(adjustmentsQuery(scope.unit_id, period))
-  // Read with the page rather than when Adjust is pressed, so the dialog opens
-  // with its components already there. The same key the Employment changes
-  // form reads.
-  const catalogue = useQuery(payComponentsQuery())
-
-  const sent = adjustments.isSuccess && batchSent(adjustments.data)
-  // Only this month is the shop's to change, as in the prototype: an earlier
-  // month is one the shop has sent, or one it can no longer tell about.
-  const open = period === current && adjustments.isSuccess && !sent
-
-  // Figures for the month, from the two reads the screen already makes.
-  const adjusted = adjustments.data
-  const month =
-    team.data === undefined || adjusted === undefined
-      ? undefined
-      : peopleOf(team.data, adjusted).map((person) => ({
-          id: person.id,
-          lines: storeLines(adjusted, person.id).length,
-        }))
-
   return (
-    <>
-      <StatStrip>
-        <Stat label="People" value={month === undefined ? "—" : month.length} />
-        <Stat
-          label="With adjustments"
-          value={
-            month === undefined
-              ? "—"
-              : month.filter((person) => person.lines > 0).length
-          }
-        />
-        <Stat
-          label="Adjustment lines"
-          value={
-            month === undefined
-              ? "—"
-              : month.reduce((sum, person) => sum + person.lines, 0)
-          }
-        />
-      </StatStrip>
-      <DockMonth months={months} value={period} onChange={setPeriod} />
-      {open && (
-        // Off, like the desk's (see `Standing`). The press does nothing
-        // because there is nothing at the centre for it to do.
-        <Fab
-          label="Send to HO"
-          icon={Send}
-          disabled
-          onClick={() => undefined}
-        />
+    <HrWorkspace header={false}>
+      {(scope) => (
+        <RpFrame>
+          <Body scope={scope} />
+        </RpFrame>
       )}
-      <div className="mb-3 flex flex-wrap items-center gap-3 max-md:hidden">
-        <MonthStepper months={months} value={period} onChange={setPeriod} />
-        <span className="flex-1" />
-        {open && (
-          <Button variant="primary" disabled>
-            <Send />
-            Send to HO
-          </Button>
-        )}
-      </div>
-      <Standing sent={sent} />
-
-      {centreState(team, {
-        loading: "Reading who works here…",
-        what: "this shop's people",
-        render: (people) =>
-          centreState(adjustments, {
-            loading: "Reading the month…",
-            what: "this shop's adjustments",
-            render: (rows) => (
-              <Cards
-                // A different month is a different list: what was flashing
-                // or waiting to be undone belongs to the one left behind.
-                key={period}
-                scope={scope}
-                period={period}
-                today={today}
-                team={people}
-                rows={rows}
-                open={open}
-                catalogue={
-                  catalogue.isError
-                    ? catalogue.error
-                    : (catalogue.data ?? undefined)
-                }
-              />
-            ),
-          }),
-      })}
-    </>
+    </HrWorkspace>
   )
 }
 
-/// Whether the month has gone to head office.
-function Standing({ sent }: { sent: boolean }) {
-  if (!sent) return null
+/// Everything this module caches about the filed list, whichever month it was
+/// read for.
+const ADJUSTMENTS = [CENTRAL_KEY_PREFIX, "hr", "adjustments"] as const
+
+/// The two components the centre files ITSELF (a loan's instalment, paid-out
+/// leave): they are not the shop's adjustments and not the shop's to take back.
+const FILED_BY_THE_CENTRE = new Set(["CICILAN_PINJAMAN", "UANG_CUTI"])
+
+const num2 = (n: number) => Math.round(n).toLocaleString("id-ID")
+const rp = (n: number) => `${n < 0 ? "−" : ""}Rp ${num2(Math.abs(n))}`
+const signed = (n: number) => `${n < 0 ? "−" : "+"}Rp ${num2(Math.abs(n))}`
+
+const isDeduction = (row: PayrollAdjustmentRow) => row.kind === "DEDUCTION"
+const sumOf = (list: readonly PayrollAdjustmentRow[]) =>
+  list.reduce((n, row) => n + row.amount_minor, 0)
+
+/// One person's month: what the shop added, and what it took off.
+interface Person {
+  readonly id: string
+  readonly name: string
+  readonly code: string
+  readonly earn: readonly PayrollAdjustmentRow[]
+  readonly ded: readonly PayrollAdjustmentRow[]
+  readonly net: number
+}
+
+interface Form {
+  readonly kind: "EARNING" | "DEDUCTION"
+  readonly emp: string
+  readonly code: string
+  readonly amt: string
+  readonly note: string
+}
+
+interface Sheet {
+  /// Whose month is open; `null` for the form that asks who.
+  readonly emp: string | null
+  readonly form: Form | null
+}
+
+/// One person's month from the filed rows.
+function build(
+  id: string,
+  name: string,
+  code: string,
+  rows: readonly PayrollAdjustmentRow[],
+): Person {
+  const mine = rows.filter((row) => row.employee_id === id)
+  const earn = mine.filter((row) => !isDeduction(row))
+  const ded = mine.filter(isDeduction)
+  return { id, name, code, earn, ded, net: sumOf(earn) - sumOf(ded) }
+}
+
+function Body({ scope }: { scope: StoreScope }) {
+  const { toast } = useRp()
+  const client = useQueryClient()
+  const unitId = scope.unit_id
+
+  const [today] = useState(() => new Date())
+  const months = payMonths(today)
+  const [month, setMonth] = useState(months[months.length - 1] ?? "")
+  const at = months.indexOf(month)
+  const [filter, setFilter] = useState<"all" | "filed">("all")
+  const [sheet, setSheet] = useState<Sheet | null>(null)
+
+  const team = useTeam(scope)
+  const adjustments = useQuery(adjustmentsQuery(unitId, month))
+  const components = useQuery(payComponentsQuery())
+
+  const filed = useMemo(
+    () =>
+      (adjustments.data ?? []).filter(
+        (row) =>
+          row.filed_by !== "system" &&
+          !FILED_BY_THE_CENTRE.has(row.component_code),
+      ),
+    [adjustments.data],
+  )
+  // The month has gone to head office once a figure in it can no longer be
+  // taken back.
+  const sent = adjustments.isSuccess && batchSent(adjustments.data)
+
+  // Everybody on this shop's books, and anybody the month's rows name who is
+  // not — somebody who has left still has the month they worked.
+  const people = useMemo<Person[]>(() => {
+    const byId = new Map<string, Person>()
+    const add = (id: string, name: string, code: string) => {
+      if (!byId.has(id)) byId.set(id, build(id, name, code, filed))
+    }
+    for (const p of teamRows(team.data))
+      if (p.status === "ACTIVE")
+        add(p.employee_id, p.full_name ?? p.employee_code, p.employee_code)
+    for (const row of filed)
+      add(
+        row.employee_id,
+        row.full_name ?? row.employee_code,
+        row.employee_code,
+      )
+    return [...byId.values()]
+  }, [team.data, filed])
+  const hasLines = (p: Person) => p.earn.length + p.ded.length > 0
+  const shown = people.filter((p) => filter === "all" || hasLines(p))
+  const total = people.reduce((n, p) => n + p.net, 0)
+
+  const open = people.find((p) => p.id === sheet?.emp) ?? null
+  const form = sheet?.form ?? null
+  const closeSheet = () => setSheet(null)
+  const edit = (patch: Partial<Form>) => {
+    if (sheet !== null && form !== null)
+      setSheet({ emp: sheet.emp, form: { ...form, ...patch } })
+  }
+
+  const add = useMutation({
+    mutationFn: (input: Form) =>
+      fileAdjustment({
+        place: unitId,
+        period: month,
+        employeeId: input.emp,
+        componentCode: input.code,
+        amountMinor: Number(input.amt.replace(/\D/g, "")),
+        reason: input.note.trim() || "Added in payroll",
+      }),
+    onSuccess: (_rows, input) => {
+      void client.invalidateQueries({ queryKey: ADJUSTMENTS })
+      toast("Adjustment added")
+      // Back to the person it was filed for.
+      setSheet({ emp: input.emp, form: null })
+    },
+    onError: (e: Error) => toast(describeCentre(e)),
+  })
+  const drop = useMutation({
+    mutationFn: (row: PayrollAdjustmentRow) =>
+      withdrawAdjustment({ id: row.id, reason: "Taken back in payroll" }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ADJUSTMENTS })
+      toast("Adjustment removed")
+    },
+    onError: (e: Error) => toast(describeCentre(e)),
+  })
+
+  const picks = (kind: Form["kind"]) =>
+    usableComponents(components.data ?? [], kind === "DEDUCTION" ? -1 : 1)
+  const blank = (emp: string): Form => ({
+    kind: "EARNING",
+    emp,
+    code: "",
+    amt: "",
+    note: "",
+  })
+
+  const lines = (list: readonly PayrollAdjustmentRow[], sign: string) => (
+    <div className="stk">
+      {list.map((row) => (
+        <div key={row.id} className="ln">
+          <span>{row.label}</span>
+          <span className="num">
+            {sign}
+            {num2(row.amount_minor)}
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+  const netCell = (p: Person) =>
+    hasLines(p) ? <b>{signed(p.net)}</b> : <span className="mute">·</span>
+
   return (
-    <div className="mb-3.5">
-      <Pill tone="ok" withDot>
-        Sent to HO
-      </Pill>
+    <div style={{ position: "relative" }}>
+      <div className="head">
+        <h1>Payroll</h1>
+        <span className="desk-only grow" />
+        <div className="step">
+          <button
+            type="button"
+            className="icbtn"
+            aria-label="Previous month"
+            disabled={at <= 0}
+            onClick={() => setMonth(months[at - 1] ?? month)}
+          >
+            <ChevronLeft className="lucide" />
+          </button>
+          <span className="lbl">{monthLabel(month)}</span>
+          <button
+            type="button"
+            className="icbtn"
+            aria-label="Next month"
+            disabled={at < 0 || at >= months.length - 1}
+            onClick={() => setMonth(months[at + 1] ?? month)}
+          >
+            <ChevronRight className="lucide" />
+          </button>
+        </div>
+        {filed.length > 0 && (
+          <span className="hdtot desk-only">
+            <span className="l">Net adjustments</span>
+            <b className="num">{signed(total)}</b>
+          </span>
+        )}
+        <button
+          type="button"
+          className="btn publish"
+          disabled={sent || adjustments.isPending}
+          title={
+            sent
+              ? "This month has gone to head office — a change goes into next month"
+              : undefined
+          }
+          onClick={() => setSheet({ emp: null, form: blank("") })}
+        >
+          <Plus className="lucide" />
+          Add adjustment
+        </button>
+      </div>
+
+      {sent && (
+        <p className="anote">
+          Sent to head office. A change to {monthLabel(month)} goes into next
+          month.
+        </p>
+      )}
+
+      {adjustments.isError ? (
+        <p className="empty-note bad">
+          {describeCentre(adjustments.error, "this shop's adjustments")}
+        </p>
+      ) : adjustments.isPending || team.isPending ? (
+        <p className="empty-note">Reading the adjustments…</p>
+      ) : people.length === 0 ? (
+        <p className="empty-note">Nobody is posted here.</p>
+      ) : (
+        <>
+          <div className="afilters">
+            <div className="seg">
+              <button
+                type="button"
+                aria-pressed={filter === "all"}
+                onClick={() => setFilter("all")}
+              >
+                All <span className="cn num">{people.length}</span>
+              </button>
+              <button
+                type="button"
+                aria-pressed={filter === "filed"}
+                onClick={() => setFilter("filed")}
+              >
+                With adjustments{" "}
+                <span className="cn num">{people.filter(hasLines).length}</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="card desk">
+            <table className="rgrid pay stack">
+              <colgroup>
+                <col className="who" />
+                <col style={{ width: "28%" }} />
+                <col style={{ width: "28%" }} />
+                <col style={{ width: "16%" }} />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>Person</th>
+                  <th>Earnings</th>
+                  <th>Deductions</th>
+                  <th className="pn2 sep">Adjustments</th>
+                </tr>
+              </thead>
+              <tbody>
+                {shown.map((p) => (
+                  <tr
+                    key={p.id}
+                    className="click stackrow"
+                    onClick={() => setSheet({ emp: p.id, form: null })}
+                  >
+                    <td className="who">
+                      <div className="person">
+                        <div className="av">{initials(p.name)}</div>
+                        <div className="who2">
+                          <span className="n">{p.name}</span>
+                          <span className="r">{p.code}</span>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="stc">
+                      {lines(p.earn, "")}
+                      {p.earn.length > 1 && (
+                        <div className="ln tt">
+                          <span>Total</span>
+                          <span className="num">{num2(sumOf(p.earn))}</span>
+                        </div>
+                      )}
+                    </td>
+                    <td className="stc">
+                      {lines(p.ded, "−")}
+                      {p.ded.length > 1 && (
+                        <div className="ln tt">
+                          <span>Total</span>
+                          <span className="num">−{num2(sumOf(p.ded))}</span>
+                        </div>
+                      )}
+                    </td>
+                    <td className="pn2 num net sep">{netCell(p)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td>
+                    Total · {shown.length}{" "}
+                    {shown.length === 1 ? "person" : "people"}
+                  </td>
+                  <td className="stc num">
+                    {num2(shown.reduce((n, p) => n + sumOf(p.earn), 0))}
+                  </td>
+                  <td className="stc num">
+                    −{num2(shown.reduce((n, p) => n + sumOf(p.ded), 0))}
+                  </td>
+                  <td className="pn2 num net sep">
+                    <b>{signed(shown.reduce((n, p) => n + p.net, 0))}</b>
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          <div className="plist">
+            {shown.map((p) => {
+              const count = p.earn.length + p.ded.length
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  className="prow person"
+                  onClick={() => setSheet({ emp: p.id, form: null })}
+                >
+                  <div className="av">{initials(p.name)}</div>
+                  <div className="who2">
+                    <span className="n">{p.name}</span>
+                    <span className="r">
+                      {count === 0
+                        ? p.code
+                        : `${count} ${count === 1 ? "line" : "lines"}`}
+                    </span>
+                  </div>
+                  <span className="rt num">{netCell(p)}</span>
+                </button>
+              )
+            })}
+          </div>
+        </>
+      )}
+
+      <RpSheet open={sheet !== null} onClose={closeSheet}>
+        {sheet !== null && form !== null && (
+          <>
+            <SheetHead
+              title="Add adjustment"
+              sub={`${open?.name ?? "New"} · ${monthLabel(month)}`}
+              back={
+                sheet.emp === null
+                  ? undefined
+                  : () => setSheet({ emp: sheet.emp, form: null })
+              }
+              onClose={closeSheet}
+            />
+            <div className="sbody form roomy">
+              <div className="sform">
+                {sheet.emp === null && (
+                  <div className="fld">
+                    <label htmlFor="adjWho">Who</label>
+                    <select
+                      id="adjWho"
+                      className="pick"
+                      value={form.emp}
+                      onChange={(e) => edit({ emp: e.target.value })}
+                    >
+                      <option value="">Pick a person</option>
+                      {people.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                <div className="fld">
+                  <label>Type</label>
+                  <div className="seg" style={{ alignSelf: "flex-start" }}>
+                    <button
+                      type="button"
+                      aria-pressed={form.kind === "EARNING"}
+                      onClick={() => edit({ kind: "EARNING", code: "" })}
+                    >
+                      Earning
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={form.kind === "DEDUCTION"}
+                      onClick={() => edit({ kind: "DEDUCTION", code: "" })}
+                    >
+                      Deduction
+                    </button>
+                  </div>
+                </div>
+                <div className="fld">
+                  <label htmlFor="adjCode">What for</label>
+                  <select
+                    id="adjCode"
+                    className="pick"
+                    value={form.code}
+                    onChange={(e) => edit({ code: e.target.value })}
+                  >
+                    <option value="">Pick one</option>
+                    {picks(form.kind).map((c) => (
+                      <option key={c.code} value={c.code}>
+                        {c.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="fld">
+                  <label htmlFor="adjAmt">Amount</label>
+                  <input
+                    id="adjAmt"
+                    inputMode="numeric"
+                    placeholder="Rp"
+                    value={form.amt}
+                    onChange={(e) =>
+                      edit({ amt: e.target.value.replace(/\D/g, "") })
+                    }
+                  />
+                </div>
+                <div className="fld">
+                  <label htmlFor="adjNote">Why</label>
+                  <input
+                    id="adjNote"
+                    autoComplete="off"
+                    value={form.note}
+                    onChange={(e) => edit({ note: e.target.value })}
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="sfoot sform">
+              <button
+                type="button"
+                className="btn"
+                disabled={
+                  form.emp === "" ||
+                  form.code === "" ||
+                  Number(form.amt) <= 0 ||
+                  form.note.trim() === "" ||
+                  add.isPending
+                }
+                onClick={() => add.mutate(form)}
+              >
+                Add adjustment
+              </button>
+            </div>
+          </>
+        )}
+        {sheet !== null && form === null && open !== null && (
+          <>
+            <SheetHead
+              title={open.name}
+              sub={monthLabel(month)}
+              onClose={closeSheet}
+            />
+            <div className="sbody form roomy">
+              <div className="sform">
+                <div className="slipnet">
+                  <span className="l">Adjustments this month</span>
+                  <span className="v num">
+                    {hasLines(open) ? rp(open.net) : "—"}
+                  </span>
+                </div>
+                <div className="sub">Earnings</div>
+                {open.earn.length === 0 && <p className="mute">None filed</p>}
+                {open.earn.map((row) => (
+                  <Line key={row.id} row={row} onDel={() => drop.mutate(row)} />
+                ))}
+                <div className="sub">Deductions</div>
+                {open.ded.length === 0 && <p className="mute">None filed</p>}
+                {open.ded.map((row) => (
+                  <Line key={row.id} row={row} onDel={() => drop.mutate(row)} />
+                ))}
+              </div>
+            </div>
+            <div className="sfoot">
+              {sent ? (
+                <span className="mute">
+                  Sent — a change goes into next month
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() =>
+                    setSheet({ emp: open.id, form: blank(open.id) })
+                  }
+                >
+                  <Plus className="lucide" />
+                  Add adjustment
+                </button>
+              )}
+            </div>
+          </>
+        )}
+      </RpSheet>
     </div>
   )
 }
 
-/// The month's cards, one per person.
-function Cards({
-  scope,
-  period,
-  today,
-  team,
-  rows,
-  open,
-  catalogue,
+/// A line of the person's month: what it is, why it was filed, its figure, and
+/// a × while the shop can still take it back.
+function Line({
+  row,
+  onDel,
 }: {
-  scope: StoreScope
-  period: string
-  today: Date
-  team: EmployeeList
-  rows: PayrollAdjustmentRow[]
-  open: boolean
-  catalogue: readonly PayComponentView[] | Error | undefined
+  row: PayrollAdjustmentRow
+  onDel: () => void
 }) {
-  const client = useQueryClient()
-  const key = hrKeys.adjustments(scope.unit_id, period)
-  const people = peopleOf(team, rows)
-  const span = factsSpan(period, today)
-  const reads = useQueries({
-    queries: people.map((person) => ({
-      queryKey: hrKeys.attendanceOf(person.id, span.from, span.to),
-      queryFn: ({ signal }: { signal: AbortSignal }) =>
-        attendanceOf(person.id, span.from, span.to, signal),
-    })),
-  })
-  const refused = reads.find((read) => read.isError)
-  const backed = assessed(reads.map((read) => read.data))
-
-  // The card that just changed, lit for a moment.
-  const [flash, setFlash] = useState<{ id: string; at: number } | null>(null)
-  useEffect(() => {
-    if (flash === null) return
-    const timer = window.setTimeout(() => setFlash(null), 900)
-    return () => window.clearTimeout(timer)
-  }, [flash])
-
-  // The lines a "Cancel adjustment" took off, offered back for a while: there
-  // is no toast in this app, so the card that was cancelled says so itself.
-  const [undo, setUndo] = useState<{
-    employeeId: string
-    lines: readonly PayLine[]
-  } | null>(null)
-  useEffect(() => {
-    if (undo === null) return
-    const timer = window.setTimeout(() => setUndo(null), 8000)
-    return () => window.clearTimeout(timer)
-  }, [undo])
-
-  const cancel = useMutation({
-    mutationFn: (employeeId: string) =>
-      cancelLines({ place: scope.unit_id, period, employeeId }),
-    onSuccess: ({ rows: after, cancelled }, employeeId) => {
-      client.setQueryData(key, after)
-      if (cancelled.length > 0) setUndo({ employeeId, lines: cancelled })
-    },
-    onError: () => client.invalidateQueries({ queryKey: key }),
-  })
-  // Putting them back is filing them again, as new one-offs with the same
-  // component, total and words.
-  const restore = useMutation({
-    mutationFn: (gone: { employeeId: string; lines: readonly PayLine[] }) =>
-      refileLines({
-        place: scope.unit_id,
-        period,
-        employeeId: gone.employeeId,
-        lines: gone.lines,
-      }),
-    onSuccess: (after, gone) => {
-      client.setQueryData(key, after)
-      setUndo(null)
-      setFlash({ id: gone.employeeId, at: Date.now() })
-    },
-    onError: () => client.invalidateQueries({ queryKey: key }),
-  })
-
-  // Adjust: who it is open on, and whether it is open. The target outlives the
-  // closing so the dialog has something to show while it fades.
-  const [target, setTarget] = useState<AdjustTarget | null>(null)
-  const [adjusting, setAdjusting] = useState(false)
-
-  if (people.length === 0) {
-    return <EmptyState>Nobody is posted here.</EmptyState>
-  }
-
+  const sign = isDeduction(row) ? -1 : 1
   return (
-    <>
-      {refused !== undefined && (
-        <RefusedBanner error={refused.error} what="this month's attendance" />
-      )}
-      <div className="flex flex-col gap-3">
-        {people.map((person, index) => {
-          const read = reads[index]
-          const lines = storeLines(rows, person.id)
-          const facts = read?.data === undefined ? null : monthFacts(read.data)
-          const cancelling = cancel.isPending && cancel.variables === person.id
-          const restoring =
-            restore.isPending && restore.variables?.employeeId === person.id
-          const failed =
-            cancel.isError && cancel.variables === person.id
-              ? cancel.error
-              : restore.isError && restore.variables?.employeeId === person.id
-                ? restore.error
-                : null
-          return (
-            <PayCard
-              key={person.id}
-              title={person.name}
-              line={[
-                person.role,
-                facts === null
-                  ? read?.isPending === true
-                    ? "…"
-                    : null
-                  : backed
-                    ? `${days(facts.worked)} · late ${facts.late}× · ${facts.absent} absent`
-                    : `${facts.rostered} rostered · not assessed`,
-              ]
-                .filter((part) => part !== null && part !== "")
-                .join(" · ")}
-              // A person's pay is HO's and is not relayed to a shop.
-              total={null}
-              lines={lines}
-              editable={open}
-              cancelled={undo?.employeeId === person.id && lines.length === 0}
-              flash={flash?.id === person.id}
-              busy={cancelling ? "cancel" : restoring ? "undo" : null}
-              problem={failed === null ? null : describeCentre(failed)}
-              onAdjust={() => {
-                setUndo((was) => (was?.employeeId === person.id ? null : was))
-                setTarget({
-                  seq: (target?.seq ?? 0) + 1,
-                  employeeId: person.id,
-                  name: person.name,
-                  total: null,
-                  lines,
-                })
-                setAdjusting(true)
-              }}
-              onCancel={() => cancel.mutate(person.id)}
-              onUndo={() => {
-                if (undo !== null) restore.mutate(undo)
-              }}
-            />
-          )
-        })}
-      </div>
-      <AdjustDialog
-        open={adjusting}
-        onClose={() => setAdjusting(false)}
-        onSaved={(employeeId) => {
-          setAdjusting(false)
-          setFlash({ id: employeeId, at: Date.now() })
-        }}
-        scope={scope}
-        period={period}
-        target={target}
-        catalogue={catalogue}
-      />
-    </>
+    <div className="sl">
+      <span>
+        {row.label}
+        <span className="mute"> · {row.reason}</span>
+      </span>
+      <span className="num">
+        {rp(sign * row.amount_minor)}
+        {row.withdrawable && (
+          <button
+            type="button"
+            className="xdel"
+            aria-label={`Remove ${row.label}`}
+            onClick={onDel}
+          >
+            <X className="lucide" />
+          </button>
+        )}
+      </span>
+    </div>
   )
-}
-
-/// Who gets a card: everybody on this shop's books, and anybody the month's
-/// rows name who is not — somebody who has left still has the month they
-/// worked.
-function peopleOf(
-  team: EmployeeList,
-  rows: readonly PayrollAdjustmentRow[],
-): { id: string; name: string; role: string | null }[] {
-  const people = teamRows(team)
-    .filter((person) => person.status === "ACTIVE")
-    .map((person) => ({
-      id: person.employee_id,
-      name: person.full_name ?? person.employee_code,
-      role: person.position,
-    }))
-  for (const row of rows) {
-    if (people.some((person) => person.id === row.employee_id)) continue
-    const known = teamRows(team).find(
-      (person) => person.employee_id === row.employee_id,
-    )
-    people.push({
-      id: row.employee_id,
-      name: row.full_name ?? known?.full_name ?? row.employee_code,
-      role: known?.position ?? null,
-    })
-  }
-  return people
-}
-
-function days(count: number): string {
-  return count === 1 ? "1 day" : `${count} days`
 }

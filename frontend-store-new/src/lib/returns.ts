@@ -23,6 +23,22 @@ export interface StoreReturnAsk {
   readonly lines: readonly StoreReturnLine[]
 }
 
+/// Every return's lines, one per SKU, in the order they first appear — what
+/// the shop is asked to send as goods, not return by return.
+export function sumBySku(asks: readonly StoreReturnAsk[]): StoreReturnLine[] {
+  const lines = new Map<string, StoreReturnLine>()
+  for (const ask of asks)
+    for (const line of ask.lines) {
+      const was = lines.get(line.sku_code)
+      lines.set(line.sku_code, {
+        sku_code: line.sku_code,
+        name: was?.name ?? line.name,
+        quantity: (was?.quantity ?? 0) + line.quantity,
+      })
+    }
+  return [...lines.values()]
+}
+
 export interface StoreReturnSent {
   readonly shipment_number: string
   readonly quantity: number

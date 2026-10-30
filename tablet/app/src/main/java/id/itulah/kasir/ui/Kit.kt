@@ -598,19 +598,26 @@ fun Badge(text: String, tone: Tone = Tone.PLAIN, modifier: Modifier = Modifier) 
 
 /**
  * `.notice` — something the till wants said, in the column where the eye
- * already is. Tapping it dismisses it.
+ * already is. Tapping it dismisses it. [warn] is the amber one: not wrong, but
+ * not finished either — a sale still owed to the store server.
  */
 @Composable
-fun Notice(text: String, bad: Boolean = false, onDismiss: (() -> Unit)? = null, title: String? = null) {
+fun Notice(
+    text: String,
+    bad: Boolean = false,
+    onDismiss: (() -> Unit)? = null,
+    title: String? = null,
+    warn: Boolean = false,
+) {
     Column(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(RField))
-            .background(if (bad) BadBg else AccentBg)
+            .background(if (bad) BadBg else if (warn) WarnBg else AccentBg)
             .let { if (onDismiss != null) it.clickable(onClick = onDismiss) else it }
             .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
-        val tone = if (bad) BadFg else InfoFg
+        val tone = if (bad) BadFg else if (warn) WarnFg else InfoFg
         if (title != null) Text(title, style = Type.cell.copy(color = tone, fontWeight = FontWeight.SemiBold))
         Text(text, style = Type.cell.copy(color = tone, lineHeight = 20.sp))
     }

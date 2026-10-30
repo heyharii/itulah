@@ -294,6 +294,28 @@
   animation: nav-swap var(--t-page) var(--ease-out) both;
 }
 
+/* The green rubber stamp pressed on a cashier's page when both declarations
+   have gone through (Money declaration): it lands from a little large, as a
+   stamp does. Nothing under reduced motion. */
+@keyframes stamp-in {
+  from {
+    opacity: 0;
+    scale: 1.18;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+.stamp-in {
+  animation: stamp-in 260ms var(--ease-out) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .stamp-in {
+    animation: none;
+  }
+}
+
 /* `dock:` — the page is wide enough for a panel to stand beside its list.
    Set on <html> by `publishPageWidth` in `lib/layout.ts`, from the width of
    the column the page lives in. It replaced `dock:`, which asked the

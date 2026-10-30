@@ -1,9 +1,15 @@
+import { useState } from "react"
+import { toast } from "sonner"
+
 import { PeopleSheet, SheetSection } from "@/components/ui/people-sheet"
 import { Pill } from "@/components/ui/pill"
 import { label, toneFor } from "@/lib/format"
-import { readCentidays, readDate } from "@/lib/queries/hr"
+import { bossName } from "@/lib/line"
+import { readCentidays, readDate, type StoreScope } from "@/lib/queries/hr"
+import { useProposeBoss, type LineRead } from "@/lib/queries/line"
 import type { useStaffReads } from "@/lib/queries/staff"
-import { Facts } from "@/screens/hr/parts"
+import { ReportsTo } from "@/screens/hr/line-pick"
+import { Facts, Submit } from "@/screens/hr/parts"
 import { contractLine, hoursText } from "@/screens/hr/staff-words"
 import type { EmployeeSummary } from "@itulah/contract"
 
@@ -21,16 +27,27 @@ import type { EmployeeSummary } from "@itulah/contract"
 /// own route under its own grant (`/employees/{id}/personal-data`) that a till
 /// is refused on purpose, and warning letters (SP) are not on the allowlist at
 /// all. They come back the day head office opens a store-readable route for
-/// them. **Reports to** and the prototype's *Staff / Supervisor* level are
-/// missing for the same reason: the centre does not say who a person reports
-/// to, and the rung is deliberately kept off a workforce read.
+/// them. The prototype's *Staff / Supervisor* level is missing for the same
+/// reason: the rung is deliberately kept off a workforce read.
+///
+/// # Reports to
+///
+/// **Who a person reports to** is read from their placements (`lib/line.ts`)
+/// and drawn as two facts and a section: the section lists everyone they could
+/// report to, and *Propose to HO* sends the choice as a transfer proposal that
+/// head office decides (`line-pick.tsx`). The person at the top — whose boss
+/// is not on this shop's books — has no list and no button.
 export function StaffSheet({
   person,
   reads,
+  scope,
+  line,
   onClose,
 }: {
   person: EmployeeSummary
   reads: ReturnType<typeof useStaffReads>
+  scope: StoreScope
+  line: LineRead
   onClose: () => void
 }) {
   const profile = reads.profile(person.employee_id)
@@ -40,6 +57,19 @@ export function StaffSheet({
   const seen = recent ?? null
   const name = person.full_name ?? person.employee_code
   const position = person.position ?? profile?.job_title ?? null
+
+  // The boss ticked in the list; `null` until somebody other than the current
+  // one is, which is the whole of "has the person changed anything".
+  const id = person.employee_id
+  const [picked, setPicked] = useState<string | null>(null)
+  const [reason, setReason] = useState("")
+  const propose = useProposeBoss(scope)
+  const ready = line.state === "ready" ? line.line : null
+  const current = ready?.boss(id) ?? null
+  const changed = picked !== null && picked !== current
+  const canAsk =
+    ready !== null && current !== null && ready.waiting(id) === undefined
+  const reportCount = ready?.reports(id).length ?? 0
 
   return (
     <PeopleSheet
@@ -52,6 +82,29 @@ export function StaffSheet({
       title={name}
       sub={position ?? undefined}
       status={<Pill tone={toneFor(person.status)}>{label(person.status)}</Pill>}
+      foot={
+        canAsk ? (
+          <Submit
+            label="Propose to HO"
+            pendingLabel="Sending…"
+            pending={propose.isPending}
+            disabled={!changed || reason.trim() === ""}
+            error={propose.error}
+            onSubmit={() => {
+              if (picked === null) return
+              propose.mutate(
+                { employeeId: id, bossId: picked, reason: reason.trim() },
+                {
+                  onSuccess: () => {
+                    toast("Sent to head office")
+                    onClose()
+                  },
+                },
+              )
+            }}
+          />
+        ) : undefined
+      }
     >
       <SheetSection title="Job">
         <Facts
@@ -59,6 +112,11 @@ export function StaffSheet({
             [
               "Position",
               [position, profile?.grade].filter(Boolean).join(" · ") || "—",
+            ],
+            ["Reports To", ready === null ? "—" : bossName(ready, id)],
+            [
+              "Direct Reports",
+              ready === null || reportCount === 0 ? "—" : reportCount,
             ],
             ["Posted to", profile?.unit_name ?? profile?.unit_id ?? "—"],
             [
@@ -75,6 +133,17 @@ export function StaffSheet({
               ),
             ],
           ]}
+        />
+      </SheetSection>
+
+      <SheetSection title="Reports To">
+        <ReportsTo
+          read={line}
+          id={id}
+          chosen={picked}
+          onChoose={setPicked}
+          reason={reason}
+          onReason={setReason}
         />
       </SheetSection>
 

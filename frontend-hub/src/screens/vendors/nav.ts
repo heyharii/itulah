@@ -2,7 +2,7 @@ import { Plug } from "lucide-react"
 
 import type { AppModule } from "@/lib/navigation"
 
-/// Suppliers — the parties we owe who do not sell us clothes.
+/// Vendors — the parties we owe who do not sell us clothes.
 ///
 /// # Why this stands in GA and not in Finance
 ///
@@ -20,10 +20,10 @@ import type { AppModule } from "@/lib/navigation"
 /// `/procurement/suppliers`. Three departments, one table — see migration 0212.
 export const vendorsNav: AppModule = {
   id: "vendors",
-  label: "Suppliers",
+  label: "Vendors",
   icon: Plug,
   home: "/vendors",
   // Where it answered for the hour it lived under Finance.
   moved: ["/finance/vendors"],
-  sections: [{ items: [{ path: "/vendors", label: "Suppliers", icon: Plug }] }],
+  sections: [{ items: [{ path: "/vendors", label: "Vendors", icon: Plug }] }],
 }

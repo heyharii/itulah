@@ -56,6 +56,14 @@ object Glyph {
     val User by lazy { icon("user", "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4.5 20a7.5 7.5 0 0 1 15 0") }
     val More by lazy { icon("more", "M5 12h.01M12 12h.01M19 12h.01", stroke = 3f) }
 
+    /** Not in the prototype's set: a sale saved on this till and not yet with the store server. */
+    val Clock by lazy { icon("clock", "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2") }
+
+    /** Not in the prototype's set: a sale the store server refused. */
+    val Alert by lazy {
+        icon("alert", "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 8v5M12 16.5h.01")
+    }
+
     /** Not in the prototype's set (the web counter has no soft keyboard to summon). */
     val Keyboard by lazy {
         icon(

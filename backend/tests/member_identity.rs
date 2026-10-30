@@ -933,7 +933,12 @@ async fn the_app_sends_a_code_only_to_a_member(pool: PgPool) {
         Some(json!({ "phone": "081299990000" })),
     )
     .await;
-    assert_eq!(stranger.status, StatusCode::NOT_FOUND, "{:?}", stranger.body);
+    assert_eq!(
+        stranger.status,
+        StatusCode::NOT_FOUND,
+        "{:?}",
+        stranger.body
+    );
 
     cloud::enrol_member(&pool, "081299990000", Some("Budi"))
         .await
@@ -946,12 +951,20 @@ async fn the_app_sends_a_code_only_to_a_member(pool: PgPool) {
         Some(json!({ "phone": "081299990000" })),
     )
     .await;
-    assert_eq!(no_whatsapp.status, StatusCode::CONFLICT, "{:?}", no_whatsapp.body);
+    assert_eq!(
+        no_whatsapp.status,
+        StatusCode::CONFLICT,
+        "{:?}",
+        no_whatsapp.body
+    );
     let sent: i64 = sqlx::query_scalar("SELECT count(*) FROM member_otp")
         .fetch_one(&pool)
         .await
         .unwrap_or_else(|e| panic!("count: {e}"));
-    assert_eq!(sent, 0, "a code that never went still counts against the hour");
+    assert_eq!(
+        sent, 0,
+        "a code that never went still counts against the hour"
+    );
 }
 
 /// Head office reads one member with what the till registered, and their
@@ -977,14 +990,28 @@ async fn head_office_reads_a_member_with_what_the_till_registered(pool: PgPool) 
     .await
     .unwrap_or_else(|e| panic!("profile: {e}"));
 
-    let one = send(app.clone(), "GET", &format!("/api/v1/members/{PHONE}"), counter.read(), None).await;
+    let one = send(
+        app.clone(),
+        "GET",
+        &format!("/api/v1/members/{PHONE}"),
+        counter.read(),
+        None,
+    )
+    .await;
     assert_eq!(one.status, StatusCode::OK, "{:?}", one.body);
     assert_eq!(one.body["gender"], json!("P"));
     assert_eq!(one.body["birth_place"], json!("Bandung"));
     assert_eq!(one.body["birth_date"], json!("1995-04-02"));
     assert_eq!(one.body["email"], json!("sari@example.com"));
 
-    let listed = send(app.clone(), "GET", "/api/v1/members?q=Sari", counter.read(), None).await;
+    let listed = send(
+        app.clone(),
+        "GET",
+        "/api/v1/members?q=Sari",
+        counter.read(),
+        None,
+    )
+    .await;
     assert_eq!(listed.status, StatusCode::OK, "{:?}", listed.body);
     let row = listed.body["members"]
         .as_array()
@@ -1004,6 +1031,13 @@ async fn head_office_reads_a_member_with_what_the_till_registered(pool: PgPool) 
     assert_eq!(redemptions.status, StatusCode::OK, "{:?}", redemptions.body);
     assert_eq!(redemptions.body, json!([]));
 
-    let nobody = send(app.clone(), "GET", "/api/v1/members/089900001111", counter.read(), None).await;
+    let nobody = send(
+        app.clone(),
+        "GET",
+        "/api/v1/members/089900001111",
+        counter.read(),
+        None,
+    )
+    .await;
     assert_eq!(nobody.status, StatusCode::NOT_FOUND, "{:?}", nobody.body);
 }

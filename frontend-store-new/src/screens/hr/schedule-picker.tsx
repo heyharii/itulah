@@ -120,7 +120,7 @@ export function ShiftPicker({
       >
         <div className="min-h-0 overflow-y-auto overscroll-contain px-4 pb-4">
           {shown.caption !== undefined && (
-            <p className="-mt-1 mb-3 text-[0.875rem] text-mute">
+            <p className="-mt-1 mb-3 text-[0.9375rem] text-mute">
               {shown.caption}
             </p>
           )}
@@ -171,7 +171,7 @@ export function ShiftPicker({
                 {shown.title}
               </Popover.Title>
               {shown.caption !== undefined && (
-                <span className="text-[0.875rem] text-mute">
+                <span className="text-[0.9375rem] text-mute">
                   {shown.caption}
                 </span>
               )}
@@ -243,7 +243,7 @@ function SetBody({
   return (
     <>
       {ordered.length === 0 ? (
-        <p className="px-0.5 text-[0.875rem] text-mute">
+        <p className="px-0.5 text-[0.9375rem] text-mute">
           No shifts yet. Head office sets them.
         </p>
       ) : (
@@ -267,11 +267,11 @@ function SetBody({
                 <b className="max-w-full truncate text-cell font-semibold text-ink">
                   {shift.name}
                 </b>
-                <span className="text-[0.875rem] text-body tabular-nums">
+                <span className="text-[0.9375rem] text-body tabular-nums">
                   {spanOf(shift)}
                 </span>
                 {short && (
-                  <span className="text-[0.875rem] font-semibold text-bad-fg tabular-nums">
+                  <span className="text-[0.9375rem] font-semibold text-bad-fg tabular-nums">
                     {readMinutes(shift.planned_work_minutes)}
                   </span>
                 )}
@@ -297,11 +297,11 @@ function SetBody({
         />
       </div>
       {anyShort && (
-        <p className="px-0.5 text-[0.875rem] text-bad-fg">
+        <p className="px-0.5 text-[0.9375rem] text-bad-fg">
           Red: under 8 hours worked
         </p>
       )}
-      <p className="px-0.5 text-[0.875rem] text-mute max-md:hidden pointer-coarse:hidden">
+      <p className="px-0.5 text-[0.9375rem] text-mute max-md:hidden pointer-coarse:hidden">
         Shift-click to pick more days
       </p>
     </>
@@ -369,7 +369,7 @@ function AddBody({
 
   if (session.people.length === 0) {
     return (
-      <p className="px-0.5 text-[0.875rem] text-mute">
+      <p className="px-0.5 text-[0.9375rem] text-mute">
         Everyone is already on a shift.
       </p>
     )
@@ -392,7 +392,7 @@ function AddBody({
               {one.name}
             </span>
             {one.slot !== undefined && (
-              <span className="shrink-0 text-[0.875rem] text-mute">
+              <span className="shrink-0 text-[0.9375rem] text-mute">
                 {one.slot.plan === "REST_DAY" ? "Day off" : "Holiday"}
               </span>
             )}
@@ -444,7 +444,7 @@ function WhyStep({
         value={why}
         onChange={(event) => setWhy(event.target.value)}
       />
-      <p className="px-0.5 text-[0.875rem] text-mute">{hint}</p>
+      <p className="px-0.5 text-[0.9375rem] text-mute">{hint}</p>
       <div className="flex justify-end gap-2">
         <Button variant="quiet" onClick={onBack}>
           Back

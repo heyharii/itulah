@@ -169,9 +169,17 @@ pub fn verify(connection: &Connection, username: &str, pin: &str) -> Result<Stri
     let username = security::normalize_username(username).map_err(|_| refuse())?;
     let now = Utc::now();
 
-    let row: Option<(String, i64, Option<String>, i64, Option<String>)> = connection
+    let row: Option<(
+        String,
+        i64,
+        Option<String>,
+        i64,
+        Option<String>,
+        Option<String>,
+    )> = connection
         .query_row(
-            "SELECT u.id,u.active,u.login_blocked_until,u.failed_login_count,p.pin_hash
+            "SELECT u.id,u.active,u.login_blocked_until,u.failed_login_count,p.pin_hash,
+                    u.valid_until
              FROM edge_user u
              LEFT JOIN edge_user_pin p ON p.username = u.username
              WHERE u.username=?1",
@@ -183,16 +191,29 @@ pub fn verify(connection: &Connection, username: &str, pin: &str) -> Result<Stri
                     row.get(2)?,
                     row.get(3)?,
                     row.get(4)?,
+                    row.get(5)?,
                 ))
             },
         )
         .optional()
         .map_err(db)?;
 
-    let Some((id, active, blocked_until, failures, pin_hash)) = row else {
+    let Some((id, active, blocked_until, failures, pin_hash, valid_until)) = row else {
         return Err(refuse());
     };
     if active != 1 {
+        return Err(refuse());
+    }
+    // The password's lease, never the finger's (`0095`): a PIN is typed, so it
+    // proves no more than a password that the person is at the till. Checked
+    // before the PIN is, as a password past its lease is, so it moves no
+    // counter; an unreadable lease is an ended one. No lease is a LOCAL
+    // account, which head office does not lease.
+    if valid_until.as_deref().is_some_and(|until| {
+        chrono::DateTime::parse_from_rfc3339(until)
+            .map(|parsed| parsed <= now)
+            .unwrap_or(true)
+    }) {
         return Err(refuse());
     }
     if let Some(until) = blocked_until.as_deref() {

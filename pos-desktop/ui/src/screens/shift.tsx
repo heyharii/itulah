@@ -6,27 +6,41 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react"
-import { createPortal } from "react-dom"
 
 import {
   closeShift,
   countShift,
+  edcMachines,
   myShifts,
   takeOver,
   tillSeats,
 } from "@/api"
 import { Icon } from "@/icons"
+import { CLOSE_KEY, DRAWER_KEY } from "@/keybar"
 import { siteTitle } from "@/joining"
 import { useOutbox } from "@/outbox"
 import { refreshPaymentMethods } from "@/payment-methods"
 import type { Seat } from "@/seat"
-import { useNodeConfig, useSession } from "@/session"
-import { useShortcuts, viaPointer } from "@/shortcuts"
+import { handedOverBy, useNodeConfig, useSession } from "@/session"
+import { isKey, useShortcuts, viaPointer } from "@/shortcuts"
 import { titled } from "@/simulation"
-import { SetorModalDialog, TambahModalDialog } from "@/screens/laci"
 import { initials, kasirLabel, Topbar } from "@/till"
 import type { ShiftReport, TillSeat } from "@itulah/contract"
 import { money } from "@itulah/contract/money"
+import {
+  CashSlipPaper,
+  CutLabels,
+  Denoms,
+  fmt,
+  PrintCopy,
+  printSlip,
+  Row,
+  shopOf,
+  ShopHead,
+  Signs,
+  ThermalSheet,
+  type Shop,
+} from "@/screens/thermal"
 import "@/shift-d.css"
 import "@/exchange-d.css"
 
@@ -88,7 +102,7 @@ const MOVEMENT: Record<string, string> = {
 /// The float this drawer stands on now: what it was opened with, and every
 /// "Tambah modal kasir" (PICKUP) since. The till no longer offers
 /// CORRECTION, but one already on an old shift still counts, so the closing
-/// paper stays right. Exported for the F3 Laci dialogs (laci.tsx).
+/// paper stays right. Exported for the ⇧3 Laci dialogs (laci.tsx).
 export function floatOf(report: ShiftReport): number {
   return (
     report.opening_float_minor +
@@ -125,7 +139,7 @@ export function floatReturnedOf(report: ShiftReport): {
 
 /// The float still in the drawer: what it stands on, less what was handed to
 /// the Kepala toko. Setor modal takes all of it; Tambah modal grows it again.
-function floatLeftOf(report: ShiftReport): number {
+export function floatLeftOf(report: ShiftReport): number {
   return Math.max(0, floatOf(report) - floatReturnedOf(report).minor)
 }
 
@@ -153,6 +167,25 @@ function when(stamp: string): string {
 }
 
 const MON = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"]
+
+/// What a shift report carries since 25 Oct 2026, which the contract's
+/// generated type has not caught up with: each EDC machine the shift used, and
+/// the slips the cashier counted off it. The node's own count is never read
+/// here — a cashier is not shown the figure a count could be worked toward.
+type EdcLine = {
+  readonly machine_id: string
+  readonly machine_name: string
+  readonly slips: number | null
+}
+
+const edcOf = (report: ShiftReport): readonly EdcLine[] =>
+  (report as ShiftReport & { readonly edc_slips?: readonly EdcLine[] }).edc_slips ?? []
+
+/// The paper vouchers the cashier counted off the drawer at close; null until counted.
+const vouchersOf = (report: ShiftReport): number | null => {
+  const counted = (report as ShiftReport & { readonly vouchers_counted?: number | null }).vouchers_counted
+  return typeof counted === "number" ? counted : null
+}
 
 /// The Z report, out of a reply the wrapper types loosely.
 ///
@@ -234,16 +267,12 @@ const DENOMINATIONS = [
   100_000, 50_000, 20_000, 10_000, 5_000, 2_000, 1_000, 500, 200, 100,
 ] as const
 
-/// The order a drawer is counted in: from the smallest coin up, as 7Soft's
-/// Closing Cashier lays them out and as the cashier on the client's video counts.
-const COUNT_ORDER = [...DENOMINATIONS].reverse()
+/// The order a drawer is counted in: Rp 100.000 first, down to the smallest
+/// coin (client, 28 Oct 2026: "dari yang paling besar ke paling kecil").
+const COUNT_ORDER = DENOMINATIONS
 
 const two = (n: number) => String(n).padStart(2, "0")
 const hhmm = (at: Date) => `${two(at.getHours())}:${two(at.getMinutes())}`
-const BULAN = [
-  "Januari", "Februari", "Maret", "April", "Mei", "Juni",
-  "Juli", "Agustus", "September", "Oktober", "November", "Desember",
-]
 
 /// `08:58`, kept current while a screen is up.
 function useHm(): string {
@@ -420,7 +449,7 @@ export function ShiftScreen({
     panel = <Closed report={reading.report} onLeave={onLeave} />
   }
 
-  // F4 goes straight to the count: no "Shift & kas" page flashing first.
+  // ⇧4 goes straight to the count: no "Shift & kas" page flashing first.
   if (finishing && (reading.kind === "reading" || reading.kind === "open")) {
     return (
       <div style={{ position: "fixed", inset: 0, background: "#e8ebf0" }}>
@@ -561,6 +590,7 @@ function Opening({
     const reply = await takeOver({
       ...draft,
       idempotency_key: attempt.keyFor(draft),
+      handed_by: handedOverBy()?.username ?? null,
     })
     setBusy(false)
     if (reply.ok) {
@@ -727,6 +757,8 @@ type Gate =
   | { readonly kind: "elsewhere"; readonly report: ShiftReport }
   | { readonly kind: "closing"; readonly report: ShiftReport }
   | { readonly kind: "opening"; readonly seat: TillSeat }
+  /// Opened: the MODAL AWAL slip goes to the printer, then the till.
+  | { readonly kind: "opened"; readonly report: ShiftReport }
 
 /// Whether a seat is this till's. The web till is installed as the seat id
 /// (`KASIR-2`); a desktop that joined carries the seat's label (`Kasir 2`).
@@ -822,6 +854,11 @@ export function ShiftGate({
   }, [look])
 
   const leave = popup ? "Batal" : "Keluar"
+
+  // Opened: MODAL AWAL goes to the printer, then the till.
+  if (state.kind === "opened") {
+    return <OpeningSlip report={state.report} onPrinted={() => onReady(seatOf(state.report))} />
+  }
 
   // The two that fill the window: counting a drawer is not a card on the stone.
   if (state.kind === "count") {
@@ -938,8 +975,9 @@ export function ShiftGate({
         sub={notice !== undefined && notice !== null && notice !== "" ? notice : place}
         leaveLabel={popup ? "Batal" : "Bukan Anda?"}
         onDone={(report) => {
-          if (report !== null) onReady(seatOf(report))
-          else void look()
+          if (report === null) void look()
+          else if (report.opening_float_minor > 0) setState({ kind: "opened", report })
+          else onReady(seatOf(report))
         }}
         onCancel={onSignOut}
         onProblem={setFlash}
@@ -957,6 +995,46 @@ export function ShiftGate({
     <Door popup={popup} small={small} below={below}>
       {card}
     </Door>
+  )
+}
+
+/// MODAL AWAL (pos-thermal-prototype.html, "Modal awal · buka kasir"): the
+/// float the Kepala toko hands over, printed once as the till opens, then the
+/// till. Its number (MA-0001) rides the opening movement.
+function OpeningSlip({ report, onPrinted }: { report: ShiftReport; onPrinted: () => void }) {
+  const { config } = useNodeConfig()
+  const code = (config?.joined?.site_code ?? "").trim()
+  const name = titled(report.opened_by)
+  const opened = new Date(report.opened_at)
+  const float = report.movements.find((one) => one.kind === "OPENING_FLOAT")
+  const no = (float as (typeof float & { slip_no?: unknown }) | undefined)?.slip_no
+  const done = useRef(onPrinted)
+  useEffect(() => {
+    // print() returns once the page has gone to the printer.
+    const timer = window.setTimeout(() => {
+      void printSlip(config?.paper).then(() => done.current())
+    }, 50)
+    return () => window.clearTimeout(timer)
+  }, [])
+  return (
+    <>
+      <div style={{ position: "fixed", inset: 0, background: "#e8ebf0" }} />
+      <PrintCopy
+        paper={
+          <CashSlipPaper
+            shop={shopOf(report)}
+            title="MODAL AWAL"
+            no={typeof no === "string" && no.trim() !== "" ? no.trim() : null}
+            at={Number.isNaN(opened.getTime()) ? new Date() : opened}
+            cashier={name}
+            code={code}
+            amount={report.opening_float_minor}
+            from={handedOverBy()?.name ?? name}
+            to={name}
+          />
+        }
+      />
+    </>
   )
 }
 
@@ -1079,8 +1157,9 @@ function Running({
 /// (`counting`): the same sheet, the same blindness, sent to `countShift` —
 /// the shift is already closed, so there is nothing to cancel back out of.
 ///
-/// The cashier counts every note and coin into the rows — from Rp 100 up, as
-/// 7Soft's Closing Cashier lays them out — and never sees the figure the node
+/// One form (client, 28 Oct 2026): how many slips each EDC machine printed on
+/// top, then every note and coin from Rp 100.000 down, as 7Soft's Closing
+/// Cashier lays them out — and the cashier never sees the figure the node
 /// expects: not while counting, not before sending. The expected cash is not
 /// even fetched: a number this screen never holds is a number it cannot leak.
 /// Only once the count is locked and the shift closed does the node's answer
@@ -1090,7 +1169,8 @@ function Running({
 /// refuses it unless it adds up to the declared figure — the count sheet is
 /// what an audit asks for the next morning.
 ///
-/// The keys are the prototype's: Enter walks the rows, F4 closes, Esc steps back.
+/// The keys are the prototype's: Enter and ↓ walk the rows, ↑ goes back, ⇧4
+/// closes (once every machine has its slips), Esc steps back.
 function Closing({
   actorId,
   report,
@@ -1117,12 +1197,19 @@ function Closing({
   const who = me?.display_name ?? me?.username ?? titled(report.opened_by)
   const place = usePlace(report.terminal_label)
   const [counts, setCounts] = useState<Record<number, string>>({})
+  // How many slips each EDC machine printed this shift, counted blind (client,
+  // 25 Oct 2026). `null` until the node has named the machines; a drawer that
+  // took no card has none, and the section is left out.
+  const [machines, setMachines] = useState<
+    readonly { machine_id: string; machine_name: string }[] | null
+  >(null)
+  const [slips, setSlips] = useState<Record<string, string>>({})
+  // How many paper vouchers the shoppers paid with this shift, counted off
+  // the drawer like the EDC slips (Hari, 30 Oct 2026): sheets, not rupiah.
+  const [vouchers, setVouchers] = useState("")
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
-  // Setor modal (F2) and Tambah modal (F3): the float changes hands with the
-  // drawer still open, neither one closes the till.
-  const [dialog, setDialog] = useState<null | "setor" | "tambah">(null)
   const attempt = useIdempotency()
   const rows = useRef<HTMLDivElement>(null)
   // Where the caret was, so a confirmation that is turned down hands it back.
@@ -1131,6 +1218,16 @@ function Closing({
   const floatLeft = floatLeftOf(report)
   const returned = floatReturnedOf(report)
 
+  const named = machines ?? []
+  const lead = named.length
+  // One thing at a time (Hari, 30 Oct 2026): the cash first, then the EDC
+  // slips (only when a machine took a card), then the vouchers, and only then
+  // Tutup kasir — the button walks the cashier through.
+  const steps: readonly ("cash" | "edc" | "voucher")[] =
+    lead > 0 ? ["cash", "edc", "voucher"] : ["cash", "voucher"]
+  const [stepAt, setStepAt] = useState(0)
+  const step = steps[Math.min(stepAt, steps.length - 1)]
+  const lastStep = stepAt >= steps.length - 1
   const pieces = (value: number) => Number(counts[value] ?? "") || 0
   const declared = DENOMINATIONS.reduce(
     (sum, value) => sum + value * pieces(value),
@@ -1147,24 +1244,30 @@ function Closing({
     rows.current?.querySelectorAll<HTMLInputElement>("input")[index]?.focus()
 
   useEffect(() => {
-    if (!confirming && dialog === null) focusRow(lastRow.current)
-  }, [confirming, dialog])
+    let alive = true
+    void edcMachines(report.shift_id).then((reply) => {
+      if (!alive) return
+      setMachines(reply.ok && Array.isArray(reply.body?.items) ? reply.body.items : [])
+    })
+    return () => {
+      alive = false
+    }
+  }, [report.shift_id])
+
+  useEffect(() => {
+    if (machines !== null && !confirming) focusRow(lastRow.current)
+  }, [machines, confirming, stepAt])
+
+  const typedSlips = (id: string) => slips[id] ?? ""
+  const slipsDone = named.every((one) => typedSlips(one.machine_id) !== "")
+  const setSlip = (id: string, text: string) => {
+    const digits = text.replace(/\D/g, "").slice(0, 4)
+    setSlips((was) => ({ ...was, [id]: digits === "" ? "" : String(Number(digits)) }))
+  }
 
   /// The node answered a movement with the shift report: hand it up, so this
   /// screen and the page behind it draw the float as it now stands. A reply
   /// that is not a report is read again from the node.
-  async function drawerChanged(body: unknown) {
-    const next = asReport(body)
-    if (next !== null && next.status === "OPEN") {
-      onDone(next)
-      return
-    }
-    const reply = await myShifts()
-    if (reply.ok && reply.body.open !== null && reply.body.open.status === "OPEN") {
-      onDone(reply.body.open)
-    }
-  }
-
   async function close() {
     if (actorId.trim() === "") {
       setProblem(NAMELESS)
@@ -1179,6 +1282,15 @@ function Closing({
         value_minor: value,
         pieces: pieces(value),
       })).filter((line) => line.pieces > 0),
+      ...(lead > 0
+        ? {
+            edc_slips: named.map((one) => ({
+              machine_id: one.machine_id,
+              slips: Number(typedSlips(one.machine_id)) || 0,
+            })),
+          }
+        : {}),
+      vouchers: Number(vouchers) || 0,
       note: null,
       actor_id: actorId,
     }
@@ -1197,53 +1309,48 @@ function Closing({
     setConfirming(false)
   }
 
-  // The float, kept apart from closing: nothing to hand over, nothing to ask.
-  const idle = !busy && !confirming && dialog === null && !counting
-  const openSetor = () => {
-    if (idle && floatLeft > 0) setDialog("setor")
-  }
-  const openTambah = () => {
-    if (idle) setDialog("tambah")
-  }
-
-  // F4 asks to close; F2 and F3 hand the float over and add to it; Esc steps
-  // back — out of the confirmation first, then out of the count. Read through a
-  // ref so the listener binds once. While a dialog is up the keys are its own.
+  // ⇧4 asks to close — to the first machine still without a count when one is;
+  // Esc steps back — out of the confirmation first, then out of the count.
+  // Read through a ref so the listener binds once.
   const live = useRef({
     ask: () => {},
     back: () => {},
-    setor: () => {},
-    tambah: () => {},
-    blocked: false,
   })
   useEffect(() => {
     live.current = {
       ask: () => {
-        if (!busy && !confirming) setConfirming(true)
+        if (machines === null || busy || confirming) return
+        if (step === "edc" && !slipsDone) {
+          focusRow(Math.max(0, named.findIndex((one) => typedSlips(one.machine_id) === "")))
+          return
+        }
+        if (step === "voucher" && vouchers === "") {
+          focusRow(0)
+          return
+        }
+        if (!lastStep) {
+          lastRow.current = 0
+          setStepAt((at) => at + 1)
+          return
+        }
+        setConfirming(true)
       },
       back: () => {
         if (busy) return
         if (confirming) setConfirming(false)
-        else onCancel?.()
+        else if (stepAt > 0) {
+          lastRow.current = 0
+          setStepAt((at) => at - 1)
+        } else onCancel?.()
       },
-      setor: openSetor,
-      tambah: openTambah,
-      blocked: dialog !== null,
     }
   })
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.repeat || event.ctrlKey || event.metaKey || event.altKey) return
-      if (live.current.blocked) return
-      if (event.key === "F4") {
+      if (isKey(event, CLOSE_KEY[1])) {
         event.preventDefault()
         live.current.ask()
-      } else if (event.key === "F2") {
-        event.preventDefault()
-        live.current.setor()
-      } else if (event.key === "F3") {
-        event.preventDefault()
-        live.current.tambah()
       } else if (event.key === "Escape") {
         event.preventDefault()
         if (event.target instanceof HTMLTextAreaElement) event.target.blur()
@@ -1254,13 +1361,32 @@ function Closing({
     return () => window.removeEventListener("keydown", onKey)
   }, [])
 
+  // Enter and ↓ go to the next row, ↑ to the one before; Enter on the last
+  // row asks to close.
+  const walk = (
+    event: { key: string; preventDefault: () => void },
+    index: number,
+  ) => {
+    if (event.key === "ArrowUp") {
+      event.preventDefault()
+      focusRow(index - 1)
+    } else if (event.key === "ArrowDown" || event.key === "Enter") {
+      event.preventDefault()
+      const last = (rows.current?.querySelectorAll("input").length ?? 1) - 1
+      if (index < last) focusRow(index + 1)
+      else if (event.key === "Enter") live.current.ask()
+    }
+  }
+
   const goLabel = counting ? "Kunci hitungan" : "Tutup kasir"
-  // F4 shows the count at once; a tap on Tutup kasir pops it in.
+  const stepReady =
+    step === "edc" ? slipsDone : step === "voucher" ? vouchers !== "" : true
+  // ⇧4 shows the count at once; a tap on Tutup kasir pops it in.
   const [enter] = useState(viaPointer)
 
   return (
     <div className="shd shd-close">
-      <div className={enter ? "cc m-pop" : "cc"} inert={confirming || dialog !== null}>
+      <div className={enter ? "cc m-pop" : "cc"} inert={confirming}>
         <div className="cc-l">
           <div className="cc-head">
             <div>
@@ -1272,23 +1398,106 @@ function Closing({
                 className="ds-btn ds-btn--ghost"
                 type="button"
                 disabled={busy}
-                onClick={onCancel}
+                onClick={() => live.current.back()}
               >
                 {backLabel}
                 <span className="kbd">Esc</span>
               </button>
             )}
           </div>
-          <div className={enter ? "cc-list m-swap" : "cc-list"} ref={rows}>
-            <p className="cc-sec">
-              <span />
-              <b>Uang kertas &amp; koin</b>
-              <span className="c">Jumlah</span>
-              <span className="r">Nilai</span>
-            </p>
-            {/* From the smallest coin up, as 7Soft's Closing Cashier and the
-                cashier on the client's video count. */}
-            {COUNT_ORDER.map((value, index) => (
+          <div className="cc-list" ref={rows}>
+            {/* Blind, as the cash is: the cashier is told which machines took a
+                payment, never how many slips the till expects. */}
+            {step === "edc" && lead > 0 && (
+              <>
+                <p className="cc-sec ed">
+                  <span />
+                  <b>Struk EDC</b>
+                  <span className="r">Jumlah struk</span>
+                  <span />
+                </p>
+                {named.map((one, index) => (
+                  <div className="cc-row ed" key={one.machine_id} onClick={() => focusRow(index)}>
+                    <span className="cc-chip">
+                      <span className="edc-chip">
+                        <Icon name="card" size={18} />
+                      </span>
+                    </span>
+                    <span className="cc-mach">
+                      <b>EDC {one.machine_name}</b>
+                    </span>
+                    <label className="cc-slip">
+                      <input
+                        value={typedSlips(one.machine_id)}
+                        onChange={(event) => setSlip(one.machine_id, event.target.value)}
+                        inputMode="numeric"
+                        placeholder="0"
+                        autoComplete="off"
+                        aria-label={`Jumlah struk EDC ${one.machine_name}`}
+                        onFocus={(event) => {
+                          lastRow.current = index
+                          event.target.select()
+                        }}
+                        onKeyDown={(event) => walk(event, index)}
+                      />
+                      <span className="u">struk</span>
+                    </label>
+                    <span />
+                  </div>
+                ))}
+              </>
+            )}
+            {step === "voucher" && machines !== null && (
+              <>
+                <p className="cc-sec ed">
+                  <span />
+                  <b>Voucher diterima</b>
+                  <span className="r">Jumlah lembar</span>
+                  <span />
+                </p>
+                <div className="cc-row ed" onClick={() => focusRow(0)}>
+                  <span className="cc-chip">
+                    <span className="edc-chip">
+                      <Icon name="voucher" size={18} />
+                    </span>
+                  </span>
+                  <span className="cc-mach">
+                    <b>Voucher</b>
+                  </span>
+                  <label className="cc-slip">
+                    <input
+                      value={vouchers}
+                      onChange={(event) => {
+                        const digits = event.target.value.replace(/\D/g, "").slice(0, 4)
+                        setVouchers(digits === "" ? "" : String(Number(digits)))
+                      }}
+                      inputMode="numeric"
+                      placeholder="0"
+                      autoComplete="off"
+                      aria-label="Jumlah lembar voucher"
+                      onFocus={(event) => {
+                        lastRow.current = 0
+                        event.target.select()
+                      }}
+                      onKeyDown={(event) => walk(event, 0)}
+                    />
+                    <span className="u">lembar</span>
+                  </label>
+                  <span />
+                </div>
+              </>
+            )}
+            {step === "cash" && machines !== null && (
+              <p className="cc-sec">
+                <span />
+                <b>Uang kertas &amp; koin</b>
+                <span className="c">Jumlah</span>
+                <span className="r">Nilai</span>
+              </p>
+            )}
+            {/* From Rp 100.000 down, as 7Soft's Closing Cashier and the cashier
+                on the client's video count. */}
+            {step === "cash" && machines !== null && COUNT_ORDER.map((value, index) => (
               <div className="cc-row" key={value} onClick={() => focusRow(index)}>
                 <span className="cc-chip">
                   <MoneyChip value={value} />
@@ -1313,25 +1522,13 @@ function Closing({
                     placeholder="0"
                     autoComplete="off"
                     aria-label={`Jumlah lembar ${money(value, CURRENCY)}`}
-                    autoFocus={index === 0}
                     // A count that is already there is selected, so the first
                     // key typed replaces it.
                     onFocus={(event) => {
                       lastRow.current = index
                       event.target.select()
                     }}
-                    // Keyboard only: Enter goes to the next row, and from the
-                    // last one to closing.
-                    onKeyDown={(event) => {
-                      if (event.key === "ArrowUp") {
-                        event.preventDefault()
-                        focusRow(index - 1)
-                      } else if (event.key === "ArrowDown" || event.key === "Enter") {
-                        event.preventDefault()
-                        if (index < COUNT_ORDER.length - 1) focusRow(index + 1)
-                        else if (event.key === "Enter") setConfirming(true)
-                      }
-                    }}
+                    onKeyDown={(event) => walk(event, index)}
                   />
                   <button
                     type="button"
@@ -1376,6 +1573,16 @@ function Closing({
                 </dd>
               </div>
             )}
+            {lead > 0 && (
+              <div>
+                <dt>Struk EDC</dt>
+                <dd>{named.map((one) => `${one.machine_name} ${Number(typedSlips(one.machine_id)) || 0}`).join(" · ")}</dd>
+              </div>
+            )}
+            <div>
+              <dt>Voucher</dt>
+              <dd>{Number(vouchers) || 0} lembar</dd>
+            </div>
           </dl>
           <div className="cc-sum">
             <p className="k">Terhitung</p>
@@ -1386,38 +1593,14 @@ function Closing({
               {problem}
             </p>
           )}
-          {/* The float is its own act, not part of closing: neither button
-              closes the till. Nothing left to hand over, nothing to press. */}
-          {!counting && (
-            <div className="cc-acts">
-              <button
-                className="ds-btn ds-btn--tint"
-                type="button"
-                disabled={busy || floatLeft <= 0}
-                onClick={openSetor}
-              >
-                Setor modal
-                <span className="kbd">F2</span>
-              </button>
-              <button
-                className="ds-btn ds-btn--tint"
-                type="button"
-                disabled={busy}
-                onClick={openTambah}
-              >
-                Tambah modal
-                <span className="kbd">F3</span>
-              </button>
-            </div>
-          )}
           <button
             className="ds-btn ds-btn--primary cc-go"
             type="button"
-            disabled={busy}
-            onClick={() => setConfirming(true)}
+            disabled={busy || machines === null || !stepReady}
+            onClick={() => live.current.ask()}
           >
-            <span>{goLabel}</span>
-            <span className="kbd">F4</span>
+            <span>{lastStep ? goLabel : "Lanjut"}</span>
+            <span className="kbd">{lastStep ? CLOSE_KEY[0] : "Enter"}</span>
           </button>
         </div>
       </div>
@@ -1441,7 +1624,7 @@ function Closing({
             <p>
               {counting
                 ? "Hitungan tidak bisa diubah setelah dikunci."
-                : `${floatLeft > 0 ? `Modal ${money(floatLeft, CURRENCY)} belum disetor · ` : ""}${report.terminal_label} tertutup sampai shift berikutnya dibuka.`}
+                : `${floatLeft > 0 ? `Modal ${money(floatLeft, CURRENCY)} belum disetor · setor lewat Laci (${DRAWER_KEY[0]}) · ` : ""}${report.terminal_label} tertutup sampai shift berikutnya dibuka.`}
             </p>
             <div className="cfm-act">
               <button
@@ -1466,37 +1649,6 @@ function Closing({
           </div>
         </div>
       )}
-
-      {/* The F3 dialogs are drawn at the end of the page, not inside this
-          screen: their own stylesheet (.xchd) and this one (.shd) must not
-          reach into each other. */}
-      {dialog !== null &&
-        createPortal(
-          dialog === "setor" ? (
-            <SetorModalDialog
-              actorId={actorId}
-              shiftId={report.shift_id}
-              amountMinor={floatLeft}
-              onClose={() => setDialog(null)}
-              onDone={(_text, body) => {
-                setDialog(null)
-                void drawerChanged(body)
-              }}
-            />
-          ) : (
-            <TambahModalDialog
-              actorId={actorId}
-              currency={CURRENCY}
-              shiftId={report.shift_id}
-              onClose={() => setDialog(null)}
-              onDone={(_text, body) => {
-                setDialog(null)
-                void drawerChanged(body)
-              }}
-            />
-          ),
-          document.body,
-        )}
     </div>
   )
 }
@@ -1516,35 +1668,28 @@ function Closed({
   report: ShiftReport
   onLeave: () => void
 }) {
-  // How many times this closing paper has been printed: 7Soft's "Print Ke",
-  // kept on this till per shift.
-  const key = `closing-prints:${report.shift_id}`
-  const [prints, setPrints] = useState(() => {
-    try {
-      return Number(window.localStorage.getItem(key)) || 0
-    } catch {
-      return 0
-    }
-  })
+  // Cetak once, then Selesai: Enter does the one and then the other.
+  const [printed, setPrinted] = useState(false)
   const print = () => {
-    const next = prints + 1
-    setPrints(next)
-    try {
-      window.localStorage.setItem(key, String(next))
-    } catch {
-      /* a till that cannot remember still prints */
-    }
-    window.setTimeout(() => window.print(), 50)
+    setPrinted(true)
+    window.setTimeout(() => void printSlip(config?.paper), 50)
   }
-  // Printed once, Enter is Selesai; before that it prints.
-  const done = prints > 0
   useShortcuts({
     "ctrl+p": print,
-    Enter: () => (done ? onLeave() : print()),
+    Enter: () => (printed ? onLeave() : print()),
   })
-  const place = usePlace(report.terminal_label)
-  const at =
-    report.closed_at !== null ? clock(report.closed_at) : hhmm(new Date())
+  const { config } = useNodeConfig()
+  const code = (config?.joined?.site_code ?? "").trim()
+  const shop = shopOf(report)
+  const closedAt = report.closed_at !== null ? new Date(report.closed_at) : new Date()
+  const at = hhmm(closedAt)
+  const lines = DENOMINATIONS.map((value) => ({
+    value,
+    pieces: (report.counted ?? []).find((line) => line.value_minor === value)?.pieces ?? 0,
+  }))
+  const name = titled(report.opened_by)
+  const paper = <ClosingPaper report={report} shop={shop} code={code} lines={lines} closedAt={closedAt} />
+  const labels = <CutLabels who={name} at={closedAt} lines={lines} />
 
   return (
     <>
@@ -1558,183 +1703,113 @@ function Closed({
             terhitung · {at}
           </p>
           <button
-            className={`ds-btn ${done ? "ds-btn--ghost" : "ds-btn--primary"}`}
+            className={`ds-btn ${printed ? "ds-btn--ghost" : "ds-btn--primary"}`}
             type="button"
             onClick={print}
           >
             <span>
               <PrinterIcon />
-              {done ? "Cetak lagi" : "Cetak"}
+              Cetak
             </span>
-            {!done && <span className="kbd">Enter</span>}
+            {!printed && <span className="kbd">Enter</span>}
           </button>
           <button
-            className={`ds-btn ${done ? "ds-btn--primary" : "ds-btn--ghost"}`}
+            className={`ds-btn ${printed ? "ds-btn--primary" : "ds-btn--ghost"}`}
             type="button"
             onClick={onLeave}
           >
             <span>Selesai</span>
-            {done && <span className="kbd">Enter</span>}
+            {printed && <span className="kbd">Enter</span>}
           </button>
         </div>
-        <PaperSheet report={report} printNo={Math.max(1, prints)} place={place} />
+        <div className="th-col m-pop">
+          <ThermalSheet>{paper}</ThermalSheet>
+          {lines.some((one) => one.pieces > 0) && (
+            <>
+              <p className="lbl">Potongan per pecahan</p>
+              {labels}
+            </>
+          )}
+        </div>
       </div>
-      <ClosingPaper report={report} printNo={Math.max(1, prints)} />
+      <PrintCopy paper={paper} labels={labels} />
     </>
   )
 }
 
-/// 7Soft's closing paper, line for line, as it is read on screen beside its
-/// buttons. `ClosingPaper` below is the same paper for the printer.
-function PaperSheet({
-  report,
-  printNo,
-  place,
-}: {
-  report: ShiftReport
-  printNo: number
-  place: string
-}) {
-  const stamp = (d: Date) =>
-    `${two(d.getDate())}-${MON[d.getMonth()]}-${d.getFullYear()} ${two(d.getHours())}:${two(d.getMinutes())}:${two(d.getSeconds())}`
-  const now = new Date()
-  const name = titled(report.opened_by).toUpperCase()
-  const pieces = (value: number) =>
-    (report.counted ?? []).find((line) => line.value_minor === value)?.pieces ?? 0
-  const rupiah = (n: number) => n.toLocaleString("id-ID")
-  // Printed only when the float went back to the Kepala toko (Setor modal).
-  const returned = floatReturnedOf(report)
-  return (
-    <article className="paper m-pop" aria-label="Tutup kasir">
-      <p className="pp-co">CENTRAL</p>
-      <p className="pp-date">
-        {now.getDate()} {BULAN[now.getMonth()]} {now.getFullYear()}
-      </p>
-      <p className="pp-title">TUTUP KASIR</p>
-      <dl className="pp-facts">
-        <dt>Nama Kasir</dt>
-        <dd>{name}</dd>
-        <dt>Kasir</dt>
-        <dd>{place.toUpperCase()}</dd>
-        <dt>Tanggal</dt>
-        <dd>{stamp(new Date(report.opened_at))}</dd>
-        <dt>Saldo Kas Awal</dt>
-        <dd>Rp. {rupiah(floatOf(report))}</dd>
-        {returned.minor > 0 && (
-          <>
-            <dt>Modal Disetor</dt>
-            <dd>
-              Rp. {rupiah(returned.minor)}
-              {returned.to !== null && ` · ${returned.to.toUpperCase()}`}
-            </dd>
-          </>
-        )}
-        <dt>Tanggal Cetak</dt>
-        <dd>{stamp(now)}</dd>
-        <dt>Status</dt>
-        <dd>TUTUP</dd>
-        <dt>Cetak Ke</dt>
-        <dd>{printNo}</dd>
-      </dl>
-      <p className="pp-sec">Rincian Uang</p>
-      <table className="pp-t">
-        <tbody>
-          {DENOMINATIONS.map((value) => (
-            <tr key={value}>
-              <td>Rp {rupiah(value)}</td>
-              <td>{pieces(value) || "-"}</td>
-              <td>{pieces(value) ? rupiah(value * pieces(value)) : "-"}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <p className="pp-tot">
-        <span>
-          {report.declared_cash_minor === null ? "-" : rupiah(report.declared_cash_minor)}
-        </span>
-      </p>
-      <div className="pp-sign">
-        <div>
-          <span>Kasir</span>
-          <span className="line" />
-          <span>{titled(report.opened_by)}</span>
-        </div>
-        <div>
-          <span>{returned.minor > 0 ? "Penerima" : "Admin"}</span>
-          <span className="line" />
-          <span>{returned.minor > 0 && returned.to !== null ? returned.to : " "}</span>
-        </div>
-      </div>
-      <p className="pp-by">dicetak oleh : {name}</p>
-    </article>
-  )
+/// What a cash movement is called on the closing paper, and whether it moves
+/// the drawer's float (a setoran only takes takings out). `CORRECTION` is kept
+/// as the node signed it.
+const MOVE: Readonly<Record<string, { word: string; sign: 1 | -1 | 0; float: boolean }>> = {
+  PICKUP: { word: "Tambah Modal", sign: 1, float: true },
+  CORRECTION: { word: "Koreksi Modal", sign: 0, float: true },
+  FLOAT_RETURN: { word: "Setor Modal", sign: -1, float: true },
+  DROP: { word: "Setoran", sign: -1, float: false },
+  PAYOUT: { word: "Uang Keluar", sign: -1, float: false },
 }
 
-/// The paper the client's 7Soft prints at Closing Cashier, line for line, in
-/// Indonesian: the drawer's count by note, the opening float, and two signatures.
-/// Drawn only for the printer.
-function ClosingPaper({ report, printNo }: { report: ShiftReport; printNo: number }) {
-  const stamp = (d: Date) =>
-    `${two(d.getDate())}-${MON[d.getMonth()]}-${d.getFullYear()} ${two(d.getHours())}:${two(d.getMinutes())}:${two(d.getSeconds())}`
-  const now = new Date()
-  const name = titled(report.opened_by).toUpperCase()
-  const pieces = (value: number) =>
-    (report.counted ?? []).find((line) => line.value_minor === value)?.pieces ?? 0
-  const rupiah = (n: number) => n.toLocaleString("id-ID")
-  // Printed only when the float went back to the Kepala toko (Setor modal).
-  const returned = floatReturnedOf(report)
+/// The paper the shift closes with (pos-thermal-prototype.html `closing`): who,
+/// when, the float and everything that happened to it by its slip number, the
+/// slips each EDC machine printed, the notes counted, the total, and two
+/// signatures. Blind like the screen: no expected cash, no difference.
+function ClosingPaper({
+  report,
+  shop,
+  code,
+  lines,
+  closedAt,
+}: {
+  report: ShiftReport
+  shop: Shop
+  code: string
+  lines: readonly { readonly value: number; readonly pieces: number }[]
+  closedAt: Date
+}) {
+  const name = titled(report.opened_by)
+  const stamp = (at: Date) =>
+    `${at.getDate()} ${MON[at.getMonth()]} ${at.getFullYear()} ${hhmm(at)}`
+  const opened = new Date(report.opened_at)
+  // Every movement by its slip, in the order it happened. The slip's number
+  // comes with the movement when the node says it.
+  const moves = report.movements.flatMap((one) => {
+    const kind = MOVE[one.kind]
+    if (kind === undefined) return []
+    const no = (one as typeof one & { slip_no?: unknown }).slip_no
+    const amount = kind.sign === 0 ? one.amount_minor : kind.sign * Math.abs(one.amount_minor)
+    return [
+      {
+        word: typeof no === "string" && no.trim() !== "" ? `${kind.word} ${no.trim()}` : kind.word,
+        amount,
+        float: kind.float,
+      },
+    ]
+  })
   return (
-    <div className="closing-paper" aria-hidden="true">
-      <p className="cp-co">CENTRAL</p>
-      <p>
-        {now.getDate()} {BULAN[now.getMonth()]} {now.getFullYear()}
-      </p>
-      <p className="cp-title">TUTUP KASIR</p>
-      <dl>
-        <dt>Nama Kasir</dt>
-        <dd>{name}</dd>
-        <dt>Kasir</dt>
-        <dd>{report.terminal_label.toUpperCase()}</dd>
-        <dt>Tanggal</dt>
-        <dd>{stamp(new Date(report.opened_at))}</dd>
-        <dt>Saldo Kas Awal</dt>
-        <dd>Rp. {rupiah(floatOf(report))}</dd>
-        {returned.minor > 0 && (
-          <>
-            <dt>Modal Disetor</dt>
-            <dd>
-              Rp. {rupiah(returned.minor)}
-              {returned.to !== null && ` · ${returned.to.toUpperCase()}`}
-            </dd>
-          </>
-        )}
-        <dt>Tanggal Cetak</dt>
-        <dd>{stamp(now)}</dd>
-        <dt>Status</dt>
-        <dd>TUTUP</dd>
-        <dt>Cetak Ke</dt>
-        <dd>{printNo}</dd>
-      </dl>
-      <p className="cp-sec">Rincian Uang</p>
-      <table>
-        <tbody>
-          {DENOMINATIONS.map((value) => (
-            <tr key={value}>
-              <td>Rp {rupiah(value)}</td>
-              <td>{pieces(value) || "-"}</td>
-              <td>{pieces(value) ? rupiah(value * pieces(value)) : "-"}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <p className="cp-tot">{report.declared_cash_minor === null ? "-" : rupiah(report.declared_cash_minor)}</p>
-      <div className="cp-sign">
-        <span>Kasir</span>
-        <span>{returned.minor > 0 ? "Penerima" : "Admin"}</span>
-        <span className="cp-line">{titled(report.opened_by)}</span>
-        <span className="cp-line">{returned.minor > 0 && returned.to !== null ? returned.to : " "}</span>
-      </div>
-      <p>dicetak oleh : {name}</p>
-    </div>
+    <>
+      <ShopHead shop={shop} />
+      <p className="th-c th-b">TUTUP KASIR</p>
+      <hr />
+      <Row k="Kasir" v={`${name.toUpperCase()} ${code}`.trim()} />
+      <Row k="Dibuka" v={Number.isNaN(opened.getTime()) ? report.opened_at : stamp(opened)} />
+      <Row k="Ditutup" v={stamp(closedAt)} />
+      <Row k="Saldo Awal" v={fmt(report.opening_float_minor)} />
+      {moves.map((one, at) => (
+        <Row key={`${at}:${one.word}`} k={one.word} v={fmt(one.amount)} />
+      ))}
+      {/* Only when the float itself moved: a setoran leaves it as it was. */}
+      {moves.some((one) => one.float) && <Row k="Modal Akhir" v={fmt(floatLeftOf(report))} bold />}
+      {edcOf(report)
+        .filter((one) => one.slips !== null)
+        .map((one) => (
+          <Row key={one.machine_id} k={`Struk ${one.machine_name.toUpperCase()}`} v={String(one.slips)} />
+        ))}
+      {vouchersOf(report) !== null && <Row k="Voucher" v={String(vouchersOf(report))} />}
+      <hr />
+      <p className="th-sec">RINCIAN UANG</p>
+      <Denoms lines={lines} />
+      <hr />
+      <Row k="TOTAL" v={report.declared_cash_minor === null ? "-" : fmt(report.declared_cash_minor)} bold />
+      <Signs left={["Kasir", name]} right={["Admin", ""]} />
+    </>
   )
 }

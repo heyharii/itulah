@@ -451,8 +451,8 @@ pub async fn list_store_reviews(
             let mut waits: BTreeSet<String> = BTreeSet::new();
             for sku in skus {
                 let key = (sku.clone(), store.store_id.clone());
-                let d = counted.get(&key).copied().unwrap_or(0)
-                    - sent.get(&key).copied().unwrap_or(0);
+                let d =
+                    counted.get(&key).copied().unwrap_or(0) - sent.get(&key).copied().unwrap_or(0);
                 if d == 0 {
                     continue;
                 }
@@ -460,7 +460,13 @@ pub async fn list_store_reviews(
                 for other in &not_counted {
                     // A short piece may be in any count still to come; an
                     // extra is another's only if that store was sent the SKU.
-                    if d < 0 || sent.get(&(sku.clone(), other.clone())).copied().unwrap_or(0) > 0 {
+                    if d < 0
+                        || sent
+                            .get(&(sku.clone(), other.clone()))
+                            .copied()
+                            .unwrap_or(0)
+                            > 0
+                    {
                         waits.insert(other.clone());
                     }
                 }
@@ -749,11 +755,15 @@ async fn plan_tx(
     // the pieces that arrived there, what it did not get, what it has extra.
     let mine = |store: &str| only.is_none_or(|one| one == store);
     let mut plan = StoreReviewPlan::default();
-    let extras = review.extra.iter().filter(|one| mine(&one.store_id)).map(|one| StoreReviewMove {
-        store_id: one.store_id.clone(),
-        sku_code: one.sku_code.clone(),
-        pieces: one.pieces,
-    });
+    let extras = review
+        .extra
+        .iter()
+        .filter(|one| mine(&one.store_id))
+        .map(|one| StoreReviewMove {
+            store_id: one.store_id.clone(),
+            sku_code: one.sku_code.clone(),
+            pieces: one.pieces,
+        });
     if decision == "AS_DELIVERED" {
         // The allotment follows the pieces: another store's stay where they
         // arrived; what no store has is Missing; what nobody sent goes back.
@@ -1141,17 +1151,16 @@ pub async fn decide_store_review(
         .iter()
         .filter(|store| {
             review.skus.iter().any(|sku| {
-                sku.stores.iter().any(|one| {
-                    one.store_id == store.store_id && one.counted != Some(one.sent)
-                })
+                sku.stores
+                    .iter()
+                    .any(|one| one.store_id == store.store_id && one.counted != Some(one.sent))
             })
         })
         .map(|store| store.store_id.clone())
         .collect();
     // What each store books: its own pieces first, as many of a SKU as it
     // counted up to what was sent.
-    let mut book: BTreeMap<String, Vec<crate::sync::workflow::StoreInboundBook>> =
-        BTreeMap::new();
+    let mut book: BTreeMap<String, Vec<crate::sync::workflow::StoreInboundBook>> = BTreeMap::new();
     // What a store did not get of its own, per store × SKU, in order.
     let mut rest: BTreeMap<(String, String), Vec<&Unit>> = BTreeMap::new();
     for ((store, sku), pieces) in &units {
@@ -1168,7 +1177,10 @@ pub async fn decide_store_review(
                     sku_code: sku.clone(),
                 });
         }
-        rest.insert((store.clone(), sku.clone()), pieces.iter().skip(own).collect());
+        rest.insert(
+            (store.clone(), sku.clone()),
+            pieces.iter().skip(own).collect(),
+        );
     }
     // Another store's pieces that arrived at this one: accepted as delivered
     // they are booked here and the centre pairs them through MD's answer;
@@ -1195,12 +1207,12 @@ pub async fn decide_store_review(
             .find(|store| store.store_id == pair.meant_for);
         for unit in taken {
             if decision == "AS_DELIVERED" {
-                book.entry(pair.arrived_at.clone())
-                    .or_default()
-                    .push(crate::sync::workflow::StoreInboundBook {
+                book.entry(pair.arrived_at.clone()).or_default().push(
+                    crate::sync::workflow::StoreInboundBook {
                         epc: unit.epc.clone(),
                         sku_code: pair.sku_code.clone(),
-                    });
+                    },
+                );
                 if let (Some(arrived), Some(meant)) = (arrived, meant) {
                     sqlx::query(
                         "INSERT INTO edge_transfer_redirect

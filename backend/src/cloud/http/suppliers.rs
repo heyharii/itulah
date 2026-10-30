@@ -624,6 +624,10 @@ pub async fn create_catalog_purchase_order(
 /// Refused with a conflict naming the reason once goods, a bill, a price query
 /// or a closed line stand against it — see
 /// `infrastructure::purchase_order_edit_blocker`.
+///
+/// `If-Match: "<version>"` names the version the order was opened at, and the
+/// edit is refused once somebody else has changed the order since. Optional:
+/// an older screen sends none and is taken as before (1002).
 pub async fn revise_catalog_purchase_order(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
@@ -632,14 +636,28 @@ pub async fn revise_catalog_purchase_order(
     Json(request): Json<infrastructure::CatalogPurchaseOrderRevision>,
 ) -> Result<Json<infrastructure::CatalogPurchaseOrderReceipt>, AppError> {
     let key = idempotency_key(&headers)?;
-    let request_digest = digest(&json!({
+    let version = if headers.contains_key(header::IF_MATCH) {
+        Some(expected_version(&headers)?)
+    } else {
+        None
+    };
+    let mut fingerprint = json!({
         "actor": &principal.username,
         "purchase_order_id": purchase_order_id,
         "request": &request,
-    }))?;
+    });
+    // Hashed only when sent, so an edit without If-Match hashes exactly as it
+    // did before versions existed and its retry across a deploy still replays.
+    // When sent it is part of the request: the same key with another version
+    // is another request, as it is for a supplier.
+    if let (Some(version), Some(fields)) = (version, fingerprint.as_object_mut()) {
+        fields.insert("expected_version".into(), json!(version));
+    }
+    let request_digest = digest(&fingerprint)?;
     let receipt = infrastructure::revise_catalog_purchase_order(
         &state.db,
         purchase_order_id,
+        version,
         request,
         &principal.username,
         &key,

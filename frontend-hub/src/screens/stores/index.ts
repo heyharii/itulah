@@ -13,6 +13,11 @@ export const screens: ScreenMap = {
     () => import("@/screens/stores/exceptions"),
     (m) => m.StoreExceptions
   ),
+  "/stores/apps": lazyScreen(
+    "stores/apps",
+    () => import("@/screens/stores/apps"),
+    (m) => m.StoreApps
+  ),
   "/stores/$unit": lazyScreen(
     "stores/detail",
     () => import("@/screens/stores/detail"),

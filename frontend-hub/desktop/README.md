@@ -58,10 +58,13 @@ granted to its own origin at run time (`build.rs` lists them).
 2. Mac: `npm run release`. It builds, signs the update with
    `~/.tauri/central-updater.key`, uploads to `gs://itulah-central-desktop`
    and adds the platform to `latest.json`.
-3. Windows, same version: on the Windows PC
-   `npx tauri build --config '{"bundle":{"createUpdaterArtifacts":false}}'`,
-   copy `Central_<version>_x64-setup.exe` to the Mac and
-   `scripts/publish.sh <version> windows-x86_64 <setup.exe> <setup.exe>`.
+3. Windows, same version, without a Windows PC: `deploy/windows/stage-central.sh`
+   builds it on Cloud Build with cargo-xwin, and when that finishes
+   `deploy/windows/fetch-central.sh <build id>` brings the setup down. Or, on
+   a Windows PC, `npx tauri build --config
+   '{"bundle":{"createUpdaterArtifacts":false}}'` and copy
+   `Central_<version>_x64-setup.exe` to the Mac. Either way, the last step is
+   here: `scripts/publish.sh <version> windows-x86_64 <setup.exe> <setup.exe>`.
    The key stays on the Mac.
 
 First-time installers stay at `…/Central.dmg` and `…/Central-setup.exe`.

@@ -37,10 +37,42 @@ worked out itself.
 
 The old design loaded the entire catalogue at sign-in. That is fine at 500 SKUs
 and unusable at 100,000, and the range only grows. What it bought — an offline
-price preview — was worth less than it looked: the sale needs the node anyway,
-so a till with no node cannot finish a transaction. Names are cached per SKU for
-the life of the process, so the second customer holding the same shirt costs
+price preview — was worth less than it looked: the node prices every sale, so a
+till that has never heard the node cannot ring one (a till that loses the node
+*after* pricing still can: see The outbox). Names are cached per SKU for the
+life of the process, so the second customer holding the same shirt costs
 nothing.
+
+## The outbox
+
+**A sale is written down before it is sent.** Pressing Pay writes the sale — tags,
+tenders, cashier, when it was rung and an idempotency key minted right then — to
+`files/outbox-v1.json` in the app's private storage (`data/Outbox.kt`, a port of
+`pos-desktop/ui/src/outbox.ts`; read its comment, it is the specification), and
+only then does anything touch the network. The basket clears and the cashier is
+on the receipt screen at once. If the store server is unreachable at that moment
+the sale is not lost: the screen says *Tersimpan di kasir ini*, there is no
+receipt yet, and it is sent when the server answers.
+
+Sending is `TillViewModel.flush`: oldest first, one at a time, each under its own
+stored key, right after the write, when the app comes back to the front, and
+every 15 s while anything is owed.
+
+| The server says | The sale becomes |
+|---|---|
+| 2xx | done — its sale id kept; the last 25 done are kept, older ones dropped |
+| 4xx except 401 / 408 / 429 | **refused** — kept with the server's sentence, never sent again by the tablet |
+| nothing, 401, 408, 429, 5xx | still owed — the pass stops and tries again later |
+
+A 409 for a tag still in the stockroom moves it to the shop floor and asks again
+with the same key, whether the sale is seconds or hours old. The receipt prints
+only once the server has named the sale.
+
+Owed sales show as *N penjualan menunggu dikirim* and refused ones as *N
+penjualan ditolak server toko* in the status bar and on the counter, and the
+shift cannot be closed while either is above nil. A refused sale has no way out
+on the tablet yet (the desktop's *Selesaikan* needs a store manager's approval
+at the node).
 
 ## Build
 

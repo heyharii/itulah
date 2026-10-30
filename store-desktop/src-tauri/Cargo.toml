@@ -1,0 +1,22 @@
+[package]
+name = "store-desktop"
+version = "0.1.0"
+edition = "2021"
+description = "The store app as a desktop window: it finds its store server by itself"
+publish = false
+
+[lib]
+name = "store_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The same blocking client and DNS-SD browse as Central POS: the discovery
+# module is POS's own file (`src/lib.rs`), so the two cannot drift.
+ureq = { version = "2", default-features = false, features = ["json", "tls"] }
+mdns-sd = { version = "0.21", default-features = false }

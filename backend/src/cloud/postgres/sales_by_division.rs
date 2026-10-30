@@ -490,7 +490,8 @@ macro_rules! sku_of {
 }
 
 /// The order an article came in on, for the summary's rows `r`.
-const ORDER_OF_ARTICLE: &str = "LEFT JOIN article_purchase_line apl ON apl.article_id = r.article_id
+const ORDER_OF_ARTICLE: &str =
+    "LEFT JOIN article_purchase_line apl ON apl.article_id = r.article_id
      LEFT JOIN purchase_order_line pol ON pol.po_line_id = apl.po_line_id
      LEFT JOIN purchase_order po ON po.purchase_order_id = pol.purchase_order_id";
 

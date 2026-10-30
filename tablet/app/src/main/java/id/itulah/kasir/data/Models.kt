@@ -163,6 +163,24 @@ data class Tender(
         /** The six the node accepts. Voucher settles a liability rather than
          *  taking money, and only cash can produce change. */
         val METHODS = listOf("CASH", "CARD", "QRIS", "EWALLET", "VOUCHER", "OTHER")
+
+        /**
+         * A tender read back from what [json] wrote, for the outbox. Null when
+         * it cannot be a tender at all (no method, no amount) — the outbox
+         * keeps such a row aside rather than sending a guess.
+         */
+        fun from(json: JSONObject): Tender? {
+            val method = json.opt("method") as? String ?: return null
+            if (!json.has("amount_minor")) return null
+            return Tender(
+                method = method,
+                amountMinor = json.optLong("amount_minor"),
+                reference = json.opt("reference") as? String,
+                acquirer = json.opt("acquirer") as? String,
+                cardKind = json.opt("card_kind") as? String,
+                paymentMethodCode = json.opt("payment_method_code") as? String,
+            )
+        }
     }
 }
 

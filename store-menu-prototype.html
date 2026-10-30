@@ -1,0 +1,2084 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Store · hub sidebar</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="frontend-hub/design-system/tokens.css">
+<link rel="stylesheet" href="frontend-hub/design-system/bundle.css">
+<style>
+:root{--font-sans:"Inter Variable","Inter",system-ui,-apple-system,"Segoe UI",sans-serif;--bar-h:57px;--side-w:248px;--ease-sheet:cubic-bezier(.32,.72,0,1);--ease-exit:cubic-bezier(.23,1,.32,1)}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--stone);font-family:var(--font-sans);font-size:15px;line-height:1.45;color:var(--ink);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;cursor:pointer}
+input,select{font:inherit;color:inherit}
+
+/* prototype chrome */
+.pbar{flex:none;z-index:40;display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;min-height:var(--bar-h);padding:10px 16px;background:#fff;border-bottom:1px solid var(--hairline)}
+.pbar b{font-weight:600}.pbar small{color:var(--body);font-size:15px}.pbar .sp{flex:1}
+.pbar label{display:inline-flex;align-items:center;gap:8px;color:var(--body);cursor:pointer}
+.pbar input{width:18px;height:18px;accent-color:var(--accent)}
+
+/* shell — measured on the running frontend-hub (:5350, look white · now,
+   29 Oct): the stone ground; the screens panel (inner) floats 12px off it,
+   216 wide, radius 16; the page floats beside it, radius 16, and scrolls
+   inside itself. No rail: the panel stands where the rail's 12px was. */
+html,body{height:100%}
+body{display:flex;flex-direction:column;overflow:hidden;background:#e8ebf0}
+.shell{flex:1;min-height:0;display:flex;background:#e8ebf0}
+.side{flex:none;display:flex;min-height:0}
+/* the hub's rail, measured on :5350 — 68 wide on the ground, 40px keys 42 apart */
+.rail{flex:none;display:flex;flex-direction:column;align-items:center;width:68px;padding:12px 0 16px}
+.rk{position:relative;flex:none;display:grid;place-items:center;width:40px;height:40px;margin-bottom:2px;border:0;border-radius:8px;background:none;color:#475467;transition:background-color var(--t-hover) var(--ease-out)}
+.rk svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.rk.find{margin-bottom:12px;border-radius:10px;color:#344054}
+.rk.on{background:#fff;box-shadow:0 0 0 1px rgb(16 24 40/7%),0 1px 2px rgb(16 24 40/8%);color:#2862dc}
+.rk .dot{position:absolute;top:6px;left:26px;width:8px;height:8px;border-radius:50%;background:#d70015;box-shadow:0 0 0 2px #e8ebf0}
+@media (hover:hover) and (pointer:fine){.rk:not(.on):hover{background:rgb(0 0 0/5%);color:#1d2939}}
+.r-sp{flex:1}
+.orb{position:relative;display:grid;place-items:center;width:32px;height:32px;border:0;border-radius:50%;background:#eef3fc;color:#2862dc;font-size:17px;font-weight:600}
+.orb i{position:absolute;top:-6px;right:-8px;height:16px;min-width:16px;padding:0 4px;border-radius:999px;background:#d70015;box-shadow:0 0 0 2px #e8ebf0;color:#fff;font:700 11px/16px inherit;font-style:normal}
+.panel{flex:none;display:flex;flex-direction:column;width:216px;margin:12px 12px 12px 0;border-radius:16px;background:#fff;box-shadow:0 0 0 1px rgb(0 0 0/5%),0 2px 6px rgb(0 0 0/4%);overflow:hidden}
+.panel[hidden]{display:none}
+.s-head{flex:none;display:flex;align-items:center;gap:4px;height:52px;padding:0 8px 0 16px}
+.s-name{flex:1;min-width:0;margin:0;font-size:20px;line-height:28px;font-weight:600;letter-spacing:-.4px;color:#1d2939;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.s-icon{flex:none;display:grid;place-items:center;width:32px;height:32px;border:0;border-radius:8px;background:none;color:var(--mute)}
+.s-x{display:none;flex:none;place-items:center;width:44px;height:44px;border:0;border-radius:8px;background:none;color:var(--mute)}
+.s-list{flex:1;min-height:0;display:flex;flex-direction:column;gap:2px;overflow-y:auto;padding:10px}
+@keyframes nav-swap{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.nav-swap{animation:nav-swap 220ms var(--ease-out) both}
+.grp{display:flex;flex-direction:column;gap:2px;margin-top:22px}
+.grp:first-child{margin-top:0}
+.chip-label{align-self:flex-start;height:22px;margin:0 0 4px 6px;padding:0 8px;border-radius:6px;background:#f2f2f5;color:#667085;font-size:12px;line-height:22px;font-weight:600;white-space:nowrap}
+.row{flex:none;display:flex;align-items:center;gap:8px;width:100%;height:36px;padding:0 10px;border:0;border-radius:8px;background:none;text-align:left;font-size:15px;color:#344054;transition:background-color var(--t-hover) var(--ease-out)}
+.row .lb{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row.on{background:#eef3fc;color:#2862dc;font-weight:600}
+@media (hover:hover) and (pointer:fine){.row:not(.on):hover,.s-icon:hover{background:#f2f2f5;color:var(--ink)}}
+.chev{flex:none;color:var(--mute)}
+.cnt{flex:none;min-width:20px;height:20px;padding:0 5px;border-radius:999px;background:#d70015;box-shadow:0 0 0 2px #fff;color:#fff;font-size:15px;line-height:20px;font-weight:600;text-align:center;font-variant-numeric:tabular-nums}
+.newdot{display:none;flex:none;width:7px;height:7px;border-radius:50%;background:var(--accent)}
+.mark-new .is-new .newdot{display:block}
+
+.main{flex:1;min-width:0;display:flex;flex-direction:column;margin:12px 12px 12px 0;border-radius:16px;background:#fff;box-shadow:0 0 0 1px rgb(0 0 0/5%),0 2px 8px rgb(0 0 0/4%),0 24px 72px rgb(0 0 0/8%);overflow:hidden}
+.scroller{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+.page-content{padding:24px 28px 64px}
+
+/* under 64rem: the hub's top bar, and the panel as a drawer over the page */
+.ptop{display:none}
+.scrim{display:none}
+@media (max-width:1023px){
+  .main{margin:0;border-radius:0;box-shadow:none}
+  .side{position:fixed;z-index:70;top:0;left:0;bottom:0;max-width:92vw;background:#e8ebf0;box-shadow:var(--shadow-float,0 24px 64px rgb(0 0 0/18%));transform:translateX(-105%);transition:transform 200ms var(--ease-exit)}
+  .panel{width:232px;min-width:0;flex-shrink:1}
+  .rk{width:44px;height:44px}
+  .side.open{transform:none;transition:transform 340ms var(--ease-sheet)}
+  .s-x{display:grid}
+  .panel .s-icon{display:none}
+  .row,.fold{min-height:44px}
+  .scrim{display:block;position:fixed;inset:0;z-index:65;background:rgb(0 0 0/20%);opacity:0;pointer-events:none;transition:opacity 200ms var(--ease-exit)}
+  .scrim.open{opacity:1;pointer-events:auto;transition:opacity 340ms var(--ease-sheet)}
+  .ptop{flex:none;display:flex;align-items:center;gap:8px;height:52px;padding:0 12px;border-bottom:1px solid var(--hairline);background:#fff}
+  .ptop button{display:grid;place-items:center;width:44px;height:44px;border:0;border-radius:var(--r-inner);background:none;color:var(--ink)}
+  .ptop b{font-weight:600}
+  .ptop span{color:var(--mute)}
+}
+@media (max-width:767px){
+  .page-content{padding:16px 16px 32px}
+  .door-head{margin:-16px -16px 20px!important;padding:16px 16px 0!important}
+  .door-head.notabs{padding-bottom:12px!important}
+  .ds-kpis{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));margin-left:0!important;clip-path:none!important;gap:16px!important}
+  .ds-kpi{padding:0!important}.ds-kpi::before{display:none}
+  .ds-bar .ds-search{flex:1 1 100%}
+  .wk{min-width:760px}
+  .tbl-wrap{overflow-x:auto}
+  .scroller{overflow-x:hidden}
+}
+
+/* page: head · figures · tabs · bar · table */
+.door-head{position:sticky;top:0;z-index:30;display:flex;flex-direction:column;gap:12px;margin:-24px -28px 24px;padding:24px 28px 0;background:#fff;border-bottom:1px solid var(--hairline)}
+.door-head.notabs{padding-bottom:16px}
+.crumb{margin-bottom:-4px;color:var(--mute)}
+.door-top{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:36px}
+.door-title{display:flex;align-items:baseline;gap:10px;min-width:0}
+.door-title .ds-title{margin:0}
+.door-title .sub{color:var(--body)}
+.door-actions{display:flex;gap:8px}
+.door-tabs{margin-bottom:0;box-shadow:none;overflow-x:auto}
+.tab-n{margin-left:6px;color:var(--mute);font-weight:400;font-variant-numeric:tabular-nums}
+.page-content .ds-kpis{margin-bottom:24px}
+.ds-table thead th{position:sticky;top:var(--head-h,0);z-index:2}
+.wk thead th{position:sticky;top:var(--head-h,0);z-index:2}
+.ds-kpi-value.is-bad{color:var(--bad-fg)}.ds-kpi-value.is-warn{color:var(--warn-fg)}.ds-kpi-value.is-ok{color:var(--ok-fg)}
+.bar-spacer{flex:1}
+.ds-btn{transition:background-color var(--t-hover) var(--ease-out),transform var(--t-press) var(--ease-out)}
+.ds-btn:active{transform:scale(.97)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{display:inline-flex;align-items:center;gap:7px;height:var(--control);padding:0 12px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);font-weight:500;white-space:nowrap}
+.chip .n{color:var(--body);font-weight:400;font-variant-numeric:tabular-nums}
+.chip[aria-checked="true"]{background:var(--accent-bg);border-color:transparent;color:var(--accent)}
+.chip[aria-checked="true"] .n{color:var(--accent)}
+@media (hover:hover){.chip[aria-checked="false"]:hover{background:var(--soft-2)}}
+.ds-table-card{border:0;border-radius:0;overflow:visible}
+.ds-table th{background:#fafafb;height:40px}
+.ds-table td{padding-top:12px;padding-bottom:12px}
+.tbl{table-layout:fixed}
+.tbl td{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tbl td.is-num,.tbl th.is-num{text-align:right;font-variant-numeric:tabular-nums}
+.tbl .nm{font-weight:500}
+.tbl tfoot td{font-weight:600;background:#fff;border-top:1px solid var(--hairline);border-bottom:0}
+@media (hover:hover){.tbl tr.ds-opens:hover td{background:var(--soft)}}
+.tbl tr.ds-opens{cursor:pointer}
+.mute{color:var(--body)}.faint{color:var(--faint)}
+.st{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+.st::before{content:"";flex:none;width:7px;height:7px;border-radius:50%;background:var(--line-ico)}
+.st.ok::before{background:var(--ok-fg)}.st.warn::before{background:var(--warn-fg)}.st.bad::before{background:var(--bad-fg)}.st.info::before{background:var(--accent)}
+.neg{color:var(--bad-fg)}.pos{color:var(--ok-fg)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+@media (max-width:1100px){.two{grid-template-columns:1fr}}
+.box{border:1px solid var(--hairline);border-radius:var(--r-card);background:var(--canvas);padding:20px 22px}
+.box h3{margin:0 0 14px;font-size:16px;font-weight:600}
+.lines div{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--row-line);font-variant-numeric:tabular-nums}
+.lines div:last-child{border-bottom:0}
+
+/* schedule week grid (hub roster look) */
+.wk{width:100%;border-collapse:separate;border-spacing:0;table-layout:fixed}
+.wk th{height:40px;padding:0 10px;background:#fafafb;border-bottom:1px solid var(--hairline);color:var(--body);font-weight:500;text-align:left}
+.wk th.today{color:var(--accent)}
+.wk td{height:56px;padding:6px;border-bottom:1px solid var(--row-line);border-left:1px solid var(--row-line)}
+.wk td:first-child{border-left:0;padding:0 12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wk tr:last-child td{border-bottom:0}
+.shift{display:flex;flex-direction:column;justify-content:center;height:100%;padding:0 10px;border-radius:var(--r-inner);font-weight:500;line-height:1.2}
+.shift small{font-size:15px;font-weight:400;opacity:.8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.shift.P{background:#e8f0ff;color:#2457c5}.shift.S{background:#fff1e0;color:#a35a00}.shift.M{background:#efe9fb;color:#6a43b8}.shift.O{background:var(--soft);color:var(--body)}
+.wk td.hrs{text-align:right;font-variant-numeric:tabular-nums;padding-right:12px}
+
+/* sheet — frontend-hub's Sheet (components/ui/sheet.tsx + white.css), as is:
+   desk: floats 12px off three edges, radius 16, the ring shadow, over a grey
+   veil with a 2px blur; slides in from the right in 280ms, leaves in 200ms.
+   Head on a hairline (grey crumb · 17px name + state · grey caption · ×),
+   the body scrolls, the foot stands on a hairline, main action last.
+   Phone: the whole screen, up from the bottom in 450ms. */
+:root{--scrim:rgb(208 208 213/48%);--wt-ring:0 0 0 1px rgb(0 0 0/5%),0 2px 8px rgb(0 0 0/5%),0 24px 64px rgb(0 0 0/14%);--ease-drawer:cubic-bezier(.32,.72,0,1);--ease-out:cubic-bezier(.23,1,.32,1);--t-sheet:280ms;--t-drawer:450ms;--t-exit:200ms}
+.sheet-veil{position:fixed;inset:0;z-index:40;background:var(--scrim);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);opacity:0;pointer-events:none;transition:opacity var(--t-exit) var(--ease-out)}
+.sheet-veil.open{opacity:1;pointer-events:auto;transition-duration:var(--t-sheet)}
+.sheet-pop{position:fixed;z-index:40;display:flex;flex-direction:column;overflow:hidden;background:#fff;inset:0;height:100dvh;transform:translateY(100%);visibility:hidden;transition:transform var(--t-exit) var(--ease-drawer),visibility 0s var(--t-exit)}
+.sheet-pop.open{transform:none;visibility:visible;transition:transform var(--t-drawer) var(--ease-drawer),visibility 0s}
+@media (min-width:768px){
+  .sheet-pop{inset:12px 12px 12px auto;height:auto;max-width:calc(100vw - 24px);border-radius:16px;box-shadow:var(--wt-ring);transform:translateX(calc(100% + 1.25rem))}
+  .sheet-pop.open{transition-duration:var(--t-sheet)}
+  .sheet-pop[data-size="rail"]{width:clamp(30rem,40vw,35rem)}
+  .sheet-pop[data-size="table"]{width:clamp(27.5rem,92vw,64rem)}
+  .sheet-pop[data-size="wide"]{width:clamp(27.5rem,94vw,76rem)}
+}
+.sheet-head{flex:none;display:flex;align-items:flex-start;gap:0 16px;padding:16px;border-bottom:1px solid var(--hairline)}
+@media (min-width:768px){.sheet-head{padding:28px 36px 20px}}
+.sheet-headtext{flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px}
+.sheet-id{flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 4px;line-height:18px;color:var(--mute)}
+.sheet-crumb-sep{color:#aeaeb2}
+.sheet-titlerow{flex-basis:100%;display:flex;align-items:center;gap:10px;min-width:0}
+.sheet-title{margin:0;font-size:17px;line-height:24px;font-weight:600;letter-spacing:-.3px;color:var(--ink);overflow-wrap:anywhere}
+.sheet-caption{flex-basis:100%;line-height:20px;color:var(--mute)}
+.sheet-close{flex:none;display:grid;place-items:center;width:36px;height:36px;margin:-4px -6px 0 0;padding:0;border:0;border-radius:var(--r-inner);background:none;color:var(--ink)}
+@media (max-width:767px){.sheet-close{width:44px;height:44px}}
+@media (hover:hover) and (pointer:fine){.sheet-close:hover{background:var(--soft-2)}}
+.sheet-body{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:24px 16px}
+@media (min-width:768px){.sheet-body{padding:28px 36px 32px}}
+.foot-lead{display:flex;gap:10px;font-variant-numeric:tabular-nums}
+.boxed .ds-table-card{border:1px solid var(--hairline);border-radius:var(--r-card,12px);overflow:clip}
+.tally i{font-style:normal;font-size:15px;color:var(--body)}
+.row-stamp{display:inline-block;transform:rotate(-6deg);border:3px double currentColor;border-radius:6px;padding:2px 10px;color:var(--ok-fg);text-align:center;font-size:15px;line-height:20px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;opacity:.85;mix-blend-mode:multiply;pointer-events:none}
+.md-list tbody td{height:76px;vertical-align:middle}
+.md-list .row-stamp{margin-left:2px}
+.row-stamp span{display:block;font-variant-numeric:tabular-nums}
+.foot-group{display:flex;align-items:center;gap:16px;margin-left:auto}
+/* checkout pattern — the table on the left, a summary rail on the right: the counts stacked, Submit under them */
+#sheet .foot-group{flex-direction:column;align-items:stretch;margin-left:0;gap:12px;width:100%}
+#sheet .foot-lead{flex-direction:column;gap:8px}
+#sheet .tally{width:100%;padding:10px 16px}
+#sheet .tally b{white-space:nowrap}
+#sheet .foot-group .ds-btn{width:100%;height:52px}
+@media (min-width:768px){
+  #sheet:has(.foot-lead){display:grid;grid-template-columns:minmax(0,1fr) 260px;grid-template-rows:auto minmax(0,1fr);width:clamp(27.5rem,96vw,82rem)}
+  #sheet:has(.foot-lead) .sheet-head{grid-column:1/-1}
+  #sheet:has(.foot-lead) .sheet-body{grid-column:1;grid-row:2}
+  #sheet:has(.foot-lead) .sheet-foot{grid-column:2;grid-row:2;flex-direction:column;align-items:stretch;justify-content:flex-end;border-top:0;border-left:1px solid var(--hairline);padding:28px 24px}
+}
+.tally{display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:104px;padding:8px 14px;border-radius:12px;background:var(--soft,#f6f6f8);border:1px solid transparent;text-align:left;font:inherit;color:var(--ink)}
+.tally span{font-size:15px;color:var(--body)}
+.tally b{font-size:24px;line-height:30px;font-weight:600}
+.tally.bad{background:#fef3f2;border-color:#fecdca}.tally.bad b{color:var(--bad-fg)}
+button.tally{cursor:pointer;transition:transform var(--t-press,.12s) ease-out}button.tally:active{transform:scale(.97)}
+button.tally[aria-pressed="true"]{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.sheet-foot:has(.foot-lead){padding-top:14px;padding-bottom:14px}
+.sheet-foot:has(.foot-lead) .ds-btn{height:48px;padding:0 28px;font-size:17px}
+.sheet-foot{flex:none;display:flex;align-items:center;justify-content:flex-end;gap:8px;border-top:1px solid var(--hairline);padding:12px 16px}
+@media (min-width:768px){.sheet-foot{min-height:68px;padding:14px 36px}}
+@media (max-width:767px){.sheet-foot .ds-btn{height:44px;flex:1}}
+.btn-ghost{border:1px solid var(--hairline-2)!important;background:#fff!important;color:var(--ink)!important;box-shadow:none!important}
+@media (hover:hover) and (pointer:fine){.btn-ghost:hover{background:var(--soft-2)!important}}
+.sheet-body .ds-table th{position:static}
+.sheet-body .ds-kpis{margin-bottom:32px}
+.sheet-sec{display:flex;flex-direction:column;gap:16px}
+.sheet-sec + .sheet-sec{margin-top:40px;padding-top:24px;border-top:1px solid var(--hairline)}
+.sheet-sec h4{margin:0;font-size:15px;font-weight:600;color:var(--ink)}
+.facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 24px;margin:0}
+.facts dt{color:var(--mute)}.facts dd{margin:4px 0 0;color:var(--ink);font-variant-numeric:tabular-nums}
+@media (prefers-reduced-motion:reduce){.sheet-pop,.sheet-pop.open{transform:none!important;transition:opacity 160ms ease,visibility 0s}.sheet-pop:not(.open){opacity:0}.side,.scrim{transition:none!important}.nav-swap{animation:none}}
+.toasts{position:fixed;left:16px;bottom:16px;z-index:90;display:flex;flex-direction:column;gap:8px}
+
+/* money declaration A–D */
+.vsw{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.vsw span{margin-right:4px;color:var(--body)}
+.vsw button{height:32px;padding:0 12px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:#fff;font-weight:500;transition:background-color var(--t-hover) var(--ease-out),transform var(--t-press) var(--ease-out)}
+.vsw button:active{transform:scale(.97)}
+.vsw button[aria-checked="true"]{background:var(--accent-bg);border-color:transparent;color:var(--accent)}
+.mx{table-layout:fixed;width:100%;min-width:900px}
+.mx th,.mx td{white-space:nowrap;font-variant-numeric:tabular-nums}
+.mx thead th{height:auto;padding-top:12px;padding-bottom:12px;vertical-align:bottom;font-weight:400}
+.mx .who{font-weight:600;color:var(--ink)}
+.mx td.lbl{color:var(--body)}
+.mx td.is-num,.mx th.is-num{text-align:right}
+.mx tr.sum td{font-weight:600;color:var(--ink)}
+.mx tr.sub td.lbl{padding-left:32px}
+.mx tr.gap td{border-top:1px solid var(--hairline)}
+.mx .stk{display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+.mx td.mx-open,.mx tr.sum td.mx-open{cursor:pointer;color:var(--accent);transition:background-color var(--t-hover) var(--ease-out)}
+@media (hover:hover) and (pointer:fine){.mx td.mx-open:hover{background:var(--accent-bg)}}
+.mx tfoot td{padding-top:14px;padding-bottom:14px}
+.mx tfoot .ds-btn{min-width:150px}
+.ver{display:inline-flex;flex-direction:column;align-items:flex-end;gap:2px}
+.mx-cards{display:none}
+.mx-cards .who{font-weight:600}
+.card-foot{display:flex;justify-content:flex-end;margin-top:14px}
+@media (max-width:767px){.mx-desk{display:none}.mx-cards{display:grid;gap:12px}.card-foot .ds-btn{flex:1;height:44px}}
+.mx-g{min-width:980px}
+.mx th.grp-h{height:40px;padding-top:0;padding-bottom:0;vertical-align:middle;text-align:center;font-weight:600;color:var(--ink);border-bottom:1px solid var(--hairline)}
+.mx th.grp-h + th.grp-h,.mx-g th.tot + th,.mx-g td.tot + td{border-left:1px solid var(--hairline)}
+.mx-g .tot{background:#fafafb;font-weight:600;color:var(--ink)}
+.mx tr.sec td{height:auto;padding-top:20px;padding-bottom:8px;color:var(--ink);font-weight:600;background:#fff;border-bottom:1px solid var(--hairline)}
+.mx-r{min-width:960px}
+.mx-r th,.mx-r td{padding-left:10px;padding-right:10px}
+.mx-r th:first-child,.mx-r td:first-child{padding-left:16px}
+.mx-r tr.grp-row td{padding-top:18px;padding-bottom:8px;font-weight:600;color:var(--ink);border-bottom:1px solid var(--hairline)}
+.mx-r tr.ds-opens td:first-child{padding-left:28px}
+.mx-r tr.sub-tot td{font-weight:600;background:#fafafb}
+.stepper{display:flex;align-items:center;margin:4px 0 0;padding:0 0 16px;list-style:none;max-width:560px}
+.stepper li{flex:1;display:flex;align-items:center}
+.stepper li:last-child{flex:none}
+.stepper li:not(:last-child)::after{content:"";flex:1;height:2px;margin:0 12px;border-radius:1px;background:var(--hairline-2)}
+.stepper li.done:not(:last-child)::after{background:var(--accent)}
+.stepper button{display:inline-flex;align-items:center;gap:10px;padding:0;border:0;background:none;color:var(--body);font-weight:500;white-space:nowrap;transition:transform var(--t-press) var(--ease-out)}
+.stepper button:active{transform:scale(.97)}
+.stepper .dot{display:grid;place-items:center;width:28px;height:28px;border-radius:50%;border:2px solid var(--hairline-2);background:#fff;font-weight:600;font-variant-numeric:tabular-nums;transition:background-color 200ms var(--ease-out),border-color 200ms var(--ease-out),color 200ms var(--ease-out)}
+.stepper .dot .ds-ico{width:14px;height:14px}
+.stepper li.now button{color:var(--ink);font-weight:600}
+.stepper li.now .dot{border-color:var(--accent);background:var(--accent);color:#fff}
+.stepper li.done .dot{border-color:var(--accent);background:var(--accent-bg);color:var(--accent)}
+.stepper li.issue .dot{border-color:var(--bad-fg);background:#fff;color:var(--bad-fg)}
+.stepper li.issue button{color:var(--bad-fg)}
+.door-head:has(.stepper){padding-bottom:0}
+.mx-s td:first-child{white-space:nowrap}
+.mx-s tbody td{vertical-align:middle}
+.mx-s td .faint{margin-top:2px}
+.mx-s tfoot td{font-weight:600}
+.ds-btn:disabled{background:#d0d5dd!important;border-color:transparent!important;color:#fff!important;box-shadow:none!important;cursor:not-allowed;transform:none!important}
+.block-box{margin-bottom:20px;border-color:#fecdca;background:#fffbfa}
+.block-box .lines div{align-items:center}
+.block-box .lines .ds-btn{height:32px;padding:0 12px}
+.field{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.field span{color:var(--body)}
+.money-in{height:47px;padding:0 14px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);font-size:20px;font-weight:600;font-variant-numeric:tabular-nums;text-align:right}
+.money-in:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}
+.mx-scroll{overflow-x:auto}
+.mx-m td .faint{margin-top:2px}
+.mx-m thead th{position:static}
+.mx-m td.tot,.mx-m th.tot{background:#fafafb;font-weight:600;color:var(--ink);border-left:1px solid var(--hairline)}
+.mx-m tfoot td{padding-top:14px;padding-bottom:14px}
+.mx-m tfoot .ds-btn{min-width:0;width:100%;max-width:170px}
+.sg + .sg{margin-top:32px}
+.sg-h{margin:0 0 12px;font-size:17px;font-weight:600;font-variant-numeric:tabular-nums}
+.hb{border:1px solid var(--hairline);border-radius:var(--r-card);background:#fff;overflow:hidden}
+.hb + .hb{margin-top:24px}
+.hb-h{display:flex;align-items:baseline;justify-content:space-between;gap:16px;padding:16px 20px;border-bottom:1px solid var(--hairline)}
+.hb-h h3{margin:0;font-size:15px;font-weight:600;font-variant-numeric:tabular-nums}
+.hb-h span{color:var(--body)}
+.hm-wrap{overflow-x:auto}
+.hm{width:100%;min-width:880px;border-collapse:collapse;table-layout:fixed;font-variant-numeric:tabular-nums}
+.hm th,.hm td{padding:13px 20px;font-size:15px;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-bottom:1px solid var(--row-line)}
+.hm th{padding-top:14px;padding-bottom:12px;font-weight:400;vertical-align:bottom}
+.hm .hn{color:var(--ink);font-weight:600}
+.hm .hh{color:var(--body)}
+.hm th:first-child,.hm td.hl{text-align:left;color:var(--body)}
+.hm .ht{border-left:1px solid var(--hairline);color:var(--ink);font-weight:600}
+.hm tr.hgap td{border-top:1px solid var(--hairline)}
+.hm tr.hsum td{border-top:1px solid var(--hairline);color:var(--ink)}
+.hm tr.hsum td.hl{color:var(--ink);font-weight:600}
+.hm td.ho{cursor:pointer;transition:background-color var(--t-hover) var(--ease-out)}
+@media (hover:hover) and (pointer:fine){.hm td.ho:hover{background:var(--soft)}}
+.hm tr.ha td{padding:12px 12px 14px;border-bottom:0;overflow:visible;text-overflow:clip}
+.hm tr.ha .ds-btn{height:30px;padding:0 14px;border-radius:999px}
+.g-foot.h .g-block{border-color:var(--hairline);background:#fff}
+.g-block-h{color:var(--body);margin-bottom:2px}
+/* the run sits in the page card: the rail and the Finance panel stay beside it */
+.main{position:relative}
+.wz{position:absolute;inset:0;z-index:5;display:flex;flex-direction:column;background:#fff;border-radius:inherit;overflow:hidden}
+.range{display:inline-flex;align-items:center;gap:6px;height:38px;padding:0 10px;border:1px solid var(--hairline-2);border-radius:10px;background:#fff;color:var(--body)}
+.range .ds-ico{width:16px;height:16px}.range input{border:0;background:none;font:inherit;color:var(--ink);outline:none}
+.dr{width:200px}
+.dr-box{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;height:38px;padding:0 12px 0 14px;border:1px solid var(--hairline-2);border-radius:10px;background:#fff;color:var(--ink);font:inherit;text-align:left}
+.dr-box .ds-ico{width:15px;height:15px;color:var(--body)}
+.dr-pop{position:absolute;top:100%;left:0;z-index:30;width:328px;margin-top:6px;padding:16px;background:#fff;border:1px solid var(--hairline);border-radius:14px;box-shadow:0 12px 32px rgb(16 24 40/12%)}
+.dr-pop[hidden]{display:none}
+.dr-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}.dr-head b{font-weight:500}
+.dr-head button{display:grid;place-items:center;width:32px;height:32px;border:0;border-radius:50%;background:none;color:var(--body)}.dr-head button:hover{background:var(--soft-2)}
+.dr-grid{display:grid;grid-template-columns:repeat(7,1fr);row-gap:4px}
+.dr-wd{display:grid;place-items:center;height:30px;color:var(--mute);font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+.dr-day{height:36px;border:0;background:none;border-radius:8px;color:var(--ink);font:inherit;font-variant-numeric:tabular-nums}
+.dr-day:hover{background:var(--soft-2)}.dr-day.today{font-weight:600}
+.dr-day.mid{background:rgb(37 99 235/10%);border-radius:0}
+.dr-day.end{background:var(--accent);color:#fff}
+.dr-hint{margin-top:10px;font-size:15px}
+.pick{position:relative;width:220px}
+.pick-box{display:block;width:100%}.pick-box input{width:100%;padding-right:36px}
+.pick-x{position:absolute;right:8px;top:50%;transform:translateY(-50%);display:grid;place-items:center;width:24px;height:24px;border:0;border-radius:6px;background:none;color:var(--body)}.pick-x .ds-ico{width:14px;height:14px}
+.pick-list{position:absolute;top:100%;left:0;right:0;z-index:30;margin:6px 0 0;padding:6px;list-style:none;display:flex;flex-direction:column;gap:2px;background:#fff;border:1px solid var(--hairline);border-radius:12px;box-shadow:0 12px 32px rgb(16 24 40/12%)}
+.pick-list[hidden]{display:none}
+/* a table's total row stays at the foot of the screen while the rows scroll */
+.tl{display:inline-flex;flex-direction:column;gap:2px;line-height:1.25}.is-num .tl{align-items:flex-end}.tl>span{color:var(--body);font-size:15px}
+/* a session reads as one block: no lines inside it, a line between sessions */
+/* only Payment and Share are per method; date, cashier, discount and net sales belong to the whole session */
+.pay-sessions tbody tr:has(+ tr.cont) td{border-bottom-color:transparent}.pay-sessions tbody tr:has(+ tr.cont) td.per{border-bottom-color:#f1f2f5}
+.pay-sessions tbody tr.first:not(:first-child) td{border-top:1px solid var(--hairline-2)}
+.pay-sessions tfoot td{height:44px;vertical-align:top;padding-top:12px}.pay-sessions tfoot tr.cont td{box-shadow:none;padding-top:4px;height:36px}
+.foot-pays{display:flex;gap:32px;text-align:left}.foot-pays .tl{align-items:flex-start;font-variant-numeric:tabular-nums}
+.kpi-share{margin-left:6px;color:var(--ink);font-weight:500}
+/* report tables size their columns to the figures, never clip a rupiah, never scroll sideways */
+.pay-sum .tbl{table-layout:auto!important;min-width:0!important;width:100%}.pay-sum .tbl col{width:auto!important}
+.pay-sum td,.pay-sum th{white-space:nowrap;overflow:visible!important;text-overflow:clip!important;padding-left:10px;padding-right:10px}
+/* Summary: the day's cells span its payment rows, centred; vertical rules between columns */
+.pay-sum td[rowspan]{vertical-align:middle;border-bottom:1px solid var(--row-line)!important}
+.pay-sum th+th,.pay-sum td+td,.pay-sum td[rowspan]+td,.pay-sum tr.cont td:first-child{border-left:1px solid var(--hairline)}
+.pay-sum tbody tr.cont td{border-bottom-color:var(--hairline)}
+.pay-sum tr.cont td:first-child{font-weight:400}
+/* spanned rows end on a middle column: no row chevron, the same padding everywhere */
+.pay-sum tr.ds-opens>td:last-child{padding-right:var(--cell-x)}.pay-sum tr.ds-opens>td:last-child::after{display:none}
+.thumb{display:grid;place-items:center;width:40px;height:48px;border-radius:8px;background:hsl(var(--h) 45% 90%);color:hsl(var(--h) 35% 35%);font-size:13px;font-weight:600}
+.stock-t td{padding-top:8px;padding-bottom:8px}
+.tag{display:inline-block;margin-right:4px;padding:1px 8px;border-radius:999px;background:var(--soft-2);color:var(--body);font-size:15px;line-height:22px}
+/* org chart: boxes top-down, elbow lines; the last level stacks under its manager */
+.org{padding:8px 0 24px;overflow-x:auto}
+.org ul{display:flex;justify-content:center;margin:0;padding:28px 0 0;position:relative;list-style:none}
+.org>ul{padding-top:0}
+.org li{position:relative;display:flex;flex-direction:column;align-items:center;padding:28px 8px 0}
+.org>ul>li{padding-top:0}
+.org li::before,.org li::after{content:'';position:absolute;top:0;right:50%;width:50%;height:28px;border-top:1.5px solid var(--hairline-2)}
+.org li::after{right:auto;left:50%;border-left:1.5px solid var(--hairline-2)}
+.org li:only-child::before,.org li:only-child::after{display:none}
+.org li:only-child{padding-top:28px}.org>ul>li:only-child{padding-top:0}
+.org li:first-child::before,.org li:last-child::after{border:0}
+.org li:last-child::before{border-right:1.5px solid var(--hairline-2);border-radius:0 10px 0 0}
+.org li:first-child::after{border-radius:10px 0 0 0}
+.org ul ul::before{content:'';position:absolute;top:0;left:50%;height:28px;border-left:1.5px solid var(--hairline-2)}
+.org-card{display:flex;align-items:center;gap:10px;width:232px;padding:10px 12px;border:1px solid var(--hairline);border-radius:12px;background:#fff;text-align:left;box-shadow:0 1px 2px rgb(16 24 40/5%);transition:box-shadow var(--t-hover) var(--ease-out),scale 120ms var(--ease-out)}
+.org-card:active{scale:.98}
+@media (hover:hover) and (pointer:fine){.org-card:hover{box-shadow:0 0 0 1.5px var(--accent),0 4px 12px rgb(16 24 40/8%)}}
+.org-av{flex:none;display:grid;place-items:center;width:34px;height:34px;border-radius:50%;background:var(--soft-2);color:var(--ink);font-size:13px;font-weight:600}
+.org-tx{display:flex;flex-direction:column;min-width:0;line-height:1.3}.org-tx b{font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.org-tx span{color:var(--body);font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.org-leaves{display:flex;flex-direction:column;gap:8px;margin-top:20px;padding-left:22px;position:relative}
+.org-leaves::before{content:'';position:absolute;top:-20px;bottom:30px;left:10px;border-left:1.5px solid var(--hairline-2)}
+.org-leaves .org-card{position:relative;width:212px}
+.org-leaves .org-card::before{content:'';position:absolute;left:-12px;top:50%;width:12px;border-top:1.5px solid var(--hairline-2)}
+.org-pick{display:flex;flex-direction:column;gap:6px}
+.org-opt{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--hairline);border-radius:12px;cursor:pointer}
+.org-opt:has(input:checked){border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.org-opt input{accent-color:var(--accent)}
+.pay-line{display:flex;justify-content:space-between;gap:16px;font-variant-numeric:tabular-nums}
+.boxed tfoot{position:sticky;bottom:0;z-index:2}.pay-sessions tfoot,.pay-sum tfoot{position:static}
+.sum-h{margin:36px 0 12px;font-size:17px;font-weight:600;color:var(--ink)}
+.boxed tfoot td{height:68px;font-weight:400;color:var(--ink);background:#eef3fe;box-shadow:inset 0 1.5px 0 #b9cdf7}
+.float-total{position:sticky;bottom:16px;z-index:4;display:flex;align-items:center;justify-content:space-between;gap:16px;width:fit-content;min-width:360px;margin:16px 0 0 auto;padding:12px 20px;border:1px solid var(--hairline);border-radius:14px;background:rgb(255 255 255/92%);backdrop-filter:blur(12px);box-shadow:0 8px 24px rgb(16 24 40/10%)}
+.float-total b{font-size:18px;font-weight:600;font-variant-numeric:tabular-nums}
+.ds-bar+.boxed{margin-top:20px}
+.range{gap:10px!important;padding:0 14px!important}
+.pick-list li{display:flex;justify-content:space-between;gap:12px;padding:10px 12px;border-radius:8px;cursor:pointer;color:var(--ink)}
+.pick-list li:hover{background:var(--soft-2)}
+.wz-top{flex:none;display:flex;align-items:center;gap:12px;height:60px;padding:0 20px;border-bottom:1px solid var(--hairline)}
+.wz-top b{font-size:17px;font-weight:600}.wz-top .sp{flex:1}
+.wz-x{display:grid;place-items:center;width:40px;height:40px;border:0;border-radius:var(--r-inner);background:none;color:var(--ink)}
+@media (hover:hover) and (pointer:fine){.wz-x:hover{background:var(--soft-2)}}
+.wz-body{flex:1;min-height:0;display:flex}
+.wz-side{flex:none;width:240px;display:flex;flex-direction:column;gap:4px;padding:20px 14px;overflow-y:auto;border-right:1px solid var(--hairline);background:#fafafb}
+.wz-step{display:flex;align-items:center;gap:14px;width:100%;padding:12px 12px;border:0;border-radius:12px;background:none;text-align:left;transition:background-color var(--t-hover) var(--ease-out)}
+@media (hover:hover) and (pointer:fine){.wz-step:not(.on):hover{background:#f0f1f4}}
+.wz-step.on{background:#fff;box-shadow:0 0 0 1.5px var(--accent),0 2px 8px rgb(16 24 40/8%)}
+.wz-dot{flex:none;display:grid;place-items:center;width:32px;height:32px;border-radius:50%;border:1.5px solid var(--hairline-2);background:#fff;color:var(--body);font-weight:600;font-variant-numeric:tabular-nums}
+.wz-step.on .wz-dot{border-color:var(--accent);background:var(--accent);color:#fff}
+.wz-dot.done,.wz-step.on .wz-dot.done{border-color:var(--ok-fg);background:var(--ok-fg);color:#fff}
+.wz-dot .ds-ico{width:15px;height:15px}
+.wz-txt{display:flex;flex-direction:column;gap:2px;min-width:0}
+.wz-name{color:var(--ink);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wz-main{flex:1;min-width:0;display:flex;flex-direction:column;overflow-y:auto}
+.wz-in{flex:1;width:100%;max-width:760px;margin:0 auto;padding:40px 32px 48px;position:relative}
+/* the closing stamp: lands once Declare cash and Declare EDC have both gone through */
+.stamp{position:absolute;top:86px;right:40px;z-index:2;display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 18px;border:3px double #079455;border-radius:10px;color:#079455;background:rgb(255 255 255/85%);transform:rotate(-8deg);pointer-events:none;animation:stamp-in 260ms cubic-bezier(.23,1,.32,1)}
+.stamp b{font-size:24px;letter-spacing:.14em;font-weight:800;line-height:1}
+.stamp span{font-size:15px;font-weight:600}
+@keyframes stamp-in{from{opacity:0;transform:rotate(-8deg) scale(1.25)}to{opacity:1;transform:rotate(-8deg) scale(1)}}
+@media (prefers-reduced-motion:reduce){.stamp{animation:none}}
+.wz-head{margin-bottom:32px}
+.wz-head-r{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
+.wz-head-r .ds-btn{height:34px;padding:0 16px;border-radius:999px;flex:none}
+.wz-head h2{margin:0;font-size:22px;font-weight:600;letter-spacing:-.3px}
+.wz-head p{margin:4px 0 0;color:var(--body);font-variant-numeric:tabular-nums}
+.wz-sec + .wz-sec{margin-top:40px}
+.wz-sec h3{margin:0 0 8px;font-size:15px;font-weight:600;color:var(--body)}
+.wz-row{display:flex;align-items:center;justify-content:space-between;gap:16px;width:100%;min-height:52px;padding:0 4px;border:0;border-bottom:1px solid var(--row-line);background:none;text-align:left;font-variant-numeric:tabular-nums}
+.wz-row.is-open{cursor:pointer;border-radius:8px;padding:0 12px;margin:0 -8px;width:calc(100% + 16px);transition:background-color var(--t-hover) var(--ease-out)}
+@media (hover:hover) and (pointer:fine){.wz-row.is-open:hover{background:var(--soft)}}
+.wz-row.is-open > span:last-child::after{content:"›";margin-left:12px;color:var(--faint)}
+.wz-row.is-sum{border-bottom:0;font-weight:600;font-size:17px}
+.wz-edc{display:grid;grid-template-columns:120px minmax(0,1fr) 90px 210px 36px;align-items:center;gap:12px;min-height:56px;border-bottom:1px solid var(--row-line);font-variant-numeric:tabular-nums}
+.wz-edc-h{min-height:36px;color:var(--body)}
+.wz-edc .num{white-space:nowrap}
+.wz-ev{display:flex;align-items:center;justify-content:space-between;gap:10px;white-space:nowrap}
+.ds-btn.sm{height:30px;padding:0 12px;border-radius:999px}
+.slip-in{width:100%;height:40px;padding:0 12px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);text-align:right;font-variant-numeric:tabular-nums}
+.slip-in:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}
+.wz-open{display:grid;place-items:center;width:36px;height:36px;border:0;border-radius:var(--r-inner);background:none;color:var(--body);font-size:20px}
+@media (hover:hover) and (pointer:fine){.wz-open:hover{background:var(--soft)}}
+@media (max-width:767px){.wz-edc{grid-template-columns:1fr 90px 36px}.wz-edc>span:nth-child(2),.wz-edc-h{display:none}.wz-edc>span:nth-child(4){grid-column:1/-1;margin-top:-10px;padding-bottom:10px}}
+.wz-cash{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:64px;padding:10px 4px;border-bottom:1px solid var(--row-line);font-variant-numeric:tabular-nums}
+.wz-cash-r{display:flex;align-items:center;gap:14px;white-space:nowrap}
+
+.wl{display:grid;grid-template-columns:minmax(0,1fr) 140px 140px 150px;align-items:center;gap:16px;min-height:60px;padding:8px 0 8px 4px;border-bottom:1px solid var(--row-line);font-variant-numeric:tabular-nums}
+.wl-h{min-height:36px;padding-top:0;padding-bottom:6px;color:var(--body)}
+.wl-a,.wl-b{text-align:right;white-space:nowrap}
+.wl>.ds-btn{justify-self:end;height:30px;padding:0 12px;border-radius:999px;white-space:nowrap}
+.ds-btn.btn-white{background:#fff!important;color:var(--ink)!important;border:1px solid var(--hairline-2)!important;box-shadow:none!important;font-weight:500}
+@media (hover:hover) and (pointer:fine){.ds-btn.btn-white:hover{background:var(--soft)!important}}
+.wl-n .mute{margin-top:2px;font-size:13px;white-space:nowrap}
+.wz-sec .wz-act{margin-top:14px;min-height:30px;align-items:center;gap:14px}
+.wz-act .ds-btn{height:34px;padding:0 16px;border-radius:999px}
+.wz-top .ds-btn{height:34px;padding:0 16px;border-radius:999px}
+.cm-wrap{overflow-x:auto;border:1px solid var(--hairline);border-radius:var(--r-card,12px)}
+.cm{width:100%;border-collapse:collapse;font-size:17px;font-variant-numeric:tabular-nums}
+.cm th,.cm td{padding:8px 16px;text-align:left;white-space:nowrap;border-bottom:1px solid var(--hairline)}
+.cm th{font-weight:500;color:var(--body);font-size:15px;vertical-align:bottom}
+.cm th .mute{font-weight:400;font-size:13px;margin-top:2px}
+.cm .is-num{text-align:right}
+.cm .cm-tot{background:#fafafb;font-weight:600;color:var(--ink)}
+.cm .cm-adm{border-left:1px solid var(--hairline);width:150px}
+.cm td.cm-adm{padding:6px 12px}
+.cm-adm input{width:100%;height:52px;padding:0 14px;font-size:20px;font-weight:600;border:1px solid var(--hairline-2);border-radius:var(--r-inner);text-align:right;font-variant-numeric:tabular-nums}
+.cm-adm input:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}
+.cm tr.off input{border-color:var(--bad-fg);color:var(--bad-fg)}
+.cm tfoot td{border-bottom:0;font-weight:600;color:var(--ink);padding-top:14px;padding-bottom:14px}
+.cm tbody tr:last-child td{border-bottom:1px solid var(--hairline-2)}
+.cnt-grid{display:flex;flex-direction:column;gap:8px}
+.cnt-h,.cnt-row{display:grid;grid-template-columns:1fr 90px 160px 170px;align-items:center;gap:20px;font-variant-numeric:tabular-nums;font-size:17px}
+.cnt-row b{font-weight:500;text-align:right}
+.cnt-h span:last-child{text-align:right}
+.cnt-row.off input{border-color:var(--bad-fg);color:var(--bad-fg)}
+.cnt-grid{gap:10px!important}
+.cnt-why{margin-top:24px}
+.cnt-h{color:var(--body)}.cnt-h span:not(:first-child),.cnt-row span:nth-child(2){text-align:right}
+.cnt-row input{height:52px;padding:0 14px;font-size:20px;font-weight:600;border:1px solid var(--hairline-2);border-radius:var(--r-inner);text-align:right;font-variant-numeric:tabular-nums}
+.cnt-row input:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}
+.btn-print,.btn-file,.btn-go{display:inline-flex;align-items:center;gap:8px}
+.btn-print svg,.btn-file svg,.btn-go svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.ds-btn.btn-print{background:#fff!important;color:var(--accent)!important;border:1px solid var(--hairline-2)!important;box-shadow:none!important;font-weight:600}
+.ds-btn.btn-file{background:#fff!important;color:var(--bad-fg)!important;border:1px solid rgb(215 0 21/40%)!important;box-shadow:none!important;font-weight:600}
+#pm{position:fixed;inset:0;z-index:60;pointer-events:none}
+#pm.open{pointer-events:auto}
+.pm-veil{position:absolute;inset:0;background:var(--scrim);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);opacity:0;transition:opacity 200ms var(--ease-out)}
+.pm{position:absolute;top:50%;left:50%;width:30rem;max-width:calc(100vw - 2rem);padding:20px;border:1px solid var(--hairline-2);border-radius:var(--r-card);background:#fff;box-shadow:var(--wt-ring);transform:translate(-50%,-50%) scale(.96);opacity:0;transition:opacity 200ms var(--ease-out),transform 200ms var(--ease-out)}
+#pm.open .pm-veil{opacity:1}#pm.open .pm{opacity:1;transform:translate(-50%,-50%) scale(1)}
+.pm-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:16px}.pm-head b{font-size:17px}
+.pm-page{margin:0 auto 18px;overflow:hidden;border:1px solid var(--hairline-2);border-radius:4px;background:#fff;box-shadow:0 2px 8px rgb(0 0 0/6%);padding:8px}
+.pm-scale{transform-origin:top left;width:340px}
+.pm-scale .pp{border:0;padding:0;margin:0}
+.pm-row{display:flex;align-items:center;justify-content:space-between;min-height:44px;border-top:1px solid var(--row-line)}
+.pm-choice{display:flex;gap:8px}
+.pm-choice button{height:36px;padding:0 16px;border:1px solid transparent;border-radius:var(--r-inner);background:none;color:var(--mute);transition:color 150ms var(--ease-out)}
+.pm-choice button[aria-pressed="true"]{border-color:var(--accent);color:var(--accent);font-weight:600}
+.pm-foot{display:flex;align-items:center;gap:8px;margin-top:20px}.pm-foot .btn-go{margin-left:auto;padding:0 20px}
+.pp{max-width:340px;margin:0 auto;padding:30px 26px 34px;background:#fff;border:1px solid var(--hairline);border-radius:4px;font:13px/1.5 "Inter Variable","Inter",Arial,sans-serif;color:#111;font-variant-numeric:tabular-nums}
+.pp-title{font-size:17px;font-weight:700;letter-spacing:.2px}
+.pp-sec{margin-top:16px}.pp-gap{margin-top:22px}
+.pp-l{display:grid;grid-template-columns:120px minmax(0,1fr) auto;gap:8px}
+.pp-l span:first-child{white-space:nowrap}
+.pp-l span:nth-child(2){white-space:nowrap}.pp-l span:last-child{text-align:right;min-width:70px}
+.pp-sub{margin:20px 0 4px;font-weight:700}
+.pp-t{width:100%;border-collapse:collapse;table-layout:fixed}
+.pp-t td{border:1px solid #333;padding:1px 4px;text-align:right;white-space:nowrap}
+.pp-t td:first-child{text-align:left;border-right:0}.pp-t td:nth-child(2){border-left:0}
+.pp-total{display:flex;justify-content:flex-end}.pp-total span{min-width:76px;padding:2px 4px 1px;text-align:right;font-weight:700;border-bottom:3px double #111}
+.pp-sign{display:flex;justify-content:space-between;margin-top:30px}
+.pp-sign div{display:flex;flex-direction:column;align-items:center;gap:4px;min-width:120px}.pp-sign i{display:block;width:120px;height:52px;border-bottom:1px solid #111}
+.wl.wl3{grid-template-columns:minmax(0,1fr) 130px 130px}
+.wl.wl4{grid-template-columns:minmax(0,1fr) 130px 130px 130px}
+.wl.wl3.jx{grid-template-columns:minmax(0,1fr) 130px 130px 150px}
+.wl.wl4.jx{grid-template-columns:minmax(0,1fr) 130px 130px 130px 150px}
+.wl-x{text-align:right}
+.cnt-h.rc,.cnt-row.rc{grid-template-columns:1fr 80px 80px 110px}
+.wz-act{display:flex;justify-content:flex-end;margin-top:8px}
+.wl.j-sum{border-top:2px solid var(--ink,#1d1d1f)}
+.wl.j-sum .wl-n,.wl.j-sum b{font-weight:700}
+.wl.j-count{min-height:76px}
+.wl.j-count .wl-n{font-weight:700}
+.wl.j-count .wl-n .mute{font-weight:400}
+.wl .j-wide{grid-column:2/4}
+.j-edc{display:flex;align-items:center;gap:12px}
+.ds-btn.sm{height:30px;padding:0 12px;font-size:15px}
+.sheet-pop[data-size="wide"] .seg button{padding:0 9px}
+.seg.j-moved{box-shadow:inset 0 0 0 2px var(--warn-fg,#a66c1f)}
+.j-in{display:flex;align-items:center;gap:8px;height:47px;padding:0 12px;border:1px solid var(--hairline-2,#d2d2d7);border-radius:10px;background:#fff}
+.j-in:focus-within{border-color:var(--accent,#2862dc);box-shadow:0 0 0 3px rgb(40 98 220/18%)}
+.j-in.bad{border-color:var(--bad-fg,#d70015);box-shadow:0 0 0 3px rgb(215 0 21/14%)}
+.j-in span{color:var(--body,#6e6e73)}
+.j-in input{width:100%;min-width:0;border:0;outline:0;background:none;text-align:right;font-size:20px;font-weight:700;font-variant-numeric:tabular-nums}
+.wz-foot{position:sticky;bottom:0;flex:none;border-top:1px solid var(--hairline);background:rgb(255 255 255/94%);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+.wz-foot-in{display:flex;justify-content:space-between;gap:12px;max-width:760px;margin:0 auto;padding:14px 32px}
+.wz-foot .ds-btn{height:44px;padding:0 22px}
+@media (max-width:767px){.wz-side{display:none}.wz-in{padding:24px 16px 32px}.wz-foot-in{padding:12px 16px}.wz-foot .ds-btn{flex:1}}
+.sheet-veil,.sheet-pop{z-index:50!important}
+.g-foot{display:flex;flex-direction:column;gap:16px;margin-top:32px}
+.g-notes{display:flex;flex-direction:column;gap:8px}
+.g-notes>span{font-weight:600}
+.g-block{display:flex;flex-direction:column;gap:6px;padding:14px 16px;border:1px solid #fecdca;border-radius:var(--r-card);background:#fffbfa}
+.g-block div{display:flex;justify-content:space-between;gap:12px}
+.g-btns{display:flex;justify-content:flex-end;gap:8px}
+@media (max-width:767px){.g-btns .ds-btn{flex:1;height:44px}}
+.ses{display:flex;flex-direction:column;gap:16px;max-width:760px}
+.ses-b{padding:18px 22px}
+.ses-h{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
+.ses-act{display:flex;gap:8px}
+.ses-tot{background:#fafafb}
+.ses .lines div>span:last-child{font-variant-numeric:tabular-nums}
+.lnk{padding:0;border:0;background:none;color:var(--accent);font-weight:500;font-variant-numeric:tabular-nums}
+@media (hover:hover) and (pointer:fine){.lnk:hover{text-decoration:underline}}
+.notes{display:flex;flex-direction:column;gap:8px}
+.note-row{display:grid;grid-template-columns:1fr 96px 1fr;align-items:center;gap:12px;font-variant-numeric:tabular-nums}
+.note-row span{color:var(--body)}
+.note-row input{height:40px;padding:0 10px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);text-align:right;font-variant-numeric:tabular-nums}
+.note-row input:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}
+.note-row b{text-align:right;font-weight:500}
+.pc-total{display:flex;justify-content:space-between;margin-top:8px;padding-top:12px;border-top:1px solid var(--hairline);font-size:17px}
+.pc-err{margin-top:4px}
+@media (max-width:767px){.ses-h{flex-wrap:wrap}.ses-act{width:100%}.ses-act .ds-btn{flex:1;height:44px}}
+.submit-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.submit-grid .notes-box{grid-column:1/-1}
+.note-read{margin:0;white-space:pre-wrap}
+@media (max-width:767px){.submit-grid{grid-template-columns:1fr}}
+.door-title{align-items:center}
+.note{width:100%;min-height:110px;padding:12px 14px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:#fff;resize:vertical;font:inherit;line-height:1.45}
+.note:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}
+.warn-t{color:var(--warn-fg)}
+.omset{display:flex;justify-content:flex-end;align-items:baseline;gap:16px;padding:20px 16px 0;font-variant-numeric:tabular-nums}
+.omset span{color:var(--body)}.omset b{font-size:17px}
+.door-head.notabs + .ds-table-card,.mx-desk{margin-top:0}
+.seg{display:inline-flex;padding:2px;gap:2px;border-radius:9px;background:var(--soft-2,#f2f2f5)}
+.seg button{height:30px;padding:0 12px;border:0;border-radius:7px;background:none;color:var(--body);font-weight:500;transition:background-color var(--t-hover) var(--ease-out),transform var(--t-press) var(--ease-out)}
+.seg button:active{transform:scale(.97)}
+.seg button[aria-checked="true"]{background:var(--accent);color:#fff;font-weight:600;box-shadow:0 1px 2px rgb(0 0 0/12%)}
+.seg button.is-lost[aria-checked="true"]{background:var(--bad-fg)}
+.seg button.is-lost[aria-checked="false"]{color:var(--bad-fg)}
+.edc-tabs{margin:0 0 4px;position:sticky;top:-24px;z-index:3;background:#fff;padding-top:8px}
+.sheet-body .ds-kpis:has(+ .edc-tabs){margin-bottom:12px}
+.edc-tabs{display:flex;margin-inline:-16px;padding-inline:16px}
+@media (min-width:768px){.edc-tabs{top:-28px;margin-inline:-36px;padding-inline:36px}}
+.sheet-body:has(> .edc-tabs:first-child){padding-top:8px!important}
+.sheet-body>.edc-tabs:first-child{top:-8px!important}
+.tbl tfoot td{overflow:visible;text-overflow:clip}
+.note.is-bad{border-color:var(--bad-fg)}
+.seg.need{box-shadow:inset 0 0 0 1px var(--bad-fg)}
+@media (hover:hover) and (pointer:fine){.seg button[aria-checked="false"]:hover{color:var(--ink)}}
+.tbl td:has(.seg){overflow:visible}
+.tick{width:18px;height:18px;margin:0;accent-color:var(--accent);cursor:pointer}
+.paper{max-width:860px;margin:0 auto;padding:36px 40px;border:1px solid var(--hairline);border-radius:var(--r-card);background:#fff;font-variant-numeric:tabular-nums}
+.p-title{font-size:17px;font-weight:700;text-align:center;letter-spacing:.4px}
+.p-sub{margin:4px 0 24px;text-align:center;color:var(--body)}
+.p-tbl{width:100%;border-collapse:collapse}
+.p-tbl th,.p-tbl td{padding:8px 10px;border-bottom:1px solid var(--row-line);text-align:right;white-space:nowrap}
+.p-tbl th:first-child,.p-tbl td:first-child{text-align:left}
+.p-tbl th{font-weight:600;vertical-align:bottom}.p-tbl th span{font-weight:400;color:var(--body)}
+.p-tbl tr.b td{font-weight:700;border-bottom:1px solid var(--ink)}
+.p-omset{display:flex;justify-content:flex-end;gap:24px;margin-top:20px;font-size:17px}
+.p-sign{display:grid;grid-template-columns:repeat(5,1fr);gap:16px;margin-top:48px;text-align:center}
+.p-sign span{display:block;color:var(--body)}.p-sign i{display:block;height:56px;border-bottom:1px solid var(--ink);margin-bottom:6px}
+</style>
+</head>
+<body>
+<div class="pbar"><b>Store app · hub sidebar</b><small>Rail of icons + screens panel, as the hub · prototype, nothing is saved</small><div class="vsw" role="radiogroup" aria-label="Money declaration version"><span>Money declaration</span><button type="button" role="radio" data-v="now" onclick="mdVersion('now')">Now</button><button type="button" role="radio" data-v="a" onclick="mdVersion('a')">A Per cashier</button><button type="button" role="radio" data-v="b" onclick="mdVersion('b')">B Per EDC</button><button type="button" role="radio" data-v="c" onclick="mdVersion('c')">C Switch</button><button type="button" role="radio" data-v="d" onclick="mdVersion('d')">D Sales by EDC</button><button type="button" role="radio" data-v="e" onclick="mdVersion('e')">E Cashier groups</button><button type="button" role="radio" data-v="f" onclick="mdVersion('f')">F Sessions as rows</button><button type="button" role="radio" data-v="g" onclick="mdVersion('g')">G Steps</button><button type="button" role="radio" data-v="h" onclick="mdVersion('h')">H Tidy</button><button type="button" role="radio" data-v="i" onclick="mdVersion('i')">I Per cashier, step by step</button><button type="button" role="radio" data-v="j" onclick="mdVersion('j')">J Cash in full</button></div><span class="sp"></span><label><input type="checkbox" checked onchange="demoClose(this.checked)">Every cashier closed</label><label><input type="checkbox" id="marknew" onchange="document.body.classList.toggle('mark-new',this.checked)">Mark rows I added</label></div>
+<div class="shell">
+  <div class="scrim" id="scrim" onclick="drawer(false)"></div>
+  <nav class="side" id="side" aria-label="Menu"></nav>
+  <div class="main">
+    <div class="ptop"><button type="button" aria-label="Menu" onclick="drawer(true)"><span class="ds-ico ds-ico-columns"></span></button><b id="ptitle"></b></div>
+    <div class="scroller" id="scroller"><main class="page-content" id="page"></main></div>
+  </div>
+</div>
+<div class="sheet-veil" id="veil" onclick="closeSheet()"></div>
+<div class="sheet-pop" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title"></div>
+<div class="toasts" id="toasts"></div>
+<script>
+/* ═════ format ═════ */
+const dots = n => Math.round(Math.abs(n)).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+const rp = n => (n < 0 ? '−' : '') + 'Rp ' + dots(n)
+const num = n => (n < 0 ? '−' : '') + dots(n)
+const $ = s => document.querySelector(s)
+const ico = n => `<span class="ds-ico ds-ico-${n}"></span>`
+const st = (t, tone = '') => `<span class="st ${tone}">${t}</span>`
+let SEED = 20261029
+const rnd = () => { SEED = (SEED * 1103515245 + 12345) % 2147483648; return SEED / 2147483648 }
+const pick = a => a[Math.floor(rnd() * a.length)]
+const r500 = n => Math.round(n / 500) * 500
+const DAYS = ['Mon 26', 'Tue 27', 'Wed 28', 'Thu 29', 'Fri 30', 'Sat 31', 'Sun 1']
+
+/* ═════ demo data ═════ */
+const PEOPLE = ['Maya Lestari', 'Rizky Pratama', 'Dewi Anggraini', 'Budi Santoso', 'Sari Wulandari', 'Agus Setiawan', 'Nina Kurniasih', 'Fajar Hidayat']
+const ROLE = ['Store head', 'Supervisor', 'Cashier', 'Cashier', 'Sales assistant', 'Sales assistant', 'Stock keeper', 'Sales assistant']
+const ART = ['Linen shirt', 'Denim jacket', 'Pleated skirt', 'Basic tee', 'Chino pants', 'Knit cardigan', 'Midi dress', 'Polo shirt', 'Cargo shorts', 'Satin blouse', 'Hoodie', 'Wide-leg jeans']
+const ARTS = ART.map((n, i) => ({ id: '0000' + (1041 + i * 7), n, price: r500(129000 + rnd() * 330000), store: Math.floor(rnd() * 40), wh: Math.floor(rnd() * 60), sold: Math.floor(rnd() * 70), promo: rnd() < .3 }))
+const TILLS = ['Cashier 1', 'Cashier 2']
+const SHIFTS = [
+  { till: 'Cashier 1', who: 'Dewi Anggraini', open: '09:58', close: '16:02', sys: 8_745_000, cash: 3_120_000, card: 4_085_000, qris: 1_540_000, declared: 3_120_000 },
+  { till: 'Cashier 2', who: 'Budi Santoso', open: '10:01', close: '16:00', sys: 6_210_500, cash: 2_415_500, card: 2_655_000, qris: 1_140_000, declared: 2_405_500 },
+  { till: 'Cashier 1', who: 'Dewi Anggraini', open: '16:05', close: '22:01', sys: 11_380_000, cash: 4_260_000, card: 5_090_000, qris: 2_030_000, declared: 4_260_000 },
+  { till: 'Cashier 2', who: 'Rizky Pratama', open: '16:03', close: null, sys: 9_012_000, cash: 3_388_000, card: 3_970_000, qris: 1_654_000, declared: null },
+  { till: 'Cashier 3', who: 'Sari Wulandari', open: '10:05', close: '16:04', sys: 5_430_000, cash: 1_980_000, card: 2_410_000, qris: 1_040_000, declared: 1_980_000 },
+  { till: 'Cashier 4', who: 'Agus Setiawan', open: '10:10', close: '16:01', sys: 4_120_500, cash: 1_610_500, card: 1_780_000, qris: 730_000, declared: 1_610_500 },
+]
+/* a transaction code: 7 letters and digits, no 0/O or 1/I to misread */
+const code7 = () => Array.from({ length: 7 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.floor(rnd() * 32)]).join('')
+const RECEIPTS = Array.from({ length: 38 }, (_, i) => {
+  const kind = i % 13 === 5 ? 'Return' : i % 17 === 9 ? 'Void' : 'Sale'
+  const pcs = 1 + Math.floor(rnd() * 3)
+  const amt = r500(pcs * (129000 + rnd() * 260000))
+  const h = 21 - Math.floor(i / 3.4), m = Math.floor(rnd() * 60)
+  return { no: code7(), time: `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`, till: pick(TILLS), who: pick(['Dewi Anggraini', 'Budi Santoso', 'Rizky Pratama']), kind, pcs, amt: kind === 'Sale' ? amt : -amt, pay: pick(['Cash', 'Debit BCA', 'QRIS', 'Credit Mandiri', 'Cash']), member: rnd() < .4 }
+})
+
+/* ═════ menu ═════ new: rows I suggest beyond Hari's list.
+   The hub's two columns: a rail of departments, a panel of that department's screens */
+const SVG = {
+  search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  house: '<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  trend: '<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>',
+  package: '<path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/><path d="M12 22V12"/><path d="m3.3 7 7.703 4.734a2 2 0 0 0 1.994 0L20.7 7"/><path d="m7.5 4.27 9 5.15"/>',
+  wallet: '<path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/>',
+  users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  store: '<path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"/><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4"/><path d="M2 7h20"/><path d="M22 7v3a2 2 0 0 1-2 2 2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 16 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 12 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 8 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 4 12a2 2 0 0 1-2-2V7"/>',
+  chart: '<path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>',
+  left: '<path d="m15 18-6-6 6-6"/>',
+  right: '<path d="m9 18 6-6-6-6"/>',
+}
+const svg = n => `<svg viewBox="0 0 24 24" aria-hidden="true">${SVG[n]}</svg>`
+/* each department: rows, or sub-groups (Reports keeps grey chips inside its panel) */
+const DEPTS = [
+  { k: 'today', g: 'Today', i: 'house', groups: [{ g: '', rows: [['today', 'Today']] }] },
+  { k: 'sell', g: 'Sell', i: 'trend', groups: [{ g: '', rows: [['sales', 'Sales'], ['transactions', 'Transactions'], ['payments', 'Payments', { isNew: true }], ['promotions', 'Promotions', { nb: 3 }]] }] },
+  { k: 'goods', g: 'Goods', i: 'package', groups: [{ g: '', rows: [['stock', 'Stock'], ['receiving', 'Receiving', { nb: 2 }], ['return', 'Return to HO'], ['count', 'Stock count', { isNew: true }]] }] },
+  { k: 'finance', g: 'Finance', i: 'wallet', groups: [{ g: '', rows: [['money', 'Money declaration', { nb: 1, warn: true }], ['pettycash', 'Cash', { nb: 1, warn: true }], ['journal', 'Journal']] }] },
+  { k: 'people', g: 'People', i: 'users', groups: [{ g: '', rows: [['employees', 'Staff'], ['attendance', 'Attendance', { nb: 2, warn: true }], ['schedule', 'Schedule'], ['requests', 'Requests', { isNew: true, nb: 2 }], ['payroll', 'Payroll']] }] },
+  { k: 'store', g: 'Store', i: 'store', groups: [{ g: '', rows: [['assets', 'Assets'], ['repairs', 'Repairs', { isNew: true }], ['tills', 'Cashiers & devices', { isNew: true }]] }] },
+  { k: 'reports', g: 'Reports', i: 'chart', groups: [
+    { g: 'Sales', rows: [['r-daily', 'Daily sales'], ['r-article', 'By article'], ['r-cashier', 'By cashier'], ['r-hour', 'By hour', { isNew: true }], ['r-promo', 'Promotion results']] },
+    { g: 'Goods', rows: [['r-onhand', 'Stock on hand'], ['r-moves', 'Stock movements'], ['r-sell', 'Sell-through', { isNew: true }], ['r-recv', 'Received'], ['r-ret', 'Returned to HO']] },
+    { g: 'People', rows: [['r-att', 'Attendance'], ['r-hours', 'Hours & overtime'], ['r-pay', 'Payroll']] },
+    { g: 'Finance', rows: [['r-petty', 'Petty cash'], ['r-dep', 'Bank deposits']] },
+  ] },
+]
+const ALLROWS = DEPTS.flatMap(d => d.groups.flatMap(g => g.rows.map(r => ({ r, d, g }))))
+const LABEL = Object.fromEntries(ALLROWS.map(x => [x.r[0], x.r[1]]))
+const DEPT = Object.fromEntries(ALLROWS.map(x => [x.r[0], x.d]))
+/* crumb over the page title: the department, and in Reports its sub-group */
+const GROUP = Object.fromEntries(ALLROWS.map(x => [x.r[0], x.d.k === 'reports' ? x.g.g : x.d.k === 'today' ? '' : x.d.g]))
+const S = { id: 'today', panel: true, tab: {}, f: {}, q: {} }
+
+const cnt = o => o.nb ? `<span class="cnt">${o.nb}</span>` : ''
+function rowHTML([id, label, o = {}]) {
+  return `<button class="row ${S.id === id ? 'on' : ''} ${o.isNew ? 'is-new' : ''}" type="button" ${S.id === id ? 'aria-current="page"' : ''} onclick="go('${id}')"><span class="lb">${label}</span><span class="newdot"></span>${cnt(o)}</button>`
+}
+const listHTML = gs => gs.map(g => `<div class="grp">${g.g ? `<span class="chip-label">${g.g}</span>` : ''}${g.rows.map(rowHTML).join('')}</div>`).join('')
+const rowsOf = d => d.groups.flatMap(g => g.rows)
+function side(swap) {
+  const d = DEPT[S.id]
+  /* a department of one screen has no panel: the rail key is the screen */
+  const one = rowsOf(d).length === 1
+  const open = S.panel && !one
+  const top = $('#side .s-list')?.scrollTop || 0
+  const key = x => `<button class="rk ${x === d ? 'on' : ''}" type="button" aria-label="${x.g}" title="${x.g}" onclick="dept('${x.k}')">${svg(x.i)}${rowsOf(x).some(r => r[2]?.nb) ? '<span class="dot"></span>' : ''}</button>`
+  $('#side').innerHTML = `
+  <div class="rail">
+    ${!open && !one ? `<button class="rk find" type="button" aria-label="Show the screens" title="Show the screens" onclick="S.panel=true;side(true)">${svg('right')}</button>` : ''}
+    <button class="rk find" type="button" aria-label="Search or jump to a screen" title="Search  ⌘K" onclick="toast('Search or jump to a screen…')">${svg('search')}</button>
+    ${DEPTS.map(key).join('')}
+    <span class="r-sp"></span>
+    <button class="orb" type="button" aria-label="Maya Lestari, store head" title="Maya Lestari · Store head" onclick="toast('Maya Lestari · Store head')">M<i>5</i></button>
+  </div>
+  <div class="panel" ${open ? '' : 'hidden'}>
+    <div class="s-head"><h2 class="s-name">${d.g}</h2><button class="s-icon" type="button" aria-label="Hide the screens" title="Hide the screens" onclick="S.panel=false;side()">${svg('left')}</button><button class="s-x" type="button" aria-label="Close menu" onclick="drawer(false)">${ico('x')}</button></div>
+    <div class="s-list ${swap ? 'nav-swap' : ''}">${listHTML(d.groups)}</div>
+  </div>`
+  $('#side .s-icon svg').style.cssText = 'width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round'
+  if (!swap && $('#side .s-list')) $('#side .s-list').scrollTop = top
+  $('#side .s-list [aria-current]')?.scrollIntoView({ block: 'nearest' })
+}
+/* a rail key opens its department on its first screen; the list swaps in */
+function dept(k) {
+  const d = DEPTS.find(x => x.k === k)
+  const swap = DEPT[S.id] !== d
+  S.id = rowsOf(d)[0][0]; S.panel = true
+  if (rowsOf(d).length === 1) drawer(false)
+  side(swap); renderPage(); $('#scroller').scrollTop = 0
+}
+function go(id) { S.id = id; S.wzOpen = false; drawer(false); side(); renderPage(); $('#scroller').scrollTop = 0 }
+function drawer(open) { $('#side').classList.toggle('open', open); $('#scrim').classList.toggle('open', open) }
+
+/* ═════ blocks ═════ */
+const kpis = ks => `<div class="ds-kpis">${ks.map(([l, v, t]) => `<div class="ds-kpi"><div class="ds-kpi-label">${l}</div><div class="ds-kpi-value ${t ? 'is-' + t : ''}">${v}</div></div>`).join('')}</div>`
+function table(cols, rows, foot) {
+  if (!rows.length) return `<div class="ds-table-card"><div style="padding:40px;text-align:center" class="mute">Nothing here</div></div>`
+  const c = x => (x.num ? 'is-num ' : '') + (x.cls || '')
+  return `<div class="ds-table-card tbl-wrap"><table class="ds-table tbl" style="min-width:${cols.reduce((a, x) => a + (x.w || 140), 0)}px"><colgroup>${cols.map(x => `<col${x.w ? ` style="width:${x.w}px"` : ''}>`).join('')}</colgroup>
+  <thead><tr>${cols.map(x => `<th class="${c(x)}">${x.l}</th>`).join('')}</tr></thead>
+  <tbody>${rows.map(r => `<tr class="${r._on ? 'ds-opens' : ''} ${r._cls || ''}" ${r._on ? `onclick="${r._on}"` : ''}>${cols.map(x => r._skip?.includes(x.k) ? '' : `<td class="${c(x)}"${r._rs?.[x.k] > 1 ? ` rowspan="${r._rs[x.k]}"` : ''}>${r[x.k] ?? ''}</td>`).join('')}</tr>`).join('')}</tbody>
+  ${foot ? `<tfoot>${[].concat(foot).map(f => { let skip = 0; return `<tr class="${f._cls || ''}">${cols.map(x => { if (skip) { skip--; return '' } const n = f._span?.[x.k] || 1; skip = n - 1; return `<td class="${c(x)}"${n > 1 ? ` colspan="${n}"` : ''}>${f[x.k] ?? ''}</td>` }).join('')}</tr>` }).join('')}</tfoot>` : ''}</table></div>`
+}
+const tabOf = (id, d) => S.tab[id] || d
+const setTab = (id, k) => { S.tab[id] = k; renderPage() }
+const filt = (id, d) => S.f[id] || d
+const setFilt = (id, v) => { S.f[id] = v; renderPage() }
+const chips = (id, opts, d) => `<div class="chips" role="radiogroup">${opts.map(([v, l, n]) => `<button class="chip" type="button" role="radio" aria-checked="${filt(id, d) === v}" onclick="setFilt('${id}','${v}')">${l}${n != null ? ` <span class="n">${n}</span>` : ''}</button>`).join('')}</div>`
+const search = (id, ph) => `<label class="ds-search">${ico('search')}<input type="search" placeholder="${ph}" value="${S.q[id] || ''}" oninput="S.q['${id}']=this.value;renderPage(true)"></label>`
+const hit = (id, ...xs) => { const q = (S.q[id] || '').toLowerCase(); return !q || xs.some(x => String(x).toLowerCase().includes(q)) }
+const bar = (...p) => `<div class="ds-bar">${p.filter(Boolean).join('')}</div>`
+const sp = '<span class="bar-spacer"></span>'
+const btn = (l, on = '', kind = 'primary') => `<button class="ds-btn ds-btn--${kind}" type="button" onclick="${on || `toast('${l}')`}">${l}</button>`
+function page({ title, sub, actions = [], tabs, kpi, body, bare, titleAfter, steps }) {
+  const id = S.id
+  const t = tabs ? `<div class="ds-tabs door-tabs" role="tablist">${tabs.map(([k, l, n]) => `<button class="ds-tab ${k === tabOf(id, tabs[0][0]) ? 'is-selected' : ''}" type="button" role="tab" onclick="setTab('${id}','${k}')">${l}${n != null ? `<span class="tab-n">${n}</span>` : ''}</button>`).join('')}</div>` : ''
+  const crumb = bare ? '' : S.id.startsWith('r-') ? 'Reports · ' + GROUP[id] : GROUP[id]
+  return `<div class="door-head ${tabs ? '' : 'notabs'}">${crumb ? `<div class="crumb">${crumb}</div>` : ''}<div class="door-top"><div class="door-title"><h1 class="ds-title">${title}</h1>${titleAfter || ''}${sub ? `<span class="sub">${sub}</span>` : ''}</div><div class="door-actions">${actions.join('')}</div></div>${t}${steps || ''}</div>${kpi ? kpis(kpi) : ''}${body}`
+}
+function toast(title) {
+  const el = document.createElement('div'); el.className = 'ds-toast ds-toast--ok'
+  el.innerHTML = `${ico('check')}<div class="ds-toast-text"><div class="ds-toast-title">${title}</div><div class="ds-toast-desc">Prototype: nothing is saved</div></div>`
+  $('#toasts').appendChild(el); setTimeout(() => el.remove(), 3200)
+}
+/* openSheet({ crumb:[...], title, badge, caption, body, actions:[[label, on]], size }) — no actions: a Close ghost, as the hub */
+function openSheet(o) {
+  const crumb = (o.crumb || []).map(c => `<span>${c}</span>`).join('<span class="sheet-crumb-sep">/</span>')
+  const lead = o.footLead ? `<div class="foot-lead">${o.footLead}</div>` : ''
+  const btns = (o.actions?.length ? o.actions.map(([l, on]) => btn(l, on || `closeSheet();toast('${l}')`)).join('') : `<button class="ds-btn btn-ghost" type="button" onclick="closeSheet()">Close</button>`)
+  /* the figures sit in a summary rail beside the table, Submit under them */
+  const foot = lead ? `<div class="foot-group">${lead}${btns}</div>` : btns
+  const el = $('#sheet')
+  el.dataset.size = o.size || 'rail'
+  el.innerHTML = `<div class="sheet-head"><div class="sheet-headtext">${crumb ? `<div class="sheet-id">${crumb}</div>` : ''}<div class="sheet-titlerow"><h2 class="sheet-title" id="sheet-title">${o.title}</h2>${o.badge || ''}</div>${o.caption ? `<div class="sheet-caption">${o.caption}</div>` : ''}</div><button class="sheet-close" type="button" aria-label="Close" onclick="closeSheet()">${ico('x')}</button></div>
+  <div class="sheet-body">${o.body}</div><div class="sheet-foot">${foot}</div>`
+  el.querySelector('.sheet-body').scrollTop = 0
+  requestAnimationFrame(() => { el.classList.add('open'); $('#veil').classList.add('open') })
+}
+function closeSheet() { $('#sheet').classList.remove('open'); $('#veil').classList.remove('open') }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet() })
+const facts = xs => `<dl class="facts">${xs.map(([t, d]) => `<div><dt>${t}</dt><dd>${d}</dd></div>`).join('')}</dl>`
+const secs = xs => xs.map(([h, inner]) => `<section class="sheet-sec">${h ? `<h4>${h}</h4>` : ''}${inner}</section>`).join('')
+const lines = xs => `<div class="lines">${xs.map(([a, b]) => `<div><span class="mute">${a}</span><span>${b}</span></div>`).join('')}</div>`
+
+/* ═════ screens ═════ */
+const SCREENS = {}
+SCREENS.today = () => {
+  const sales = SHIFTS.reduce((a, s) => a + s.sys, 0)
+  return page({ title: 'Today', sub: 'Thu 29 Oct', kpi: [['Sales', rp(sales)], ['Receipts', '412'], ['Pieces', '638'], ['Average receipt', rp(85_180)], ['Target', '87%', 'warn']],
+    body: `<div class="two"><div class="box"><h3>Waiting on you</h3>${lines([['Money declaration · Cashier 2', '<span class="st bad">−Rp 10.000</span>'], ['Deliveries to receive', '2 koli · 3 koli'], ['Bank deposit for 28 Oct', 'Not sent'], ['Late today', 'Agus Setiawan, Fajar Hidayat'], ['Leave requests', '2']])}</div>
+    <div class="box"><h3>Best sellers</h3>${lines(ARTS.slice().sort((a, b) => b.sold - a.sold).slice(0, 5).map(a => [a.n, a.sold + ' pcs']))}</div></div>` })
+}
+SCREENS.sales = () => {
+  /* the takings per day, or per cashier session inside each day (the day's date spans its sessions) */
+  const from = filt('tx-from', '2026-10-29'), to = filt('tx-to', '2026-10-29'), w = filt('tx-who', 'all')
+  const by = filt('sales-by', 'day')
+  const list = RECEIPTS.filter(r => r.kind !== 'Void' && dayOf(r) >= from && dayOf(r) <= to && (w === 'all' || r.who === w))
+  const sum = rs => rs.reduce((t, r) => t + r.amt, 0)
+  const nil = n => n ? money(n) : '<span class="faint">—</span>'
+  const figures = rs => { const sales = rs.filter(r => r.kind === 'Sale'), back = rs.filter(r => r.kind === 'Return'), dsc = rs.reduce((t, r) => t + discOf(r), 0)
+    return { n: sales.length, pcs: `${sales.reduce((t, r) => t + r.pcs, 0)} pcs`, avg: sales.length ? rp(r500(sum(sales) / sales.length)) : '<span class="faint">—</span>',
+      ret: back.length ? `<span class="neg">${rp(sum(back))}</span>` : '<span class="faint">—</span>', disc: dsc ? `−${rp(dsc)}` : '<span class="faint">—</span>', cash: nil(sum(rs.filter(r => r.pay === 'Cash'))), edc: nil(sum(rs.filter(r => r.pay !== 'Cash'))), amt: money(sum(rs)) } }
+  const days = [...new Set(list.map(dayOf))].sort().reverse()
+  const rows = days.flatMap(d => {
+    const day = list.filter(r => dayOf(r) === d)
+    if (by === 'day') return [{ d: dm(d), ...figures(day), _on: `S.f['tx-from']='${d}';S.f['tx-to']='${d}';go('transactions')` }]
+    const who = [...new Set(day.map(r => r.who))].sort()
+    return who.map((p, i) => ({ _cls: i ? 'cont' : 'first', ...(i ? { _skip: ['d'] } : { _rs: { d: who.length } }), d: dm(d), who: p, ...figures(day.filter(r => r.who === p)),
+      _on: `S.f['tx-from']='${d}';S.f['tx-to']='${d}';S.f['tx-who']='${p}';go('transactions')` }))
+  })
+  const cols = [{ l: 'Date', k: 'd', w: 120 }, ...(by === 'session' ? [{ l: 'Cashier', k: 'who', w: 130 }] : []), { l: 'Transactions', k: 'n', num: 1, w: 110 }, { l: 'Pieces', k: 'pcs', num: 1, w: 85 }, { l: 'Returns', k: 'ret', num: 1, w: 120 }, { l: 'Discount', k: 'disc', num: 1, w: 120 }, { l: 'Cash', k: 'cash', num: 1, w: 130 }, { l: 'EDC', k: 'edc', num: 1, w: 130 }, { l: 'Net sales', k: 'amt', num: 1, w: 140 }]
+  const t = figures(list)
+  const foot = { d: tl('Period', from === to ? dm(from) : `${dm(from)} – ${dm(to)}`), who: tl('Sessions', new Set(list.map(r => dayOf(r) + r.who)).size), n: tl('Transactions', t.n), pcs: tl('Pieces', t.pcs), ret: tl('Returns', t.ret), disc: tl('Discount', t.disc), cash: tl('Cash', t.cash), edc: tl('EDC', t.edc), amt: tl('Net sales', t.amt) }
+  const sw = `<div class="chips" role="radiogroup" aria-label="Group by">${[['day', 'Per day'], ['session', 'Per session']].map(([v, l]) => `<button class="chip" type="button" role="radio" aria-checked="${by === v}" onclick="setFilt('sales-by','${v}')">${l}</button>`).join('')}</div>`
+  return page({ title: 'Sales',
+    body: bar(dateRange(from, to), pickIn('tx-who', w, 'All cashiers', 'users'), sp, sw) +
+      '<div class="boxed pay-sum pay-sessions">' + table(cols, rows, foot) + '</div>' })
+}
+/* Now: the table this screen had as a Sales tab; A–D: the sketches (mdPage) */
+SCREENS.money = () => {
+  if (S.mdv !== 'now') return mdPage()
+  const diff = s => s.declared == null ? null : s.declared - s.cash
+  return page({ title: 'Money declaration', bare: true,
+    body: table([{ l: 'Cashier', k: 'till', w: 90 }, { l: 'Cashier', k: 'who', w: 170 }, { l: 'Closed', k: 'close', w: 100 }, { l: 'Cash in system', k: 'cash', num: 1 }, { l: 'Declared', k: 'dec', num: 1 }, { l: 'Difference', k: 'diff', num: 1 }, { l: 'Status', k: 'st', w: 150 }],
+      SHIFTS.map((s, i) => { const d = diff(s); return { till: s.till, who: s.who, close: s.close || '<span class="faint">—</span>', cash: rp(s.cash), dec: s.declared == null ? '<span class="faint">—</span>' : rp(s.declared), diff: d == null ? '<span class="faint">—</span>' : d ? `<span class="neg">${rp(d)}</span>` : 'Rp 0', st: s.declared == null ? st('Open', 'info') : d ? st('Short', 'bad') : st('Matches', 'ok'), _on: `declare(${i})` } })) })
+}
+function declare(i) {
+  const s = SHIFTS[i], d = s.declared == null ? null : s.declared - s.cash
+  let left = s.declared ?? s.cash
+  const notes = [100000, 50000, 20000, 10000, 5000, 2000, 1000, 500].map((n, i) => { const c = Math.floor(left / n * (i < 2 ? .7 : 1)); left -= c * n; return [n, c] }).filter(([, c]) => c)
+  openSheet({ crumb: ['Money declaration'], title: `${s.till} · ${s.who}`, badge: s.declared == null ? st('Open', 'info') : d ? st('Short', 'bad') : st('Matches', 'ok'),
+    caption: s.close ? `Closed ${s.close} · Thu 29 Oct` : `Open since ${s.open}`, size: 'rail',
+    actions: d ? [['Accept shortage']] : null,
+    body: kpis([['Cash in system', rp(s.cash)], ['Declared', s.declared == null ? '—' : rp(s.declared)], ['Difference', d == null ? '—' : rp(d), d ? 'bad' : d === 0 ? 'ok' : '']]) +
+      secs([['Notes counted', s.declared == null ? '<span class="mute">Counted at the till when it closes</span>' : table([{ l: 'Note', k: 'n' }, { l: 'Count', k: 'c', num: 1, w: 90 }, { l: 'Amount', k: 'a', num: 1 }], notes.map(([n, c]) => ({ n: rp(n), c, a: rp(n * c) })), { n: 'Total', a: rp(s.declared) })],
+        ['Other payments', facts([['Card', rp(s.card)], ['QRIS', rp(s.qris)], ['Card slips', 31], ['QRIS slips', 18]])]]) })
+}
+function receiveSheet(n, f, sent, k, pcs) {
+  openSheet({ crumb: ['Receiving'], title: n, caption: `From ${f} · sent ${sent}`, actions: [['Receive']],
+    body: kpis([['Koli', k], ['Pieces', pcs]]) + secs([['Koli', table([{ l: 'Koli', k: 'k' }, { l: 'Pieces', k: 'p', num: 1, w: 100 }], Array.from({ length: k }, (_, i) => ({ k: `${n}-K${i + 1}`, p: Math.round(pcs / k) })))]]) })
+}
+function requestSheet(w, a, d, r) {
+  openSheet({ crumb: ['Requests'], title: w, badge: st('Waiting', 'warn'), caption: a, actions: [['Approve']], body: facts([['Asks for', a], ['Days', d], ['Reason', r], ['Asked', '28 Oct']]) })
+}
+function receiptSheet(i) {
+  const r = RECEIPTS[i], lines_ = Array.from({ length: r.pcs }, (_, j) => ARTS[(i + j * 5) % ARTS.length])
+  openSheet({ crumb: ['Transactions'], title: r.no, badge: r.kind === 'Sale' ? '' : st(r.kind, r.kind === 'Void' ? 'bad' : 'warn'), caption: `${r.time} · ${r.till} · ${r.who}`,
+    body: facts([['Paid by', r.pay], ['Amount', rp(r.amt)], ['Pieces', r.pcs], ['Member', r.member ? 'Yes' : 'No']]) +
+      '<div style="height:40px"></div>' + table([{ l: 'Article', k: 'n' }, { l: 'Price', k: 'p', num: 1, w: 140 }], lines_.map((a, j) => { const each = r500(Math.abs(r.amt) / r.pcs); return { n: a.n, p: rp(j < r.pcs - 1 ? each : Math.abs(r.amt) - each * (r.pcs - 1)) } })) })
+}
+function articleSheet(i) {
+  const a = ARTS[i]
+  openSheet({ crumb: ['Articles', a.id], title: a.n, badge: a.promo ? st('On promo', 'info') : '', caption: rp(a.price),
+    body: kpis([['Floor', a.store], ['Warehouse', a.wh], ['Sold this month', a.sold]]) + secs([['Sizes', table([{ l: 'Size', k: 's' }, { l: 'Floor', k: 'f', num: 1 }, { l: 'Warehouse', k: 'w', num: 1 }], ['S', 'M', 'L', 'XL'].map((z, j) => ({ s: z, f: Math.round(a.store / 4) + (j === 1 ? a.store % 4 : 0), w: Math.round(a.wh / 4) })))]]) })
+}
+function personSheet(i) {
+  openSheet({ crumb: ['Employees'], title: PEOPLE[i], caption: ROLE[i], body: facts([['Role', ROLE[i]], ['Store', 'Grand Indonesia'], ['This week', '40 h planned'], ['Late this month', i === 5 ? 4 : i === 7 ? 2 : 0]]) })
+}
+/* prototype: the receipts spread over the last three days, newest first */
+const dayOf = r => { const i = RECEIPTS.indexOf(r); return i < 14 ? '2026-10-29' : i < 26 ? '2026-10-28' : '2026-10-27' }
+const dayText = iso => new Date(iso + 'T00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
+/* the days as the hub's DayRange: one box, a calendar under it; the first day clicked starts, the second closes */
+const dm = iso => new Date(iso + 'T00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
+const dateRange = (from, to) => `<div class="pick dr"><button type="button" class="dr-box" onclick="drOpen()"><span>${from === to ? dm(from) : `${dm(from)} – ${dm(to)}`}</span>${ico('calendar')}</button><div class="dr-pop" id="drPop" hidden></div></div>`
+S.dr = { month: '2026-10', start: null }
+function drOpen() { const el = $('#drPop'); el.hidden = !el.hidden; S.dr.start = null; drDraw() }
+function drMove(n) { const [y, m] = S.dr.month.split('-').map(Number), d = new Date(y, m - 1 + n, 1); S.dr.month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; drDraw() }
+function drPick(iso) {
+  if (!S.dr.start) { S.dr.start = iso; S.f['tx-from'] = iso; S.f['tx-to'] = iso; drDraw(); return }
+  const [f, t] = [S.dr.start, iso].sort(); S.dr.start = null; S.f['tx-from'] = f; S.f['tx-to'] = t; renderPage()
+}
+function drDraw() {
+  const el = $('#drPop'); if (!el) return
+  const [y, m] = S.dr.month.split('-').map(Number), first = new Date(y, m - 1, 1), lead = (first.getDay() + 6) % 7, days = new Date(y, m, 0).getDate()
+  const from = filt('tx-from', '2026-10-29'), to = filt('tx-to', '2026-10-29')
+  const cells = Array.from({ length: lead }, () => '<span></span>').concat(Array.from({ length: days }, (_, i) => {
+    const iso = `${S.dr.month}-${String(i + 1).padStart(2, '0')}`, end = iso === from || iso === to, mid = iso > from && iso < to
+    return `<button type="button" class="dr-day ${end ? 'end' : ''} ${mid ? 'mid' : ''} ${iso === '2026-10-29' ? 'today' : ''}" onclick="drPick('${iso}')">${i + 1}</button>`
+  }))
+  el.innerHTML = `<div class="dr-head"><button type="button" onclick="drMove(-1)" aria-label="Previous month">${ico('chevron-left')}</button><b>${first.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}</b><button type="button" onclick="drMove(1)" aria-label="Next month">${ico('chevron-right')}</button></div>
+    <div class="dr-grid">${['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'].map(d => `<span class="dr-wd">${d}</span>`).join('')}${cells.join('')}</div>
+    <div class="dr-hint mute">${S.dr.start ? 'Pick the last day' : 'Pick the first day'}</div>`
+}
+document.addEventListener('mousedown', e => { const p = $('#drPop'); if (p && !p.hidden && !e.target.closest('.dr')) p.hidden = true })
+/* a filter as procurement picks a supplier: type, a list drops under the box, pick one */
+const PICKS = { 'tx-who': r => r.who, 'tx-pay': r => r.pay }
+const pickIn = (key, w, ph, icon) => `<div class="pick"><label class="ds-search pick-box">${ico(icon)}<input id="in-${key}" placeholder="${ph}" autocomplete="off" role="combobox" aria-controls="list-${key}" value="${w === 'all' ? '' : w}" onfocus="pickList('${key}', '')" oninput="pickList('${key}', this.value)" onblur="setTimeout(() => $('#list-${key}').hidden = true, 120)">${w === 'all' ? '' : `<button type="button" class="pick-x" aria-label="${ph}" onclick="setFilt('${key}','all')">${ico('x')}</button>`}</label><ul class="pick-list" id="list-${key}" role="listbox" hidden></ul></div>`
+function pickList(key, q) {
+  const of = PICKS[key], from = filt('tx-from', '2026-10-29'), to = filt('tx-to', '2026-10-29')
+  const list = RECEIPTS.filter(r => r.kind !== 'Void' && dayOf(r) >= from && dayOf(r) <= to)
+  const names = [...new Set(list.map(of))].sort().filter(p => p.toLowerCase().includes(q.trim().toLowerCase()))
+  const el = $('#list-' + key)
+  el.innerHTML = names.length ? names.map(p => `<li role="option" onmousedown="event.preventDefault();setFilt('${key}','${p}')"><span>${p}</span><span class="mute">${list.filter(r => of(r) === p).length}</span></li>`).join('') : '<li class="mute">Nothing found</li>'
+  el.hidden = false
+}
+/* prototype: every third sale had 10% off; a return gives back what was paid, its discount with it */
+const discOf = r => RECEIPTS.indexOf(r) % 3 === 0 ? Math.sign(r.amt) * r500(Math.abs(r.amt) / 9) : 0
+/* a total with its name over it, so the foot reads on its own once the header has scrolled away */
+const tl = (l, v) => `<span class="tl"><span>${l}</span>${v}</span>`
+const money = n => n < 0 ? `<span class="neg">${rp(n)}</span>` : rp(n)
+SCREENS.transactions = () => {
+  /* one line of filters: the type is the page's tabs, the bar holds search and the cashier */
+  const from = filt('tx-from', '2026-10-29'), to = filt('tx-to', '2026-10-29')
+  const LIST = RECEIPTS.filter(r => r.kind !== 'Void' && dayOf(r) >= from && dayOf(r) <= to)
+  const f = tabOf('transactions', 'all'), w = filt('tx-who', 'all'), pay = filt('tx-pay', 'all')
+  const who = [...new Set(LIST.map(r => r.who))]
+  const rows = LIST.filter(r => (f === 'all' || r.kind === f) && (w === 'all' || r.who === w) && (pay === 'all' || r.pay === pay) && hit('transactions', r.no, r.who, r.pay))
+  const n = k => LIST.filter(r => r.kind === k).length
+  const amt = k => LIST.filter(r => r.kind === k).reduce((t, r) => t + r.amt, 0)
+  return page({ title: 'Transactions', tabs: [['all', 'All', LIST.length], ['Sale', 'Sales', n('Sale')], ['Return', 'Returns', n('Return')]],
+    body: bar(dateRange(from, to), search('transactions', 'Transaction code'), pickIn('tx-who', w, 'All cashiers', 'users'), pickIn('tx-pay', pay, 'All payments', 'wallet')) +
+      '<div class="boxed">' + table([{ l: 'Date', k: 'when', w: 130 }, { l: 'Transaction code', k: 'no', w: 180 }, { l: 'Cashier', k: 'who' }, { l: 'Payment', k: 'pay', w: 140 }, { l: 'Pieces', k: 'pcs', num: 1, w: 90 }, { l: 'Discount', k: 'disc', num: 1, w: 130 }, { l: 'Net sales', k: 'amt', num: 1, w: 160 }].filter(c => !(c.k === 'who' && w !== 'all') && !(c.k === 'pay' && pay !== 'all')),
+        rows.map(r => ({ ...r, when: `${dayText(dayOf(r))} ${r.time}`, pcs: `${r.pcs} pcs`, gross: money(r.amt + discOf(r)), disc: discOf(r) ? `−${rp(discOf(r))}` : '<span class="faint">—</span>', _i: RECEIPTS.indexOf(r), no: r.kind === 'Sale' ? r.no : `${r.no} ${st(r.kind, 'warn')}`, amt: money(r.amt), _on: `receiptSheet(${RECEIPTS.indexOf(r)})` })),
+        { when: tl('Period', from === to ? dm(from) : `${dm(from)} – ${dm(to)}`), no: tl('Transactions', rows.length), pcs: tl('Pieces', `${rows.reduce((t, r) => t + r.pcs, 0)} pcs`), disc: tl('Discount', `−${rp(rows.reduce((t, r) => t + discOf(r), 0))}`), amt: tl('Net sales', rp(rows.reduce((t, r) => t + r.amt, 0))) }) + '</div>' })
+}
+SCREENS.payments = () => {
+  /* one table, two ways down the page: a block per day, or a block per cashier session.
+     A block's own cells (date, cashier, discount, net sales) span its payment rows */
+  const from = filt('tx-from', '2026-10-29'), to = filt('tx-to', '2026-10-29'), w = filt('tx-who', 'all'), pay = filt('tx-pay', 'all')
+  const by = filt('pay-by', 'day')
+  const list = RECEIPTS.filter(r => r.kind !== 'Void' && dayOf(r) >= from && dayOf(r) <= to && (w === 'all' || r.who === w) && (pay === 'all' || r.pay === pay))
+  const sum = rs => rs.reduce((t, r) => t + r.amt, 0)
+  /* the share is of what was sold: a refund paid out in cash must not push a method past 100% */
+  const sold = rs => sum(rs.filter(r => r.amt > 0))
+  const pct = (x, of) => of ? `${(x / of * 100).toLocaleString('en-GB', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%` : '—'
+  const keyOf = r => by === 'day' ? dayOf(r) : dayOf(r) + '|' + r.who
+  const keys = [...new Set(list.map(keyOf))].sort((x, y) => y.localeCompare(x))
+  const showWho = by === 'session' || w !== 'all'
+  const rows = keys.flatMap(k => {
+    const [d, who] = k.split('|'), block = list.filter(r => keyOf(r) === k), dsc = block.reduce((t, r) => t + discOf(r), 0)
+    const ms = [...new Set(block.map(r => r.pay))].map(p => ({ p, rs: block.filter(r => r.pay === p) })).sort((x, y) => sum(y.rs) - sum(x.rs))
+    const merged = ['d', 'who', 'disc', 'amt']
+    return ms.map((m, i) => ({ _cls: i ? 'cont' : 'first', ...(i ? { _skip: merged } : { _rs: Object.fromEntries(merged.map(c => [c, ms.length])) }),
+      d: dm(d), who: who || w, pay: m.p, tot: money(sum(m.rs)), n: m.rs.length, sh: pct(sold(m.rs), sold(block)),
+      disc: dsc ? `−${rp(dsc)}` : '<span class="faint">—</span>', amt: money(sum(block)),
+      _on: `S.f['tx-from']='${d}';S.f['tx-to']='${d}';${who ? `S.f['tx-who']='${who}';` : ''}S.f['tx-pay']='${m.p}';go('transactions')` }))
+  })
+  const cols = [{ l: 'Date', k: 'd', w: 100 }, ...(showWho ? [{ l: 'Cashier', k: 'who' }] : []), { l: 'Payment', k: 'pay', w: 150 }, { l: 'Total', k: 'tot', num: 1, w: 140 }, { l: 'Transactions', k: 'n', num: 1, w: 120 }, { l: 'Share', k: 'sh', num: 1, w: 90 }, { l: 'Discount', k: 'disc', num: 1, w: 130 }, { l: 'Net sales', k: 'amt', num: 1, w: 150 }]
+  const foot = { d: tl('Period', from === to ? dm(from) : `${dm(from)} – ${dm(to)}`), who: tl('Sessions', new Set(list.map(r => dayOf(r) + r.who)).size), pay: tl('Payments', new Set(list.map(r => r.pay)).size), n: tl('Transactions', list.length), disc: tl('Discount', `−${rp(list.reduce((t, r) => t + discOf(r), 0))}`), amt: tl('Net sales', rp(sum(list))) }
+  const sw = `<div class="chips" role="radiogroup" aria-label="Group by">${[['day', 'Per day'], ['session', 'Per session']].map(([v, l]) => `<button class="chip" type="button" role="radio" aria-checked="${by === v}" onclick="setFilt('pay-by','${v}')">${l}</button>`).join('')}</div>`
+  return page({ title: 'Payments',
+    body: bar(dateRange(from, to), pickIn('tx-who', w, 'All cashiers', 'users'), pickIn('tx-pay', pay, 'All payments', 'wallet'), sp, sw) +
+      '<div class="boxed pay-sum pay-sessions">' + table(cols, rows, foot) + '</div>' })
+}
+SCREENS.promotions = () => page({ title: 'Promotions', tabs: [['now', 'Running', 3], ['next', 'Coming', 2], ['done', 'Ended']], kpi: [['Running', 3], ['Articles on promo', ARTS.filter(a => a.promo).length], ['Sold on promo today', rp(4_380_000)]],
+  body: table([{ l: 'Promotion', k: 'n' }, { l: 'Kind', k: 'k', w: 160 }, { l: 'From', k: 'a', w: 110 }, { l: 'To', k: 'b', w: 110 }, { l: 'Sold', k: 's', num: 1, w: 110 }],
+    [['Payday 11.11', 'Buy 2 get 1', '1 Nov', '11 Nov', '—'], ['Denim week', '30% off', '24 Oct', '2 Nov', '42 pcs'], ['Member double points', 'Points ×2', '20 Oct', '31 Oct', '118 pcs'], ['Basic tee bundle', '3 for Rp 199.000', '15 Oct', '15 Nov', '64 pcs']].map(([n, k, a, b, s]) => ({ n: `<span class="nm">${n}</span>`, k, a, b, s, _on: `toast('${n}')` }))) })
+SCREENS.articles = () => {
+  const rows = ARTS.filter(a => hit('articles', a.id, a.n))
+  return page({ title: 'Articles', kpi: [['Articles', ARTS.length], ['In stock', ARTS.filter(a => a.store + a.wh).length], ['Sold out', ARTS.filter(a => !a.store).length, 'warn'], ['On promotion', ARTS.filter(a => a.promo).length]],
+    body: bar(search('articles', 'Article, id, size, colour')) + table([{ l: 'Article id', k: 'id', w: 120 }, { l: 'Name', k: 'n' }, { l: 'Price', k: 'p', num: 1 }, { l: 'Store', k: 's', num: 1, w: 100 }, { l: 'Warehouse', k: 'w', num: 1, w: 120 }, { l: 'Promotion', k: 'pr', w: 120 }],
+      rows.map(a => ({ id: `<span class="mute">${a.id}</span>`, n: `<span class="nm">${a.n}</span>`, p: rp(a.price), s: a.store || '<span class="neg">0</span>', w: a.wh, pr: a.promo ? st('On promo', 'info') : '', _on: `articleSheet(${ARTS.indexOf(a)})` }))) })
+}
+/* prototype stock by SKU: each article in four sizes; a few pieces set aside as reject */
+const DIVS = ['Ladies', 'Men', 'Ladies', 'Unisex', 'Men', 'Ladies', 'Ladies', 'Men', 'Men', 'Ladies', 'Unisex', 'Ladies']
+const TAGS = [['Basic'], ['New', 'Outer'], ['New'], ['Basic', 'Bestseller'], ['Basic'], ['Outer'], ['New', 'Bestseller'], ['Basic'], ['Summer'], ['New'], ['Outer', 'Bestseller'], ['Bestseller']]
+const HUES = [24, 210, 340, 0, 35, 280, 190, 150, 45, 320, 260, 220]
+const SKUS = ARTS.flatMap((a, i) => ['S', 'M', 'L', 'XL'].map((size, k) => ({ a, i, size, code: String(101 + k), floor: Math.floor(rnd() * 12), wh: Math.floor(rnd() * 16), rej: rnd() < .2 ? 1 + Math.floor(rnd() * 3) : 0 })))
+const photo = i => `<span class="thumb" style="--h:${HUES[i % HUES.length]}">${ARTS[i].n.split(' ').map(w => w[0]).join('').slice(0, 2)}</span>`
+const tagChips = i => TAGS[i % TAGS.length].map(t => `<span class="tag">${t}</span>`).join('')
+SCREENS.stock = () => {
+  /* per SKU (default) or per article; reject is its own column, never counted as sellable */
+  const by = filt('stock-by', 'sku')
+  const pcs = n => n ? `${n}` : '<span class="faint">—</span>'
+  const skus = SKUS.filter(x => hit('stock', x.a.id, x.a.n, DIVS[x.i], ...TAGS[x.i % TAGS.length]))
+  const rows = by === 'sku'
+    ? skus.map(x => ({ ph: photo(x.i), id: `<span class="mute">${x.a.id.slice(-8)}·${x.code}</span>`, n: `<span class="nm">${x.a.n}</span> <span class="mute">${x.size}</span>`, dv: DIVS[x.i], tg: tagChips(x.i), fl: pcs(x.floor), wh: pcs(x.wh), rj: x.rej ? `<span class="neg">${x.rej}</span>` : pcs(0), t: x.floor + x.wh, _on: `articleSheet(${x.i})` }))
+    : [...new Set(skus.map(x => x.i))].map(i => { const xs = skus.filter(x => x.i === i), add = k => xs.reduce((t, x) => t + x[k], 0)
+        return { ph: photo(i), id: `<span class="mute">${ARTS[i].id.slice(-8)}</span>`, n: `<span class="nm">${ARTS[i].n}</span> <span class="mute">${xs.length} sizes</span>`, dv: DIVS[i], tg: tagChips(i), fl: pcs(add('floor')), wh: pcs(add('wh')), rj: add('rej') ? `<span class="neg">${add('rej')}</span>` : pcs(0), t: add('floor') + add('wh'), _on: `articleSheet(${i})` } })
+  const all = k => skus.reduce((t, x) => t + x[k], 0)
+  const sw = `<div class="chips" role="radiogroup" aria-label="Show">${[['sku', 'Per SKU'], ['article', 'Per article']].map(([v, l]) => `<button class="chip" type="button" role="radio" aria-checked="${by === v}" onclick="setFilt('stock-by','${v}')">${l}</button>`).join('')}</div>`
+  return page({ title: 'Stock',
+    body: bar(search('stock', 'Article, id, division or tag'), sp, sw) +
+      '<div class="boxed stock-t">' + table([{ l: '', k: 'ph', w: 64 }, { l: by === 'sku' ? 'SKU' : 'Article id', k: 'id', w: 130 }, { l: 'Name', k: 'n' }, { l: 'Division', k: 'dv', w: 110 }, { l: 'Tags', k: 'tg', w: 200 }, { l: 'Floor', k: 'fl', num: 1, w: 80 }, { l: 'Warehouse', k: 'wh', num: 1, w: 110 }, { l: 'Reject', k: 'rj', num: 1, w: 80 }, { l: 'Sellable', k: 't', num: 1, w: 100 }],
+        rows, { ph: '', id: tl(by === 'sku' ? 'SKUs' : 'Articles', rows.length), fl: tl('Floor', all('floor')), wh: tl('Warehouse', all('wh')), rj: tl('Reject', all('rej')), t: tl('Sellable', all('floor') + all('wh')) }) + '</div>' })
+}
+SCREENS.receiving = () => page({ title: 'Receiving', tabs: [['come', 'On the way', 2], ['done', 'Received', 12]], kpi: [['On the way', '2 deliveries'], ['Koli', 5], ['Pieces', 186]],
+  body: table([{ l: 'Delivery note', k: 'n', w: 170 }, { l: 'From', k: 'f' }, { l: 'Sent', k: 's', w: 110 }, { l: 'Koli', k: 'k', num: 1, w: 80 }, { l: 'Pieces', k: 'p', num: 1, w: 100 }, { l: 'Status', k: 't', w: 140 }],
+    [['SJ-GD-2610-118', 'Gudang Cikarang', '28 Oct', 2, 74, st('In transit', 'info')], ['SJ-GD-2610-124', 'Gudang Cikarang', '29 Oct', 3, 112, st('Arrived', 'warn')]].map(([n, f, s, k, p, t]) => ({ n: `<span class="nm">${n}</span>`, f, s, k, p, t, _on: `receiveSheet('${n}','${f}','${s}',${k},${p})` }))) })
+SCREENS.return = () => page({ title: 'Return to HO', tabs: [['ready', 'Ready to send', 14], ['sent', 'Sent', 3]], kpi: [['Reject item', 6], ['Over delivery', 5], ['Return HO', 3]],
+  actions: [btn('Send to HO')],
+  body: table([{ l: 'Article id', k: 'id', w: 120 }, { l: 'Name', k: 'n' }, { l: 'Pocket', k: 'p', w: 160 }, { l: 'Pieces', k: 'q', num: 1, w: 100 }],
+    ARTS.slice(0, 6).map((a, i) => ({ id: `<span class="mute">${a.id}</span>`, n: a.n, p: ['Reject item', 'Over delivery', 'Return HO'][i % 3], q: 1 + (i % 4) }))) })
+SCREENS.count = () => page({ title: 'Stock count', tabs: [['open', 'Open', 1], ['done', 'Done', 8]], actions: [btn('New count')], kpi: [['Counted', '412 of 638'], ['Off', '−7 pcs', 'bad'], ['Last full count', '30 Sep']],
+  body: table([{ l: 'Count', k: 'n' }, { l: 'Started', k: 's', w: 120 }, { l: 'Counted by', k: 'b', w: 200 }, { l: 'Pieces', k: 'p', num: 1, w: 110 }, { l: 'Off', k: 'o', num: 1, w: 100 }, { l: 'Status', k: 't', w: 140 }],
+    [['Floor · tops', '29 Oct', 'Nina Kurniasih', 412, '<span class="neg">−7</span>', st('Counting', 'info')], ['Full store', '30 Sep', 'Nina Kurniasih', 1204, '<span class="neg">−3</span>', st('Done', 'ok')]].map(([n, s, b, p, o, t]) => ({ n: `<span class="nm">${n}</span>`, s, b, p, o, t }))) })
+SCREENS.pettycash = () => {
+  /* every rupiah the store holds, a tab per cash box, each read like a bank statement:
+     oldest first, opening balance on top, the balance after every line, closing at the foot */
+  const BOX = {
+    petty: { opening: 759_000, rows: [['BKK-1027-02', '27 Oct', 'Cleaning supplies', -96_500], ['BKK-1028-04', '28 Oct', 'Plastic bags', -185_000], ['BKM-1028-01', '28 Oct', 'Top-up from HO', 1_000_000], ['BKK-1029-02', '29 Oct', 'Drinking water', -45_000], ['BKK-1029-03', '29 Oct', 'Parking for delivery', -20_000]],
+      actions: [btn('BKM'), btn('BKK')] },
+    sales: { opening: 12_110_500, rows: [['STR-1027', '27 Oct', 'Deposit to BCA 0331 · sales 26 Oct', -12_110_500], ['MD-1027', '27 Oct', 'Money declaration 27 Oct', 8_402_000], ['STR-1028', '28 Oct', 'Deposit to BCA 0331 · sales 27 Oct', -8_402_000], ['MD-1028', '28 Oct', 'Money declaration 28 Oct', 9_785_500]],
+      actions: [btn('Deposit to bank')] },
+  }
+  const tab = tabOf('pettycash', 'petty'), box = BOX[tab]
+  let bal = box.opening
+  const all = box.rows.map(([v, d, f, a]) => ({ v, d, f, a, b: (bal += a) }))
+  const sum = sign => all.filter(r => Math.sign(r.a) === sign).reduce((t, r) => t + Math.abs(r.a), 0)
+  const line = (d, f, b) => ({ d, f: `<b>${f}</b>`, v: '', dr: '', cr: '', b: `<b>${rp(b)}</b>` })
+  return page({ title: 'Cash', sub: '27 – 29 Oct', actions: box.actions, tabs: [['petty', 'Petty cash'], ['sales', 'Sales cash', 1]],
+    kpi: [['Opening balance', rp(box.opening)], ['Debit', rp(sum(1))], ['Credit', rp(sum(-1))], ['Closing balance', rp(bal), tab === 'sales' && bal ? 'warn' : '']],
+    body: '<div class="boxed">' + table([{ l: 'Date', k: 'd', w: 90 }, { l: 'Description', k: 'f' }, { l: 'Voucher', k: 'v', w: 140 }, { l: 'Debit', k: 'dr', num: 1, w: 150 }, { l: 'Credit', k: 'cr', num: 1, w: 150 }, { l: 'Balance', k: 'b', num: 1, w: 150 }],
+      [line('27 Oct', 'Opening balance', box.opening),
+       ...all.map(r => ({ d: r.d, f: r.f, v: `<span class="mute">${r.v}</span>`, dr: r.a > 0 ? rp(r.a) : '', cr: r.a < 0 ? rp(-r.a) : '', b: rp(r.b) })),
+       line('29 Oct', 'Closing balance', bal)]) + '</div>' })
+}
+SCREENS.deposits = () => page({ title: 'Bank deposits', actions: [btn('Record deposit')], kpi: [['To deposit', rp(9_785_500), 'warn'], ['Deposited this month', rp(214_350_000)], ['Bank', 'BCA 0331']],
+  body: table([{ l: 'Sales day', k: 'd', w: 120 }, { l: 'Cash declared', k: 'c', num: 1 }, { l: 'Deposited', k: 'p', num: 1 }, { l: 'Slip', k: 's', w: 160 }, { l: 'Status', k: 't', w: 140 }],
+    [['28 Oct', 9_785_500, null, '', st('Not sent', 'warn')], ['27 Oct', 8_402_000, 8_402_000, 'Deposit 27/10', st('Matches', 'ok')], ['26 Oct', 12_110_500, 12_110_500, 'Deposit 26/10', st('Matches', 'ok')]].map(([d, c, p, s, t]) => ({ d, c: rp(c), p: p ? rp(p) : '<span class="faint">—</span>', s, t }))) })
+SCREENS.journal = () => page({ title: 'Journal', sub: 'October', kpi: [['Entries', 186], ['Debit', rp(486_220_000)], ['Credit', rp(486_220_000)]],
+  body: table([{ l: 'Date', k: 'd', w: 100 }, { l: 'Entry', k: 'e', w: 150 }, { l: 'Account', k: 'a' }, { l: 'Debit', k: 'dr', num: 1 }, { l: 'Credit', k: 'cr', num: 1 }],
+    [['28 Oct', 'JS-1028', 'Cash in store', 9_785_500, 0], ['28 Oct', 'JS-1028', 'Cash in Bank · EDC BCA', 9_110_000, 0], ['28 Oct', 'JS-1028', 'Sales', 0, 18_895_500], ['28 Oct', 'BKK-1028-04', 'Store supplies', 185_000, 0], ['28 Oct', 'BKK-1028-04', 'Petty cash', 0, 185_000]].map(([d, e, a, dr, cr]) => ({ d, e: `<span class="mute">${e}</span>`, a, dr: dr ? rp(dr) : '', cr: cr ? rp(cr) : '' }))) })
+/* the shop's line of report: one boss each (direct report only). "Area" is the goods line inside
+   the shop, women's and men's, each with its supervisor over the sales assistants on that floor */
+const ORG = [
+  { n: 'Maya Lestari', r: 'Store head', b: null },
+  { n: 'Rina Hapsari', r: 'Admin · Head cashier', b: 0 },
+  { n: 'Hendra Wijaya', r: 'Warehouse head', b: 0 },
+  { n: 'Sari Wulandari', r: 'Supervisor · Women', b: 0 },
+  { n: 'Agus Setiawan', r: 'Supervisor · Men', b: 0 },
+  { n: 'Dewi Anggraini', r: 'Cashier', b: 1 },
+  { n: 'Budi Santoso', r: 'Cashier', b: 1 },
+  { n: 'Rizky Pratama', r: 'Cashier', b: 1 },
+  { n: 'Nina Kurniasih', r: 'Stock keeper', b: 2 },
+  { n: 'Putri Ayu', r: 'Sales · Women', b: 3 },
+  { n: 'Lina Marlina', r: 'Sales · Women', b: 3 },
+  { n: 'Fajar Hidayat', r: 'Sales · Men', b: 4 },
+  { n: 'Doni Saputra', r: 'Sales · Men', b: 4 },
+]
+const initials = n => n.split(' ').map(w => w[0]).join('').slice(0, 2)
+const reportsOf = i => ORG.map((p, k) => k).filter(k => ORG[k].b === i)
+const orgCard = i => `<button type="button" class="org-card" onclick="orgSheet(${i})"><span class="org-av">${initials(ORG[i].n)}</span><span class="org-tx"><b>${ORG[i].n}</b><span>${ORG[i].r}</span></span></button>`
+/* a manager whose people lead nobody stacks them under the card, so the chart stays four columns wide */
+function orgNode(i) {
+  const kids = reportsOf(i)
+  if (!kids.length) return `<li>${orgCard(i)}</li>`
+  if (kids.every(k => !reportsOf(k).length)) return `<li>${orgCard(i)}<div class="org-leaves">${kids.map(orgCard).join('')}</div></li>`
+  return `<li>${orgCard(i)}<ul>${kids.map(orgNode).join('')}</ul></li>`
+}
+function orgSheet(i) {
+  /* a new boss can be anyone but the person and the people under them */
+  const under = new Set([i]), walk = k => reportsOf(k).forEach(c => { under.add(c); walk(c) }); walk(i)
+  S.orgPick = ORG[i].b
+  const opts = ORG.map((p, k) => k).filter(k => !under.has(k))
+  const list = `<div class="org-pick" role="radiogroup" aria-label="Reports to">${ORG[i].b === null ? '<label class="org-opt"><input type="radio" name="boss" checked disabled><span class="org-av">HO</span><span class="org-tx"><b>Head office</b><span>Set by head office</span></span></label>' : opts.map(k => `<label class="org-opt"><input type="radio" name="boss" ${k === ORG[i].b ? 'checked' : ''} onchange="S.orgPick=${k}"><span class="org-av">${initials(ORG[k].n)}</span><span class="org-tx"><b>${ORG[k].n}</b><span>${ORG[k].r}</span></span></label>`).join('')}</div>`
+  openSheet({ crumb: ['People', 'Staff'], title: ORG[i].n, caption: ORG[i].r,
+    body: secs([['', facts([['Role', ORG[i].r], ['Reports to', ORG[i].b === null ? 'Head office' : ORG[ORG[i].b].n], ['Direct reports', reportsOf(i).length || '—']])], ['Reports to', list]]),
+    actions: ORG[i].b === null ? [] : [['Save', `ORG[${i}].b=S.orgPick;closeSheet();renderPage();toast('Reports to ' + ORG[S.orgPick].n)`]] })
+}
+SCREENS.employees = () => {
+  const view = filt('emp-view', 'list')
+  const sw = `<div class="chips" role="radiogroup" aria-label="View">${[['list', 'List'], ['chart', 'Chart']].map(([v, l]) => `<button class="chip" type="button" role="radio" aria-checked="${view === v}" onclick="setFilt('emp-view','${v}')">${l}</button>`).join('')}</div>`
+  return page({ title: 'Staff',
+    body: view === 'chart'
+      ? bar(sp, sw) + `<div class="org"><ul>${orgNode(0)}</ul></div>`
+      : bar(search('employees', 'Name or role'), sp, sw) + '<div class="boxed">' + table([{ l: 'Name', k: 'n' }, { l: 'Role', k: 'r', w: 240 }, { l: 'Reports to', k: 'b', w: 200 }],
+          ORG.map((p, i) => ({ n: `<span class="nm">${p.n}</span>`, r: p.r, b: p.b === null ? '<span class="mute">Head office</span>' : ORG[p.b].n, _on: `orgSheet(${i})` })).filter(r => hit('employees', r.n, r.r))) + '</div>' })
+}
+SCREENS.attendance = () => page({ title: 'Attendance', sub: 'Thu 29 Oct', tabs: [['day', 'Day'], ['week', 'Week'], ['month', 'Month']], kpi: [['In', 5], ['Late', 2, 'warn'], ['Absent', 0], ['On leave', 1]],
+  body: table([{ l: 'Name', k: 'n' }, { l: 'Shift', k: 's', w: 140 }, { l: 'In', k: 'i', w: 90 }, { l: 'Out', k: 'o', w: 90 }, { l: 'Status', k: 't', w: 140 }],
+    PEOPLE.map((p, i) => { const sh = i % 2 ? 'S 14:00–22:00' : 'P 09:30–17:30'; return { n: p, s: sh, i: i === 6 ? '' : i === 5 ? '14:18' : i === 7 ? '09:47' : i % 2 ? '13:52' : '09:24', o: i % 2 || i === 6 ? '' : '', t: i === 6 ? st('Leave', 'info') : i === 5 || i === 7 ? st('Late', 'warn') : st('On time', 'ok') } })) })
+SCREENS.schedule = () => {
+  const plan = PEOPLE.map((_, i) => DAYS.map((_, d) => (d + i) % 7 === 3 || ((d + i) % 7 === 6 && i !== 2) ? 'O' : (i + d) % 3 === 0 ? 'M' : i % 2 ? 'S' : 'P'))
+  const lab = { P: ['Morning', '09:30–17:30'], S: ['Evening', '14:00–22:00'], M: ['Middle', '11:00–19:00'], O: ['Off', ''] }
+  return page({ title: 'Schedule', sub: '26 Oct – 1 Nov', tabs: [['week', 'Week'], ['person', 'Person']], actions: [btn('Repeat last week'), btn('Publish')],
+    kpi: [['Planned', '41 shifts'], ['Hours', '328 h'], ['Over 40 h', '1 person', 'bad'], ['Uncovered', '0']],
+    body: `<div class="ds-table-card tbl-wrap"><table class="wk"><colgroup><col style="width:190px">${DAYS.map(() => '<col>').join('')}<col style="width:80px"></colgroup>
+    <thead><tr><th>Person</th>${DAYS.map(d => `<th class="${d === 'Thu 29' ? 'today' : ''}">${d}</th>`).join('')}<th style="text-align:right">Hours</th></tr></thead>
+    <tbody>${PEOPLE.map((p, i) => { const h = plan[i].filter(x => x !== 'O').length * 8; return `<tr><td>${p}</td>${plan[i].map(x => `<td><div class="shift ${x}">${lab[x][0]}${lab[x][1] ? `<small>${lab[x][1]}</small>` : ''}</div></td>`).join('')}<td class="hrs ${h > 40 ? 'neg' : ''}">${h} h</td></tr>` }).join('')}</tbody></table></div>` })
+}
+SCREENS.requests = () => page({ title: 'Requests', tabs: [['wait', 'Waiting', 2], ['done', 'Decided']], kpi: [['Leave', 1], ['Shift swap', 1], ['Overtime', 0]],
+  body: table([{ l: 'Who', k: 'w' }, { l: 'Asks for', k: 'a', w: 180 }, { l: 'Days', k: 'd', w: 160 }, { l: 'Reason', k: 'r' }],
+    [['Sari Wulandari', 'Annual leave', '3–4 Nov', 'Family event'], ['Fajar Hidayat', 'Shift swap with Agus', 'Sat 31 Oct', 'Campus exam']].map(([w, a, d, r]) => ({ w: `<span class="nm">${w}</span>`, a, d, r, _on: `requestSheet('${w}','${a}','${d}','${r}')` }))) })
+SCREENS.payroll = () => page({ title: 'Payroll', sub: 'October', actions: [btn('Add one-off')], kpi: [['People', PEOPLE.length], ['Overtime', rp(1_284_000)], ['One-offs', rp(650_000)], ['Sent to HO', 'Not yet', 'warn']],
+  body: table([{ l: 'Name', k: 'n' }, { l: 'Days in', k: 'd', num: 1, w: 100 }, { l: 'Late', k: 'l', num: 1, w: 80 }, { l: 'Overtime', k: 'o', num: 1 }, { l: 'One-offs', k: 'x', num: 1 }],
+    PEOPLE.map((p, i) => ({ n: p, d: 22 + (i % 3) - (i === 6 ? 3 : 0), l: i === 5 ? 4 : i === 7 ? 2 : 0, o: i % 3 ? rp(160_500 * (i % 3)) : '', x: i === 0 ? rp(500_000) : i === 4 ? rp(150_000) : '' }))) })
+SCREENS.assets = () => page({ title: 'Assets', kpi: [['Assets', 34], ['Needs service', 2, 'warn'], ['Book value', rp(186_400_000)]],
+  body: table([{ l: 'Asset', k: 'n' }, { l: 'Code', k: 'c', w: 150 }, { l: 'Where', k: 'w', w: 160 }, { l: 'Status', k: 's', w: 160 }],
+    [['Air conditioner 2 PK', 'AST-GI-0012', 'Sales floor', st('Service due', 'warn')], ['POS terminal', 'AST-GI-0003', 'Cashier 1', st('In use', 'ok')], ['POS terminal', 'AST-GI-0004', 'Cashier 2', st('In use', 'ok')], ['Mannequin set', 'AST-GI-0021', 'Window', st('In use', 'ok')], ['CCTV recorder', 'AST-GI-0030', 'Back office', st('Service due', 'warn')]].map(([n, c, w, s]) => ({ n: `<span class="nm">${n}</span>`, c: `<span class="mute">${c}</span>`, w, s }))) })
+SCREENS.repairs = () => page({ title: 'Repairs', actions: [btn('Report a problem')], tabs: [['open', 'Open', 2], ['done', 'Fixed']],
+  body: table([{ l: 'What', k: 'n' }, { l: 'Asset', k: 'a', w: 170 }, { l: 'Reported', k: 'd', w: 120 }, { l: 'Status', k: 's', w: 160 }],
+    [['AC drips water', 'AST-GI-0012', '27 Oct', st('Technician 30 Oct', 'info')], ['Fitting room lamp off', '—', '29 Oct', st('Waiting GA', 'warn')]].map(([n, a, d, s]) => ({ n, a, d, s }))) })
+SCREENS.tills = () => page({ title: 'Cashiers & devices', kpi: [['Cashiers', 2], ['Online', 2, 'ok'], ['EDC machines', 3], ['Last sync', '12 s ago']],
+  body: table([{ l: 'Device', k: 'n' }, { l: 'Kind', k: 'k', w: 160 }, { l: 'Who', k: 'w', w: 180 }, { l: 'Status', k: 's', w: 140 }],
+    [['Cashier 1', 'POS', 'Dewi Anggraini', st('Online', 'ok')], ['Cashier 2', 'POS', 'Rizky Pratama', st('Online', 'ok')], ['EDC BCA', 'Card machine', '', st('Online', 'ok')], ['EDC Mandiri', 'Card machine', '', st('Online', 'ok')], ['Store server', 'Server', '', st('Online', 'ok')]].map(([n, k, w, s]) => ({ n: `<span class="nm">${n}</span>`, k, w, s }))) })
+
+/* reports: one shape — period picker, figures, table */
+function report(title, kpi, cols, rows) {
+  return page({ title, sub: 'October', actions: [btn('Download'), btn('Print')], kpi, body: bar(chips(S.id, [['d', 'Today'], ['w', 'This week'], ['m', 'This month'], ['c', 'Pick dates']], 'm')) + table(cols, rows) })
+}
+const DATES = Array.from({ length: 10 }, (_, i) => `${29 - i} Oct`)
+SCREENS['r-daily'] = () => report('Daily sales', [['Sales', rp(486_220_000)], ['Receipts', num(11_204)], ['Average receipt', rp(86_400)], ['Target', '91%', 'warn']],
+  [{ l: 'Day', k: 'd', w: 110 }, { l: 'Receipts', k: 'r', num: 1 }, { l: 'Pieces', k: 'p', num: 1 }, { l: 'Cash', k: 'c', num: 1 }, { l: 'Card', k: 'k', num: 1 }, { l: 'QRIS', k: 'q', num: 1 }, { l: 'Sales', k: 's', num: 1 }],
+  DATES.map(d => { const s = r500(12e6 + rnd() * 10e6); return { d, r: Math.round(s / 86000), p: Math.round(s / 60000), c: rp(r500(s * .36)), k: rp(r500(s * .45)), q: rp(r500(s * .19)), s: rp(s) } }))
+SCREENS['r-article'] = () => report('Sales by article', [['Articles sold', ARTS.length], ['Pieces', ARTS.reduce((a, x) => a + x.sold, 0)]],
+  [{ l: 'Article id', k: 'id', w: 120 }, { l: 'Name', k: 'n' }, { l: 'Pieces', k: 'p', num: 1, w: 100 }, { l: 'Sales', k: 's', num: 1 }], ARTS.slice().sort((a, b) => b.sold - a.sold).map(a => ({ id: `<span class="mute">${a.id}</span>`, n: a.n, p: a.sold, s: rp(a.sold * a.price) })))
+SCREENS['r-cashier'] = () => report('Sales by cashier', [['Cashiers', 3]], [{ l: 'Cashier', k: 'n' }, { l: 'Shifts', k: 'h', num: 1 }, { l: 'Receipts', k: 'r', num: 1 }, { l: 'Voids', k: 'v', num: 1 }, { l: 'Short', k: 'x', num: 1 }, { l: 'Sales', k: 's', num: 1 }],
+  [['Dewi Anggraini', 24, 4120, 6, 0, 182_400_000], ['Budi Santoso', 22, 3804, 11, -10_000, 161_900_000], ['Rizky Pratama', 21, 3280, 3, 0, 141_920_000]].map(([n, h, r, v, x, s]) => ({ n, h, r: num(r), v, x: x ? `<span class="neg">${rp(x)}</span>` : 'Rp 0', s: rp(s) })))
+SCREENS['r-hour'] = () => report('Sales by hour', [['Busiest hour', '19:00–20:00']], [{ l: 'Hour', k: 'h', w: 140 }, { l: 'Receipts', k: 'r', num: 1 }, { l: 'Sales', k: 's', num: 1 }],
+  Array.from({ length: 12 }, (_, i) => { const r = Math.round(400 + Math.sin(i / 2) * 200 + i * 60); return { h: `${10 + i}:00–${11 + i}:00`, r: num(r), s: rp(r * 86000) } }))
+SCREENS['r-promo'] = () => report('Promotion results', [['Promotions', 4]], [{ l: 'Promotion', k: 'n' }, { l: 'Pieces', k: 'p', num: 1 }, { l: 'Discount given', k: 'd', num: 1 }, { l: 'Sales', k: 's', num: 1 }],
+  [['Denim week', 42, 3_802_000, 8_871_000], ['Member double points', 118, 0, 21_360_000], ['Basic tee bundle', 64, 1_984_000, 4_245_000]].map(([n, p, d, s]) => ({ n, p, d: rp(d), s: rp(s) })))
+const simpleRep = (title, cols, rows) => () => report(title, null, cols, rows)
+SCREENS['r-onhand'] = simpleRep('Stock on hand', [{ l: 'Article id', k: 'id', w: 120 }, { l: 'Name', k: 'n' }, { l: 'Floor', k: 's', num: 1 }, { l: 'Warehouse', k: 'w', num: 1 }, { l: 'Value', k: 'v', num: 1 }], ARTS.map(a => ({ id: a.id, n: a.n, s: a.store, w: a.wh, v: rp((a.store + a.wh) * a.price) })))
+SCREENS['r-moves'] = simpleRep('Stock movements', [{ l: 'Day', k: 'd', w: 110 }, { l: 'In', k: 'i', num: 1 }, { l: 'Sold', k: 's', num: 1 }, { l: 'Returned to HO', k: 'r', num: 1 }, { l: 'Count change', k: 'c', num: 1 }], DATES.map(d => ({ d, i: Math.floor(rnd() * 120), s: Math.floor(40 + rnd() * 90), r: Math.floor(rnd() * 8), c: rnd() < .2 ? '<span class="neg">−2</span>' : '0' })))
+SCREENS['r-sell'] = simpleRep('Sell-through', [{ l: 'Name', k: 'n' }, { l: 'Received', k: 'r', num: 1 }, { l: 'Sold', k: 's', num: 1 }, { l: 'Sell-through', k: 't', num: 1 }], ARTS.map(a => { const r = a.sold + a.store + a.wh; return { n: a.n, r, s: a.sold, t: Math.round(a.sold / r * 100) + '%' } }))
+SCREENS['r-recv'] = simpleRep('Received', [{ l: 'Delivery note', k: 'n' }, { l: 'Received', k: 'd', w: 120 }, { l: 'Koli', k: 'k', num: 1 }, { l: 'Pieces', k: 'p', num: 1 }], DATES.slice(0, 6).map((d, i) => ({ n: 'SJ-GD-2610-' + (110 - i * 3), d, k: 1 + i % 3, p: 30 + i * 11 })))
+SCREENS['r-ret'] = simpleRep('Returned to HO', [{ l: 'Note', k: 'n' }, { l: 'Sent', k: 'd', w: 120 }, { l: 'Pocket', k: 'k' }, { l: 'Pieces', k: 'p', num: 1 }], [['RT-GI-1021', '21 Oct', 'Reject item', 6], ['RT-GI-1014', '14 Oct', 'Over delivery', 12]].map(([n, d, k, p]) => ({ n, d, k, p })))
+SCREENS['r-att'] = simpleRep('Attendance', [{ l: 'Name', k: 'n' }, { l: 'Days in', k: 'd', num: 1 }, { l: 'Late', k: 'l', num: 1 }, { l: 'Absent', k: 'a', num: 1 }, { l: 'Leave', k: 'v', num: 1 }], PEOPLE.map((p, i) => ({ n: p, d: 22 - (i === 6 ? 3 : 0), l: i === 5 ? 4 : i === 7 ? 2 : 0, a: 0, v: i === 6 ? 3 : 0 })))
+SCREENS['r-hours'] = simpleRep('Hours & overtime', [{ l: 'Name', k: 'n' }, { l: 'Planned', k: 'p', num: 1 }, { l: 'Worked', k: 'w', num: 1 }, { l: 'Overtime', k: 'o', num: 1 }], PEOPLE.map((p, i) => ({ n: p, p: '176 h', w: (172 + i % 5) + ' h', o: i % 3 ? (i % 3) * 4 + ' h' : '' })))
+SCREENS['r-pay'] = simpleRep('Payroll', [{ l: 'Month', k: 'm' }, { l: 'People', k: 'p', num: 1 }, { l: 'Overtime', k: 'o', num: 1 }, { l: 'One-offs', k: 'x', num: 1 }, { l: 'Status', k: 's', w: 140 }], [['October', 8, rp(1_284_000), rp(650_000), st('Open', 'warn')], ['September', 8, rp(1_102_000), rp(300_000), st('Paid', 'ok')], ['August', 7, rp(986_000), rp(0), st('Paid', 'ok')]].map(([m, p, o, x, s]) => ({ m, p, o, x, s })))
+SCREENS['r-petty'] = simpleRep('Petty cash', [{ l: 'Account', k: 'a' }, { l: 'Vouchers', k: 'v', num: 1 }, { l: 'Amount', k: 's', num: 1 }], [['Store supplies', 14, 812_000], ['Parking & transport', 22, 440_000], ['Drinks', 9, 405_000], ['Cleaning', 6, 330_500]].map(([a, v, s]) => ({ a, v, s: rp(s) })))
+SCREENS['r-dep'] = simpleRep('Bank deposits', [{ l: 'Sales day', k: 'd', w: 120 }, { l: 'Declared', k: 'c', num: 1 }, { l: 'Deposited', k: 'p', num: 1 }, { l: 'Difference', k: 'x', num: 1 }], DATES.slice(1).map(d => { const c = r500(6e6 + rnd() * 6e6); return { d, c: rp(c), p: rp(c), x: 'Rp 0' } }))
+
+/* ═════ money declaration A–D (Hari's sketches, 29 Oct) ═════
+   A per cashier (sketch 1) · B per EDC, a ticked list (sketch 2) ·
+   C the two behind one switch · D per cashier with sales split by EDC.
+   "Recon" is two rows: Declared (what was counted) and Difference. */
+const EDCS = ['BCA', 'Mandiri', 'BNI']
+const MD = [
+  { float: 500_000, drops: [['13:10', 1_000_000], ['15:20', 1_500_000]], declared: 1_120_000, edc: { BCA: [2_310_000, 920_000], Mandiri: [1_175_000, 620_000], BNI: [600_000, 0] } },
+  { float: 500_000, drops: [['14:05', 1_500_000]], declared: 1_405_500, edc: { BCA: [1_420_000, 700_000], Mandiri: [835_000, 440_000], BNI: [400_000, 0] } },
+  { float: 500_000, drops: [['18:30', 2_000_000], ['20:45', 1_500_000]], declared: 1_260_000, edc: { BCA: [2_880_000, 1_250_000], Mandiri: [1_510_000, 780_000], BNI: [700_000, 0] } },
+  { float: 500_000, drops: [['19:10', 2_000_000]], declared: null, edc: { BCA: [2_240_000, 1_004_000], Mandiri: [1_130_000, 650_000], BNI: [600_000, 0] } },
+  { float: 500_000, drops: [['13:40', 1_000_000]], declared: 1_480_000, edc: { BCA: [1_400_000, 640_000], Mandiri: [650_000, 400_000], BNI: [360_000, 0] } },
+  { float: 500_000, drops: [['14:20', 1_000_000]], declared: 1_110_500, edc: { BCA: [1_000_000, 430_000], Mandiri: [520_000, 300_000], BNI: [260_000, 0] } },
+]
+/* every transaction of the day, so a total opens into its receipts */
+const TX = (() => {
+  const out = []
+  const mins = t => +t.slice(0, 2) * 60 + +t.slice(3)
+  const hhmm = m => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0')
+  const split = (total, avg) => {
+    const n = Math.max(1, Math.round(total / avg)), parts = []
+    let left = total
+    for (let k = 0; k < n - 1; k++) { const a = Math.max(500, Math.min(left - 500 * (n - k - 1), r500(avg * (.5 + rnd())))); parts.push(a); left -= a }
+    return [...parts, left]
+  }
+  SHIFTS.forEach((s, i) => {
+    const a = mins(s.open), b = mins(s.close || '21:40')
+    const add = (m, edc, kind, total, avg) => total && split(total, avg).forEach(amt => out.push({ s: i, t: hhmm(a + Math.floor(rnd() * (b - a))), m, edc, kind, amt }))
+    add('Cash', '', 'Cash', s.cash, 260_000)
+    EDCS.forEach(e => {
+      const [card, qris] = MD[i].edc[e], visa = r500(card * .2), master = r500(card * .1)
+      add('EDC', e, 'Debit', card - visa - master, 330_000); add('EDC', e, 'VISA', visa, 330_000); add('EDC', e, 'MASTER', master, 330_000)
+      add('EDC', e, 'QRIS', qris, 180_000)
+    })
+  })
+  out.sort((x, y) => x.t.localeCompare(y.t))
+  return out.map((x, n) => ({ ...x, id: n, no: code7() }))
+})()
+TX.forEach(x => { if (x.kind === 'VISA' || x.kind === 'MASTER') x.kind = 'Credit'; x.onus = x.m === 'EDC' && x.kind !== 'QRIS' ? rnd() < .6 : null })
+const sum = xs => xs.reduce((a, x) => a + x.amt, 0)
+const dropsOf = i => MD[i].drops.reduce((a, d) => a + d[1], 0)
+const expected = i => MD[i].float + SHIFTS[i].cash - dropsOf(i)
+const mdDiff = i => MD[i].declared == null ? null : MD[i].declared - expected(i)
+const edcOf = (i, e) => sum(TX.filter(x => x.s === i && x.edc === e))
+/* which machine a payment went through, and a one-click fix when the kasir picked the wrong one */
+const edcPick = (x, after) => `<div class="seg" role="radiogroup" aria-label="EDC" onclick="event.stopPropagation()">${EDCS.map(e => `<button type="button" role="radio" aria-checked="${x.edc === e}" onclick="mdMove(${x.id},'${e}',&quot;${after}&quot;)">${e}</button>`).join('')}</div>`
+const wasEdc = x => x.from ? ` <span class="faint">· was ${x.from}</span>` : ''
+function mdMove(id, e, after) {
+  const x = TX[id]
+  if (x.edc === e) return
+  if (!x.from) x.from = x.edc
+  x.edc = e
+  if (x.from === e) delete x.from
+  renderPage(); if (after) new Function(after)()
+  toast(`${x.no} moved to EDC ${e}`)
+}
+S.mdv = 'a'; S.ver = {}; S.everified = {}; S.off = new Set(); S.mdside = 'cashier'
+function mdVersion(v) { S.mdv = v; S.id = 'money'; side(); renderPage(); $('#scroller').scrollTop = 0; mdChrome() }
+function mdChrome() { document.querySelectorAll('.vsw button').forEach(b => b.setAttribute('aria-checked', b.dataset.v === S.mdv)) }
+
+/* one cashier column: who, till, hours */
+const mdHead = (s, i) => `<th class="is-num"><div class="who">${s.who}</div><div class="mute">${s.till} · ${s.open}–${s.close || 'open'}</div></th>`
+const cell = (v, on) => on ? `<td class="is-num mx-open" onclick="${on}">${v}</td>` : `<td class="is-num">${v}</td>`
+function mdVerifyCell(i) {
+  const d = mdDiff(i)
+  if (d == null) return st('Open', 'info')
+  if (S.ver[i]) return `<span class="ver">${st('Verified', 'ok')}<span class="mute">Maya · ${S.ver[i]}</span></span>`
+  return btn(d ? 'Accept shortage' : 'Verify', `mdVerify(${i})`)
+}
+function mdVerify(i) { const now = new Date(); S.ver[i] = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0'); renderPage(); toast(`${SHIFTS[i].who} verified`) }
+
+/* the matrix: label column, one column per cashier; split = sales by EDC (D) */
+function mdMatrix(split) {
+  const C = SHIFTS.map((s, i) => i)
+  const row = (label, f, cls = '') => `<tr class="${cls}"><td class="lbl">${label}</td>${C.map(f).join('')}</tr>`
+  const money = n => n == null ? '<span class="faint">—</span>' : rp(n)
+  const salesRows = split
+    ? row('Cash', i => cell(rp(SHIFTS[i].cash), `mdTx(${i},'Cash')`), 'sub') +
+      EDCS.map(e => row(`EDC ${e}`, i => cell(rp(edcOf(i, e)), `mdEdcSheet(${i},'${e}')`), 'sub')).join('') +
+      row('Sales', i => cell(rp(SHIFTS[i].sys), `mdTx(${i})`), 'sum')
+    : row('Sales', i => cell(rp(SHIFTS[i].sys), `mdTx(${i})`), 'sum')
+  const cashRows =
+    row('Float', i => cell(rp(MD[i].float)), 'gap') +
+    row('Cash drops', i => `<td class="is-num"><div class="stk">${MD[i].drops.map(([t, a]) => `<span><span class="faint">${t}</span>&nbsp; ${rp(a)}</span>`).join('')}</div></td>`) +
+    row('Expected in drawer', i => cell(rp(expected(i)))) +
+    row('Declared', i => cell(money(MD[i].declared))) +
+    row('Difference', i => { const d = mdDiff(i); return cell(d == null ? '<span class="faint">—</span>' : d ? `<span class="neg">${rp(d)}</span>` : 'Rp 0') }, 'sum')
+  const desk = `<div class="ds-table-card tbl-wrap mx-desk"><table class="ds-table mx"><colgroup><col style="width:210px">${C.map(() => '<col>').join('')}</colgroup>
+    <thead><tr><th></th>${SHIFTS.map(mdHead).join('')}</tr></thead><tbody>${salesRows}${cashRows}</tbody>
+    <tfoot><tr><td></td>${C.map(i => `<td class="is-num">${mdVerifyCell(i)}</td>`).join('')}</tr></tfoot></table></div>`
+  /* phone: the same rows, one card per cashier, nothing scrolls sideways */
+  const cards = `<div class="mx-cards">${C.map(i => { const s = SHIFTS[i], d = mdDiff(i)
+    const ls = [...(split ? [['Cash', rp(s.cash)], ...EDCS.map(e => [`EDC ${e}`, rp(edcOf(i, e))])] : []), ['Sales', `<b>${rp(s.sys)}</b>`], ['Float', rp(MD[i].float)],
+      ...MD[i].drops.map(([t, a]) => [`Cash drop ${t}`, rp(a)]), ['Expected in drawer', rp(expected(i))], ['Declared', money(MD[i].declared)],
+      ['Difference', d == null ? '—' : d ? `<span class="neg">${rp(d)}</span>` : 'Rp 0']]
+    return `<div class="box"><div class="who">${s.who}</div><div class="mute" style="margin-bottom:8px">${s.till} · ${s.open}–${s.close || 'open'}</div>${lines(ls)}<div class="card-foot">${mdVerifyCell(i)}</div></div>` }).join('')}</div>`
+  return desk + cards
+}
+
+/* B: one EDC at a time; every transaction starts ticked, untick what the slip lacks */
+function mdEdcList(noVerify) {
+  const e = filt('mdedc', 'BCA')
+  const xs = TX.filter(x => x.edc === e)
+  const on = xs.filter(x => !S.off.has(x.id))
+  const tick = x => `<input type="checkbox" class="tick" aria-label="On the slip" ${S.off.has(x.id) ? '' : 'checked'} onclick="event.stopPropagation()" onchange="mdTick(${x.id},this.checked)">`
+  const head = bar(chips('mdedc', EDCS.map(b => [b, `EDC ${b}`, TX.filter(x => x.edc === b).length]), 'BCA'), sp,
+    noVerify ? '' : S.everified[e] ? st(`EDC ${e} verified`, 'ok') : btn(`Verify EDC ${e}`, `S.everified['${e}']=true;renderPage();toast('EDC ${e} verified')`))
+  return { e, xs, on, html: head + table([{ l: '', k: 'c', w: 56 }, { l: 'Time', k: 't', w: 80 }, { l: 'Receipt', k: 'no', w: 150 }, { l: 'Cashier', k: 'who', w: 170 }, { l: 'Card', k: 'kind', w: 170 }, { l: 'EDC', k: 'edc', w: 250 }, { l: 'Amount', k: 'a', num: 1 }],
+    xs.map(x => ({ c: tick(x), t: x.t, no: x.no, who: SHIFTS[x.s].who, kind: x.kind + wasEdc(x), edc: edcPick(x, ''), a: S.off.has(x.id) ? `<span class="faint">${rp(x.amt)}</span>` : rp(x.amt) })),
+    { t: 'Ticked', who: `${on.length} of ${xs.length}`, a: rp(sum(on)) }) }
+}
+function mdTick(id, on) { on ? S.off.delete(id) : S.off.add(id); renderPage() }
+
+/* C: the two views behind one switch, as sketch 2's header */
+const mdSwitch = () => `<div class="chips" role="radiogroup">${[['cashier', 'Per cashier'], ['edc', 'Per EDC']].map(([v, l]) => `<button class="chip" type="button" role="radio" aria-checked="${S.mdside === v}" onclick="S.mdside='${v}';renderPage()">${l}</button>`).join('')}</div>`
+
+/* E and F: a kasir runs more than one session a day.
+   E — each kasir a column group: its sessions, then its total; fuller rows.
+   F — the same day turned on its side: sessions are rows under their kasir. */
+const KASIR = [...new Set(SHIFTS.map(s => s.till))].map(k => ({ k, ss: SHIFTS.map((s, i) => i).filter(i => SHIFTS[i].till === k) }))
+const MORE = [ // per session: pieces, exchanges [count, value], voids
+  { pcs: 41, exch: [2, 385_000], voids: 1 }, { pcs: 29, exch: [1, 199_000], voids: 0 },
+  { pcs: 53, exch: [3, 512_000], voids: 2 }, { pcs: 44, exch: [1, 149_000], voids: 0 },
+  { pcs: 26, exch: [0, 0], voids: 0 }, { pcs: 22, exch: [1, 129_000], voids: 1 },
+]
+const receipts = i => TX.filter(x => x.s === i).length
+const sessionName = i => `<div class="who">${SHIFTS[i].who}</div><div class="mute">${SHIFTS[i].open}–${SHIFTS[i].close || 'open'}</div>`
+
+function mdGrouped() {
+  const cols = KASIR.flatMap(g => [...g.ss.map(i => ({ i })), { total: g }])
+  const sumOf = (g, f) => g.ss.reduce((a, i) => a + (f(i) ?? 0), 0)
+  const money = n => n == null ? '<span class="faint">—</span>' : rp(n)
+  const diffTxt = d => d == null ? '<span class="faint">—</span>' : d ? `<span class="neg">${rp(d)}</span>` : 'Rp 0'
+  /* a row: label, value per session, and how a total adds up (default: sum) */
+  const row = (label, f, { cls = '', on, total, fmt = money } = {}) => `<tr class="${cls}"><td class="lbl">${label}</td>${cols.map(c => c.total
+    ? `<td class="is-num tot">${total ? total(c.total) : fmt(sumOf(c.total, f))}</td>`
+    : (on ? `<td class="is-num mx-open" onclick="${on(c.i)}">${fmt(f(c.i))}</td>` : `<td class="is-num">${fmt(f(c.i))}</td>`)).join('')}</tr>`
+  const sec = label => `<tr class="sec"><td colspan="${cols.length + 1}">${label}</td></tr>`
+  const plain = n => n == null ? '' : dots(n)
+  const head = `<tr><th rowspan="2"></th>${KASIR.map(g => `<th class="grp-h" colspan="${g.ss.length + 1}">${g.k}</th>`).join('')}</tr>
+    <tr>${cols.map(c => c.total ? `<th class="is-num tot">Total</th>` : `<th class="is-num">${sessionName(c.i)}</th>`).join('')}</tr>`
+  const body =
+    sec('Sales') +
+    row('Receipts', i => receipts(i), { fmt: plain, on: i => `mdTx(${i},'All')` }) +
+    row('Pieces', i => MORE[i].pcs, { fmt: plain }) +
+    row('Cash', i => SHIFTS[i].cash, { cls: 'sub', on: i => `mdTx(${i},'Cash')` }) +
+    EDCS.map(e => row(`EDC ${e}`, i => edcOf(i, e), { cls: 'sub', on: i => `mdEdcSheet(${i},'${e}')` })).join('') +
+    row('Sales', i => SHIFTS[i].sys, { cls: 'sum', on: i => `mdTx(${i},'All')` }) +
+    sec('Returns') +
+    row('Exchanges', i => MORE[i].exch[1], { fmt: n => n ? rp(n) : '<span class="faint">—</span>' }) +
+    row('Voids', i => MORE[i].voids, { fmt: n => n ? String(n) : '<span class="faint">—</span>' }) +
+    sec('Cash in the drawer') +
+    row('Float', i => MD[i].float) +
+    row('Cash drops', i => dropsOf(i), { fmt: n => n == null ? '' : rp(n) }) +
+    row('Expected in drawer', i => expected(i)) +
+    row('Declared', i => MD[i].declared, { total: g => g.ss.some(i => MD[i].declared == null) ? '<span class="faint">—</span>' : rp(sumOf(g, i => MD[i].declared)) }) +
+    row('Difference', i => mdDiff(i), { cls: 'sum', fmt: diffTxt, total: g => g.ss.some(i => mdDiff(i) == null) ? '<span class="faint">—</span>' : diffTxt(sumOf(g, mdDiff)) })
+  const foot = `<tr><td></td>${cols.map(c => c.total ? '<td class="tot"></td>' : `<td class="is-num">${mdVerifyCell(c.i)}</td>`).join('')}</tr>`
+  return `<div class="ds-table-card tbl-wrap mx-desk"><table class="ds-table mx mx-g"><colgroup><col style="width:170px">${cols.map(() => '<col>').join('')}</colgroup>
+    <thead>${head}</thead><tbody>${body}</tbody><tfoot>${foot}</tfoot></table></div>` + mdMatrixCards()
+}
+/* phone: one card per session, as A */
+const mdMatrixCards = () => mdMatrix(false).slice(mdMatrix(false).indexOf('<div class="mx-cards">'))
+
+function mdRows() {
+  /* plain figures, no "Rp": eight money columns must fit beside the names */
+  const n = x => num(x)
+  const diffTxt = d => d == null ? '<span class="faint">—</span>' : d ? `<span class="neg">${n(d)}</span>` : '0'
+  const edcAll = i => EDCS.reduce((a, e) => a + edcOf(i, e), 0)
+  const cells = o => `<td>${o.name}</td><td class="is-num">${o.sales}</td><td class="is-num">${o.cash}</td><td class="is-num">${o.edc}</td><td class="is-num">${o.drops}</td><td class="is-num">${o.exp}</td><td class="is-num">${o.dec}</td><td class="is-num">${o.diff}</td><td class="is-num">${o.act}</td>`
+  const one = i => `<tr class="ds-opens" onclick="mdTx(${i},'All')">${cells({ name: sessionName(i), sales: n(SHIFTS[i].sys), cash: n(SHIFTS[i].cash), edc: n(edcAll(i)), drops: n(dropsOf(i)), exp: n(expected(i)),
+    dec: MD[i].declared == null ? '<span class="faint">—</span>' : n(MD[i].declared), diff: diffTxt(mdDiff(i)), act: `<span onclick="event.stopPropagation()">${mdVerifyCell(i)}</span>` })}</tr>`
+  const tot = (label, ss, cls) => { const s = f => ss.reduce((a, i) => a + f(i), 0), open = ss.some(i => MD[i].declared == null)
+    return `<tr class="${cls}">${cells({ name: label, sales: n(s(i => SHIFTS[i].sys)), cash: n(s(i => SHIFTS[i].cash)), edc: n(s(edcAll)), drops: n(s(dropsOf)), exp: n(s(expected)),
+      dec: open ? '<span class="faint">—</span>' : n(s(i => MD[i].declared)), diff: open ? '<span class="faint">—</span>' : diffTxt(s(mdDiff)), act: '' })}</tr>` }
+  const body = KASIR.map(g => `<tr class="grp-row"><td colspan="9">${g.k}</td></tr>${g.ss.map(one).join('')}${tot(`Total ${g.k}`, g.ss, 'sub-tot')}`).join('')
+  const all = SHIFTS.map((s, i) => i)
+  return `<div class="ds-table-card tbl-wrap mx-desk"><table class="ds-table mx mx-r"><colgroup><col style="width:180px"><col><col><col><col><col><col><col><col style="width:160px"></colgroup>
+    <thead><tr><th>Session</th><th class="is-num">Sales</th><th class="is-num">Cash</th><th class="is-num">EDC</th><th class="is-num">Cash drops</th><th class="is-num">Expected</th><th class="is-num">Declared</th><th class="is-num">Difference</th><th></th></tr></thead>
+    <tbody>${body}</tbody><tfoot>${tot('Total', all, '')}</tfoot></table></div>` + mdMatrixCards()
+}
+/* G: three steps so nobody mixes cash and cards — 1 Cash, 2 EDC, 3 Submit
+   with notes. One row per session (the person and their hours; which kasir
+   doesn't matter), the total underneath. Nothing is approved that doesn't
+   match: a short or open drawer is counted again, a payment missing from
+   the slip blocks Submit. */
+S.gstep = 'cash'; S.sub = null
+const GSTEPS = [['cash', 'Cash'], ['edc', 'EDC'], ['submit', 'Submit']]
+const gGo = k => `S.gstep='${k}';renderPage();$('#scroller').scrollTop=0`
+function stepper() {
+  const at = GSTEPS.findIndex(([k]) => k === S.gstep)
+  return `<ol class="stepper">${GSTEPS.map(([k, l], j) => {
+    const issue = !S.sub && j < at && blockers().some(b => b[2] === k)
+    const state = S.sub || j < at ? (issue ? 'issue' : 'done') : j === at ? 'now' : 'next'
+    return `<li class="${state}"><button type="button" onclick="${gGo(k)}" ${j === at ? 'aria-current="step"' : ''}><span class="dot">${state === 'done' ? ico('check') : state === 'issue' ? '!' : j + 1}</span>${l}</button></li>`
+  }).join('')}</ol>`
+}
+const dash = '<span class="faint">—</span>'
+const gDiff = d => d == null ? dash : d ? `<span class="neg">${rp(d)}</span>` : 'Rp 0'
+const ALL = SHIFTS.map((s, i) => i)
+
+/* one row per session; cols: { l, f(i), fmt, on(i), sub(i), total(all) } */
+function sessionTable(cols, act) {
+  const head = `<tr><th>Session</th>${cols.map(c => `<th class="is-num">${c.l}</th>`).join('')}${act ? '<th></th>' : ''}</tr>`
+  const cell = (c, i) => {
+    const v = (c.fmt || rp)(c.f(i)), sub = c.sub ? `<div class="faint">${c.sub(i)}</div>` : ''
+    return c.on ? `<td class="is-num mx-open" onclick="${c.on(i)}">${v}${sub}</td>` : `<td class="is-num">${v}${sub}</td>`
+  }
+  const rows = ALL.map(i => `<tr><td>${sessionName(i)}</td>${cols.map(c => cell(c, i)).join('')}${act ? `<td class="is-num">${act(i)}</td>` : ''}</tr>`).join('')
+  const tot = `<tr><td>Total</td>${cols.map(c => `<td class="is-num">${c.total ? c.total() : (c.fmt || rp)(ALL.reduce((a, i) => a + (c.f(i) ?? 0), 0))}</td>`).join('')}${act ? '<td></td>' : ''}</tr>`
+  return `<div class="ds-table-card tbl-wrap"><table class="ds-table mx mx-s"><colgroup><col style="width:200px">${cols.map(() => '<col>').join('')}${act ? '<col style="width:150px">' : ''}</colgroup>
+    <thead>${head}</thead><tbody>${rows}</tbody><tfoot>${tot}</tfoot></table></div>`
+}
+
+const anyOpen = () => ALL.some(i => MD[i].declared == null)
+/* every amount of cash is counted note by note, from 100.000 down to the 100 coin */
+const NOTES = [100000, 50000, 20000, 10000, 5000, 2000, 1000, 500, 200, 100]
+function notesField(max, label) {
+  S.pc = NOTES.map(() => 0); S.pcMax = max
+  return `<section class="sheet-sec"><h4>${label}</h4><div class="notes">${NOTES.map((n, k) =>
+    `<label class="note-row"><span>${dots(n)}</span><input inputmode="numeric" value="" placeholder="0" aria-label="Pieces of ${dots(n)}" oninput="pcSet(${k},this.value)"><b id="pc${k}">—</b></label>`).join('')}</div>
+    <div class="pc-total"><span>Total</span><b id="pctot">Rp 0</b></div><div class="pc-err neg" id="pcerr" hidden></div></section>`
+}
+const pcSum = () => NOTES.reduce((a, n, k) => a + n * S.pc[k], 0)
+function pcSet(k, v) {
+  S.pc[k] = +String(v).replace(/\D/g, '') || 0
+  $('#pc' + k).textContent = S.pc[k] ? dots(NOTES[k] * S.pc[k]) : '—'
+  const t = pcSum(), over = t > S.pcMax
+  $('#pctot').textContent = rp(t)
+  $('#pcerr').hidden = !over
+  $('#pcerr').textContent = `Can't be more than ${rp(S.pcMax)}`
+  const save = $('#sheet .sheet-foot .ds-btn'); if (save) save.disabled = over || !t
+}
+const nowHM = () => { const d = new Date(); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') }
+
+/* sessions that share a time window, earliest first; four people at most per block */
+function sessionGroups() {
+  const mins = t => +t.slice(0, 2) * 60 + +t.slice(3)
+  const order = [...ALL].sort((a, b) => mins(SHIFTS[a].open) - mins(SHIFTS[b].open))
+  const groups = []
+  order.forEach(i => {
+    const g = groups.find(g => Math.abs(mins(SHIFTS[g[0]].open) - mins(SHIFTS[i].open)) <= 60 && g.length < 4)
+    g ? g.push(i) : groups.push([i])
+  })
+  return groups
+}
+function sessionBlocksOf(rowsFor, act) {
+  return sessionGroups().map(ids => {
+    const from = ids.map(i => SHIFTS[i].open).sort()[0]
+    const to = ids.some(i => !SHIFTS[i].close) ? 'open' : ids.map(i => SHIFTS[i].close).sort().pop()
+    return `<section class="sg"><h3 class="sg-h">${from}–${to}</h3>${sessionMatrix(rowsFor(ids), act, ids)}</section>`
+  }).join('')
+}
+function sessionMatrix(rows, act, ALL) {
+  const pad = '<td></td>'.repeat(4 - ALL.length), padh = '<th></th>'.repeat(4 - ALL.length)
+  const head = `<tr><th></th>${ALL.map(i => `<th class="is-num">${sessionName(i)}</th>`).join('')}${padh}<th class="is-num tot">Total</th></tr>`
+  const body = rows.map(r => `<tr class="${r.cls || ''}"><td class="lbl">${r.l}</td>${ALL.map(i => `<td class="is-num">${r.f(i)}</td>`).join('')}${pad}<td class="is-num tot">${r.tot()}</td></tr>`).join('')
+  const foot = act ? `<tfoot><tr><td></td>${ALL.map(i => `<td class="is-num">${act(i)}</td>`).join('')}${pad}<td class="tot"></td></tr></tfoot>` : ''
+  return `<div class="ds-table-card tbl-wrap mx-scroll"><table class="ds-table mx mx-m"><colgroup><col style="width:200px">${ALL.map(() => '<col>').join('')}${'<col>'.repeat(4 - ALL.length)}<col style="width:170px"></colgroup>
+    <thead>${head}</thead><tbody>${body}</tbody>${foot}</table></div>`
+}
+/* one block per session, its lines running down; the total block last */
+function sessionBlocks(linesOf, act, totalLines) {
+  return `<div class="ses">${ALL.map(i => `<section class="box ses-b"><div class="ses-h">${sessionName(i)}<div class="ses-act">${act ? act(i) : ''}</div></div>${lines(linesOf(i))}</section>`).join('')}
+    <section class="box ses-b ses-tot"><div class="ses-h"><div class="who">Total</div></div>${lines(totalLines)}</section></div>`
+}
+const link = (v, on) => `<button type="button" class="lnk" onclick="${on}">${v}</button>`
+
+/* G cash: no count, no declared — the cash sales leave the drawer in cash drops,
+   as many as it takes; when nothing is left to drop the button becomes Verify */
+const GD = [[...MD[0].drops, ['15:58', 620_000]], [...MD[1].drops], [...MD[2].drops, ['21:55', 760_000]], [...MD[3].drops], [...MD[4].drops, ['16:00', 980_000]], [...MD[5].drops]]
+const gDropped = i => GD[i].reduce((a, d) => a + d[1], 0)
+const gLeft = i => SHIFTS[i].cash - gDropped(i)
+function mdCashStep() {
+  const left = n => n ? `<span class="neg">${rp(n)}</span>` : 'Rp 0'
+  const act = i => S.ver[i] ? st('Verified', 'ok') : gLeft(i) ? btn('Add cash drop', `mdDrop(${i})`) : btn('Verify', `S.ver[${i}]=nowHM();renderPage();toast('${SHIFTS[i].who} verified')`)
+  return sessionBlocksOf(ids => {
+    const sumAll = f => ids.reduce((a, i) => a + f(i), 0)
+    const most = Math.max(...ids.map(i => GD[i].length))
+    return [
+      { l: 'Cash sales', f: i => link(rp(SHIFTS[i].cash), `mdTx(${i},'Cash')`), tot: () => rp(sumAll(i => SHIFTS[i].cash)) },
+      ...Array.from({ length: most }, (_, k) => ({ l: `Cash drop ${k + 1}`, cls: k ? '' : 'gap',
+        f: i => GD[i][k] ? `${rp(GD[i][k][1])}<div class="faint">${GD[i][k][0]}</div>` : dash,
+        tot: () => rp(sumAll(i => GD[i][k]?.[1] || 0)) })),
+      { l: 'Not dropped yet', cls: 'sum gap', f: i => left(gLeft(i)), tot: () => left(sumAll(gLeft)) },
+    ]
+  }, act)
+}
+const edcOfS = i => TX.filter(x => x.s === i && x.m === 'EDC')
+function mdEdcStep() {
+  const offOf = i => sum(edcOfS(i).filter(x => S.off.has(x.id)))
+  const warn = n => n ? `<span class="warn-t">${rp(n)}</span>` : dash
+  return sessionBlocksOf(ids => {
+    const sumAll = f => ids.reduce((a, i) => a + f(i), 0)
+    return [
+      ...EDCS.map(e => ({ l: `EDC ${e}`, f: i => link(rp(edcOf(i, e)), `mdEdcSheet(${i},'${e}')`), tot: () => rp(sumAll(i => edcOf(i, e))) })),
+      { l: 'EDC total', cls: 'sum gap', f: i => rp(sum(edcOfS(i))), tot: () => rp(sumAll(i => sum(edcOfS(i)))) },
+      { l: 'Not on the slip', f: i => warn(offOf(i)), tot: () => warn(sumAll(offOf)) },
+    ]
+  })
+}
+/* a cash drop: as often as needed, note by note; never more than is left to drop */
+function mdDrop(i) {
+  const s = SHIFTS[i]
+  openSheet({ crumb: ['Money declaration'], title: `Add cash drop · ${s.who}`, caption: `${s.open}–${s.close || 'open'}`, size: 'rail', actions: [['Add cash drop', `mdDropSave(${i})`]],
+    body: kpis([['Cash sales', rp(s.cash)], ['Not dropped yet', rp(gLeft(i))]]) + notesField(gLeft(i), 'Notes in the drop') })
+  setTimeout(() => { const b = $('#sheet .sheet-foot .ds-btn'); if (b) b.disabled = true }, 0)
+}
+function mdDropSave(i) {
+  const t = pcSum(); if (!t || t > S.pcMax) return
+  GD[i].push([nowHM(), t]); closeSheet(); renderPage()
+  toast(gLeft(i) ? `Cash drop ${rp(t)} added · ${rp(gLeft(i))} left` : `${SHIFTS[i].who}: all dropped, ready to verify`)
+}
+
+function blockers() {
+  const out = []
+  ALL.forEach(i => {
+    const who = `${SHIFTS[i].who} · ${SHIFTS[i].open}–${SHIFTS[i].close || 'open'}`
+    if (gLeft(i)) out.push([who, `${rp(gLeft(i))} not dropped yet`, 'cash'])
+    else if (!S.ver[i]) out.push([who, 'Not verified', 'cash'])
+  })
+  const off = TX.filter(x => S.off.has(x.id))
+  if (off.length) out.push([`${off.length} EDC payment${off.length > 1 ? 's' : ''} not on the slip`, rp(sum(off)), 'edc'])
+  return out
+}
+function mdSubmitStep() {
+  const edcAll = TX.filter(x => x.m === 'EDC'), moved = TX.filter(x => x.from), bl = blockers()
+  const cashSales = ALL.reduce((a, i) => a + SHIFTS[i].cash, 0)
+  return `${bl.length && !S.sub ? `<div class="box block-box"><h3>Can't submit yet</h3>${lines(bl.map(([a, b, k]) => [a, `<span class="neg">${b}</span>&nbsp; ${btn(k === 'cash' ? 'Go to Cash' : 'Go to EDC', gGo(k))}`]))}</div>` : ''}
+  <div class="submit-grid">
+    <div class="box"><h3>Cash</h3>${lines([['Cash sales', rp(cashSales)], ['Cash drops', rp(ALL.reduce((a, i) => a + gDropped(i), 0))],
+      ['Not dropped yet', ALL.some(gLeft) ? `<span class="neg">${rp(ALL.reduce((a, i) => a + gLeft(i), 0))}</span>` : 'Rp 0'], ['Verified', `${ALL.filter(i => S.ver[i]).length} of ${ALL.length}`]])}</div>
+    <div class="box"><h3>EDC</h3>${lines([['In system', rp(sum(edcAll))], ['Not on the slip', TX.some(x => S.off.has(x.id)) ? `<span class="warn-t">${rp(sum(TX.filter(x => S.off.has(x.id))))}</span>` : '—'], ['Moved to another EDC', moved.length || '—']])}</div>
+    <div class="box notes-box"><h3>Notes</h3>${S.sub ? (S.sub.notes ? `<p class="note-read">${S.sub.notes.replace(/</g, '&lt;')}</p>` : '<p class="mute">No notes</p>')
+      : `<textarea id="mdnote" class="note" rows="5" oninput="S.draft=this.value">${S.draft || ''}</textarea>`}</div>
+  </div>`
+}
+function mdSubmit() {
+  if (blockers().length) return
+  const now = new Date()
+  S.sub = { at: String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0') }
+  renderPage(); toast('Money declaration submitted')
+}
+
+/* H: G's flow, the calm-table look (13 Oct) — one size, one figure per cell,
+   grey for anything secondary, red only for money still out, the one solid
+   button per kasir. Each session is a card; the drop's time is its tooltip. */
+const isH = () => S.mdv === 'h'
+function sessionCardsH(rowsFor, act, sumFor) {
+  return sessionGroups().map(ids => {
+    const from = ids.map(i => SHIFTS[i].open).sort()[0]
+    const to = ids.some(i => !SHIFTS[i].close) ? 'open' : ids.map(i => SHIFTS[i].close).sort().pop()
+    return `<section class="hb"><header class="hb-h"><h3>${from}–${to}</h3><span>${sumFor(ids)}</span></header>${sessionMatrixH(rowsFor(ids), act, ids)}</section>`
+  }).join('')
+}
+function sessionMatrixH(rows, act, ids) {
+  const pad = (tag = 'td') => `<${tag}></${tag}>`.repeat(4 - ids.length)
+  const head = `<tr><th></th>${ids.map(i => `<th><div class="hn">${SHIFTS[i].who}</div><div class="hh">${SHIFTS[i].open}–${SHIFTS[i].close || 'open'}</div></th>`).join('')}${pad('th')}<th class="ht"><div class="hn">Total</div></th></tr>`
+  const cell = (r, i) => {
+    const tip = r.tip?.(i) ? ` title="${r.tip(i)}"` : ''
+    return r.on ? `<td class="ho"${tip} onclick="${r.on(i)}">${r.f(i)}</td>` : `<td${tip}>${r.f(i)}</td>`
+  }
+  const body = rows.map(r => `<tr class="${r.cls || ''}"><td class="hl">${r.l}</td>${ids.map(i => cell(r, i)).join('')}${pad()}<td class="ht">${r.tot()}</td></tr>`).join('')
+  const acts = act ? `<tr class="ha"><td></td>${ids.map(i => `<td>${act(i)}</td>`).join('')}${pad()}<td class="ht"></td></tr>` : ''
+  return `<div class="hm-wrap"><table class="hm"><colgroup><col style="width:180px"><col><col><col><col><col style="width:160px"></colgroup>
+    <thead>${head}</thead><tbody>${body}${acts}</tbody></table></div>`
+}
+const quiet = t => `<span class="mute">${t}</span>`
+function mdCashStepH() {
+  const left = n => n ? `<span class="neg">${rp(n)}</span>` : quiet('Rp 0')
+  const act = i => S.ver[i] ? quiet('Verified') : gLeft(i) ? btn('Add cash drop', `mdDrop(${i})`) : btn('Verify', `S.ver[${i}]=nowHM();renderPage();toast('${SHIFTS[i].who} verified')`)
+  return sessionCardsH(ids => {
+    const sumAll = f => ids.reduce((a, i) => a + f(i), 0)
+    const most = Math.max(...ids.map(i => GD[i].length))
+    return [
+      { l: 'Cash sales', f: i => rp(SHIFTS[i].cash), on: i => `mdTx(${i},'Cash')`, tot: () => rp(sumAll(i => SHIFTS[i].cash)) },
+      ...Array.from({ length: most }, (_, k) => ({ l: `Cash drop ${k + 1}`, cls: k ? '' : 'hgap',
+        f: i => GD[i][k] ? rp(GD[i][k][1]) : '', tip: i => GD[i][k] ? `Dropped at ${GD[i][k][0]}` : '',
+        tot: () => rp(sumAll(i => GD[i][k]?.[1] || 0)) })),
+      { l: 'Not dropped yet', cls: 'hsum', f: i => left(gLeft(i)), tot: () => left(sumAll(gLeft)) },
+    ]
+  }, act, ids => `${ids.length} cashiers · ${ids.filter(i => S.ver[i]).length} verified`)
+}
+function mdEdcStepH() {
+  const offOf = i => sum(edcOfS(i).filter(x => S.off.has(x.id)))
+  const off = n => n ? `<span class="neg">${rp(n)}</span>` : ''
+  return sessionCardsH(ids => {
+    const sumAll = f => ids.reduce((a, i) => a + f(i), 0)
+    return [
+      ...EDCS.map(e => ({ l: `EDC ${e}`, f: i => rp(edcOf(i, e)), on: i => `mdEdcSheet(${i},'${e}')`, tot: () => rp(sumAll(i => edcOf(i, e))) })),
+      { l: 'EDC total', cls: 'hsum', f: i => rp(sum(edcOfS(i))), tot: () => rp(sumAll(i => sum(edcOfS(i)))) },
+      { l: 'Not on the slip', f: i => off(offOf(i)), tot: () => off(sumAll(offOf)) },
+    ]
+  }, null, ids => `${ids.length} cashiers`)
+}
+
+/* I: one long run, full screen, one kasir at a time — their cash, then their
+   EDC — and Next; the left bar lists every kasir and where each one stands;
+   the last step is the notes and Submit. */
+S.wi = 0; S.wzOpen = false; S.kNotes = {}
+const wOrder = () => sessionGroups().flat()
+const wOff = i => []
+S.miss = {}
+const wSys = (i, e) => edcOfS(i).filter(x => x.edc === e && !S.miss[i]?.ids.includes(x.id)).length
+S.slip = {}; S.ev = {}
+SHIFTS.forEach((s, i) => s.close && EDCS.forEach(e => { S.slip[i + e] = String(wSys(i, e) + (i === 1 ? { BNI: -1, Mandiri: 1 }[e] || 0 : 0)) }))
+S.aslip = {}
+const slipOf = (i, e) => S.aslip[i + e] ?? S.slip[i + e]
+const wSlipOk = (i, e) => slipOf(i, e) !== undefined && slipOf(i, e) !== '' && +slipOf(i, e) === wSys(i, e)
+function wSlipState(i, e) {
+  const v = S.slip[i + e]
+  if (v === undefined || v === '') return '<span class="mute">Cashier still open</span>'
+  const d = +v - wSys(i, e)
+  if (d) return `<span class="neg">${Math.abs(d)} ${d > 0 ? 'more' : 'fewer'} on slip</span>`
+  return S.ev[i + e] || S.ver[i] ? '<span class="mute">Verified</span>' : '<span></span>'
+}
+function wSlip(i, e, v) {
+  S.slip[i + e] = String(v).replace(/\D/g, '')
+  $('#sl-' + i + e).innerHTML = wSlipState(i, e)
+}
+S.closing = { 0: 620_000, 1: 915_500, 2: 760_000, 4: 980_000, 5: 600_500 }; S.cv = {}
+const wTemp = i => MD[i].drops.reduce((a, d) => a + d[1], 0)
+const wShould = i => SHIFTS[i].cash - wTemp(i)
+const wCashOk = i => S.closing[i] != null && S.closing[i] === wShould(i)
+function wClosingSheet(i) {
+  const s = SHIFTS[i]
+  openSheet({ crumb: ['Money declaration'], title: `Closing · ${s.who}`, caption: `${s.open}–${s.close || 'open'}`, size: 'rail', actions: [['Save closing', `wClosingSave(${i})`]],
+    body: kpis([['Cash sales', rp(s.cash)], ['Temporary deposits', rp(wTemp(i))], ['Expected closing', rp(wShould(i))]]) + notesField(wShould(i), 'Notes and coins') })
+  setTimeout(() => { const b = $('#sheet .sheet-foot .ds-btn'); if (b) b.disabled = true }, 0)
+}
+function wClosingSave(i) {
+  const t = pcSum(); if (!t || t > S.pcMax) return
+  S.closing[i] = t; closeSheet(); renderPage()
+  toast(wCashOk(i) ? `${SHIFTS[i].who}: closing matches` : `${SHIFTS[i].who}: closing ${rp(wShould(i) - t)} short`)
+}
+const wReady = i => S.cv[i] && EDCS.every(e => wSlipOk(i, e) && S.ev[i + e])
+/* a closing that doesn't add up goes back to the cashier, at most twice; after
+   that the store head's count stands and the difference is accepted with notes —
+   over Rp 100.000 it waits for head office */
+S.ret = {}; S.wait = {}; S.acc = {}; S.cnt = {}
+const MAX_RETURNS = 0, HO_LIMIT = 100_000
+function wState(i) {
+  if (S.ver[i]) return [`Closed ${S.ver[i]}`, 'mute']
+  if (S.closing[i] == null) return ['Cashier still open', 'mute']
+  if (S.wait[i]) return ['Waiting for cashier', 'mute']
+  if (S.acc[i]?.ho === 'pending') return ['Waiting for head office', 'mute']
+  if (!wCashOk(i) && !S.cv[i]) return [`Cash ${rp(wShould(i) - S.closing[i])} short`, 'neg']
+  if (!S.cv[i]) return ['Cash not verified', 'mute']
+  const bad = EDCS.filter(e => S.slip[i + e] !== undefined && S.slip[i + e] !== '' && !wSlipOk(i, e))
+  if (bad.length) return [`EDC ${bad.join(', ')} slips differ`, 'neg']
+  if (!EDCS.every(e => wSlipOk(i, e))) return ['Cashier still open', 'mute']
+  if (!EDCS.every(e => S.ev[i + e])) return ['EDC not verified', 'mute']
+  return ['Ready to close', 'mute']
+}
+const wGo = n => `S.wi=${n};renderPage();document.querySelector('.wz-main')?.scrollTo(0,0)`
+const wRow = (l, v, on, cls = '') => on
+  ? `<button type="button" class="wz-row is-open ${cls}" onclick="${on}"><span>${l}</span><span>${v}</span></button>`
+  : `<div class="wz-row ${cls}"><span>${l}</span><span>${v}</span></div>`
+
+/* one grid for every line on the kasir page: name · first figure · last figure · › */
+const wLine = (name, a, b, on, label = 'Details', act = false) =>
+  `<div class="wl"><div class="wl-n">${name}</div><div class="wl-a">${a}</div><div class="wl-b">${b}</div>${on ? `<button class="ds-btn ${act ? 'ds-btn--primary' : 'btn-white'}" type="button" onclick="${on}">${label}</button>` : '<span></span>'}</div>`
+const wHead = (a, b) => `<div class="wl wl-h"><div></div><div class="wl-a">${a}</div><div class="wl-b">${b}</div><span></span></div>`
+
+/* J (Hari, 30 Oct 2026): the cashier's cash in full, the closing shown — float,
+   float added, cash sales, temporary deposits, what the drawer should hold and
+   what the cashier closed with — then one figure: what the count came to. */
+const J_FLOAT = [500_000, 500_000, 500_000, 500_000, 300_000, 300_000]
+const J_ADDED = { 1: [['12:10', 200_000], ['14:40', 100_000]], 3: [['18:05', 200_000]] }
+const jAdded = i => (J_ADDED[i] || []).reduce((a, x) => a + x[1], 0)
+S.jc = {}; S.jd = {}
+const jIn = i => J_FLOAT[i] + jAdded(i)
+const jShould = i => jIn(i) + SHIFTS[i].cash - wTemp(i)
+function jTyped(i, el) {
+  const v = el.value.replace(/\D/g, '').replace(/^0+/, '').slice(0, 10)
+  S.jc[i] = v
+  el.value = v ? dots(+v) : ''
+  el.setSelectionRange(el.value.length, el.value.length)
+  /* the count must come to what the drawer should hold, no less, no more */
+  const ok = !!v && +v === jShould(i)
+  el.closest('.j-in').classList.toggle('bad', !!v && !ok)
+  $('#jgo' + i).disabled = !ok
+}
+function jDeclare(i) {
+  const n = +S.jc[i]; if (n !== jShould(i)) return
+  S.jd[i] = { n, at: nowHM() }; S.cv[i] = nowHM(); renderPage()
+  toast(`${SHIFTS[i].who}: cash declared`)
+}
+/* J: an EDC's payments, each one fixable where the cashier picked wrong —
+   the machine, On us / Off us, Debit / Credit / QRIS. Hovering a choice says
+   what the cashier picked. */
+function jEdcSheet(i, e) {
+  S.jIds = TX.filter(x => x.s === i && x.edc === e).map(x => x.id)
+  S.jAt = [i, e]
+  jEdcDraw()
+}
+function jEdcDraw() {
+  const [i, e] = S.jAt, xs = S.jIds.map(id => TX[id])
+  const seg = (label, opts, cur, was, on) => `<div class="seg ${was !== undefined && was !== cur ? 'j-moved' : ''}" role="radiogroup" aria-label="${label}" title="Cashier picked: ${was !== undefined ? was : cur}">${opts.map(([v, l]) =>
+    `<button type="button" role="radio" aria-checked="${v === cur}" onclick="${on}(${JSON.stringify(v).replace(/"/g, '&quot;')})">${l}</button>`).join('')}</div>`
+  const words = { true: 'Same bank', false: 'Other bank', null: '—' }
+  const rows = xs.map(x => {
+    const o = x.orig || {}
+    const set = f => `jFix.bind(null,${x.id},'${f}')`
+    return { t: x.t, no: x.no, a: rp(x.amt),
+      edc: seg('EDC', EDCS.map(m => [m, m]), x.edc, o.edc, set('edc')),
+      kind: seg('Card', [['Debit', 'Debit'], ['Credit', 'Credit'], ['QRIS', 'QRIS']], x.kind, o.kind, set('kind')),
+      onus: x.kind === 'QRIS' ? '<span class="mute">—</span>' : seg('Bank', [[true, 'Same bank'], [false, 'Other bank']], x.onus, o.onus, set('onus')).replace(/Cashier picked: (true|false|null)/, (_, v) => `Cashier picked: ${words[v]}`) }
+  })
+  const moved = xs.filter(x => x.orig).length
+  openSheet({ crumb: ['Money declaration'], title: `${SHIFTS[i].who} · EDC ${e}`, caption: `${xs.length} payments${moved ? ` · ${moved} changed` : ''}`, size: 'wide',
+    body: table([{ l: 'Time', k: 't', w: 72 }, { l: 'Receipt', k: 'no', w: 120 }, { l: 'Amount', k: 'a', num: 1, w: 130 }, { l: 'EDC', k: 'edc', w: 250 }, { l: 'Type', k: 'kind', w: 220 }, { l: 'Card', k: 'onus', w: 230 }], rows,
+      { t: 'Total', a: rp(sum(xs)) }) })
+}
+function jFix(id, field, v) {
+  const x = TX[id]
+  if (x[field] === v) return
+  if (!x.orig) x.orig = { edc: x.edc, kind: x.kind, onus: x.onus }
+  x[field] = v
+  if (field === 'kind') x.onus = v === 'QRIS' ? null : x.onus ?? true
+  if (x.edc === x.orig.edc && x.kind === x.orig.kind && x.onus === x.orig.onus) delete x.orig
+  renderPage(); jEdcDraw()
+  toast(`${x.no}: ${field === 'edc' ? `EDC ${v}` : field === 'kind' ? v : v ? 'Same bank' : 'Other bank'}`)
+}
+/* J, in Declare EDC too: Type and Card fixed in place, the cashier's pick on hover */
+const jSegOf = (label, opts, cur, was, on) => `<div class="seg ${was !== undefined && was !== cur ? 'j-moved' : ''}" role="radiogroup" aria-label="${label}" title="Cashier picked: ${opts.find(o => o[0] === (was !== undefined ? was : cur))?.[1] ?? '—'}">${opts.map(([v, l]) =>
+  `<button type="button" role="radio" aria-checked="${v === cur}" onclick="${on(v)}">${l}</button>`).join('')}</div>`
+const jKindSeg = (x, i, tab) => jSegOf('Type', [['Debit', 'Debit'], ['Credit', 'Credit'], ['QRIS', 'QRIS']], x.kind, x.orig?.kind, v => `jFix2(${x.id},'kind','${v}',${i},'${tab}')`)
+const jCardSeg = (x, i, tab) => x.kind === 'QRIS' ? '<span class="faint">—</span>'
+  : jSegOf('Card', [[true, 'Same bank'], [false, 'Other bank']], x.onus, x.orig?.onus, v => `jFix2(${x.id},'onus',${v},${i},'${tab}')`)
+function jFix2(id, field, v, i, tab) {
+  const x = TX[id]
+  if (x[field] === v) return
+  if (!x.orig) x.orig = { edc: x.edc, kind: x.kind, onus: x.onus }
+  x[field] = v
+  if (field === 'kind') x.onus = v === 'QRIS' ? null : x.onus ?? true
+  if (x.edc === x.orig.edc && x.kind === x.orig.kind && x.onus === x.orig.onus) delete x.orig
+  wEdcSheet(i, tab, true)
+}
+function jCash(i) {
+  const s = SHIFTS[i], c = S.closing[i], drops = MD[i].drops, closed = c == null ? null : c + jIn(i)
+  const done = S.jd[i], should = jShould(i)
+  const close = closed == null ? '<span class="mute">Cashier still open</span>'
+    : `<span class="${closed === should ? '' : 'neg'}">${rp(closed)}</span>`
+  const count = done
+    ? `<div class="wl"><div class="wl-n">Admin count<div class="mute">Declared ${done.at} · Maya Lestari</div></div><div class="wl-a"></div><div class="wl-b"><b>${rp(done.n)}</b></div><span></span></div>`
+    : `<div class="wl j-count"><div class="wl-n">Admin count</div>
+         <div class="wl-b j-wide"><label class="j-in"><span>Rp</span><input inputmode="numeric" placeholder="0" aria-label="Admin count" ${c == null ? 'disabled' : ''} value="${S.jc[i] ? dots(+S.jc[i]) : ''}" oninput="jTyped(${i},this)" onkeydown="if(event.key==='Enter')jDeclare(${i})"></label></div>
+         <button class="ds-btn ds-btn--primary" type="button" id="jgo${i}" ${+S.jc[i] === should ? '' : 'disabled'} onclick="jDeclare(${i})">Declare cash</button></div>`
+  return `<section class="wz-sec"><h3>Cash</h3>
+    ${wLine('Opening float', '', rp(J_FLOAT[i]))}
+    ${jAdded(i) ? wLine(`Float added<div class="mute">${J_ADDED[i].map(x => x[0]).join(' · ')}</div>`, '', `+${rp(jAdded(i))}`) : ''}
+    ${wLine('Cash sales', '', rp(s.cash), `wCashReceipts(${i})`, 'Receipts')}
+    ${wLine(`Temporary deposits<div class="mute">${drops.length ? drops.map(d => d[0]).join(' · ') : 'None'}</div>`, '', drops.length ? `−${rp(wTemp(i))}` : 'Rp 0', drops.length ? `wCashSheet(${i})` : '', 'Deposits')}
+    <div class="wl j-sum"><div class="wl-n">Should be in the drawer</div><div class="wl-a"></div><div class="wl-b"><b>${rp(should)}</b></div><span></span></div>
+    ${wLine(`Cashier closing<div class="mute">${s.close ? `Counted at ${s.close}` : 'Not closed yet'}</div>`, '', close)}
+    ${count}</section>`
+}
+
+function wKasir(i) {
+  const s = SHIFTS[i], c = S.closing[i], onHand = c == null ? null : wTemp(i) + c
+  const short = onHand != null && !wCashOk(i)
+  const a = S.acc[i]
+  const cashAct = c == null ? '<span class="mute">Cashier still open</span>'
+    : S.wait[i] ? `<span class="mute">Returned to cashier · recount ${S.ret[i]} of ${MAX_RETURNS}${S.wait[i] !== true ? ` · ${S.wait[i]}` : ''}</span><button class="ds-btn btn-white" type="button" onclick="wResubmit(${i})">Cashier resubmits (prototype)</button>`
+    : a?.ho === 'pending' ? `<span class="mute">Difference ${rp(a.diff)} waiting for head office</span><button class="ds-btn btn-white" type="button" onclick="S.acc[${i}].ho='ok';S.cv[${i}]=nowHM();renderPage();toast('Head office approved')">Approve as head office (prototype)</button>`
+    : a ? `<span class="mute">Difference ${rp(a.diff)} accepted · ${a.diff < 0 ? 'Piutang Kepala Toko' : 'Pendapatan (Biaya) Lain-Lain'}</span>`
+    : S.cv[i] || S.ver[i] ? '<span class="mute">Verified</span>'
+    : wCashAct(i)
+  const cash = S.mdv === 'j' ? jCash(i) : `<section class="wz-sec"><h3>Cash</h3>
+    ${wLine('Cash sales', '', rp(s.cash), `wCashReceipts(${i})`, 'Receipts')}
+    ${wLine(`Cashier closing<div class="mute">Temporary deposits ${rp(wTemp(i))} + Closing ${c == null ? '—' : rp(c)}</div>`, '',
+      onHand == null ? '<span class="mute">—</span>' : `<span class="${short ? 'neg' : ''}">${rp(onHand)}</span>`, `wCashSheet(${i})`, 'Deposits')}
+    <div class="wz-act">${cashAct}</div></section>`
+  const diffs = EDCS.filter(e => S.slip[i + e] != null && !wSlipOk(i, e))
+  const edcVer = EDCS.every(e => S.ev[i + e]) || S.ver[i]
+  const open = EDCS.some(e => S.slip[i + e] == null)
+  /* slips swapped between machines add up; slips missing don't — that is money that never came in */
+  const gone = open ? 0 : EDCS.reduce((a, e) => a + wSys(i, e) - +slipOf(i, e), 0)
+  const why = open ? '<span class="mute">Cashier still open</span>'
+    : gone > 0 ? `<span class="neg">${gone} slip${gone > 1 ? 's' : ''} missing</span>`
+    : diffs.length ? `<span class="neg">${diffs.map(e => { const d = +slipOf(i, e) - wSys(i, e); return `EDC ${e}: ${Math.abs(d)} ${d > 0 ? 'more' : 'fewer'} on slip` }).join(' · ')}</span>` : ''
+  const m = S.miss[i]
+  const missed = m ? `<span class="mute">Lost slip ${rp(m.amt)} · ${m.ho === 'pending' ? 'waiting for head office' : 'Piutang Kepala Toko'}</span>${m.ho === 'pending' ? `<button class="ds-btn btn-white" type="button" onclick="S.miss[${i}].ho='ok';EDCS.forEach(e=>S.ev['${i}'+e]=nowHM());renderPage();toast('Head office approved')">Approve as head office (prototype)</button>` : ''}` : ''
+  const declared = EDCS.some(e => S.aslip[i + e] != null)
+  const declare = `<button class="ds-btn ${declared && diffs.length ? 'btn-white' : 'ds-btn--primary'}" type="button" ${open ? 'disabled' : ''} onclick="wEdcSheet(${i},'all')">Declare EDC</button>`
+  const edcAct = edcVer ? `${missed}<span class="mute">Verified</span>`
+    : m?.ho === 'pending' ? missed
+    : S.eWait[i] ? `<span class="mute">Returned to cashier for a slip recount</span><button class="ds-btn btn-white" type="button" onclick="wSlipResubmit(${i})">Cashier resubmits (prototype)</button>`
+    : `${missed}${declared ? why : ''}${declare}`
+  const any = EDCS.some(e => S.aslip[i + e] != null)
+  const slips = n => `${n} slip${+n === 1 ? '' : 's'}`
+  const edc = `<section class="wz-sec"><h3>EDC</h3><div class="wl ${any ? 'wl4' : 'wl3'} ${S.mdv === 'j' ? 'jx' : ''} wl-h"><div></div><div class="wl-a">Cashier slip</div>${any ? '<div class="wl-a">Admin slip</div>' : ''}<div class="wl-a">In system</div>${S.mdv === 'j' ? '<span></span>' : ''}</div>
+    ${EDCS.map(e => { const n = wSys(i, e), k = S.slip[i + e], a = S.aslip[i + e], ok = wSlipOk(i, e)
+      const cell = v => `<span class="${ok ? '' : 'neg'}">${slips(v)}</span>`
+      return `<div class="wl ${any ? 'wl4' : 'wl3'} ${S.mdv === 'j' ? 'jx' : ''}"><div class="wl-n">EDC ${e}<div class="mute">${rp(edcOf(i, e))}</div></div>
+        <div class="wl-a">${k == null ? '<span class="mute">—</span>' : a == null ? cell(k) : `<span class="mute">${slips(k)}</span>`}</div>${any ? `<div class="wl-a">${a == null ? '' : cell(a)}</div>` : ''}<div class="wl-a">${slips(n)}</div>${S.mdv === 'j' ? `<div class="wl-x"><button class="ds-btn btn-white" type="button" onclick="jEdcSheet(${i},'${e}')">Transactions</button></div>` : ''}</div>` }).join('')}
+    <div class="wz-act">${edcAct}</div></section>`
+  const notes = `<section class="wz-sec"><h3>Notes</h3>${S.ver[i] ? `<p class="note-read">${S.kNotes[i] ? S.kNotes[i].replace(/</g, '&lt;') : '<span class="mute">No notes</span>'}</p>`
+    : `<textarea class="note" rows="3" oninput="S.kNotes[${i}]=this.value">${S.kNotes[i] || ''}</textarea>`}</section>`
+  return `<div class="wz-head wz-head-r"><div><h2>${s.who}</h2><p>Thu 29 Oct · ${s.open}–${s.close || 'open'}${S.ver[i] ? ` · Closed ${S.ver[i]} · Maya Lestari` : ''}</p></div>
+    ${printBtn(`wPrint(${i})`)}</div>${S.ver[i] ? `<div class="stamp" aria-label="Closed ${S.ver[i]}"><b>CLOSED</b><span>${S.ver[i]} · Maya Lestari</span></div>` : ''}${cash}${edc}${notes}`
+}
+
+/* the notes and coins the kasir counted at the close, as the POS sends them */
+function kasirNotes(total) {
+  let left = total
+  return NOTES.map((n, k) => { const c = Math.floor(left / n * (k < 2 ? .8 : 1)); left -= c * n; return c })
+}
+/* the store head counts the same cash note by note; Verify only when it comes to the same */
+function wCashAct(i) {
+  const n = S.cnt[i], sales = SHIFTS[i].cash
+  if (n == null) return `<button class="ds-btn ds-btn--primary" type="button" onclick="wCountSheet(${i})">Declare cash</button>`
+  const d = n - sales, way = Math.abs(d) > HO_LIMIT ? 'Send to head office' : 'Accept difference'
+  return `<span class="neg">Declared ${rp(n)} · ${rp(Math.abs(d))} ${d < 0 ? 'short' : 'over'}</span><button class="ds-btn btn-white" type="button" onclick="wCountSheet(${i})">Declare cash</button>${btn(way, `wDiffSheet(${i})`)}`
+}
+/* the cashier's cash as a matrix: a row per note, a column for the closing and
+   each temporary deposit, their total when there is more than one, and the
+   admin's count at the far right when the admin counts */
+function cashCols(i) {
+  const s = SHIFTS[i], c = S.closing[i]
+  const cols = [...(c == null ? [] : [{ l: 'Closing', t: s.close, a: c }]), ...MD[i].drops.map(([t, a], k) => ({ l: `Temporary ${k + 1}`, t, a }))]
+  cols.forEach(x => x.n = kasirNotes(x.a))
+  return cols
+}
+function cashMatrix(i, admin) {
+  const cols = cashCols(i), tot = NOTES.map((_, k) => cols.reduce((a, x) => a + x.n[k], 0)), many = cols.length > 1
+  const pcs = v => v ? v : '<span class="mute">—</span>'
+  const head = `<tr><th>Note</th>${cols.map(x => `<th class="is-num">${x.l}<div class="mute">${x.t}</div></th>`).join('')}${many ? '<th class="is-num cm-tot">Total</th>' : ''}${admin ? '<th class="is-num cm-adm">Admin</th>' : ''}</tr>`
+  const rows = NOTES.map((n, k) => `<tr id="cr${k}"><td>Rp ${dots(n)}</td>${cols.map(x => `<td class="is-num">${pcs(x.n[k])}</td>`).join('')}${many ? `<td class="is-num cm-tot">${pcs(tot[k])}</td>` : ''}${admin
+    ? `<td class="cm-adm"><input inputmode="numeric" placeholder="0" aria-label="Admin count ${dots(n)}" oninput="wCount(${k},this.value,${tot[k]})"></td>` : ''}</tr>`).join('')
+  const foot = `<tr><td>Amount</td>${cols.map(x => `<td class="is-num">${rp(x.a)}</td>`).join('')}${many ? `<td class="is-num cm-tot">${rp(cols.reduce((a, x) => a + x.a, 0))}</td>` : ''}${admin ? '<td class="is-num cm-adm" id="ctot2">Rp 0</td>' : ''}</tr>`
+  return `<div class="cm-wrap"><table class="cm"><thead>${head}</thead><tbody>${rows}</tbody><tfoot>${foot}</tfoot></table></div>`
+}
+/* the admin counts the cashier's cash note by note beside what the cashier counted; saving keeps the count, nothing more */
+function wCountSheet(i) {
+  const s = SHIFTS[i], onHand = wTemp(i) + S.closing[i]
+  S.pc = NOTES.map(() => 0)
+  openSheet({ title: 'Declare cash', caption: `${s.who} · ${s.open}–${s.close}`, size: 'table', actions: [['Submit', `wCountSave(${i})`]],
+    footLead: `<div class="tally"><span>Cash sales</span><b>${rp(s.cash)}</b></div><div class="tally bad" id="ctally"><span>Admin count</span><b id="ctot">Rp 0</b></div>`,
+    body: cashMatrix(i, true) })
+  S.pcI = i; wCount(-1)
+}
+function wCount(k, v, want) {
+  if (k >= 0) {
+    S.pc[k] = +String(v).replace(/\D/g, '') || 0
+    $('#cr' + k).classList.toggle('off', v !== '' && S.pc[k] !== want)
+  }
+  const t = pcSum(), cls = t && t !== SHIFTS[S.pcI].cash ? 'neg' : ''
+  $('#ctot').textContent = rp(t); $('#ctot2').textContent = rp(t); $('#ctot2').className = `is-num cm-adm ${cls}`
+  $('#ctally')?.classList.toggle('bad', t !== SHIFTS[S.pcI].cash)
+  const b = $('#sheet .sheet-foot .ds-btn'); if (b) b.disabled = t !== SHIFTS[S.pcI].cash
+}
+function wCountSave(i) {
+  const t = pcSum(); if (!t) { document.querySelector('.cm-adm input')?.focus(); return toast('Count the notes first') }
+  S.cnt[i] = t; if (t === SHIFTS[i].cash) S.cv[i] = nowHM()
+  wClose(i)
+  closeSheet(); renderPage()
+  toast(t === SHIFTS[i].cash ? `${SHIFTS[i].who}: cash verified` : `${rp(Math.abs(t - SHIFTS[i].cash))} ${t < SHIFTS[i].cash ? 'short' : 'over'}`)
+}
+/* a count that differs: back to the cashier (twice at most), then accepted with notes, or head office above the limit */
+function wDiffSheet(i) {
+  const s = SHIFTS[i], d = S.cnt[i] - s.cash, back = (S.ret[i] || 0) < MAX_RETURNS
+  const way = back ? 'Return to cashier' : Math.abs(d) > HO_LIMIT ? 'Send to head office' : 'Accept difference'
+  openSheet({ crumb: ['Money declaration'], title: s.who, caption: `${s.open}–${s.close}`, size: 'rail', actions: [[way, `wDiffSave(${i})`]],
+    body: kpis([['Cash sales', rp(s.cash)], ['Admin count', rp(S.cnt[i])], ['Difference', `<span class="neg">${rp(d)}</span>`]]) +
+      `<label class="field"><span>${back ? 'Reason for the cashier' : 'Notes'}</span><textarea id="cnote" class="note" rows="3" oninput="$('#sheet .sheet-foot .ds-btn').disabled=!this.value.trim()"></textarea></label>` })
+  setTimeout(() => { const b = $('#sheet .sheet-foot .ds-btn'); if (b) b.disabled = true }, 0)
+}
+function wDiffSave(i) {
+  const note = ($('#cnote')?.value || '').trim(), who = SHIFTS[i].who; if (!note) return
+  if ((S.ret[i] || 0) < MAX_RETURNS) {
+    S.ret[i] = (S.ret[i] || 0) + 1; S.wait[i] = note; delete S.cnt[i]
+    closeSheet(); renderPage(); return toast(`Returned to ${who} for a recount`)
+  }
+  const t = S.cnt[i], diff = t - SHIFTS[i].cash
+  S.acc[i] = { diff, count: t, note, at: nowHM(), ho: Math.abs(diff) > HO_LIMIT ? 'pending' : 'ok' }
+  if (S.acc[i].ho === 'ok') S.cv[i] = nowHM()
+  closeSheet(); renderPage(); toast(S.acc[i].ho === 'ok' ? `Difference ${rp(diff)} accepted` : 'Sent to head office')
+}
+/* prototype only: the cashier recounts at the POS and sends the same closing again */
+function wResubmit(i) { delete S.wait[i]; renderPage(); toast(`${SHIFTS[i].who} resubmitted the closing`) }
+
+/* Print, as the hub's purchasing does it (print-menu.tsx): a white button with
+   the printer and the word in blue opens a modal — the page drawn to scale,
+   paper and way up beside it, Download PDF (red) and Print (blue). */
+const PRINTER = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>'
+const DOWNLOAD = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>'
+const printBtn = on => `<button class="ds-btn btn-print" type="button" onclick="${on}">${PRINTER}Print</button>`
+S.pp = { size: 'A5', way: 'portrait' }
+
+function closingPaper(i) {
+  const s = SHIFTS[i], onHand = S.closing[i] == null ? 0 : wTemp(i) + S.closing[i], kn = kasirNotes(onHand)
+  const disc = r500(s.sys * .028), ret = MORE[i]?.exch?.[1] || 0
+  /* label · middle · figure, as the 7Soft paper: three columns, figures flush right */
+  const L = (a, c, b = '') => `<div class="pp-l"><span>${a}</span><span>${c}</span><span>${b}</span></div>`
+  return `<div class="pp">
+    <div class="pp-title">CENTRAL FS</div><div>29 October 2026</div><div>CASHIER CLOSING</div>
+    <div class="pp-sec">${L('Cashier', s.who)}${L('Date', `29-Oct-2026 ${s.open}`)}${L('Opening float', 'Rp.', dots(MD[i].float))}</div>
+    <div class="pp-sec pp-gap">${L('Sales total', '', dots(s.sys))}${L('Discount total', '', dots(disc))}${L('Return total', '', dots(ret))}${L('Net total', '', dots(s.sys - ret))}</div>
+    <div class="pp-sec">${L('Cash on Hand C001', '', dots(s.cash))}${EDCS.map(e => edcOf(i, e) ? L(`Bank ${e} savings C001`, '', dots(edcOf(i, e))) : '').join('')}</div>
+    <div class="pp-sec">${L('Temporary deposits', '', dots(wTemp(i)))}${L('Closing', '', dots(S.closing[i] || 0))}${L('Cash counted', '', dots(S.acc[i]?.count ?? onHand))}${L('Difference', '', (S.acc[i] ? (S.acc[i].diff < 0 ? '−' : '') : '') + dots(S.acc[i]?.diff ?? onHand - s.cash))}${S.ret[i] ? L('Recounts', '', S.ret[i]) : ''}${S.acc[i] ? L('Difference accepted', `Maya Lestari ${S.acc[i].at}`) : ''}</div>
+    <div class="pp-sec">${L('Printed', `29-Oct-2026 ${nowHM()}`)}${L('Status', '', S.ver[i] ? 'CLOSED' : 'OPEN')}</div>
+    <div class="pp-sub">Denominations</div>
+    <table class="pp-t"><colgroup><col style="width:26px"><col style="width:62px"><col><col style="width:34px"><col style="width:76px"></colgroup>
+      ${NOTES.map((n, k) => `<tr><td>Rp</td><td>${dots(n)}</td><td></td><td>${kn[k] || '-'}</td><td>${kn[k] ? dots(n * kn[k]) : '-'}</td></tr>`).join('')}</table>
+    <div class="pp-total"><span>${dots(onHand)}</span></div>
+    <div class="pp-sign"><div><span>Cashier</span><i></i>${s.who}</div><div><span>Admin</span><i></i>Maya Lestari</div></div></div>`
+}
+function wPrint(i) {
+  const box = { A4: [156, 220], A5: [110, 156] }[S.pp.size].map(n => n * 1.45)
+  const [w, h] = S.pp.way === 'portrait' ? box : [box[1], box[0]]
+  const choice = (key, opts) => `<div class="pm-choice">${opts.map(([v, l]) => `<button type="button" aria-pressed="${S.pp[key] === v}" onclick="S.pp.${key}='${v}';wPrint(${i})">${l}</button>`).join('')}</div>`
+  let m = $('#pm'); if (!m) { m = document.createElement('div'); m.id = 'pm'; document.body.appendChild(m) }
+  m.innerHTML = `<div class="pm-veil" onclick="pmClose()"></div>
+    <div class="pm" role="dialog" aria-modal="true" aria-label="Print">
+      <div class="pm-head"><div><b>Print</b><div class="mute">Cashier closing · ${SHIFTS[i].who}</div></div><button type="button" class="sheet-close" aria-label="Close" onclick="pmClose()">${ico('x')}</button></div>
+      <div class="pm-page" style="width:${w}px;height:${h}px"><div class="pm-scale" style="transform:scale(${(w - 16) / 340})">${closingPaper(i)}</div></div>
+      <div class="pm-row"><span>Paper</span>${choice('size', [['A5', 'A5'], ['A4', 'A4']])}</div>
+      <div class="pm-row"><span>Layout</span>${choice('way', [['landscape', 'Landscape'], ['portrait', 'Portrait']])}</div>
+      <div class="pm-foot"><button class="ds-btn btn-file" type="button" onclick="pmClose();toast('Closing PDF downloaded')">${DOWNLOAD}Download PDF</button>
+        <button class="ds-btn ds-btn--primary btn-go" type="button" onclick="pmClose();toast('Sent to the printer')">${PRINTER}Print</button></div></div>`
+  requestAnimationFrame(() => m.classList.add('open'))
+}
+function pmClose() { $('#pm')?.classList.remove('open') }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') pmClose() })
+function wSubmit(order) {
+  const rows = order.map(i => { const [t, k] = wState(i)
+    return `<tr class="ds-opens" onclick="${wGo(order.indexOf(i))}"><td>${SHIFTS[i].who}<div class="mute">${SHIFTS[i].open}–${SHIFTS[i].close || 'open'}</div></td><td class="is-num">${rp(SHIFTS[i].cash)}</td><td class="is-num">${rp(sum(edcOfS(i)))}</td><td><span class="${k}">${t}</span></td></tr>` }).join('')
+  const tot = f => rp(order.reduce((a, i) => a + f(i), 0))
+  return `<div class="wz-head"><h2>Submit</h2><p>Thu 29 Oct · Grand Indonesia</p></div>
+    <section class="wz-sec"><div class="ds-table-card"><table class="ds-table tbl"><colgroup><col><col style="width:170px"><col style="width:170px"><col style="width:200px"></colgroup>
+      <thead><tr><th>Cashier</th><th class="is-num">Cash sales</th><th class="is-num">EDC</th><th>Status</th></tr></thead><tbody>${rows}</tbody>
+      <tfoot><tr><td>Total</td><td class="is-num">${tot(i => SHIFTS[i].cash)}</td><td class="is-num">${tot(i => sum(edcOfS(i)))}</td><td></td></tr></tfoot></table></div></section>
+    <section class="wz-sec"><h3>Notes</h3>${S.sub ? `<p class="note-read">${S.wNotes ? S.wNotes.replace(/</g, '&lt;') : '<span class="mute">No notes</span>'}</p>`
+      : `<textarea class="note" rows="4" oninput="S.wNotes=this.value">${S.wNotes}</textarea>`}</section>`
+}
+/* Declare EDC: every card and QRIS payment of one cashier, tabbed All and per machine;
+   the admin puts each on the machine its slip came from, or Lost — a draft until Submit */
+S.ed = {}; S.lost = []; S.eWait = {}
+function wEdcSheet(i, tab, keep) {
+  if (!keep) { S.ed = {}; S.lost = []; S.lnote = ''; S.need = false }
+  const s = SHIFTS[i], all = edcOfS(i).filter(x => !S.miss[i]?.ids.includes(x.id))
+  /* a machine whose slips come to what the POS has starts filled; one that doesn't starts empty,
+     since we can't tell which of its payments is the odd one — the admin picks each from the slip */
+  const level = e => wSys(i, e) === +(S.slip[i + e] ?? wSys(i, e))
+  const cur = x => S.lost.includes(x.id) ? 'Lost' : S.ed[x.id] ?? (level(x.edc) ? x.edc : null)
+  const xs = tab === 'all' ? all : all.filter(x => x.edc === tab || x.from === tab || cur(x) === tab)
+  const lostAmt = sum(TX.filter(x => S.lost.includes(x.id)))
+  const j = S.mdv === 'j'
+  const pick = x => `<div class="seg ${j && cur(x) && cur(x) !== (x.from || x.edc) ? 'j-moved' : ''}" role="radiogroup" aria-label="EDC" ${j ? `title="Cashier picked: ${x.from || x.edc}"` : ''}>${EDCS.map(m => `<button type="button" role="radio" class="${m === 'Lost' ? 'is-lost' : ''}" aria-checked="${cur(x) === m}" onclick="wPick(${x.id},'${m}',${i},'${tab}')">${m}</button>`).join('')}</div>`
+  const tabsHtml = `<div class="ds-tabs edc-tabs" role="tablist">${[['all', 'All', all.length], ...EDCS.map(e => [e, e, all.filter(x => (cur(x) ?? x.edc) === e).length])].map(([k, l, n]) =>
+    `<button class="ds-tab ${k === tab ? 'is-selected' : ''}" type="button" role="tab" onclick="wEdcSheet(${i},'${k}',true)">${l}<span class="tab-n">${n}</span></button>`).join('')}</div>`
+  const here = xs.filter(x => cur(x) !== 'Lost' && (tab === 'all' || (cur(x) ?? x.edc) === tab))
+  const label = 'Submit'
+  const sc = keep ? $('#sheet .sheet-body')?.scrollTop || 0 : 0
+  const { rows: tally, ok } = wEdcTally(i, cur, tab)
+  openSheet({ title: 'Declare EDC', caption: `${s.who} · Thu 29 Oct · ${s.open}–${s.close || 'open'}`, size: j ? 'wide' : 'table', actions: [[label, `wEdcSubmit(${i})`]],
+    /* beside Submit, per machine: slips the table puts on it / slips the cashier handed in; Submit waits until every one is level */
+    footLead: tally,
+    body: '<div class="boxed">' +
+      table(j ? [{ l: 'Time', k: 't', w: 76 }, { l: 'Receipt', k: 'no', w: 120 }, { l: 'EDC', k: 'edc', w: 200 }, { l: 'Type', k: 'kind', w: 190 }, { l: 'Card', k: 'card', w: 200 }, { l: 'Amount', k: 'a', num: 1 }]
+        : [{ l: 'Time', k: 't', w: 80 }, { l: 'Receipt', k: 'no', w: 140 }, { l: 'Machine', k: 'till', w: 100 }, { l: 'Type', k: 'kind', w: 80 }, { l: 'Card', k: 'card', w: 110 }, { l: 'EDC', k: 'edc', w: 220 }, { l: 'Amount', k: 'a', num: 1, w: 140 }],
+        xs.map(x => ({ t: x.t, no: x.no, kind: j ? jKindSeg(x, i, tab) : x.kind, card: j ? jCardSeg(x, i, tab) : x.onus == null ? '<span class="faint">—</span>' : x.onus ? 'Same bank' : 'Other bank', till: x.from || x.edc, edc: pick(x),
+          a: cur(x) === 'Lost' ? `<span class="neg">${rp(x.amt)}</span>` : tab === 'all' || (cur(x) ?? x.edc) === tab ? rp(x.amt) : `<span class="faint">${rp(x.amt)}</span>` })),
+        { t: 'Total', no: `${here.length} slips`, a: rp(sum(here)) }) + '</div>' +
+ '' })
+  if (sc) $('#sheet .sheet-body').scrollTop = sc
+  S.edcOk = ok; wEdcFoot()
+}
+/* the cashier's slips per machine, against what the table now puts on each */
+/* each machine is also the filter: tap it to see only its payments, tap again for all */
+function wEdcTally(i, cur, tab) {
+  const all = edcOfS(i).filter(x => !S.miss[i]?.ids.includes(x.id))
+  let ok = all.every(x => cur(x) != null)
+  const rows = EDCS.map(e => { const on = all.filter(x => cur(x) === e), got = on.length, want = +(S.slip[i + e] ?? wSys(i, e)), level = got === want; if (!level) ok = false
+    return `<button type="button" class="tally ${level ? '' : 'bad'}" aria-pressed="${tab === e}" onclick="wEdcSheet(${i},'${tab === e ? 'all' : e}',true)"><span>${e}</span><b>${got}/${want}</b><i>${rp(sum(on))}</i></button>` }).join('')
+  return { rows, ok }
+}
+function wEdcFoot() {
+  const b = $('#sheet .sheet-foot .ds-btn'); if (b) b.disabled = !S.edcOk
+}
+function wPick(id, m, i, tab) {
+  const x = TX[id]; S.lost = S.lost.filter(v => v !== id); delete S.ed[id]
+  if (m === 'Lost') S.lost.push(id); else S.ed[id] = m
+  wEdcSheet(i, tab, true)
+}
+/* Submit moves the payments, books the lost slips, and the slips the admin declared are the system's: EDC verified (lost above the limit waits for head office) */
+function wEdcSubmit(i) {
+  const ids = Object.keys(S.ed).filter(id => S.ed[id] !== TX[id].edc)
+  ids.forEach(id => { const x = TX[id], m = S.ed[id]; if (!x.from) x.from = x.edc; x.edc = m; if (x.from === m) delete x.from })
+  if (S.lost.length) {
+    const prev = S.miss[i] || { ids: [], amt: 0 }, amt = prev.amt + sum(TX.filter(x => S.lost.includes(x.id)))
+    S.miss[i] = { ids: [...prev.ids, ...S.lost], amt, note: S.lnote, ho: amt > HO_LIMIT ? 'pending' : 'ok' }
+  }
+  EDCS.forEach(e => { S.aslip[i + e] = String(wSys(i, e)) })
+  const pending = S.miss[i]?.ho === 'pending'
+  if (!pending) EDCS.forEach(e => S.ev[i + e] = nowHM())
+  wClose(i)
+  S.ed = {}; S.lost = []; S.lnote = ''; closeSheet(); renderPage()
+  toast(pending ? 'Sent to head office' : `${SHIFTS[i].who}: EDC verified`)
+}
+function wSlipBack(i) { S.eWait[i] = true; renderPage(); toast(`Returned to ${SHIFTS[i].who} for a slip recount`) }
+function wSlipResubmit(i) { delete S.eWait[i]; EDCS.forEach(e => { S.slip[i + e] = String(wSys(i, e)) }); renderPage(); toast(`${SHIFTS[i].who} recounted the slips`) }
+function wCashReceipts(i) {
+  const s = SHIFTS[i], xs = TX.filter(x => x.s === i && x.m === 'Cash')
+  openSheet({ crumb: ['Money declaration', s.who], title: 'Cash sales', caption: `${s.open}–${s.close || 'open'}`, size: 'table',
+    body: table([{ l: 'Time', k: 't', w: 90 }, { l: 'Receipt', k: 'no' }, { l: 'Amount', k: 'a', num: 1 }],
+      xs.map(x => ({ t: x.t, no: x.no, a: rp(x.amt) })), { t: 'Total', no: `${xs.length} receipts`, a: rp(sum(xs)) }) })
+}
+/* what makes up the cash handed in: the closing and each temporary deposit, note by note, as the cashier counted them */
+function wCashSheet(i) {
+  const s = SHIFTS[i], c = S.closing[i]
+  openSheet({ crumb: ['Money declaration'], title: `${s.who} · Cashier closing`, caption: `${s.open}–${s.close || 'open'}`, size: 'table',
+    body: kpis([['Cash sales', rp(s.cash)], ['Cashier closing', c == null ? '—' : rp(wTemp(i) + c)]]) + cashMatrix(i, false) })
+}
+/* no Submit closing: the cashier is closed the moment both Declare cash and Declare EDC have gone through */
+function wClose(i) { if (!S.ver[i] && wReady(i)) { S.ver[i] = nowHM(); setTimeout(() => toast(`${SHIFTS[i].who}: closed`), 0) } }
+function mdWizard() {
+  const order = wOrder(), at = Math.min(S.wi, order.length - 1), i = order[at], last = at === order.length - 1
+  const side = order.map((k, n) => { const [t, c] = wState(k)
+    return `<button type="button" class="wz-step ${n === at ? 'on' : ''}" ${n === at ? 'aria-current="step"' : ''} onclick="${wGo(n)}">
+      <span class="wz-dot ${S.ver[k] ? 'done' : ''}">${S.ver[k] ? ico('check') : n + 1}</span><span class="wz-txt"><span class="wz-name">${SHIFTS[k].who}</span></span></button>` }).join('')
+  /* moving between cashiers is navigation, not an action: white buttons */
+  const nav = (l, on) => `<button class="ds-btn btn-white" type="button" onclick="${on}">${l}</button>`
+  const back = at ? nav('Back', wGo(at - 1)) : '<span></span>'
+  const next = last ? nav('Done', 'S.wzOpen=false;renderPage()') : nav('Next', wGo(at + 1))
+  return `<div class="wz" role="dialog" aria-label="Money declaration">
+    <header class="wz-top"><button type="button" class="wz-x" aria-label="Close" onclick="S.wzOpen=false;renderPage()">${ico('x')}</button>
+      <b>Money declaration</b><span class="mute">Thu 29 Oct</span><span class="sp"></span><span class="mute">Cashier ${at + 1} of ${order.length}</span></header>
+    <div class="wz-body"><nav class="wz-side" aria-label="Cashiers">${side}</nav>
+      <div class="wz-main"><div class="wz-in">${wKasir(i)}</div>
+        <footer class="wz-foot"><div class="wz-foot-in">${back}${next}</div></footer></div></div></div>`
+}
+const allClosed = () => SHIFTS.every(s => s.close)
+/* prototype only: let the open kasir close, to walk the run */
+function demoClose(on) {
+  SHIFTS[3].close = on ? '22:00' : null
+  S.closing[3] = on ? wShould(3) : undefined
+  EDCS.forEach(e => { S.slip[3 + e] = on ? String(wSys(3, e)) : undefined })
+  S.wzOpen = on; S.wi = 0; renderPage()
+}
+/* the list: one money declaration per business day, today on top */
+const MD_PAST = [['Wed 28 Oct', 6, 18_420_500, 21_905_000, '22:14'], ['Tue 27 Oct', 5, 15_102_000, 19_330_500, '22:06'], ['Mon 26 Oct', 5, 14_788_500, 17_640_000, '22:21'],
+  ['Sun 25 Oct', 6, 22_915_000, 26_480_500, '22:40'], ['Sat 24 Oct', 6, 24_330_500, 27_115_000, '22:35'], ['Fri 23 Oct', 6, 19_870_000, 23_402_500, '22:18']]
+function mdWizardPage() {
+  const order = wOrder(), open = SHIFTS.filter(s => !s.close).length, done = order.filter(i => S.ver[i]).length
+  if (open) S.wzOpen = false
+  /* a closed day is stamped, as procurement stamps a finished order: the word over the day */
+  const stamp = d => `<span class="row-stamp">Closed<span>${d.replace(/^\w+ /, '')}</span></span>`
+  const tc = order.reduce((a, i) => a + SHIFTS[i].cash, 0), te = order.reduce((a, i) => a + sum(edcOfS(i)), 0)
+  const today = { d: 'Thu 29 Oct', n: `${done}/${order.length}`, c: rp(tc), e: rp(te), t: rp(tc + te),
+    /* a day not closed yet shows the way in where its status would be */
+    s: done === order.length ? stamp('Thu 29 Oct') : `<button class="ds-btn ds-btn--primary sm" type="button" ${open ? 'disabled' : ''} onclick="event.stopPropagation();S.wzOpen=true;renderPage()">${done ? 'Continue' : 'Declare'}</button>`,
+    _on: open ? '' : 'S.wzOpen=true;renderPage()' }
+  const past = MD_PAST.map(([d, n, c, e, at]) => ({ d, n: `${n}/${n}`, c: rp(c), e: rp(e), t: rp(c + e), s: stamp(d), _on: `mdPast('${d}',${n},${c},${e},'${at}')` }))
+  /* the figures share the width evenly, the day's total beside them; the status keeps a fixed column */
+  const body = table([{ l: 'Date', k: 'd', w: 150 }, { l: 'Cashiers Closed', k: 'n', num: 1 }, { l: 'Cash', k: 'c', num: 1 }, { l: 'EDC', k: 'e', num: 1 }, { l: 'Total', k: 't', num: 1 }, { l: 'Money Declaration Status', k: 's', w: 260 }], [today, ...past])
+  return page({ title: 'Money declaration', bare: true, body: `<div class="boxed md-list">${body}</div>` }) + (S.wzOpen ? mdWizard() : '')
+}
+/* a closed day reads as facts, its cashiers underneath */
+function mdPast(d, n, c, e, at) {
+  const who = ['Dewi Anggraini', 'Budi Santoso', 'Sari Wulandari', 'Agus Setiawan', 'Rizky Pratama', 'Dewi Anggraini'].slice(0, n)
+  const share = k => (k + 2) / who.reduce((a, _, j) => a + j + 2, 0)
+  openSheet({ title: `Money declaration · ${d}`, caption: `Closed ${at} · Maya Lestari`, size: 'table',
+    body: facts([['Cash', rp(c)], ['EDC', rp(e)], ['Cashiers closed', `${n}/${n}`]]) + '<div style="height:24px"></div>' +
+      table([{ l: 'Cashier', k: 'w' }, { l: 'Cash', k: 'c', num: 1 }, { l: 'EDC', k: 'e', num: 1 }, { l: 'Closed', k: 't', w: 110 }],
+        who.map((w, k) => ({ w, c: rp(Math.round(c * share(k) / 500) * 500), e: rp(Math.round(e * share(k) / 500) * 500), t: `${String(16 + k).padStart(2, '0')}:0${k}` })),
+        { w: 'Total', c: rp(c), e: rp(e) }) })
+}
+
+/* two pages, no stepper: the notes and the way on stand under the table */
+S.notes = { cash: '', edc: '' }
+function gFoot(k, buttons) {
+  const bl = k === 'edc' && !S.sub ? blockers() : []
+  const notes = S.sub ? (S.notes[k] ? `<p class="note-read">${S.notes[k].replace(/</g, '&lt;')}</p>` : '<p class="mute">No notes</p>')
+    : `<textarea class="note" rows="3" oninput="S.notes['${k}']=this.value">${S.notes[k]}</textarea>`
+  return `<div class="g-foot ${isH() ? 'h' : ''}"><label class="g-notes"><span>Notes</span>${notes}</label>
+    ${bl.length ? `<div class="g-block">${isH() ? '<div class="g-block-h">Can\'t submit yet</div>' : ''}${bl.map(([a, b]) => `<div><span>${a}</span><span class="${isH() && !/Rp/.test(b) ? 'mute' : 'neg'}">${b}</span></div>`).join('')}</div>` : ''}
+    <div class="g-btns">${buttons.join('')}</div></div>`
+}
+function mdTwoPages() {
+  const done = !!S.sub, stuck = blockers().length > 0
+  const go = k => `S.gstep='${k}';renderPage();$('#scroller').scrollTop=0`
+  if (S.gstep !== 'edc') S.gstep = 'cash'
+  const btns = done ? [] : S.gstep === 'cash' ? [btn('Next: EDC', go('edc'))]
+    : [btn('Back to Cash', go('cash')), `<button class="ds-btn ds-btn--primary" type="button" ${stuck ? 'disabled' : ''} onclick="mdSubmit()">Submit</button>`]
+  const body = (S.gstep === 'cash' ? (isH() ? mdCashStepH() : mdCashStep()) : (isH() ? mdEdcStepH() : mdEdcStep())) + gFoot(S.gstep, btns)
+  return page({ title: S.gstep === 'cash' ? 'Money declaration · Cash' : 'Money declaration · EDC', bare: true,
+    titleAfter: done ? (isH() ? quiet(`Submitted ${S.sub.at} · Maya Lestari`) : st(`Submitted ${S.sub.at} · Maya Lestari`, 'ok')) : '',
+    actions: done ? [btn(S.gstep === 'cash' ? 'EDC' : 'Cash', go(S.gstep === 'cash' ? 'edc' : 'cash')), btn('Print', 'mdPrint()')] : [], body })
+}
+
+function mdPage() {
+  const v = S.mdv
+  if (v === 'g' || v === 'h') return mdTwoPages()
+  if (v === 'i' || v === 'j') return mdWizardPage()
+  const actions = [btn('Print', 'mdPrint()')]
+  if (v === 'b' || (v === 'c' && S.mdside === 'edc')) {
+    const L = mdEdcList(), offN = L.xs.length - L.on.length
+    return page({ title: 'Money declaration', bare: true, actions,
+      kpi: [['Transactions', L.xs.length], [`EDC ${L.e} in system`, rp(sum(L.xs))], ['Ticked', rp(sum(L.on))], ['Not on the slip', offN, offN ? 'warn' : '']],
+      body: (v === 'c' ? bar(mdSwitch()) : '') + L.html })
+  }
+  /* no figures on top: the omset stands under the table, as the sketch */
+  const omset = `<div class="omset"><span>Turnover</span><b>${rp(SHIFTS.reduce((a, s) => a + s.sys, 0))}</b></div>`
+  return page({ title: 'Money declaration', bare: true, actions,
+    body: (v === 'c' ? bar(mdSwitch()) : '') + (v === 'e' ? mdGrouped() : v === 'f' ? mdRows() : mdMatrix(v === 'd')) + omset })
+}
+
+/* a total opens its receipts; the chips switch cash and each EDC */
+function mdTx(i, f) {
+  if (f) S.txf = f
+  const k = S.txf || 'All'
+  const mine = TX.filter(x => x.s === i)
+  const pass = x => k === 'All' || (k === 'Cash' ? x.m === 'Cash' : x.edc === k)
+  const xs = mine.filter(pass), s = SHIFTS[i]
+  const opts = [['All', 'All', mine.length], ['Cash', 'Cash', mine.filter(x => x.m === 'Cash').length], ...EDCS.map(e => [e, `EDC ${e}`, mine.filter(x => x.edc === e).length])]
+  const sw = `<div class="chips" role="radiogroup">${opts.map(([v, l, n]) => `<button class="chip" type="button" role="radio" aria-checked="${k === v}" onclick="mdTx(${i},'${v}')">${l} <span class="n">${n}</span></button>`).join('')}</div>`
+  openSheet({ crumb: ['Money declaration'], title: s.who, caption: `${s.till} · ${s.open}–${s.close || 'open'} · Thu 29 Oct`, size: 'table',
+    body: sw + '<div style="height:20px"></div>' + table([{ l: 'Time', k: 't', w: 80 }, { l: 'Receipt', k: 'no', w: 150 }, { l: 'Paid by', k: 'p', w: 170 }, { l: 'EDC', k: 'edc', w: 250 }, { l: 'Amount', k: 'a', num: 1 }],
+      xs.map(x => ({ t: x.t, no: x.no, p: x.m === 'Cash' ? 'Cash' : x.kind + wasEdc(x), edc: x.m === 'Cash' ? '<span class="faint">—</span>' : edcPick(x, `mdTx(${i})`), a: rp(x.amt) })), { t: 'Total', no: `${xs.length} receipts`, a: rp(sum(xs)) }) })
+}
+/* D: one cashier on one EDC, ticked like B */
+function mdEdcSheet(i, e) {
+  const xs = TX.filter(x => x.s === i && x.edc === e), on = xs.filter(x => !S.off.has(x.id))
+  const tick = x => `<input type="checkbox" class="tick" aria-label="On the slip" ${S.off.has(x.id) ? '' : 'checked'} onchange="mdTick(${x.id},this.checked);mdEdcSheet(${i},'${e}')">`
+  openSheet({ crumb: ['Money declaration'], title: `${SHIFTS[i].who} · EDC ${e}`, caption: `${SHIFTS[i].till} · ${SHIFTS[i].open}–${SHIFTS[i].close || 'open'}`, size: 'table',
+    body: kpis([['In system', rp(sum(xs))], ['Ticked', rp(sum(on))], ['Not on the slip', xs.length - on.length, xs.length - on.length ? 'warn' : '']]) +
+      table([{ l: '', k: 'c', w: 56 }, { l: 'Time', k: 't', w: 80 }, { l: 'Receipt', k: 'no', w: 150 }, { l: 'Card', k: 'kind', w: 170 }, { l: 'EDC', k: 'edc', w: 250 }, { l: 'Amount', k: 'a', num: 1 }],
+        xs.map(x => ({ c: tick(x), t: x.t, no: x.no, kind: x.kind + wasEdc(x), edc: edcPick(x, `mdEdcSheet(${i},'${e}')`), a: rp(x.amt) })), { t: 'Ticked', no: `${on.length} of ${xs.length}`, a: rp(sum(on)) }) })
+}
+
+/* Print: the paper the store head signs, in Indonesian like every printed paper */
+function mdPrint() {
+  const C = SHIFTS.map((s, i) => i)
+  const r = (l, f, b) => `<tr class="${b ? 'b' : ''}"><td>${l}</td>${C.map(i => `<td>${f(i)}</td>`).join('')}</tr>`
+  const m = n => n == null ? '—' : dots(n)
+  const omset = SHIFTS.reduce((a, s) => a + s.sys, 0)
+  openSheet({ crumb: ['Money declaration'], title: 'Print', size: 'table', actions: [['Print']],
+    body: `<div class="paper"><div class="p-title">CASHIER DEPOSIT REPORT</div><div class="p-sub">Grand Indonesia · Thursday, 29 October 2026</div>
+      <table class="p-tbl"><thead><tr><th></th>${SHIFTS.map(s => `<th>${s.who}<br><span>${s.till} ${s.open}–${s.close || 'open'}</span></th>`).join('')}</tr></thead><tbody>
+      ${r('Cash', i => dots(SHIFTS[i].cash))}${EDCS.map(e => r(`EDC ${e}`, i => dots(edcOf(i, e)))).join('')}${r('Sales', i => dots(SHIFTS[i].sys), 1)}
+      ${r('Opening float', i => dots(MD[i].float))}${r('Temporary deposits', i => dots(dropsOf(i)))}${r('Expected in drawer', i => dots(expected(i)))}
+      ${r('Cash counted', i => m(MD[i].declared))}${r('Difference', i => mdDiff(i) == null ? '—' : (mdDiff(i) < 0 ? '−' : '') + dots(mdDiff(i)), 1)}</tbody></table>
+      <div class="p-omset"><span>Turnover</span><b>Rp ${dots(omset)}</b></div>
+      <div class="p-sign">${SHIFTS.map(s => `<div><span>Cashier</span><i></i>${s.who}</div>`).join('')}<div><span>Store head</span><i></i>Maya Lestari</div></div></div>` })
+}
+
+function renderPage(keepFocus) {
+  const pos = keepFocus && document.activeElement?.selectionStart
+  $('#page').innerHTML = (SCREENS[S.id] || SCREENS.today)()
+  $('#ptitle').textContent = LABEL[S.id]
+  $('#page').style.setProperty('--head-h', ($('#page .door-head')?.offsetHeight || 0) + 'px')
+  if (keepFocus) { const n = $('#page .ds-search input'); if (n) { n.focus(); n.setSelectionRange(pos, pos) } }
+}
+S.id = 'money'; S.mdv = 'i'; S.panel = true
+demoClose(true)
+side(); renderPage(); mdChrome()
+</script>
+</body>
+</html>

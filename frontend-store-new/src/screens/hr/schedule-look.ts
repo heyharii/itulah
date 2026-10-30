@@ -1,7 +1,11 @@
 import { dateText } from "@/lib/format"
 import { addDays } from "@/lib/queries/hr"
 import { byStart, type Slot } from "@/lib/queries/schedule"
-import type { ShiftView } from "@itulah/contract"
+import type {
+  OvertimeOrderView,
+  ShiftView,
+  TeamCalendarView,
+} from "@itulah/contract"
 
 /// How the Schedule draws a planned day. Values only — the components that use
 /// them are in `schedule-*.tsx`, and a file that exports both a component and a
@@ -69,4 +73,47 @@ export function weekRange(start: string): string {
     year: "numeric",
   })
   return `${from}${sameMonth && sameYear ? "–" : " – "}${to}`
+}
+
+/// What else is true of a person's day besides the plan: leave (approved, or
+/// still waiting) and overtime they agreed to. Read, never written here —
+/// leave and overtime are decided as Requests.
+export interface DayNote {
+  readonly leave: string | null
+  readonly leaveWaiting: boolean
+  readonly overtime: number | null
+}
+
+export type NotesOf = (employeeId: string, date: string) => DayNote | undefined
+
+export function notesOf(
+  calendar: TeamCalendarView | undefined,
+  orders: readonly OvertimeOrderView[] | undefined,
+  days: readonly string[],
+): NotesOf {
+  const map = new Map<string, DayNote>()
+  const key = (employeeId: string, date: string) => `${employeeId}|${date}`
+  for (const span of calendar?.leave ?? []) {
+    for (const date of days) {
+      if (date < span.from_date || date > span.to_date) continue
+      const was = map.get(key(span.employee_id, date))
+      if (was?.leave != null && !was.leaveWaiting) continue
+      map.set(key(span.employee_id, date), {
+        leave: span.leave_name,
+        leaveWaiting: span.state !== "APPROVED",
+        overtime: was?.overtime ?? null,
+      })
+    }
+  }
+  for (const order of orders ?? []) {
+    const minutes = order.authorized_minutes ?? order.planned_minutes
+    const at = key(order.employee_id, order.on_date)
+    const was = map.get(at)
+    map.set(at, {
+      leave: was?.leave ?? null,
+      leaveWaiting: was?.leaveWaiting ?? false,
+      overtime: (was?.overtime ?? 0) + minutes,
+    })
+  }
+  return (employeeId, date) => map.get(key(employeeId, date))
 }

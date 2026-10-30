@@ -654,7 +654,11 @@ function FirstDataList({
                 stream.done ? "text-ink" : "text-body"
               )}
             >
-              {stream.count === null ? "—" : count(stream.count)}
+              {!stream.done && index === current && stream.queued > 0
+                ? `${count(stream.taken)} / ${count(stream.queued)}`
+                : stream.count === null
+                  ? "—"
+                  : count(stream.count)}
             </span>
           </li>
         ))}

@@ -1365,6 +1365,34 @@ async fn origin_serves_a_site(
     .await?)
 }
 
+/// One writer for the Gudang's stock, never two.
+///
+/// While this Central runs the Gudang (`INVENTORY_DC_HOSTING=cloud`), its own
+/// tables are where the Gudang's work is written. A Gudang server let in to
+/// write the same stock beside it would be a second pen on one book: two
+/// pickings of the same piece, two counts of the same delivery, and nothing
+/// to say which is true. So it is refused at both doors — the install code
+/// (`node_enrolment::issue_node_enrolment`) and the registration itself.
+///
+/// The way across is deliberate (GUDANG-SERVER-PLAN.md, "Moving the pen"):
+/// finish the open work, switch the hosting off, then let the server in.
+/// The cloud's own pseudo-origin is role DC with inventory off, and passes.
+pub(super) fn refuse_second_gudang_writer(
+    role: EdgeRole,
+    inventory_enabled: Option<bool>,
+) -> Result<(), AppError> {
+    if role == EdgeRole::Dc && inventory_enabled == Some(true) && crate::cloud::dc::common::hosted()
+    {
+        return Err(AppError::Conflict(
+            "this Central runs the Gudang itself, so a Gudang server cannot be let in beside \
+             it — that would be two writers for one stock. Move the Gudang to its server first \
+             (finish open work, switch INVENTORY_DC_HOSTING off), then approve the server."
+                .into(),
+        ));
+    }
+    Ok(())
+}
+
 /// The registration itself, given the key's digest rather than the key.
 ///
 /// Split out for enrolment (`node_enrolment.rs`), where the cloud never sees
@@ -1406,18 +1434,21 @@ pub(super) async fn register_origin_digest_tx(
             "inventory-enabled origin requires site_id and node_role".into(),
         ));
     }
-    let normalized_role = if let (Some(site), Some(role)) = (site_id, node_role) {
+    let request_role = if let (Some(site), Some(role)) = (site_id, node_role) {
         let role =
             EdgeRole::from_str(role).map_err(|error| AppError::Validation(error.to_string()))?;
         let site = SiteId::new(site).map_err(|error| AppError::Validation(error.to_string()))?;
         NodeContext::new(origin_id, role, site)
             .map_err(|error| AppError::Validation(error.to_string()))?;
-        Some(role.to_string())
+        Some(role)
     } else {
         None
     };
+    let normalized_role = request_role.map(|role| role.to_string());
+    let mut stored_role: Option<String> = None;
+    let mut stored_inventory: Option<bool> = None;
     if let Some(existing) = sqlx::query(
-        "SELECT site_id,node_role,active_generation
+        "SELECT site_id,node_role,active_generation,inventory_enabled
          FROM sync_origin_credential WHERE origin_id=$1 FOR UPDATE",
     )
     .bind(origin_id)
@@ -1427,6 +1458,7 @@ pub(super) async fn register_origin_digest_tx(
         let existing_site: Option<String> = existing.get("site_id");
         let existing_role: Option<String> = existing.get("node_role");
         let existing_generation: i64 = existing.get("active_generation");
+        stored_inventory = Some(existing.get("inventory_enabled"));
         if active_generation.is_some_and(|generation| generation < existing_generation) {
             return Err(AppError::Conflict(format!(
                 "active_generation cannot regress from {existing_generation}"
@@ -1443,6 +1475,7 @@ pub(super) async fn register_origin_digest_tx(
                 "registered inventory origin cannot be rebound to another site or role".into(),
             ));
         }
+        stored_role = existing_role;
         if active_generation.is_some_and(|generation| generation > existing_generation) {
             // Durable means the sender may purge its fact. Do not retire the
             // generation until Cloud has applied that entire durable prefix.
@@ -1474,6 +1507,27 @@ pub(super) async fn register_origin_digest_tx(
         return Err(AppError::Conflict(
             "a new sync origin must be registered at active_generation 1 before rollover".into(),
         ));
+    }
+    // The Gudang rule reads what the row holds after the upsert below, not
+    // only what this call sends: a key rotation or rollover sends no binding
+    // and keeps the stored one, and must not slip a second writer past it.
+    // A stored role that does not read back is refused, not skipped: skipping
+    // it would skip the one-writer check with it.
+    let effective_role = match request_role {
+        Some(role) => Some(role),
+        None => stored_role
+            .as_deref()
+            .map(|role| {
+                EdgeRole::from_str(&role.to_ascii_uppercase()).map_err(|_| {
+                    AppError::Configuration(format!(
+                        "sync origin {origin_id} has stored node role {role:?}, expected DC or STORE"
+                    ))
+                })
+            })
+            .transpose()?,
+    };
+    if let Some(role) = effective_role {
+        refuse_second_gudang_writer(role, inventory_enabled.or(stored_inventory))?;
     }
 
     sqlx::query(
@@ -2295,11 +2349,32 @@ async fn apply_one(
                         paired_progress = true;
                         applied
                     }
+                } else if fact.reference_type.as_deref()
+                    == Some(crate::sync::port::STOCK_HANDOVER_REFERENCE)
+                {
+                    // A replacement booking the stock the centre handed it
+                    // (`stock_handover`): every piece is already here, where
+                    // it says, under the same subject. Counting it again would
+                    // double the store.
+                    false
                 } else {
                     match apply_movement(&mut tx, origin_id, generation, next, event_id, &fact)
                         .await
                     {
                         Ok(applied) => applied,
+                        // A tag the centre already knows as another piece: no
+                        // later fact can change that, so waiting would hold the
+                        // whole store's stream for ever (C001, 28 Oct 2026).
+                        Err(error) if is_identity_clash(&error) => {
+                            return Ok(ApplyStep::SetAside {
+                                seq: next,
+                                reason: format!(
+                                    "a tag in this movement is already another piece of this \
+                                     store: {}",
+                                    block_diagnostic(&error)
+                                ),
+                            });
+                        }
                         Err(error) => {
                             // The transaction rolls back on drop; the block is
                             // recorded outside it by the caller.
@@ -2486,7 +2561,8 @@ async fn apply_one(
                     Ok(attached) => attached,
                     Err(reason) => return Ok(ApplyStep::Blocked { seq: next, reason }),
                 };
-                if let Err(error) = apply_sale_member_attached(&mut tx, origin_id, &attached).await {
+                if let Err(error) = apply_sale_member_attached(&mut tx, origin_id, &attached).await
+                {
                     return Ok(ApplyStep::Blocked {
                         seq: next,
                         reason: block_diagnostic(&error),
@@ -2538,6 +2614,43 @@ async fn apply_one(
                 };
                 if let Err(error) = apply_allotment_cancellation_result(
                     &mut tx, origin_id, generation, next, event_id, &result,
+                )
+                .await
+                {
+                    return Ok(ApplyStep::Blocked {
+                        seq: next,
+                        reason: block_diagnostic(&error),
+                    });
+                }
+                false
+            } else if event_type == crate::sync::workflow::INVENTORY_ALLOTMENT_AMENDED_V1 {
+                // An edit or cancel the Gudang server made, by either road
+                // (GUDANG-SERVER-PLAN step 4, `allotment_node`).
+                let event_id: Uuid = row.get("event_id");
+                let fact = match crate::sync::workflow::parse_allotment_amended(&payload) {
+                    Ok(fact) => fact,
+                    Err(reason) => return Ok(ApplyStep::Blocked { seq: next, reason }),
+                };
+                if let Err(error) = super::allotment_node::apply_allotment_amended(
+                    &mut tx, origin_id, generation, next, event_id, &fact,
+                )
+                .await
+                {
+                    return Ok(ApplyStep::Blocked {
+                        seq: next,
+                        reason: block_diagnostic(&error),
+                    });
+                }
+                false
+            } else if event_type == crate::sync::workflow::INVENTORY_ALLOTMENT_CREATED_V1 {
+                // An allotment MD raised on the Gudang server itself.
+                let event_id: Uuid = row.get("event_id");
+                let created = match crate::sync::workflow::parse_allotment_created(&payload) {
+                    Ok(created) => created,
+                    Err(reason) => return Ok(ApplyStep::Blocked { seq: next, reason }),
+                };
+                if let Err(error) = super::allotment_node::apply_allotment_created(
+                    &mut tx, origin_id, generation, next, event_id, &created,
                 )
                 .await
                 {
@@ -3066,7 +3179,8 @@ pub(crate) async fn reconcile_transfer_allotment_attribution(
                 .any(|row| row.get::<String, _>("claim_kind") == "RECEIVED");
             if sent.len() == 1
                 && !received_there
-                && sent[0].get::<String, _>("origin_id") == crate::cloud::dc::common::CLOUD_DC_ORIGIN
+                && sent[0].get::<String, _>("origin_id")
+                    == crate::cloud::dc::common::CLOUD_DC_ORIGIN
                 && sent[0].get::<String, _>("sku_code") == received[0].2
             {
                 return crate::cloud::dc::packing::reconcile_counted_in_tx(
@@ -5831,6 +5945,11 @@ fn validate_issued_command(command_type: &str, payload: &Value) -> Result<(), Ap
             crate::sync::workflow::parse_allotment_close_short(payload)
                 .map_err(AppError::Validation)?;
         }
+        // MD's edit forwarded to the Gudang server that holds the allotment
+        // (`allotment_node`): unreadable, it would block the server's stream.
+        crate::sync::workflow::INVENTORY_ALLOTMENT_AMEND_V1 => {
+            crate::sync::workflow::parse_allotment_amend(payload).map_err(AppError::Validation)?;
+        }
         INVENTORY_OFFICIAL_COUNT_ACTIVATE_V1 => {
             parse_official_count_activation(payload).map_err(AppError::Validation)?;
         }
@@ -6421,16 +6540,45 @@ pub(super) async fn hand_over_to_replacement(
     .execute(&mut *connection)
     .await?
     .rows_affected();
+    // A koli announced to the old machine and already received there: every
+    // piece of it is a piece this store has had. Announced again to the new
+    // machine it stands in transit there, and receiving it twice books those
+    // tags as new pieces the centre already knows as others (C001, 30 Oct
+    // 2026: six such deliveries, 1,604 pieces).
+    let received = sqlx::query(
+        "UPDATE sync_command c
+            SET revoked_at = now(),
+                revoked_reason = 'received by the machine a replacement took over from'
+          WHERE c.revoked_at IS NULL
+            AND c.command_type = $2
+            AND EXISTS (SELECT 1 FROM sync_command_delivery d
+                         WHERE d.command_id = c.command_id AND d.origin_id = $1)
+            AND NOT EXISTS (SELECT 1 FROM sync_command_delivery o
+                             WHERE o.command_id = c.command_id AND o.origin_id <> $1)
+            AND jsonb_array_length(COALESCE(c.payload->'units', '[]'::jsonb)) > 0
+            AND NOT EXISTS (
+                SELECT 1 FROM jsonb_array_elements(c.payload->'units') unit
+                 WHERE NOT EXISTS (
+                     SELECT 1 FROM edge_inventory_fact_subject_identity i
+                      WHERE i.origin_id = $1 AND i.epc = upper(btrim(unit->>'epc'))))",
+    )
+    .bind(origin_id)
+    .bind(INVENTORY_STORE_INBOUND_ANNOUNCE_V1)
+    .execute(&mut *connection)
+    .await?
+    .rows_affected();
+    let recalled = recalled + received;
     super::store_actions::close_for_replacement(connection, origin_id).await?;
-    // The tills and printers the old machine held were enrolled in its own
-    // database, which the new machine does not have: they went with it, and
-    // each joins the new machine again, with head office's approval. Left
-    // ACTIVE on the register they would go on holding the store's POS seats
-    // (24 Oct 2026, the C014 replacement).
+    // The tills, warehouse PCs and printers the old machine held were enrolled
+    // in its own database, which the new machine does not have: they went with
+    // it, and each joins the new machine again, with head office's approval.
+    // Left ACTIVE on the register they would go on holding the store's POS
+    // seats (24 Oct 2026, the C014 replacement).
     sqlx::query(
         "WITH old AS (
              SELECT device_id, status FROM device
-              WHERE origin_id = $1 AND kind IN ('TILL', 'PRINTER') AND status <> 'REVOKED'
+              WHERE origin_id = $1 AND kind IN ('TILL', 'WAREHOUSE', 'PRINTER')
+                AND status <> 'REVOKED'
                 FOR UPDATE
          ), gone AS (
              UPDATE device d
@@ -6450,6 +6598,51 @@ pub(super) async fn hand_over_to_replacement(
     .execute(&mut *connection)
     .await?;
     Ok(recalled)
+}
+
+/// The store's stock where the centre last saw it, for the server that took it
+/// over (`/api/v1/sync/stock-handover`). Answered only to the generation that
+/// is active now: the machine that was replaced asks no more, and a request
+/// naming another generation is a stale one.
+pub async fn stock_handover(
+    pool: &PgPool,
+    origin_id: &str,
+    generation: i64,
+) -> Result<crate::sync::port::StockHandover, AppError> {
+    let active: Option<i64> = sqlx::query_scalar(
+        "SELECT active_generation FROM sync_origin_credential WHERE origin_id = $1",
+    )
+    .bind(origin_id)
+    .fetch_optional(pool)
+    .await?;
+    match active {
+        None => return Err(AppError::NotFound(format!("registered origin {origin_id}"))),
+        Some(active) if active != generation => {
+            return Err(AppError::Conflict(format!(
+                "generation {generation} of {origin_id} is not the active one ({active})"
+            )))
+        }
+        Some(_) => {}
+    }
+    let lines = sqlx::query(
+        "SELECT subject_id, epc, sku_code, place_id, quantity
+           FROM edge_inventory_fact_position
+          WHERE origin_id = $1 AND quantity > 0
+          ORDER BY place_id, sku_code, subject_id",
+    )
+    .bind(origin_id)
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|row| crate::sync::port::StockHandoverLine {
+        subject_id: row.get("subject_id"),
+        epc: row.get("epc"),
+        sku_code: row.get("sku_code"),
+        place_id: row.get("place_id"),
+        quantity: row.get("quantity"),
+    })
+    .collect();
+    Ok(crate::sync::port::StockHandover { lines })
 }
 
 /// Recall a command. Stores that have not yet applied it will skip it and
@@ -6849,6 +7042,19 @@ async fn apply_command_effect(
 /// command is read by someone who has to unstick it, and "database operation
 /// failed" names no cause. The underlying message stays inside the fleet's own
 /// diagnostics.
+/// Whether a movement failed because one of its tags is already registered
+/// to a different piece of the same store — permanent, since an identity is
+/// never relabelled (`edge_inventory_fact_subject_identity`).
+fn is_identity_clash(error: &AppError) -> bool {
+    match error {
+        AppError::Database(sqlx::Error::Database(database)) => {
+            database.constraint() == Some("edge_inventory_fact_subject_epc")
+        }
+        AppError::Conflict(reason) => reason.starts_with("movement attempted to relabel subject"),
+        _ => false,
+    }
+}
+
 fn block_diagnostic(error: &AppError) -> String {
     match error {
         AppError::Database(inner) => format!("database: {inner}"),

@@ -1,0 +1,1248 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Employee profile · Central</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<style>
+/* Tokens and shell from store-opening-prototype.html (measured on the running
+   hub). Floor 15px for every line on screen; paper may be smaller. */
+:root {
+  --ink: #20242c; --text: #394150; --body: #565f6d; --mute: #666f7d; --faint: #89919d;
+  --hairline: #e6e6e9; --edge: #dadade; --soft: #f8f8f9; --soft-2: #f0f0f2; --soft-3: #f6f6f7;
+  --accent: #2563eb; --info-fg: #2c57bf; --tint: #eff5ff;
+  --bad-fg: #be123c; --bad-bg: #fbeaea; --warn-fg: #a64a08; --warn-bg: #fdf3ea; --ok-fg: #137a37; --red: #dc2626;
+  --rail: #242526;
+  --r-card: 10px; --r-inner: 8px; --r-sheet: 16px;
+  --shadow-soft: 0 1px 3px rgba(24, 39, 60, .04);
+  --shadow-sheet: 0 8px 24px rgba(24, 39, 60, .06), 0 24px 64px rgba(24, 39, 60, .12);
+  --ease-out: cubic-bezier(.23, 1, .32, 1);
+  --ease-drawer: cubic-bezier(.32, .72, 0, 1);
+  --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  --top: 48px;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; height: 100%; }
+body {
+  font: 400 15px/1.45 "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  letter-spacing: -0.09px; color: var(--ink); background: #fff;
+  -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent;
+}
+body.embed { --top: 0px; }
+button, input, textarea, select { font: inherit; letter-spacing: inherit; color: inherit; }
+button { cursor: pointer; border: 0; background: none; padding: 0; }
+.num { font-variant-numeric: tabular-nums; }
+svg.lucide { width: 18px; height: 18px; stroke-width: 1.75; flex-shrink: 0; }
+a.lk { color: var(--accent); text-decoration: none; cursor: pointer; border-radius: 4px; }
+a.lk:hover { text-decoration: underline; text-underline-offset: 3px; }
+a.lk:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ── prototype bar ───────────────────────────────────────── */
+.proto { position: fixed; inset: 0 0 auto 0; z-index: 100; min-height: 48px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 16px; background: #fff; border-bottom: 1px solid var(--hairline); }
+body.embed .proto { display: none; }
+.seg { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 3px; background: var(--soft-2); border-radius: 10px; }
+.seg button { height: 30px; padding: 0 12px; border-radius: 7px; font-size: 15px; font-weight: 500; color: var(--body); transition: background-color 150ms ease, color 150ms ease; }
+.seg button[aria-pressed="true"] { background: #fff; color: var(--ink); box-shadow: 0 1px 2px rgba(24, 39, 60, .08), 0 0 0 1px var(--hairline); }
+.proto .reset { margin-left: auto; height: 30px; padding: 0 10px; border-radius: 7px; color: var(--body); }
+.proto .reset:hover { background: var(--soft-2); }
+
+/* ── shell ───────────────────────────────────────────────── */
+.shell { position: fixed; inset: var(--top) 0 0 0; display: grid; grid-template-columns: 68px 232px minmax(0, 1fr); }
+.rail { background: var(--rail); display: flex; flex-direction: column; align-items: center; padding: 12px 0; gap: 4px; }
+.rail .logo { width: 28px; height: 28px; border-radius: 8px; background: #fff; color: var(--rail); font-weight: 700; display: grid; place-items: center; margin-bottom: 14px; font-size: 16px; }
+.rail .ic { width: 36px; height: 36px; border-radius: 8px; display: grid; place-items: center; color: #b9bcc2; }
+.rail .ic.on { background: rgba(255, 255, 255, .1); color: #fff; }
+.rail .gap { flex: 1; }
+.rail .me { width: 28px; height: 28px; border-radius: 50%; background: #3a3b3d; color: #fff; display: grid; place-items: center; font-size: 15px; font-weight: 600; margin-top: 6px; }
+.dept { background: #fff; border-right: 1px solid var(--hairline); display: flex; flex-direction: column; min-height: 0; }
+.dept .head { height: 52px; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; font-weight: 600; flex-shrink: 0; }
+.dept .head span { color: var(--mute); font-weight: 500; }
+.dept nav { display: flex; flex-direction: column; gap: 2px; padding: 4px 10px; overflow-y: auto; }
+.dept nav a { height: 36px; display: flex; align-items: center; gap: 10px; padding: 0 10px; border-radius: 8px; color: var(--text); text-decoration: none; cursor: default; }
+.dept nav a svg { width: 17px; height: 17px; color: var(--mute); }
+.dept nav a.on { background: var(--tint); color: var(--accent); font-weight: 500; }
+.dept nav a.on svg { color: var(--accent); }
+.dept nav .grp { color: var(--mute); padding: 12px 10px 4px; }
+.content { overflow-y: auto; padding: 14px 32px 40px; }
+.pagehead h1 { font-size: 17px; font-weight: 600; margin: 4px 0 2px; line-height: 24px; }
+.pagehead .sub { color: var(--mute); margin-bottom: 14px; }
+
+/* list */
+.card { background: #fff; border: 1px solid var(--hairline); border-radius: var(--r-card); box-shadow: var(--shadow-soft); overflow: hidden; }
+table { border-collapse: collapse; width: 100%; }
+.dt th { height: 40px; padding: 0 14px; background: var(--soft); border-bottom: 1px solid var(--hairline); color: var(--body); font-weight: 500; text-align: left; white-space: nowrap; }
+.dt td { padding: 12px 14px; color: var(--text); border-bottom: 1px solid var(--hairline); vertical-align: middle; }
+.dt tbody tr:last-child td { border-bottom: 0; }
+.dt tr.click { cursor: pointer; transition: background-color 150ms ease; }
+@media (hover: hover) and (pointer: fine) { .dt tr.click:hover { background: var(--soft); } }
+.two { display: flex; flex-direction: column; line-height: 20px; gap: 2px; min-width: 0; }
+.two .a { color: var(--ink); font-weight: 500; }
+.two .b { color: var(--mute); }
+.ok { color: var(--ok-fg); } .bad { color: var(--bad-fg); } .warn { color: var(--warn-fg); } .info { color: var(--info-fg); } .mute { color: var(--mute); }
+
+/* buttons: every action solid (owner, 24 Oct) */
+.btn { height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 14px; border-radius: 8px; font-size: 15px; font-weight: 500; white-space: nowrap; background: var(--accent); color: #fff; transition: transform 160ms var(--ease-out), opacity 150ms ease, background-color 150ms ease; }
+.btn:active:not(:disabled) { transform: scale(.97); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn.red { background: var(--red); }
+.btn.sm { height: 30px; padding: 0 12px; border-radius: 15px; }
+.btn svg { width: 16px; height: 16px; }
+.textbtn { height: 36px; padding: 0 6px; color: var(--accent); font-weight: 500; display: inline-flex; align-items: center; gap: 6px; border-radius: 8px; transition: transform 160ms var(--ease-out); }
+.textbtn:active { transform: scale(.97); }
+.textbtn svg { width: 16px; height: 16px; }
+
+/* ── sheets (layers) ─────────────────────────────────────── */
+.scrim { position: fixed; inset: var(--top) 0 0 0; background: rgb(40 30 20 / 10%); z-index: 20; opacity: 1; transition: opacity 340ms var(--ease-drawer); }
+.scrim.off { opacity: 0; }
+.sheet {
+  position: fixed; top: calc(var(--top) + 20px); right: 20px; bottom: 20px; z-index: 30; width: min(1040px, calc(100vw - 40px));
+  background: #fff; border: 1px solid var(--hairline); border-radius: var(--r-sheet); box-shadow: var(--shadow-sheet);
+  display: flex; flex-direction: column; overflow: hidden;
+  transform: translateX(0); transition: transform 340ms var(--ease-drawer);
+}
+.sheet.off { transform: translateX(calc(100% + 24px)); }
+.sheet.closing { transition: transform 200ms var(--ease-out); }
+.sheet.form { width: min(880px, calc(100vw - 64px)); }
+.sheet.paper { width: min(900px, calc(100vw - 64px)); }
+.sh-head { display: flex; align-items: flex-start; gap: 16px; padding: 22px 36px 16px; }
+.sh-head .who { display: flex; gap: 16px; align-items: center; min-width: 0; flex: 1; }
+.sh-head h2 { margin: 0; font-size: 17px; font-weight: 600; line-height: 24px; letter-spacing: -0.2px; }
+.sh-head .sub { color: var(--mute); line-height: 22px; }
+.sh-head .x { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; color: var(--faint); margin-right: -8px; flex-shrink: 0; }
+.sh-head .x:hover { background: var(--soft-2); }
+.avatar { width: 56px; height: 56px; border-radius: 50%; flex-shrink: 0; display: grid; place-items: center; font-weight: 600; font-size: 18px; color: #fff; background: linear-gradient(140deg, #c9a27a, #8d6a4f); position: relative; overflow: hidden; }
+.avatar.none { background: var(--soft-2); color: var(--mute); }
+.avatar svg { width: 24px; height: 24px; }
+.figs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 4px 36px 0; border: 1px solid var(--hairline); border-radius: var(--r-card); }
+.figs > div { padding: 12px 16px; border-left: 1px solid var(--hairline); min-width: 0; }
+.figs > div:first-child { border-left: 0; }
+.figs .l { color: var(--body); }
+.figs .v { font-size: 16px; font-weight: 600; margin-top: 2px; line-height: 22px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.figs .v small { font-size: 15px; font-weight: 400; color: var(--mute); }
+.stabs { display: flex; gap: 4px; padding: 0 36px; border-bottom: 1px solid var(--hairline); margin-top: 14px; }
+.stabs button { padding: 10px 10px 11px; font-weight: 500; color: var(--body); position: relative; white-space: nowrap; }
+.stabs button[aria-selected="true"] { color: var(--ink); }
+.stabs button[aria-selected="true"]::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--ink); }
+.stabs.scroll { overflow-x: auto; scrollbar-width: none; }
+.sh-body { flex: 1; overflow-y: auto; padding: 28px 36px 36px; display: flex; flex-direction: column; gap: 36px; position: relative; scroll-behavior: smooth; }
+.sh-body > * { flex-shrink: 0; }
+.swap { transition: opacity 160ms var(--ease-out), transform 160ms var(--ease-out); }
+.swap.out { opacity: 0; transform: translateY(3px); transition-duration: 100ms; }
+.sh-foot { display: flex; align-items: center; gap: 12px; padding: 14px 36px; min-height: 68px; border-top: 1px solid var(--hairline); }
+.sh-foot .grow { flex: 1; }
+.sh-foot .said { color: var(--mute); }
+
+/* sections + facts */
+.sec h3 { margin: 0 0 14px; font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+.sec h3 .aside { margin-left: auto; font-weight: 400; color: var(--mute); }
+.facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px 40px; }
+.facts.two-col { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.facts .l { color: var(--body); line-height: 20px; }
+.facts .v { color: var(--ink); line-height: 22px; margin-top: 4px; overflow-wrap: anywhere; }
+.facts .v.none { color: var(--faint); }
+.facts .v .hint { color: var(--mute); }
+.inp { width: 100%; height: 44px; margin-top: 6px; padding: 0 12px; border: 1px solid var(--edge); border-radius: 8px; background: #fff; outline: none; transition: border-color 150ms ease, box-shadow 150ms ease; }
+.inp:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37, 99, 235, .12); }
+select.inp { appearance: none; background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%23666f7d' stroke-width='2'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E") no-repeat right 12px center; padding-right: 34px; }
+.inp.changed { border-color: var(--accent); background-color: var(--tint); }
+textarea.inp { height: auto; min-height: 88px; padding: 10px 12px; resize: vertical; }
+.st { border: 1px solid var(--hairline); border-radius: var(--r-card); overflow: hidden; }
+.st th { padding: 10px 16px; background: var(--soft); border-bottom: 1px solid var(--hairline); color: var(--body); font-weight: 500; text-align: left; white-space: nowrap; }
+.st td { padding: 13px 16px; vertical-align: middle; border-bottom: 1px solid var(--hairline); color: var(--ink); }
+.st tbody tr:last-child td { border-bottom: 0; }
+.st .r { text-align: right; }
+.st td.mute { color: var(--mute); }
+
+/* papers */
+.papers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.paper { display: flex; align-items: center; gap: 14px; padding: 12px 14px; border: 1px solid var(--hairline); border-radius: var(--r-card); min-height: 68px; }
+.paper.missing { border-color: #f1c9cf; background: #fffafa; }
+.paper .thumb { width: 44px; height: 44px; border-radius: 8px; flex-shrink: 0; display: grid; place-items: center; background: var(--soft-2); color: var(--body); cursor: pointer; transition: transform 160ms var(--ease-out); }
+.paper .thumb:active { transform: scale(.96); }
+.paper .thumb.ktp { background: linear-gradient(135deg, #8fb4e3, #4f7fc4); color: #fff; }
+.paper .thumb.kk { background: linear-gradient(135deg, #b6d7b0, #6aa564); color: #fff; }
+.paper .thumb.pdf { background: #fdecec; color: var(--bad-fg); }
+.paper .thumb.face { background: linear-gradient(140deg, #c9a27a, #8d6a4f); color: #fff; border-radius: 50%; }
+.paper.missing .thumb { background: #fff; border: 1.5px dashed #e3a1ab; color: var(--bad-fg); cursor: default; }
+.paper .two { flex: 1; }
+.paper .two .a { display: flex; align-items: center; gap: 8px; }
+.paper .req { color: var(--mute); font-weight: 400; }
+.paper.missing .req { color: var(--bad-fg); }
+
+/* banners */
+.banner { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-radius: var(--r-card); }
+.banner.info { background: #eef4fd; color: var(--info-fg); }
+.banner.warn { background: var(--warn-bg); color: var(--warn-fg); }
+.banner.bad { background: var(--bad-bg); color: var(--bad-fg); }
+.banner > svg { width: 20px; height: 20px; }
+.banner .t { flex: 1; min-width: 0; }
+.banner b { font-weight: 600; }
+.banner .t span { display: block; color: var(--text); }
+
+/* week strip */
+.week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; }
+.day { border: 1px solid var(--hairline); border-radius: var(--r-inner); padding: 10px 12px; min-height: 76px; }
+.day .d { color: var(--mute); }
+.day .s { font-weight: 500; margin-top: 2px; }
+.day .h { color: var(--mute); }
+.day.off { background: var(--soft); }
+.day.off .s { color: var(--mute); font-weight: 400; }
+.wk-total { display: flex; align-items: baseline; gap: 10px; margin-top: 12px; }
+.wk-total b { font-size: 16px; font-weight: 600; }
+
+/* ERPNext-like frame: a side column inside the sheet */
+.erp { display: grid; grid-template-columns: 210px minmax(0, 1fr); flex: 1; min-height: 0; }
+.erp-side { border-right: 1px solid var(--hairline); padding: 24px 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 22px; }
+.erp-side .big { width: 120px; height: 120px; border-radius: 12px; display: grid; place-items: center; font-size: 34px; font-weight: 600; color: #fff; background: linear-gradient(140deg, #c9a27a, #8d6a4f); }
+.erp-side h4 { margin: 0 0 8px; font-size: 15px; font-weight: 600; color: var(--body); }
+.erp-side .att { display: flex; flex-direction: column; gap: 6px; }
+.erp-side .att a { display: flex; gap: 8px; align-items: center; color: var(--text); text-decoration: none; cursor: pointer; min-width: 0; }
+.erp-side .att a span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.erp-side .att svg { width: 16px; height: 16px; color: var(--mute); }
+.erp-main { display: flex; flex-direction: column; min-height: 0; }
+.conn { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px 32px; }
+.conn h4 { margin: 0 0 8px; font-size: 15px; font-weight: 600; }
+.conn a { display: flex; justify-content: space-between; padding: 6px 10px; margin: 0 -10px; border-radius: 6px; color: var(--text); text-decoration: none; cursor: pointer; }
+.conn a:hover { background: var(--soft); }
+.conn a b { font-weight: 500; color: var(--ink); }
+
+/* one page: a section index beside the scroll */
+.onepage { display: grid; grid-template-columns: 180px minmax(0, 1fr); flex: 1; min-height: 0; }
+.idx { padding: 28px 0 28px 28px; display: flex; flex-direction: column; gap: 2px; }
+.idx button { text-align: left; height: 36px; padding: 0 12px; border-radius: 8px; color: var(--text); transition: background-color 150ms ease, color 150ms ease; }
+.idx button.on { background: var(--tint); color: var(--accent); font-weight: 500; }
+.onepage .sh-body { padding-left: 32px; }
+.part-h { font-size: 17px; font-weight: 600; margin: 0 0 -12px; padding-top: 4px; }
+
+/* contract paper */
+.page { background: #fff; width: 100%; max-width: 700px; margin: 0 auto; border: 1px solid var(--hairline); border-radius: 4px; box-shadow: var(--shadow-soft); padding: 56px 64px; font-family: "Times New Roman", Georgia, serif; font-size: 15px; line-height: 1.6; color: #111; }
+.page h1 { font-size: 17px; text-align: center; margin: 0; letter-spacing: .02em; }
+.page .no { text-align: center; margin: 2px 0 22px; }
+.page h2 { font-size: 15px; text-align: center; margin: 20px 0 6px; }
+.page p { margin: 0 0 10px; text-align: justify; }
+.page [contenteditable]:focus { outline: 2px solid rgba(37, 99, 235, .25); outline-offset: 2px; border-radius: 2px; }
+.page .fill { background: #fff7d6; border-radius: 2px; }
+.page .signs { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 34px; text-align: center; }
+.page .signs .line { margin-top: 70px; border-top: 1px solid #111; padding-top: 4px; }
+.scan { width: 100%; max-width: 560px; aspect-ratio: 1.58; margin: 0 auto; border-radius: 14px; background: linear-gradient(135deg, #a9c6ec, #5a87c8); color: #fff; padding: 22px 26px; display: flex; flex-direction: column; gap: 6px; box-shadow: var(--shadow-sheet); }
+.scan.kk { aspect-ratio: 1.41; background: linear-gradient(135deg, #cfe6c9, #79b072); }
+.scan b { font-size: 17px; letter-spacing: .04em; }
+
+/* ── the profile as a page (owner, 25 Oct: "lebih suka full page") ── */
+.content { background: var(--soft-3); }
+.crumb { display: flex; align-items: center; gap: 6px; color: var(--mute); min-height: 28px; margin-bottom: 8px; }
+.crumb a { color: var(--body); text-decoration: none; cursor: pointer; border-radius: 4px; }
+.crumb a:hover { color: var(--ink); }
+.crumb svg { width: 15px; height: 15px; }
+.phead { display: flex; align-items: center; gap: 16px; margin-bottom: 18px; }
+.phead .who { flex: 1; min-width: 0; display: flex; gap: 16px; align-items: center; }
+.phead h1 { font-size: 17px; font-weight: 600; margin: 0; line-height: 24px; letter-spacing: -0.2px; }
+.phead .sub { color: var(--mute); }
+.phead .acts { display: flex; gap: 10px; align-items: center; }
+.pfigs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
+.pfigs > div { background: #fff; border: 1px solid var(--hairline); border-radius: var(--r-card); padding: 12px 16px; box-shadow: var(--shadow-soft); min-width: 0; }
+.pfigs .l { color: var(--body); }
+.pfigs .v { font-size: 16px; font-weight: 600; margin-top: 2px; line-height: 22px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pfigs .v small { font-size: 15px; font-weight: 400; color: var(--mute); }
+.ptabs { display: flex; gap: 4px; border-bottom: 1px solid var(--edge); margin-bottom: 20px; }
+.ptabs button { padding: 8px 10px 11px; font-weight: 500; color: var(--body); position: relative; white-space: nowrap; }
+.ptabs button[aria-selected="true"] { color: var(--ink); }
+.ptabs button[aria-selected="true"]::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--ink); }
+.ppage > .banner { margin-bottom: 18px; }
+.ptabs.scroll { overflow-x: auto; scrollbar-width: thin; }
+.pgrid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; align-items: start; }
+.pmain { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.ppage .sec { background: #fff; border: 1px solid var(--hairline); border-radius: var(--r-card); box-shadow: var(--shadow-soft); padding: 20px 24px 24px; }
+.paside { display: flex; flex-direction: column; gap: 16px; position: sticky; top: 0; }
+.ppage .paside .sec { padding: 18px 20px 20px; }
+.prow { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--hairline); }
+.prow:first-of-type { border-top: 0; padding-top: 0; }
+.prow .thumb { width: 36px; height: 36px; border-radius: 8px; flex-shrink: 0; display: grid; place-items: center; background: var(--soft-2); color: var(--body); cursor: pointer; transition: transform 160ms var(--ease-out); }
+.prow .thumb:active { transform: scale(.96); }
+.prow .thumb svg { width: 17px; height: 17px; }
+.prow .thumb.ktp { background: linear-gradient(135deg, #8fb4e3, #4f7fc4); color: #fff; }
+.prow .thumb.kk { background: linear-gradient(135deg, #b6d7b0, #6aa564); color: #fff; }
+.prow .thumb.pdf { background: #fdecec; color: var(--bad-fg); }
+.prow .thumb.face { background: linear-gradient(140deg, #c9a27a, #8d6a4f); color: #fff; border-radius: 50%; }
+.prow.missing .thumb { background: #fff; border: 1.5px dashed #e3a1ab; color: var(--bad-fg); cursor: default; }
+.prow .two { flex: 1; }
+.prow .two .b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.prow .req { color: var(--mute); margin-left: 6px; }
+.prow.missing .req { color: var(--bad-fg); }
+.acts-list { display: flex; flex-direction: column; gap: 12px; }
+.acts-list div { display: flex; flex-direction: column; line-height: 21px; }
+.acts-list span { color: var(--mute); }
+.erp-page { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 20px; align-items: start; }
+.erp-page .erp-side { background: #fff; border: 1px solid var(--hairline); border-radius: var(--r-card); position: sticky; top: 0; }
+.onepage-p { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 20px; align-items: start; }
+.onepage-p .idx { position: sticky; top: 0; padding: 0; }
+.onepage-p .part-h { margin: 12px 0 -4px; }
+.pdock { display: none; }
+
+/* toast */
+.toast { position: fixed; left: 50%; bottom: 28px; z-index: 90; transform: translate(-50%, 0); display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: var(--ink); color: #fff; border-radius: 10px; box-shadow: var(--shadow-sheet); opacity: 1; transition: opacity 200ms var(--ease-out), transform 200ms var(--ease-out); }
+.toast.off { opacity: 0; transform: translate(-50%, 8px); pointer-events: none; }
+.toast svg { color: #7ee2a0; }
+
+/* phone frame (the same page, at 414 × 896, in a frame) */
+.phone-stage { position: fixed; inset: var(--top) 0 0 0; z-index: 95; background: var(--soft-3); display: grid; place-items: center; overflow: auto; padding: 20px; }
+.phone-stage iframe { width: 414px; height: min(896px, calc(100vh - 88px)); border: 0; border-radius: 28px; background: #fff; box-shadow: 0 0 0 10px #1b1c1e, var(--shadow-sheet); }
+
+/* picker for sections on a phone (a list at thumb reach) */
+.pick { position: fixed; left: 0; right: 0; bottom: 0; z-index: 60; background: #fff; border-radius: 16px 16px 0 0; box-shadow: var(--shadow-sheet); padding: 8px 8px calc(12px + env(safe-area-inset-bottom)); transform: translateY(0); transition: transform 300ms var(--ease-drawer); }
+.pick.off { transform: translateY(100%); }
+.pick button { display: flex; width: 100%; align-items: center; justify-content: space-between; height: 48px; padding: 0 16px; border-radius: 10px; }
+.pick button.on { color: var(--accent); font-weight: 500; background: var(--tint); }
+
+@media (max-width: 767px) {
+  .shell { grid-template-columns: minmax(0, 1fr); }
+  .rail, .dept { display: none; }
+  .content { padding: 12px 16px 32px; }
+  .dt .hide-p { display: none; }
+  .sheet, .sheet.form, .sheet.paper { top: var(--top); right: 0; bottom: 0; width: 100vw; border-radius: 0; border: 0; }
+  .sheet.off { transform: translateX(100%); }
+  .sh-head { padding: 16px 16px 12px; }
+  .avatar { width: 48px; height: 48px; font-size: 16px; }
+  .figs { grid-template-columns: 1fr 1fr; margin: 4px 16px 0; }
+  .figs > div:nth-child(3) { border-left: 0; }
+  .figs > div:nth-child(n+3) { border-top: 1px solid var(--hairline); }
+  .stabs { padding: 0 16px; }
+  .stabs.fits button { flex: 1; padding: 10px 2px 11px; }
+  .stabs.phone-hide { display: none; }
+  .sh-body { padding: 20px 16px 28px; gap: 30px; }
+  .sh-foot { padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); }
+  .sh-foot .btn { height: 44px; flex: 1; }
+  .facts, .facts.two-col { grid-template-columns: 1fr 1fr; gap: 16px 20px; }
+  .papers { grid-template-columns: 1fr; }
+  .week { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .erp { grid-template-columns: minmax(0, 1fr); }
+  .erp-side { display: none; }
+  .conn { grid-template-columns: 1fr; }
+  .onepage { grid-template-columns: minmax(0, 1fr); }
+  .idx { display: none; }
+  .onepage .sh-body { padding-left: 16px; }
+  .page { padding: 28px 22px; }
+  .content { padding-bottom: 96px; }
+  .phead .acts { display: none; }
+  .phead .avatar { width: 48px; height: 48px; }
+  .pfigs { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .ptabs.phone-hide { display: none; }
+  .ptabs.fits button { flex: 1; padding: 8px 2px 11px; }
+  .pgrid, .erp-page, .onepage-p { grid-template-columns: minmax(0, 1fr); }
+  .paside, .erp-page .erp-side { position: static; }
+  .erp-page .erp-side { display: none; }
+  .onepage-p .idx { display: none; }
+  .ppage .sec { padding: 16px; }
+  .pdock { display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 15; gap: 10px; align-items: center; padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); background: #fff; border-top: 1px solid var(--hairline); }
+  .pdock .btn { height: 44px; flex: 1; }
+  .chipbtn { height: 44px; padding: 0 14px; border-radius: 22px; background: var(--soft-2); display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
+}
+@media (min-width: 768px) { .chipbtn { display: none; } .pick { display: none; } }
+@media (min-width: 768px) and (max-width: 1180px) { .pgrid { grid-template-columns: minmax(0, 1fr); } .paside { position: static; } }
+@media (prefers-reduced-motion: reduce) {
+  .sheet, .scrim, .pick, .toast, .swap { transition-duration: 1ms !important; }
+}
+</style>
+</head>
+<body>
+
+<div class="proto">
+  <div class="seg" id="optSeg"></div>
+  <div class="seg" id="roleSeg"></div>
+  <div class="seg" id="caseSeg"></div>
+  <div class="seg" id="devSeg"></div>
+  <button class="reset" id="reset">Reset</button>
+</div>
+
+<div class="shell">
+  <aside class="rail" id="rail"></aside>
+  <aside class="dept" id="dept"></aside>
+  <main class="content" id="content"></main>
+</div>
+<div id="layers"></div>
+<div class="toast off" id="toast"><i data-lucide="check"></i><span></span></div>
+<div class="phone-stage" id="phone" hidden><iframe id="phoneFrame" title="Phone"></iframe></div>
+
+<script>
+/* ───────────────────────── state ───────────────────────── */
+const Q = new URLSearchParams(location.search);
+const EMBED = Q.get("embed") === "1";
+if (EMBED) document.body.classList.add("embed");
+
+const OPTS = [
+  ["now", "Now"], ["six", "Six tabs"], ["erp", "ERPNext"], ["five", "Five groups"], ["one", "One page"],
+];
+const ROLES = [["ho", "HR office"], ["store", "Store head"]];
+const CASES = [["complete", "Complete"], ["kk", "KK missing"], ["waiting", "Change waiting"]];
+
+function freshPerson() {
+  return {
+    name: "Siti Rahayu", code: "EMP-0142", position: "Cashier", grade: "Staff 2",
+    store: "Purwokerto", storeCode: "C014", reportsTo: "Dewi Lestari", status: "Active",
+    joined: "2 Jun 2025", kind: "PKWT", from: "2 Jun 2026", to: "1 Jun 2027", left: "219 days",
+    nik: "3302 0754 0798 0003", birthPlace: "Banyumas", birthDate: "14 Jul 1998", gender: "Female",
+    religion: "Islam", marital: "Married", children: 2, blood: "O", nationality: "WNI",
+    address: "Jl. Gatot Subroto No. 41", rtrw: "003/007", village: "Sokanegara",
+    district: "Purwokerto Timur", city: "Kab. Banyumas", province: "Jawa Tengah",
+    phone: "0812 2741 5530", email: "siti.rahayu@gmail.com",
+    eName: "Ahmad Fauzi", eRelation: "Husband", ePhone: "0813 2290 4471",
+    bpjsKes: "0001 4471 2290 1", bpjsTk: "", npwp: "",
+  };
+}
+function freshPapers(kk) {
+  return {
+    PHOTO: { file: "siti.jpg", at: "2 Jun 2025", by: "Dewi Lestari" },
+    KTP: { file: "ktp-siti-rahayu.jpg", at: "2 Jun 2025", by: "Dewi Lestari" },
+    KK: kk ? { file: "kk-3302-0754.pdf", at: "2 Jun 2025", by: "Dewi Lestari" } : null,
+    SKCK: { file: "skck-polresta-bms.pdf", at: "28 May 2025", by: "Dewi Lestari" },
+    CONTRACT: { file: "PKWT-0142-2026.pdf", at: "2 Jun 2026", by: "Rina Wulandari" },
+  };
+}
+const PAPER_KINDS = [
+  ["PHOTO", "Photo", false], ["KTP", "KTP scan", true], ["KK", "KK scan", true],
+  ["SKCK", "SKCK", false], ["CONTRACT", "Signed contract", false],
+];
+
+const S = {
+  opt: Q.get("opt") || "five", role: Q.get("role") || "ho", kase: Q.get("case") || "complete",
+  dev: "desk", tab: {}, edit: false, layers: [], change: null, view: "profile",
+  P: freshPerson(), papers: freshPapers(true), part: "Profile",
+};
+
+function applyCase() {
+  S.P = freshPerson();
+  S.papers = freshPapers(S.kase !== "kk");
+  S.change = S.kase === "waiting"
+    ? {
+        at: "Today 10:12", by: "Dewi Lestari", reason: "Pindah rumah, KK baru dari Dukcapil",
+        fields: [
+          ["Address", "address", "Jl. Gatot Subroto No. 41", "Perum Griya Satria Blok C2 No. 7"],
+          ["RT/RW", "rtrw", "003/007", "005/002"],
+          ["Village", "village", "Sokanegara", "Bancarkembar"],
+          ["Phone", "phone", "0812 2741 5530", "0812 2741 5531"],
+        ],
+        papers: [["KK", "kk-baru-2026.pdf"]],
+      }
+    : null;
+  S.edit = false;
+}
+applyCase();
+
+/* ───────────────────────── helpers ───────────────────────── */
+const $ = (s, r = document) => r.querySelector(s);
+const esc = (v) => String(v ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const icons = () => window.lucide && lucide.createIcons();
+const isHO = () => S.role === "ho";
+const phone = () => matchMedia("(max-width: 767px)").matches;
+const initials = (n) => n.split(" ").map((w) => w[0]).slice(0, 2).join("");
+const kids = (n) => (n === 0 ? "None" : n === 1 ? "1 child" : `${n} children`);
+const ptkp = () => `${S.P.marital === "Married" ? "K" : "TK"}/${Math.min(S.P.children, 3)}`;
+
+function seg(el, list, key, after) {
+  el.innerHTML = list.map(([v, l]) => `<button aria-pressed="${S[key] === v}" data-v="${v}">${l}</button>`).join("");
+  el.onclick = (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    S[key] = b.dataset.v;
+    after && after();
+    renderAll();
+  };
+}
+
+let toastTimer;
+function toast(text) {
+  const t = $("#toast");
+  t.querySelector("span").textContent = text;
+  t.classList.remove("off");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.add("off"), 2200);
+}
+
+/* fact cell: read value, or an input while editing */
+function F(label, value, opts = {}) {
+  const { key, kind = "text", choices, span, show } = opts;
+  if (S.edit && key) {
+    const v = S.P[key];
+    const input = kind === "select"
+      ? `<select class="inp" data-k="${key}">${choices.map((c) => `<option${c == v ? " selected" : ""}>${esc(c)}</option>`).join("")}</select>`
+      : `<input class="inp" data-k="${key}" value="${esc(v)}">`;
+    return `<div${span ? ` style="grid-column: span ${span}"` : ""}><div class="l">${label}</div>${input}</div>`;
+  }
+  const empty = value === "" || value == null;
+  return `<div${span ? ` style="grid-column: span ${span}"` : ""}><div class="l">${label}</div><div class="v${empty ? " none" : ""}">${empty ? "—" : show ?? esc(value)}</div></div>`;
+}
+const sec = (title, body, aside = "") => `<section class="sec"><h3>${title}${aside ? `<span class="aside">${aside}</span>` : ""}</h3>${body}</section>`;
+
+/* ───────────────────────── sections ───────────────────────── */
+const P = () => S.P;
+const SEC = {
+  personal: () => sec("Personal", `<div class="facts">
+    ${F("Full name", P().name, { key: "name" })}
+    ${F("NIK", P().nik, { key: "nik" })}
+    ${F("Place of birth", P().birthPlace, { key: "birthPlace" })}
+    ${F("Date of birth", P().birthDate, { key: "birthDate" })}
+    ${F("Gender", P().gender, { key: "gender", kind: "select", choices: ["Female", "Male"] })}
+    ${F("Religion", P().religion, { key: "religion", kind: "select", choices: ["Islam", "Christian", "Catholic", "Hindu", "Buddhist", "Confucian", "Other"] })}
+    ${F("Blood type", P().blood, { key: "blood", kind: "select", choices: ["", "A", "B", "AB", "O"] })}
+    ${F("Nationality", P().nationality, { key: "nationality", kind: "select", choices: ["WNI", "WNA"] })}
+  </div>`),
+  family: () => sec("Family", `<div class="facts">
+    ${F("Marital status", P().marital, { key: "marital", kind: "select", choices: ["Single", "Married", "Divorced", "Widowed"] })}
+    ${F("Children", kids(P().children), { key: "children", kind: "select", choices: [0, 1, 2, 3, 4, 5] })}
+    ${F("Reads as", ptkp(), { show: `${ptkp()} <span class="hint">PTKP</span>` })}
+  </div>`),
+  address: () => sec("Address on the KTP", `<div class="facts">
+    ${F("Street", P().address, { key: "address", span: 2 })}
+    ${F("RT/RW", P().rtrw, { key: "rtrw" })}
+    ${F("Village", P().village, { key: "village" })}
+    ${F("District", P().district, { key: "district" })}
+    ${F("City", P().city, { key: "city" })}
+    ${F("Province", P().province, { key: "province" })}
+  </div>`),
+  contact: () => sec("Contact", `<div class="facts">
+    ${F("Phone", P().phone, { key: "phone" })}
+    ${F("Email", P().email, { key: "email", span: 2 })}
+    ${F("Emergency contact", P().eName, { key: "eName" })}
+    ${F("Relation", P().eRelation, { key: "eRelation" })}
+    ${F("Their phone", P().ePhone, { key: "ePhone" })}
+  </div>`),
+  papers: () => {
+    const missing = PAPER_KINDS.filter(([k, , req]) => req && !S.papers[k]).length;
+    return sec("Papers", `<div class="papers">${PAPER_KINDS.map(([k, label, req]) => paperRow(k, label, req)).join("")}</div>`,
+      missing ? `<span class="bad">${missing} required missing</span>` : "");
+  },
+  job: () => sec("Job", `<div class="facts">
+    ${F("Position", P().position)}
+    ${F("Grade", P().grade)}
+    ${F("Store", P().store, { show: `<a class="lk" data-open="store">${P().store} · ${P().storeCode}</a>` })}
+    ${F("Reports to", P().reportsTo, { show: `<a class="lk" data-open="boss">${P().reportsTo}</a>` })}
+    ${F("Joined", P().joined)}
+    ${F("Contract", `${P().kind} · until ${P().to}`, { show: `${P().kind} · until ${P().to} <span class="hint">· ${P().left} left</span>` })}
+  </div>`),
+  contracts: () => sec("Contracts", `<div class="st"><table>
+      <thead><tr><th>Contract</th><th>From</th><th>Until</th><th>Signed copy</th></tr></thead>
+      <tbody>
+        <tr><td>PKWT · second term</td><td>2 Jun 2026</td><td>1 Jun 2027</td><td>${S.papers.CONTRACT ? `<a class="lk" data-open="paper:CONTRACT">PKWT-0142-2026.pdf</a>` : `<span class="bad">Missing</span>`}</td></tr>
+        <tr><td>PKWT · first term</td><td>2 Jun 2025</td><td>1 Jun 2026</td><td><a class="lk" data-open="paper:CONTRACT">PKWT-0142-2025.pdf</a></td></tr>
+      </tbody></table></div>
+      ${isHO() ? `<div style="margin-top:12px"><button class="btn sm" data-act="draft"><i data-lucide="file-pen-line"></i>Draft contract</button></div>` : ""}`),
+  history: () => sec("History", `<div class="st"><table><tbody>
+      <tr><td class="mute" style="width:140px">2 Jun 2026</td><td>Second PKWT signed, Cashier, Staff 2</td></tr>
+      <tr><td class="mute">1 Dec 2025</td><td>Grade Staff 1 → Staff 2</td></tr>
+      <tr><td class="mute">2 Jun 2025</td><td>Joined Purwokerto as Cashier</td></tr>
+    </tbody></table></div>`),
+  schedule: () => {
+    const wk = [["Mon 26", "Morning", "07:30–16:30", 8], ["Tue 27", "Morning", "07:30–16:30", 8], ["Wed 28", "Day off", "", 0], ["Thu 29", "Late", "13:00–22:00", 8], ["Fri 30", "Late", "13:00–22:00", 8], ["Sat 31", "Morning", "07:30–16:30", 8], ["Sun 1", "Day off", "", 0]];
+    const next = 32;
+    return sec("Schedule", `<div class="week">${wk.map(([d, s, h]) => `<div class="day${h ? "" : " off"}"><div class="d">${d}</div><div class="s">${s}</div><div class="h">${h}</div></div>`).join("")}</div>
+      <div class="wk-total"><b class="num">40 h</b><span class="ok">this week · 40 h minimum</span></div>
+      <div class="wk-total" style="margin-top:4px"><b class="num">${next} h</b><span class="bad">next week · ${40 - next} h short</span></div>`);
+  },
+  attendance: () => sec("Attendance", `<div class="facts" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+      ${F("Worked", "21 days")}${F("Late", "2 days", { show: `<span class="warn">2 days</span>` })}${F("Absent", "0")}${F("On leave", "1 day")}
+    </div>
+    <div class="st" style="margin-top:16px"><table>
+      <thead><tr><th>Day</th><th>Shift</th><th>In</th><th>Out</th><th class="r">Worked</th></tr></thead>
+      <tbody>
+        <tr><td>Sat 24 Oct</td><td>Morning</td><td class="num">07:24</td><td class="num">16:41</td><td class="r num">8 h</td></tr>
+        <tr><td>Fri 23 Oct</td><td>Morning</td><td class="num warn">07:46</td><td class="num">16:33</td><td class="r num">7 h 47 m</td></tr>
+        <tr><td>Thu 22 Oct</td><td>Late</td><td class="num">12:52</td><td class="num">22:05</td><td class="r num">8 h</td></tr>
+        <tr><td>Wed 21 Oct</td><td>Day off</td><td class="mute">—</td><td class="mute">—</td><td class="r mute">—</td></tr>
+      </tbody></table></div>`, "October"),
+  leave: () => sec("Leave", `<div class="facts" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+      ${F("Annual · earned", "5 days")}${F("Taken", "1 day")}${F("Left", "4 days", { show: `<b style="font-weight:600">4 days</b>` })}${F("Sick", "1 day")}
+    </div>`, "Earned monthly since 2 Jun 2026"),
+  overtime: () => sec("Overtime", `<div class="st"><table><tbody>
+      <tr><td style="width:140px">Fri 16 Oct</td><td>2 h · stock count</td><td class="ok">Agreed</td></tr>
+      <tr><td>Sat 3 Oct</td><td>1 h · promo set-up</td><td class="ok">Agreed</td></tr>
+    </tbody></table></div>`, "3 h in October"),
+  pay: () => sec("Remuneration", `<div class="facts">
+      ${F("Base pay", "Rp 2.350.000", { show: `<span class="num">Rp 2.350.000</span>` })}
+      ${F("Meal allowance", "Rp 15.000 a day")}
+      ${F("Transport", "Rp 200.000 a month")}
+      ${F("PTKP", "K/2")}
+      ${F("PPh 21", "Gross, withheld")}
+      ${F("Paid into", "BRI ···· 4471")}
+      ${F("BPJS Kesehatan", P().bpjsKes)}
+      ${F("BPJS Ketenagakerjaan", P().bpjsTk)}
+      ${F("NPWP", P().npwp)}
+    </div>
+    <div class="st" style="margin-top:16px"><table>
+      <thead><tr><th>Payslip</th><th class="r">Net</th></tr></thead>
+      <tbody><tr><td><a class="lk" data-open="slip">September 2026</a></td><td class="r num">Rp 2.912.400</td></tr>
+      <tr><td><a class="lk" data-open="slip">August 2026</a></td><td class="r num">Rp 2.874.100</td></tr></tbody></table></div>`),
+  loans: () => sec("Loans & benefit", `<div class="facts">
+      ${F("Kasbon", "Rp 250.000 left of Rp 500.000", { show: `<span class="num">Rp 250.000</span> <span class="hint">left of 500.000</span>` })}
+      ${F("Repaid by", "Rp 125.000 a month")}
+      ${F("Benefit balance", "Rp 150.000")}
+    </div>`),
+  login: () => sec("Login", `<div class="facts">
+      ${F("Username", "siti.rahayu")}
+      ${F("Rung", "Cashier")}
+      ${F("Signs in at", "Purwokerto · 3 POS")}
+      ${F("POS access", "Allowed", { show: `<span class="ok">Allowed</span>` })}
+      ${F("Last sign-in", "Today 07:58 · Kasir 2")}
+      ${F("Invited by", "Dewi Lestari · 2 Jun 2025")}
+    </div>${isHO() ? `<div style="margin-top:14px"><button class="btn red sm" data-act="stoppos">Stop POS access</button></div>` : ""}`),
+  password: () => sec("Password", `<div class="facts">
+      ${F("Last changed", "3 Sep 2026")}
+      ${F("Chosen by", "Siti, from her invite")}
+    </div><div style="margin-top:14px"><button class="btn sm" data-act="reset">Send a reset link</button></div>`),
+  fingers: () => sec("Fingerprints", `<div class="st"><table>
+      <thead><tr><th>Finger</th><th>Recorded</th><th>Approved</th></tr></thead>
+      <tbody>
+        <tr><td>Right thumb</td><td>2 Jun 2025 · Kasir 1</td><td class="ok">Rina Wulandari</td></tr>
+        <tr><td>Right index</td><td>2 Jun 2025 · Kasir 1</td><td class="ok">Rina Wulandari</td></tr>
+        <tr><td>Left index</td><td>Today 08:05 · Kasir 2</td><td>${isHO() ? `<button class="btn sm" data-act="finger">Approve</button>` : `<span class="warn">Waiting on head office</span>`}</td></tr>
+      </tbody></table></div>`),
+};
+
+function paperRow(k, label, req) {
+  const p = S.papers[k];
+  const pending = S.change && S.change.papers.find(([pk]) => pk === k);
+  const cls = { PHOTO: "face", KTP: "ktp", KK: "kk", SKCK: "pdf", CONTRACT: "pdf" }[k];
+  const ic = { PHOTO: "user", KTP: "id-card", KK: "users", SKCK: "file-text", CONTRACT: "file-signature" }[k];
+  if (!p) {
+    return `<div class="paper missing"><div class="thumb"><i data-lucide="${ic}"></i></div>
+      <div class="two"><span class="a">${label}<span class="req">${req ? "Required" : ""}</span></span>
+      <span class="b">${pending ? `<span class="info">${esc(pending[1])} waiting on head office</span>` : `<span class="bad">Missing</span>`}</span></div>
+      ${isHO() ? `<button class="btn sm" data-act="upload:${k}">Upload</button>` : ""}</div>`;
+  }
+  return `<div class="paper"><div class="thumb ${cls}" data-open="paper:${k}" role="button" aria-label="Open ${label}"><i data-lucide="${ic}"></i></div>
+    <div class="two"><span class="a">${label}${req ? `<span class="req">Required</span>` : ""}</span>
+    <span class="b"><a class="lk" data-open="paper:${k}">${esc(p.file)}</a> · ${p.at}</span>
+    ${pending ? `<span class="b info">New ${esc(pending[1])} waiting on head office</span>` : ""}</div>
+    ${isHO() ? `<button class="textbtn" data-act="upload:${k}">Replace</button>` : ""}</div>`;
+}
+
+/* ───────────────────────── option shapes ───────────────────────── */
+function tabsOf(opt) {
+  const ho = isHO();
+  if (opt === "now") return [
+    ["Record", ["nowRecord"]], ["Fingerprints", ["fingers"]], ["Leave", ["leave"]], ["Claims", ["nowClaims"]],
+    ["Contracts", ["contracts"]], ["Position", ["job"]], ["Checklist", ["nowChecklist"]], ["Discipline", ["nowDiscipline"]],
+    ...(ho ? [["Pay", ["pay"]]] : []), ["Loans", ["loans"]], ["Benefit", ["loans"]], ["Exit", ["nowExit"]], ...(ho ? [["Change", ["nowChange"]]] : []),
+  ];
+  if (opt === "six") return [
+    ["Information", ["personal", "family", "address", "contact", "job"]],
+    ["User", ["login"]], ["Fingerprint", ["fingers"]], ...(ho ? [["Password", ["password"]]] : []),
+    ["Attendance", ["schedule", "attendance", "leave", "overtime"]], ...(ho ? [["Remuneration", ["pay", "loans"]]] : []),
+  ];
+  // Frappe HR develop (v16): ten tabs, in this order (hrms/setup.py,
+  // patches/v16_0/add_employee_overview_tab.py, erpnext employee.json)
+  if (opt === "erp") return [
+    ["Details", ["erpDetails"]], ["Overview", ["erpOverview"]], ["Address & Contacts", ["erpContacts"]],
+    ["Attendance & Leaves", ["erpAttendance"]], ...(ho ? [["Salary", ["erpSalary"]]] : []),
+    ["Personal Details", ["erpPersonal"]], ["Profile", ["erpProfile"]], ["Joining", ["erpJoining"]],
+    ["Exit", ["erpExit"]], ["Connections", ["erpConnections"]],
+  ];
+  return [
+    ["Profile", ["personal", "family", "address", "contact"]],
+    ["Work", ["job", "contracts", "history"]],
+    ["Time", ["schedule", "attendance", "leave", "overtime"]],
+    ...(ho ? [["Pay", ["pay", "loans"]]] : []),
+    ["Access", ["login", "fingers", ...(ho ? ["password"] : [])]],
+  ];
+}
+const EDITABLE = new Set(["personal", "family", "address", "contact"]);
+
+/* the hub as it is today, and ERPNext's own groupings */
+Object.assign(SEC, {
+  nowRecord: () => sec("Record", `<div class="facts">
+      ${F("Status", "Active", { show: `<span class="ok">Active</span>` })}
+      ${F("Posted to", "Purwokerto")}${F("Job", "Cashier")}
+      ${F("Contract", "PKWT until 1 Jun 2027")}${F("Login", "siti.rahayu")}${F("Registered", "2 Jun 2025")}
+    </div>`),
+  nowClaims: () => sec("Claims", `<div class="st"><table><tbody><tr><td>Medical · 12 Sep 2026</td><td class="r num">Rp 185.000</td><td class="ok">Paid</td></tr></tbody></table></div>`),
+  nowChecklist: () => sec("Checklist", `<div class="st"><table><tbody><tr><td>Uniform handed over</td><td class="ok">Done · 2 Jun 2025</td></tr><tr><td>BPJS Ketenagakerjaan registered</td><td class="warn">Open</td></tr></tbody></table></div>`),
+  nowDiscipline: () => sec("Discipline", `<div class="facts">${F("Warning letters", "0")}</div>`),
+  nowExit: () => sec("Exit", `<div class="facts">${F("Resignation letter", "")}${F("Last day", "")}${F("Reason", "")}</div>`),
+  nowChange: () => sec("Change", `<div class="st"><table><tbody>
+      ${["Employment status", "Where they are posted", "Add a contract", "Correct the employee number", "The login", "Amend personal data"].map((t) => `<tr><td>${t}</td><td class="r"><i data-lucide="chevron-right"></i></td></tr>`).join("")}
+    </tbody></table></div>`),
+  erpDetails: () => sec("Name", `<div class="facts">
+      ${F("First name", "Siti")}${F("Middle name", "")}${F("Last name", "Rahayu")}
+      ${F("Gender", P().gender)}${F("Date of birth", P().birthDate)}${F("Date of joining", P().joined)}
+      ${F("Status", "Active")}${F("Salutation", "Ms")}
+    </div>`) + sec("User details", `<div class="facts">${F("User ID", "siti.rahayu")}${F("Create user permission", "Yes")}</div>`)
+    + sec("Company details", `<div class="facts">
+      ${F("Company", "PT Sumber Retail")}${F("Department", "Store operations")}${F("Employment type", "Contract")}
+      ${F("Employee number", P().code)}${F("Designation", P().position)}${F("Reports to", P().reportsTo)}
+      ${F("Branch", P().store)}${F("Grade", P().grade)}
+    </div>`),
+  erpOverview: () => sec("Current fiscal year", `<div class="facts" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+      ${F("Gross pay", "Rp 26.410.000")}${F("Present", "211 days")}${F("Leave balance", "4 days")}${F("Expense claims", "Rp 185.000")}
+    </div>`) + sec("Recent", `<div class="st"><table><tbody>
+      <tr><td>Salary Slip</td><td>September 2026</td><td class="r num">Rp 2.912.400</td></tr>
+      <tr><td>Leave Application</td><td>9 Oct 2026 · 1 day</td><td class="r ok">Approved</td></tr>
+      <tr><td>Expense Claim</td><td>12 Sep 2026</td><td class="r ok">Paid</td></tr>
+    </tbody></table></div>`),
+  erpContacts: () => sec("Contact details", `<div class="facts">
+      ${F("Mobile", P().phone)}${F("Personal email", P().email)}${F("Company email", "")}${F("Preferred email", "Personal email")}
+    </div>`) + sec("Address", `<div class="facts two-col">
+      ${F("Current address", `${P().address}, RT/RW ${P().rtrw}, ${P().village}, ${P().district}, ${P().city}`)}${F("Current address is", "Rented")}
+      ${F("Permanent address", "")}${F("Permanent address is", "")}
+    </div>`) + sec("Emergency contact", `<div class="facts">
+      ${F("Emergency contact name", P().eName)}${F("Emergency phone", P().ePhone)}${F("Relation", P().eRelation)}
+    </div>`),
+  erpAttendance: () => sec("Attendance", `<div class="facts">
+      ${F("Attendance device ID", "PWT-0142")}${F("Default shift", "Morning")}
+    </div>`) + sec("Approvers", `<div class="facts">
+      ${F("Expense approver", P().reportsTo)}${F("Leave approver", P().reportsTo)}${F("Shift request approver", P().reportsTo)}
+    </div>`),
+  erpSalary: () => sec("Salary", `<div class="facts">
+      ${F("Cost to company (CTC)", "Rp 2.350.000")}${F("Salary currency", "IDR")}${F("Salary mode", "Bank")}
+      ${F("Payroll cost center", "Purwokerto")}${F("Employee advance account", "Kasbon karyawan")}
+    </div>`) + sec("Bank details", `<div class="facts">${F("Bank name", "BRI")}${F("Bank A/C no.", "···· 4471")}${F("IBAN", "")}</div>`),
+  erpPersonal: () => sec("Personal details", `<div class="facts">
+      ${F("Marital status", P().marital)}${F("Blood group", `${P().blood}+`)}
+      ${F("Family background", "Suami Ahmad Fauzi, 2 anak", { span: 3 })}${F("Health details", "", { span: 3 })}
+    </div>`) + sec("Health insurance", `<div class="facts">${F("Health insurance provider", "BPJS Kesehatan")}${F("Health insurance no.", P().bpjsKes)}</div>`)
+    + sec("Passport details", `<div class="facts">${F("Passport number", "")}${F("Valid up to", "")}${F("Date of issue", "")}${F("Place of issue", "")}</div>`),
+  erpProfile: () => sec("Education", `<div class="st"><table>
+      <thead><tr><th>School/University</th><th>Qualification</th><th>Year of passing</th></tr></thead>
+      <tbody><tr><td>SMK Negeri 1 Purwokerto</td><td>Akuntansi</td><td>2016</td></tr></tbody></table></div>`)
+    + sec("External work history", `<div class="st"><table>
+      <thead><tr><th>Company</th><th>Designation</th><th>From</th><th>To</th></tr></thead>
+      <tbody><tr><td>Indomaret Purwokerto</td><td>Kasir</td><td>2017</td><td>2025</td></tr></tbody></table></div>`)
+    + sec("Internal work history", `<div class="st"><table>
+      <thead><tr><th>Branch</th><th>Designation</th><th>From</th></tr></thead>
+      <tbody><tr><td>Purwokerto</td><td>Cashier</td><td>2 Jun 2025</td></tr></tbody></table></div>`),
+  erpJoining: () => sec("Joining", `<div class="facts">
+      ${F("Offer date", "20 May 2025")}${F("Confirmation date", "")}${F("Contract end date", P().to)}
+      ${F("Notice (days)", "30")}${F("Date of retirement", "14 Jul 2054")}${F("Job offer", "HR-OFF-2025-0031")}
+    </div>`),
+  erpExit: () => sec("Exit", `<div class="facts">
+      ${F("Resignation letter date", "")}${F("Relieving date", "")}${F("Exit interview held on", "")}
+      ${F("New workplace", "")}${F("Leave encashed?", "")}${F("Encashment date", "")}
+    </div>`) + sec("Feedback", `<div class="facts two-col">${F("Reason for leaving", "")}${F("Feedback", "")}</div>`),
+  erpConnections: () => sec("Connections", `<div class="conn">
+      ${[["Attendance", [["Attendance", 211], ["Attendance Request", 2], ["Employee Checkin", 422]]],
+         ["Leave", [["Leave Application", 3], ["Leave Allocation", 2], ["Leave Policy Assignment", 1], ["Holiday List Assignment", 1]]],
+         ["Lifecycle", [["Employee Onboarding", 1], ["Employee Transfer", 0], ["Employee Promotion", 1], ["Employee Grievance", 0]]],
+         ["Employee Exit", [["Employee Separation", 0], ["Exit Interview", 0], ["Full and Final Statement", 0]]],
+         ["Shift", [["Shift Request", 1], ["Shift Assignment", 74]]],
+         ["Expense", [["Expense Claim", 1], ["Travel Request", 0], ["Employee Advance", 1]]],
+         ["Payroll", [["Salary Structure Assignment", 2], ["Salary Slip", 16], ["Additional Salary", 3]]],
+         ["Training", [["Training Event", 1], ["Employee Skill Map", 0]]],
+         ["Evaluation", [["Appraisal", 0]]]]
+        .map(([g, rows]) => `<div><h4>${g}</h4>${rows.map(([n, c]) => `<a><span>${n}</span><b class="num">${c}</b></a>`).join("")}</div>`).join("")}
+    </div>`),
+});
+
+/* ───────────────────────── render: shell + list ───────────────────────── */
+function renderShell() {
+  $("#rail").innerHTML = `<div class="logo">C</div>
+    ${["layout-grid", "package", "shopping-bag", "wallet", "users", "building-2"].map((ic, i) => `<div class="ic${i === 4 ? " on" : ""}"><i data-lucide="${ic}"></i></div>`).join("")}
+    <div class="gap"></div><div class="me">${isHO() ? "RW" : "DL"}</div>`;
+  const hoNav = [["layout-grid", "Overview"], ["users", "Employees", 1], ["calendar-range", "Schedules"], ["fingerprint", "Attendance"], ["wallet", "Payroll"], ["receipt-text", "Claims"], ["gift", "Benefits"], ["hand-coins", "Loans"], ["settings", "Settings"]];
+  const storeNav = [["gauge", "Overview"], ["users", "Staff", 1], ["grp", "Time"], ["calendar-range", "Schedule"], ["fingerprint", "Attendance"], ["calendar-check", "Period close"], ["sun", "Requests"], ["clock-4", "Overtime"], ["grp", "Pay"], ["banknote", "Payroll"], ["receipt", "Expenses"]];
+  $("#dept").innerHTML = `<div class="head">${isHO() ? "People" : "People <span>Purwokerto</span>"}</div><nav>${(isHO() ? hoNav : storeNav)
+    .map(([ic, l, on]) => (ic === "grp" ? `<div class="grp">${l}</div>` : `<a class="${on ? "on" : ""}"><i data-lucide="${ic}"></i>${l}</a>`)).join("")}</nav>`;
+}
+
+const PEOPLE = [
+  ["Siti Rahayu", "EMP-0142", "Cashier", "Purwokerto", "1 Jun 2027", "kk"],
+  ["Dewi Lestari", "EMP-0088", "Store head", "Purwokerto", "Permanent", ""],
+  ["Bayu Pratama", "EMP-0151", "Cashier", "Purwokerto", "14 Feb 2027", ""],
+  ["Nur Aini", "EMP-0163", "Stock keeper", "Purwokerto", "3 Mar 2027", "skck"],
+  ["Rizky Ananda", "EMP-0097", "Cashier", "Cilacap", "30 Nov 2026", ""],
+  ["Wulan Sari", "EMP-0112", "Stock keeper", "Banjarnegara", "Permanent", ""],
+];
+function renderList() {
+  const rows = PEOPLE.filter((p) => isHO() || p[3] === "Purwokerto");
+  const papersCell = (p) => {
+    if (p[0] === "Siti Rahayu") return S.papers.KK ? `<span class="ok">Complete</span>` : `<span class="bad">KK missing</span>`;
+    return p[5] === "skck" ? `<span class="mute">No SKCK</span>` : `<span class="ok">Complete</span>`;
+  };
+  $("#content").innerHTML = `<div class="pagehead"><h1>${isHO() ? "Employees" : "Staff"}</h1><div class="sub">${isHO() ? "186 active · 13 stores" : "9 at Purwokerto"}</div></div>
+    <div class="card"><table class="dt"><thead><tr><th>Name</th><th class="hide-p">Position</th><th class="hide-p">${isHO() ? "Store" : "Contract ends"}</th>${isHO() ? `<th class="hide-p">Contract ends</th>` : ""}<th>Papers</th></tr></thead><tbody>
+    ${rows.map((p) => `<tr class="click" data-person="${p[1]}"><td><div class="two"><span class="a">${p[0]}</span><span class="b">${p[1]}</span></div></td>
+      <td class="hide-p">${p[2]}</td><td class="hide-p">${isHO() ? p[3] : p[4]}</td>${isHO() ? `<td class="hide-p">${p[4]}</td>` : ""}<td>${papersCell(p)}</td></tr>`).join("")}
+    </tbody></table></div>`;
+  $("#content").onclick = (e) => {
+    const r = e.target.closest("tr[data-person]");
+    if (!r) return;
+    if (r.dataset.person !== "EMP-0142") { toast("This prototype opens Siti Rahayu"); return; }
+    S.view = "profile";
+    if (S.opt === "now") openLayer({ type: "profile" });
+    else { renderMain(); $("#content").scrollTop = 0; }
+  };
+}
+
+/* ───────────────────────── render: the profile (sheet today, page in every option) ───────────────────────── */
+function missingKinds() {
+  return PAPER_KINDS.filter(([k, , r]) => r && !S.papers[k]).map(([k]) => k);
+}
+function figCells() {
+  const missing = missingKinds();
+  return `<div><div class="l">Joined</div><div class="v">${P().joined}</div></div>
+    <div><div class="l">Contract ends</div><div class="v">${P().to} <small>${P().kind}</small></div></div>
+    <div><div class="l">Leave left</div><div class="v">4 days</div></div>
+    <div><div class="l">Papers</div><div class="v ${missing.length ? "bad" : "ok"}">${missing.length ? `${missing.join(", ")} missing` : "Complete"}</div></div>`;
+}
+const figs = () => `<div class="figs">${figCells()}</div>`;
+const pfigs = () => `<div class="pfigs">${figCells()}</div>`;
+
+function banner() {
+  if (!S.change) return "";
+  const what = [...S.change.fields.map((f) => f[0]), ...S.change.papers.map(([k]) => `${k} scan`)];
+  const list = what.length > 2 ? `${what.slice(0, -1).join(", ")} and ${what.at(-1)}` : what.join(" and ");
+  if (isHO()) {
+    return `<div class="banner warn"><i data-lucide="inbox"></i><div class="t"><b>Purwokerto asks to change ${esc(list)}</b><span>${esc(S.change.by)} · ${S.change.at}</span></div><button class="btn sm" data-act="review">Review</button></div>`;
+  }
+  return `<div class="banner info"><i data-lucide="hourglass"></i><div class="t"><b>Waiting on head office</b><span>${esc(list)} · sent ${S.change.at}</span></div><button class="textbtn" data-act="withdraw">Withdraw</button></div>`;
+}
+
+function bodyFor(keys) {
+  return keys.map((k) => SEC[k]()).join("");
+}
+
+/* Now: the hub's sheet, as it is */
+function profileSheet() {
+  const tabs = tabsOf("now");
+  const cur = tabs.find(([t]) => t === S.tab.now) ? S.tab.now : tabs[0][0];
+  S.tab.now = cur;
+  const keys = tabs.find(([t]) => t === cur)[1];
+  return `<div class="sh-head"><div class="who">
+      <div class="avatar">${initials(P().name)}</div>
+      <div style="min-width:0"><h2>${esc(P().name)}</h2><div class="sub">${P().code} · ${P().position} · ${P().store} · <span class="ok">Active</span></div></div>
+    </div><button class="x" data-act="close" aria-label="Close"><i data-lucide="x"></i></button></div>
+    ${figs()}
+    <div class="stabs scroll" role="tablist">${tabs.map(([t]) => `<button role="tab" aria-selected="${t === cur}" data-tab="${t}">${t}</button>`).join("")}</div>
+    <div class="sh-body swap" id="body">${banner()}${bodyFor(keys)}</div>
+    <div class="sh-foot"><button class="textbtn" data-act="print"><i data-lucide="printer"></i>Print</button><span class="grow"></span></div>`;
+}
+
+const PAPER_ICON = { PHOTO: "user", KTP: "id-card", KK: "users", SKCK: "file-text", CONTRACT: "file-signature" };
+const PAPER_TINT = { PHOTO: "face", KTP: "ktp", KK: "kk", SKCK: "pdf", CONTRACT: "pdf" };
+function paperLine(k, label, req) {
+  const p = S.papers[k];
+  const pending = S.change && S.change.papers.find(([pk]) => pk === k);
+  const tag = req ? `<span class="req">Required</span>` : "";
+  if (!p) {
+    return `<div class="prow missing"><div class="thumb"><i data-lucide="${PAPER_ICON[k]}"></i></div>
+      <div class="two"><span class="a">${label}${tag}</span><span class="b">${pending ? `<span class="info">${esc(pending[1])} · waiting</span>` : `<span class="bad">Missing</span>`}</span></div>
+      ${isHO() ? `<button class="btn sm" data-act="upload:${k}">Upload</button>` : ""}</div>`;
+  }
+  return `<div class="prow"><div class="thumb ${PAPER_TINT[k]}" data-open="paper:${k}" role="button" aria-label="Open ${label}"><i data-lucide="${PAPER_ICON[k]}"></i></div>
+    <div class="two"><span class="a">${label}${tag}</span><span class="b">${pending ? `<span class="info">New ${esc(pending[1])} · waiting</span>` : `<a class="lk" data-open="paper:${k}">${esc(p.file)}</a>`}</span></div>
+    ${isHO() ? `<button class="textbtn" data-act="upload:${k}">Replace</button>` : ""}</div>`;
+}
+const paperAside = () => {
+  const missing = missingKinds().length;
+  return sec("Papers", PAPER_KINDS.map(([k, l, r]) => paperLine(k, l, r)).join(""),
+    missing ? `<span class="bad">${missing} missing</span>` : `<span class="ok">Complete</span>`);
+};
+const activity = () => sec("Activity", `<div class="acts-list">
+    <div><b style="font-weight:500">Left index recorded</b><span>Today 08:05 · Kasir 2 · Dewi Lestari</span></div>
+    <div><b style="font-weight:500">Phone changed</b><span>3 Oct 2026 · Rina Wulandari, on Dewi's change</span></div>
+    <div><b style="font-weight:500">Second PKWT signed</b><span>2 Jun 2026 · Rina Wulandari</span></div>
+    <div><b style="font-weight:500">Joined Purwokerto</b><span>2 Jun 2025 · Dewi Lestari</span></div>
+  </div>`);
+
+function profilePage() {
+  const opt = S.opt;
+  const tabs = tabsOf(opt);
+  const cur = tabs.find(([t]) => t === S.tab[opt]) ? S.tab[opt] : tabs[0][0];
+  S.tab[opt] = cur;
+  const keys = tabs.find(([t]) => t === cur)[1];
+  const canEdit = isHO() && (opt === "one" || keys.some((k) => EDITABLE.has(k)));
+
+  const acts = S.edit
+    ? `<button class="textbtn" data-act="discard">Discard</button><button class="btn" data-act="save">Save</button>`
+    : isHO()
+      ? `<button class="textbtn" data-act="print"><i data-lucide="printer"></i>Print</button>${canEdit ? `<button class="btn" data-act="edit">Edit</button>` : ""}`
+      : S.change ? "" : `<button class="btn" data-act="ask">Change data</button>`;
+
+  const head = `<div class="crumb"><a data-act="back">${isHO() ? "Employees" : "Staff"}</a><i data-lucide="chevron-right"></i><span>${esc(P().name)}</span></div>
+    <div class="phead"><div class="who">
+      <div class="avatar${S.papers.PHOTO ? "" : " none"}">${S.papers.PHOTO ? initials(P().name) : `<i data-lucide="user"></i>`}</div>
+      <div style="min-width:0"><h1>${esc(P().name)}</h1><div class="sub">${P().code} · ${P().position} · <a class="lk" data-open="store">${P().store}</a> · <span class="ok">Active</span></div></div>
+    </div><div class="acts">${acts}</div></div>`;
+
+  const fits = opt === "five";
+  const strip = `<div class="ptabs${fits ? " fits" : " phone-hide"}${opt === "erp" ? " scroll" : ""}" role="tablist">${tabs.map(([t]) => `<button role="tab" aria-selected="${t === cur}" data-tab="${t}">${t}</button>`).join("")}</div>`;
+
+  let main;
+  if (opt === "one") {
+    const parts = tabsOf("five").map(([t, ks]) => [t, t === "Profile" ? [...ks, "papers"] : ks]);
+    main = `${pfigs()}${banner()}<div class="onepage-p">
+      <nav class="idx">${parts.map(([t]) => `<button class="${t === S.part ? "on" : ""}" data-jump="${t}">${t}</button>`).join("")}</nav>
+      <div class="pmain swap" id="body">${parts.map(([t, ks]) => `<h2 class="part-h" id="part-${t}">${t}</h2>${bodyFor(ks)}`).join("")}</div></div>`;
+  } else if (opt === "erp") {
+    main = `${banner()}<div class="erp-page"><aside class="erp-side">
+        <div class="big">${initials(P().name)}</div>
+        <div><h4>Attachments</h4><div class="att">${PAPER_KINDS.filter(([k]) => S.papers[k]).map(([k]) => `<a data-open="paper:${k}"><i data-lucide="paperclip"></i><span>${esc(S.papers[k].file)}</span></a>`).join("")}
+          ${isHO() ? `<a data-act="upload:KK" style="color:var(--accent)"><i data-lucide="plus" style="color:var(--accent)"></i><span>Attach a file</span></a>` : ""}</div></div>
+        <div><h4>Assigned to</h4><div class="mute">Rina Wulandari</div></div>
+        <div><h4>Tags</h4><div class="mute">Purwokerto</div></div>
+      </aside><div class="pmain">${strip}<div class="pmain swap" id="body">${bodyFor(keys)}</div></div></div>`;
+  } else {
+    main = `${pfigs()}${banner()}${strip}<div class="pgrid"><div class="pmain swap" id="body">${bodyFor(keys)}</div><aside class="paside">${paperAside()}${activity()}</aside></div>`;
+  }
+
+  const chip = opt === "one" || fits ? "" : `<button class="chipbtn" data-act="pickTab">${cur}<i data-lucide="chevron-down"></i></button>`;
+  const primary = S.edit ? `<button class="btn" data-act="save">Save</button>`
+    : isHO() ? (canEdit ? `<button class="btn" data-act="edit">Edit</button>` : "")
+    : S.change ? "" : `<button class="btn" data-act="ask">Change data</button>`;
+  const dock = chip || primary ? `<div class="pdock">${chip}${primary}</div>` : "";
+  return `<div class="ppage">${head}${main}${dock}</div>`;
+}
+
+const PAGE = { type: "profile", page: true };
+function renderMain(swap) {
+  if (S.opt === "now" || S.view === "list") { renderList(); return; }
+  const c = $("#content");
+  const keep = c.scrollTop;
+  const draw = () => {
+    c.innerHTML = profilePage();
+    PAGE.el = c;
+    wire(c, PAGE);
+    icons();
+    c.scrollTop = keep;
+    const b = c.querySelector("#body");
+    if (swap && b) { b.classList.add("out"); b.getBoundingClientRect(); b.classList.remove("out"); }
+  };
+  const old = c.querySelector(".ppage #body");
+  if (swap && old) { old.classList.add("out"); setTimeout(draw, 100); } else draw();
+}
+
+/* after anything changes the record: the page, or the list and the sheet over it */
+function refreshProfile(swap) {
+  if (S.opt === "now") {
+    renderList();
+    const l = profileLayer();
+    l && refreshLayer(l, swap);
+  } else renderMain(swap);
+}
+
+/* ───────────────────────── other layers ───────────────────────── */
+const CHANGEABLE = [
+  ["Personal", [["Full name", "name"], ["NIK", "nik"], ["Place of birth", "birthPlace"], ["Date of birth", "birthDate"], ["Gender", "gender", ["Female", "Male"]], ["Religion", "religion", ["Islam", "Christian", "Catholic", "Hindu", "Buddhist", "Confucian", "Other"]]]],
+  ["Family", [["Marital status", "marital", ["Single", "Married", "Divorced", "Widowed"]], ["Children", "children", [0, 1, 2, 3, 4, 5]]]],
+  ["Address on the KTP", [["Street", "address"], ["RT/RW", "rtrw"], ["Village", "village"], ["District", "district"], ["City", "city"], ["Province", "province"]]],
+  ["Contact", [["Phone", "phone"], ["Email", "email"], ["Emergency contact", "eName"], ["Relation", "eRelation"], ["Their phone", "ePhone"]]],
+];
+
+function askSheet() {
+  return `<div class="sh-head"><div class="who"><div style="min-width:0"><h2>Change data</h2><div class="sub">${esc(P().name)} · ${P().code}</div></div></div>
+      <button class="x" data-act="close" aria-label="Close"><i data-lucide="x"></i></button></div>
+    <div class="sh-body" style="padding-top:8px">
+      ${CHANGEABLE.map(([title, rows]) => sec(title, `<div class="facts">${rows.map(([l, k, ch]) => `<div><div class="l">${l}</div>${ch
+          ? `<select class="inp" data-ask="${k}">${ch.map((c) => `<option${c == P()[k] ? " selected" : ""}>${c}</option>`).join("")}</select>`
+          : `<input class="inp" data-ask="${k}" value="${esc(P()[k])}">`}</div>`).join("")}</div>`)).join("")}
+      ${sec("Papers", `<div class="papers">${PAPER_KINDS.map(([k, label, req]) => `<div class="paper${!S.papers[k] ? " missing" : ""}" data-slot="${k}">
+          <div class="thumb"><i data-lucide="${S.papers[k] ? "file-check" : "upload"}"></i></div>
+          <div class="two"><span class="a">${label}<span class="req">${req ? "Required" : ""}</span></span><span class="b">${S.papers[k] ? esc(S.papers[k].file) : `<span class="bad">Missing</span>`}</span></div>
+          <button class="btn sm" data-act="addscan:${k}">${S.papers[k] ? "Replace" : "Add scan"}</button></div>`).join("")}</div>`)}
+      ${sec("Reason", `<textarea class="inp" id="askReason" placeholder="Pindah rumah, KK baru"></textarea>`)}
+    </div>
+    <div class="sh-foot"><span class="said" id="askCount">Nothing changed yet</span><span class="grow"></span><button class="btn" data-act="send" id="sendBtn" disabled>Send to head office</button></div>`;
+}
+
+function reviewSheet() {
+  const c = S.change;
+  return `<div class="sh-head"><div class="who"><div style="min-width:0"><h2>Change for ${esc(P().name)}</h2><div class="sub">${esc(c.by)} · Purwokerto · ${c.at}</div></div></div>
+      <button class="x" data-act="close" aria-label="Close"><i data-lucide="x"></i></button></div>
+    <div class="sh-body" style="padding-top:8px">
+      <div class="st"><table><thead><tr><th>Field</th><th>Now</th><th>Becomes</th></tr></thead><tbody>
+        ${c.fields.map(([l, , was, to]) => `<tr><td>${l}</td><td class="mute">${esc(was)}</td><td><b style="font-weight:500">${esc(to)}</b></td></tr>`).join("")}
+        ${c.papers.map(([k, f]) => `<tr><td>${k} scan</td><td class="mute">${S.papers[k] ? esc(S.papers[k].file) : "Missing"}</td><td><a class="lk" data-open="paper:${k}:new">${esc(f)}</a></td></tr>`).join("")}
+      </tbody></table></div>
+      ${sec("Reason", `<div>${esc(c.reason)}</div>`)}
+    </div>
+    <div class="sh-foot"><span class="grow"></span><button class="btn red" data-act="refuse">Refuse</button><button class="btn" data-act="approve">Approve</button></div>`;
+}
+
+function paperSheet(k, fresh) {
+  const label = PAPER_KINDS.find(([pk]) => pk === k)?.[1] ?? k;
+  const file = fresh ? S.change?.papers.find(([pk]) => pk === k)?.[1] : S.papers[k]?.file;
+  let art = "";
+  if (k === "KTP") art = `<div class="scan"><b>PROVINSI JAWA TENGAH</b><span>KABUPATEN BANYUMAS</span><span style="margin-top:10px">NIK : ${P().nik}</span><span>Nama : ${P().name.toUpperCase()}</span><span>Tempat/Tgl Lahir : ${P().birthPlace.toUpperCase()}, 14-07-1998</span><span>Alamat : ${P().address.toUpperCase()}</span></div>`;
+  else if (k === "KK") art = `<div class="scan kk"><b>KARTU KELUARGA</b><span>No. 3302 0754 1209 0011</span><span style="margin-top:10px">Kepala keluarga : AHMAD FAUZI</span><span>Alamat : ${P().address.toUpperCase()}</span><span>Anggota : 4 orang</span></div>`;
+  else if (k === "PHOTO") art = `<div class="avatar" style="width:220px;height:220px;font-size:60px;margin:0 auto">${initials(P().name)}</div>`;
+  else art = `<div class="page" style="min-height:420px"><h1>${k === "SKCK" ? "SURAT KETERANGAN CATATAN KEPOLISIAN" : "PERJANJIAN KERJA WAKTU TERTENTU"}</h1><p class="no">${esc(file)}</p><p>${k === "SKCK" ? "Kepolisian Resor Kota Banyumas menerangkan bahwa yang bersangkutan tidak memiliki catatan kriminal." : "Ditandatangani kedua pihak pada 2 Juni 2026."}</p></div>`;
+  return `<div class="sh-head"><div class="who"><div style="min-width:0"><h2>${label}</h2><div class="sub">${esc(file)}${fresh ? " · waiting on head office" : ` · ${S.papers[k]?.at ?? ""} · ${esc(S.papers[k]?.by ?? "")}`}</div></div></div>
+      <button class="x" data-act="close" aria-label="Close"><i data-lucide="x"></i></button></div>
+    <div class="sh-body" style="background:var(--soft-3);justify-content:center">${art}</div>
+    <div class="sh-foot"><span class="grow"></span><button class="btn" data-act="download"><i data-lucide="download"></i>Download</button></div>`;
+}
+
+function contractSheet() {
+  const p = P();
+  const ed = `contenteditable="true" spellcheck="false"`;
+  return `<div class="sh-head"><div class="who"><div style="min-width:0"><h2>Draft contract</h2><div class="sub">Letters · PKWT/0142/X/2026 · from ${esc(p.name)}'s record</div></div></div>
+      <button class="x" data-act="close" aria-label="Close"><i data-lucide="x"></i></button></div>
+    <div class="sh-body" style="background:var(--soft-3)">
+      <div class="page">
+        <h1>PERJANJIAN KERJA WAKTU TERTENTU</h1>
+        <p class="no">No. PKWT/0142/X/2026</p>
+        <p ${ed}>Pada hari ini, Senin tanggal <span class="fill">1 Juni 2027</span>, yang bertanda tangan di bawah ini:</p>
+        <p ${ed}><b>PT Sumber Retail</b>, berkedudukan di Jakarta, dalam hal ini diwakili oleh Rina Wulandari selaku HR Manager, selanjutnya disebut <b>Pihak Pertama</b>; dan</p>
+        <p ${ed}><b><span class="fill">${esc(p.name)}</span></b>, NIK <span class="fill">${p.nik}</span>, lahir di <span class="fill">${esc(p.birthPlace)}, ${p.birthDate}</span>, beralamat di <span class="fill">${esc(p.address)} RT/RW ${p.rtrw}, ${esc(p.village)}, ${esc(p.district)}, ${esc(p.city)}</span>, selanjutnya disebut <b>Pihak Kedua</b>.</p>
+        <h2>Pasal 1 — Jabatan dan Penempatan</h2>
+        <p ${ed}>Pihak Kedua dipekerjakan sebagai <span class="fill">${esc(p.position)}</span> (${esc(p.grade)}) dan ditempatkan di <span class="fill">Toko ${esc(p.store)} (${p.storeCode})</span>.</p>
+        <h2>Pasal 2 — Jangka Waktu</h2>
+        <p ${ed}>Perjanjian ini berlaku untuk jangka waktu <span class="fill">12 (dua belas) bulan</span>, terhitung sejak <span class="fill">2 Juni 2027</span> sampai dengan <span class="fill">1 Juni 2028</span>.</p>
+        <h2>Pasal 3 — Waktu Kerja</h2>
+        <p ${ed}>Waktu kerja Pihak Kedua adalah 40 (empat puluh) jam dalam satu minggu, menurut jadwal yang ditetapkan oleh Pihak Pertama.</p>
+        <h2>Pasal 4 — Upah</h2>
+        <p ${ed}>Pihak Kedua menerima upah pokok sebesar <span class="fill">Rp 2.350.000</span> per bulan, ditambah tunjangan makan Rp 15.000 per hari hadir dan tunjangan transport Rp 200.000 per bulan.</p>
+        <div class="signs"><div>Pihak Pertama<div class="line">Rina Wulandari</div></div><div>Pihak Kedua<div class="line">${esc(p.name)}</div></div></div>
+      </div>
+    </div>
+    <div class="sh-foot"><button class="textbtn" data-act="savedraft">Save to letters</button><span class="grow"></span><button class="btn" data-act="printc"><i data-lucide="printer"></i>Print</button></div>`;
+}
+
+function miniSheet(kind) {
+  const store = kind === "store";
+  return `<div class="sh-head"><div class="who"><div style="min-width:0"><h2>${store ? "Purwokerto · C014" : "Dewi Lestari"}</h2><div class="sub">${store ? "Store · Jl. Jend. Sudirman 112" : "EMP-0088 · Store head · Purwokerto"}</div></div></div>
+      <button class="x" data-act="close" aria-label="Close"><i data-lucide="x"></i></button></div>
+    <div class="sh-body"><div class="facts">${store
+      ? `${F("Staff", "9")}${F("Head", "Dewi Lestari")}${F("POS", "3")}${F("Opened", "12 Jan 2024")}`
+      : `${F("Phone", "0812 9910 2231")}${F("Joined", "4 Mar 2022")}${F("Contract", "PKWTT")}`}</div></div>
+    <div class="sh-foot"><span class="grow"></span></div>`;
+}
+
+/* ───────────────────────── layers ───────────────────────── */
+function sheetHTML(l) {
+  if (l.type === "profile") return profileSheet();
+  if (l.type === "ask") return askSheet();
+  if (l.type === "review") return reviewSheet();
+  if (l.type === "paper") return paperSheet(l.k, l.fresh);
+  if (l.type === "contract") return contractSheet();
+  return miniSheet(l.kind);
+}
+function sheetClass(l) {
+  return { ask: "form", review: "form", paper: "paper", contract: "paper", mini: "form" }[l.type] || "";
+}
+
+function openLayer(l) {
+  const dup = S.layers.findIndex((x) => x.type === l.type && x.k === l.k && x.kind === l.kind);
+  if (dup >= 0) { while (S.layers.length > dup + 1) closeTop(true); return; }
+  S.layers.push(l);
+  const i = S.layers.length - 1;
+  const scrim = document.createElement("div");
+  scrim.className = "scrim off";
+  scrim.style.zIndex = 20 + i * 10;
+  scrim.onclick = () => closeTop();
+  const sh = document.createElement("div");
+  sh.className = `sheet off ${sheetClass(l)}`;
+  sh.style.zIndex = 21 + i * 10;
+  if (!phone()) sh.style.right = `${20 + i * 12}px`;
+  sh.innerHTML = sheetHTML(l);
+  $("#layers").append(scrim, sh);
+  l.el = sh; l.scrim = scrim;
+  wire(sh, l);
+  icons();
+  sh.getBoundingClientRect(); // commit the off-screen start before sliding in
+  scrim.classList.remove("off"); sh.classList.remove("off");
+}
+
+function closeTop(instant) {
+  const l = S.layers.pop();
+  if (!l) return;
+  if (l.type === "profile") { S.edit = false; S.view = "list"; }
+  if (instant) { l.el.remove(); l.scrim.remove(); return; }
+  l.el.classList.add("closing", "off");
+  l.scrim.classList.add("off");
+  l.scrim.style.transition = "opacity 200ms var(--ease-out)";
+  setTimeout(() => { l.el.remove(); l.scrim.remove(); }, 210);
+}
+
+function refreshLayer(l, swap) {
+  const body = l.el.querySelector("#body");
+  const keep = body ? body.scrollTop : 0;
+  const draw = () => {
+    l.el.innerHTML = sheetHTML(l);
+    const nb = l.el.querySelector("#body");
+    if (nb && !swap) nb.scrollTop = keep;
+    wire(l.el, l);
+    icons();
+    if (swap && nb) { nb.classList.add("out"); nb.getBoundingClientRect(); nb.classList.remove("out"); }
+  };
+  if (swap && body) { body.classList.add("out"); setTimeout(draw, 100); } else draw();
+}
+const profileLayer = () => S.layers.find((l) => l.type === "profile");
+
+/* ───────────────────────── wiring ───────────────────────── */
+const scroller = (l) => (l.page ? $("#content") : l.el.querySelector("#body"));
+
+function wire(el, l) {
+  el.onclick = (e) => {
+    const t = e.target.closest("[data-tab],[data-act],[data-open],[data-jump]");
+    if (!t) return;
+    if (t.dataset.tab) {
+      S.tab[S.opt] = t.dataset.tab; S.edit = false;
+      refreshProfile();
+      // stay at the tabs: a tab is a page of its own, read from its top
+      const strip = (l.page ? $("#content") : l.el).querySelector('[role="tablist"]');
+      const sc = scroller(l);
+      if (l.page && strip && sc.scrollTop > strip.offsetTop - 8) sc.scrollTop = strip.offsetTop - 8;
+      if (!l.page && sc) sc.scrollTop = 0;
+      return;
+    }
+    if (t.dataset.jump) { jump(l, t.dataset.jump); return; }
+    if (t.dataset.open) {
+      e.stopPropagation();
+      const [what, k, fresh] = t.dataset.open.split(":");
+      if (what === "paper") openLayer({ type: "paper", k, fresh: !!fresh });
+      else if (what === "store") openLayer({ type: "mini", kind: "store" });
+      else if (what === "boss") openLayer({ type: "mini", kind: "boss" });
+      else toast("Opens the payslip");
+      return;
+    }
+    act(t.dataset.act, l, el, t);
+  };
+  if (l.type === "ask") el.oninput = el.onchange = () => askCount(el);
+  if (S.opt === "one" && l.page) $("#content").onscroll = () => spy();
+  else if (l.page) $("#content").onscroll = null;
+}
+
+function jump(l, part) {
+  const sc = scroller(l);
+  const h = $(`#part-${part}`);
+  if (!sc || !h) return;
+  const top = sc.scrollTop + h.getBoundingClientRect().top - sc.getBoundingClientRect().top - 12;
+  sc.scrollTo({ top, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+}
+function spy() {
+  const sc = $("#content");
+  const top = sc.getBoundingClientRect().top;
+  let on = "Profile";
+  document.querySelectorAll(".part-h").forEach((h) => { if (h.getBoundingClientRect().top - top <= 90) on = h.id.slice(5); });
+  if (on !== S.part) {
+    S.part = on;
+    document.querySelectorAll(".idx button").forEach((b) => b.classList.toggle("on", b.dataset.jump === on));
+  }
+}
+
+function askChanges(el) {
+  const out = [];
+  el.querySelectorAll("[data-ask]").forEach((i) => {
+    const k = i.dataset.ask;
+    const was = String(P()[k]);
+    const changed = i.value !== was;
+    i.classList.toggle("changed", changed);
+    if (changed) out.push([i.closest("div").querySelector(".l").textContent, k, was, i.value]);
+  });
+  return out;
+}
+function askCount(el) {
+  const n = askChanges(el).length + (S.askScans?.length || 0);
+  el.querySelector("#askCount").textContent = n ? `${n} change${n > 1 ? "s" : ""}` : "Nothing changed yet";
+  el.querySelector("#sendBtn").disabled = n === 0;
+}
+
+function act(a, l, el, t) {
+  if (!a) return;
+  const [verb, k] = a.split(":");
+  switch (verb) {
+    case "close": closeTop(); break;
+    case "back": S.view = "list"; S.edit = false; renderMain(); $("#content").scrollTop = 0; break;
+    case "edit": S.edit = true; refreshProfile(true); break;
+    case "discard": S.edit = false; refreshProfile(true); break;
+    case "save": {
+      el.querySelectorAll("[data-k]").forEach((i) => {
+        const key = i.dataset.k;
+        S.P[key] = key === "children" ? Number(i.value) : i.value;
+      });
+      S.edit = false; refreshProfile(true); toast("Saved"); break;
+    }
+    case "ask": S.askScans = []; openLayer({ type: "ask" }); break;
+    case "addscan": {
+      const name = { PHOTO: "foto-siti.jpg", KTP: "ktp-baru.jpg", KK: "kk-baru-2026.pdf", SKCK: "skck-2026.pdf", CONTRACT: "pkwt-ttd.pdf" }[k];
+      S.askScans = [...(S.askScans || []).filter(([x]) => x !== k), [k, name]];
+      const slot = el.querySelector(`[data-slot="${k}"]`);
+      slot.classList.remove("missing");
+      slot.querySelector(".b").innerHTML = `<span class="info">${name}</span>`;
+      slot.querySelector(".thumb").innerHTML = `<i data-lucide="file-check"></i>`;
+      t.textContent = "Replace";
+      icons(); askCount(el); break;
+    }
+    case "send": {
+      const fields = askChanges(el);
+      S.change = { at: "Just now", by: "Dewi Lestari", reason: el.querySelector("#askReason").value || "—", fields, papers: S.askScans || [] };
+      closeTop(); refreshProfile(); toast("Sent to head office"); break;
+    }
+    case "withdraw": S.change = null; refreshProfile(); toast("Withdrawn"); break;
+    case "review": openLayer({ type: "review" }); break;
+    case "approve": {
+      S.change.fields.forEach(([, key, , to]) => { S.P[key] = key === "children" ? Number(to) : to; });
+      S.change.papers.forEach(([pk, f]) => { S.papers[pk] = { file: f, at: "Today", by: "Dewi Lestari" }; });
+      S.change = null; closeTop(); refreshProfile(); toast("Approved · the record changed"); break;
+    }
+    case "refuse": S.change = null; closeTop(); refreshProfile(); toast("Refused · the scans were erased"); break;
+    case "upload": {
+      const name = { PHOTO: "siti-2026.jpg", KTP: "ktp-siti-2026.jpg", KK: "kk-3302-0754.pdf", SKCK: "skck-2026.pdf", CONTRACT: "PKWT-0142-2026.pdf" }[k];
+      S.papers[k] = { file: name, at: "Today", by: "Rina Wulandari" };
+      refreshProfile(); toast(`${k} on the file`); break;
+    }
+    case "draft": openLayer({ type: "contract" }); break;
+    case "printc": toast("Sent to the printer"); break;
+    case "savedraft": toast("Saved to letters as a draft"); break;
+    case "print": toast("Prints the record"); break;
+    case "download": toast("Downloads the scan"); break;
+    case "reset": toast("Reset link sent to siti.rahayu@gmail.com"); break;
+    case "stoppos": toast("POS access stopped"); break;
+    case "finger": t.outerHTML = `<span class="ok">Rina Wulandari</span>`; toast("Left index approved"); break;
+    case "pickTab": pickTab(); break;
+  }
+}
+
+/* phone: the tab list as a sheet at thumb reach */
+function pickTab() {
+  const tabs = tabsOf(S.opt);
+  const p = document.createElement("div");
+  p.className = "pick off";
+  p.innerHTML = tabs.map(([t]) => `<button class="${t === S.tab[S.opt] ? "on" : ""}" data-t="${t}">${t}${t === S.tab[S.opt] ? `<i data-lucide="check"></i>` : ""}</button>`).join("");
+  const scrim = document.createElement("div");
+  scrim.className = "scrim off"; scrim.style.zIndex = 59;
+  const close = () => { p.classList.add("off"); scrim.classList.add("off"); setTimeout(() => { p.remove(); scrim.remove(); }, 260); };
+  scrim.onclick = close;
+  p.onclick = (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    S.tab[S.opt] = b.dataset.t; close(); refreshProfile(); $("#content").scrollTop = 0;
+  };
+  document.body.append(scrim, p); icons();
+  p.getBoundingClientRect();
+  p.classList.remove("off"); scrim.classList.remove("off");
+}
+
+/* ───────────────────────── top ───────────────────────── */
+function renderAll() {
+  seg($("#optSeg"), OPTS, "opt");
+  seg($("#roleSeg"), ROLES, "role");
+  seg($("#caseSeg"), CASES, "kase", applyCase);
+  seg($("#devSeg"), [["desk", "Desktop"], ["phone", "Phone"]], "dev");
+  renderShell();
+  const view = S.view;
+  while (S.layers.length) closeTop(true);
+  S.view = view;
+  S.edit = false;
+  if (S.opt === "now") {
+    renderList();
+    if (S.view === "profile") openLayer({ type: "profile" });
+  } else renderMain();
+  const ph = $("#phone");
+  if (S.dev === "phone" && !EMBED) {
+    ph.hidden = false;
+    const src = `${location.pathname}?embed=1&opt=${S.opt}&role=${S.role}&case=${S.kase}`;
+    if ($("#phoneFrame").getAttribute("src") !== src) $("#phoneFrame").setAttribute("src", src);
+  } else ph.hidden = true;
+  icons();
+}
+// the bar wraps on a narrow window: everything under it starts where it ends
+if (!EMBED) new ResizeObserver(([e]) => document.documentElement.style.setProperty("--top", `${Math.ceil(e.borderBoxSize[0].blockSize)}px`)).observe($(".proto"));
+$("#reset").onclick = () => { S.tab = {}; S.part = "Profile"; S.view = "profile"; applyCase(); renderAll(); };
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && S.layers.length) closeTop(); });
+renderAll();
+</script>
+</body>
+</html>

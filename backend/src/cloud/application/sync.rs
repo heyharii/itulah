@@ -37,6 +37,7 @@ pub struct HttpTransport {
     client: reqwest::Client,
     url: String,
     handshake_url: String,
+    handover_url: String,
     key: Option<String>,
 }
 
@@ -51,6 +52,7 @@ impl HttpTransport {
             client,
             url: format!("{base}/api/v1/sync/ingest"),
             handshake_url: format!("{base}/api/v1/sync/handshake"),
+            handover_url: format!("{base}/api/v1/sync/stock-handover"),
             key,
         })
     }
@@ -124,6 +126,30 @@ impl SyncTransport for HttpTransport {
             .json::<HandshakeAgreement>()
             .await
             .map_err(|e| format!("unintelligible handshake response: {e}"))
+    }
+
+    async fn stock_handover(
+        &self,
+        request: &crate::sync::port::StockHandoverRequest,
+    ) -> Result<crate::sync::port::StockHandover, String> {
+        let response = self
+            .authorized(&self.handover_url)
+            .json(request)
+            .send()
+            .await
+            .map_err(|e| format!("sync stock handover failed: {e}"))?;
+        // A centre from before the handover answers 404: it has nothing to
+        // hand over, which is what a new store's centre says too.
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(crate::sync::port::StockHandover::default());
+        }
+        if !response.status().is_success() {
+            return Err(failure_text("stock handover", response).await);
+        }
+        response
+            .json::<crate::sync::port::StockHandover>()
+            .await
+            .map_err(|e| format!("unintelligible stock handover response: {e}"))
     }
 }
 

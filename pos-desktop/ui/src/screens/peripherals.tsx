@@ -956,6 +956,47 @@ export function PeripheralsScreen({ onBack }: { onBack: () => void }) {
                     autoComplete="off"
                   />
                 </label>
+                <label className="field">
+                  Printer language
+                  <select
+                    value={form.receipt_language ?? ""}
+                    onChange={(event) =>
+                      change({
+                        receipt_language: (event.target.value || null) as "ESCPOS" | "TSPL" | null,
+                      })
+                    }
+                  >
+                    <option value="">Automatic — a label printer is recognised by its name</option>
+                    <option value="ESCPOS">Receipt printer (ESC/POS)</option>
+                    <option value="TSPL">Label printer (TSPL) — the receipt prints as one long label</option>
+                  </select>
+                </label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {(
+                    [
+                      ["label_width_mm", "Label width (mm)", "80"],
+                      ["label_height_mm", "Label height (mm)", "50"],
+                      ["label_gap_mm", "Gap (mm)", "3"],
+                    ] as const
+                  ).map(([key, word, example]) => (
+                    <label className="field" key={key} style={{ flex: 1 }}>
+                      {word}
+                      <input
+                        inputMode="numeric"
+                        value={form[key] ?? ""}
+                        placeholder={example}
+                        onChange={(event) => {
+                          const digits = event.target.value.replace(/\D/g, "").slice(0, 3)
+                          change({ [key]: digits === "" ? null : Number(digits) })
+                        }}
+                      />
+                    </label>
+                  ))}
+                </div>
+                <p className="muted" style={{ fontSize: 15 }}>
+                  Label printer only: one label of the roll. Every print is cut to it, a
+                  long receipt over several. Empty: continuous paper.
+                </p>
                 <div className="notice">
                   The node composes the receipt and this till sends it straight to
                   the printer — on Windows through the spooler as a RAW job, on

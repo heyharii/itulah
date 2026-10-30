@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Central Store</title>
+<!--
+  Central Store's first page, on screen only while it finds the store server:
+  the one it opened last, the one on this PC, then the shop's network
+  (src-tauri/src/lib.rs). One found opens at once; several are a list;
+  none says so, with an address that can be typed.
+-->
+<style>
+  :root {
+    --ink: #20242c; --body: #565f6d; --mute: #666f7d; --hairline: #e6e6e9; --edge: #dadade;
+    --soft: #f8f8f9; --accent: #2563eb; --bad: #be123c; --ease-out: cubic-bezier(.23, 1, .32, 1);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { display: grid; place-items: center; background: #f6f6f7; color: var(--ink);
+    font: 15px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  main { width: min(440px, calc(100vw - 32px)); background: #fff; border: 1px solid var(--hairline); border-radius: 14px;
+    padding: 32px; display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center;
+    animation: in 260ms var(--ease-out) both; }
+  @keyframes in { from { opacity: 0; transform: translateY(6px); } }
+  .mark { width: 44px; height: 44px; border-radius: 11px; background: #111214; display: grid; place-items: center; position: relative; }
+  .mark::before { content: ""; width: 20px; height: 20px; border: 4px solid #fff; border-right-color: transparent; border-radius: 50%; transform: rotate(45deg); }
+  .mark::after { content: ""; position: absolute; right: 9px; top: 18px; width: 8px; height: 8px; border-radius: 50%; background: #2f6fed; }
+  h1 { margin: 4px 0 0; font-size: 21px; line-height: 28px; font-weight: 600; letter-spacing: -0.01em; }
+  p { margin: 0; color: var(--body); }
+  .spin { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--edge); border-top-color: var(--accent); animation: spin 700ms linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .list { width: 100%; display: flex; flex-direction: column; gap: 8px; }
+  .pick { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px;
+    border: 1px solid var(--hairline); border-radius: 10px; background: #fff; text-align: left; cursor: pointer; font: inherit; color: inherit; }
+  .pick b { font-weight: 600; display: block; }
+  .pick span { color: var(--body); }
+  button.btn { height: 40px; padding: 0 18px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; font: 500 15px/1 inherit; cursor: pointer;
+    transition: transform 160ms var(--ease-out); }
+  button.btn:active { transform: scale(.97); }
+  form { width: 100%; display: flex; gap: 8px; }
+  input { flex: 1; min-width: 0; height: 40px; border: 1px solid var(--edge); border-radius: 8px; padding: 0 12px; font: inherit; color: var(--ink); }
+  .err { color: var(--bad); min-height: 1.5em; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <span class="mark"></span>
+  <h1 id="title">Central Store</h1>
+  <p id="note">Finding the store server</p>
+  <span class="spin" id="spin"></span>
+  <div class="list" id="list" hidden></div>
+  <button class="btn" id="again" hidden>Try again</button>
+  <form id="form" hidden><input id="addr" placeholder="192.168.1.20" aria-label="Store server address"><button class="btn" type="submit">Open</button></form>
+  <div class="err" id="err" role="alert"></div>
+</main>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const invoke = (cmd, args) => window.__TAURI__.core.invoke(cmd, args);
+  const title = (node) => {
+    const i = node.identity || {};
+    const words = [i.site_code, i.site_name].filter((w) => w && w.trim());
+    return words.length ? words.join(" · ") : i.site_id || node.base_url;
+  };
+  async function open(node) {
+    $("note").textContent = "Opening " + title(node);
+    $("list").hidden = true; $("spin").hidden = false; $("err").textContent = "";
+    try { await invoke("open_store", { baseUrl: node.base_url }); }
+    catch (error) { $("err").textContent = String(error); look(false); }
+  }
+  async function look(searching = true) {
+    $("list").hidden = $("again").hidden = $("form").hidden = true;
+    $("spin").hidden = !searching;
+    if (searching) $("note").textContent = "Finding the store server";
+    let found = [];
+    if (searching) {
+      try { found = await invoke("find_store"); } catch (error) { $("err").textContent = String(error); }
+    }
+    $("spin").hidden = true;
+    if (found.length === 1) return open(found[0]);
+    if (found.length > 1) {
+      $("note").textContent = "Which store?";
+      $("list").innerHTML = "";
+      found.forEach((node) => {
+        const b = document.createElement("button");
+        b.className = "pick";
+        b.innerHTML = `<span><b></b><span></span></span>`;
+        b.querySelector("b").textContent = title(node);
+        b.querySelector("span span").textContent = node.host;
+        b.onclick = () => open(node);
+        $("list").appendChild(b);
+      });
+      $("list").hidden = false;
+      return;
+    }
+    if (searching) $("note").textContent = "No store server on this network";
+    $("again").hidden = $("form").hidden = false;
+  }
+  $("again").onclick = () => look();
+  $("form").onsubmit = (event) => {
+    event.preventDefault();
+    const typed = $("addr").value.trim();
+    if (typed) open({ base_url: typed, identity: null, host: typed });
+  };
+  look();
+</script>
+</body>
+</html>

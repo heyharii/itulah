@@ -97,7 +97,7 @@ export function Board({
                 {dateText(parsed, { weekday: "short" })}{" "}
                 <span className="tabular-nums">{date.slice(8)}</span>
               </b>
-              <span className="text-[0.875rem] text-mute tabular-nums">
+              <span className="text-[0.9375rem] text-mute tabular-nums">
                 {week.working(date)} on shift
               </span>
             </button>
@@ -116,7 +116,7 @@ export function Board({
                     tint(lane.id),
                   )}
                 >
-                  <div className="flex w-full items-baseline justify-between gap-2 text-[0.875rem]">
+                  <div className="flex w-full items-baseline justify-between gap-2 text-[0.9375rem]">
                     <b className="min-w-0 truncate font-semibold text-ink">
                       {lane.name}
                     </b>
@@ -157,7 +157,7 @@ export function Board({
                 OFF_HATCH,
               )}
             >
-              <div className="flex w-full items-baseline justify-between text-[0.875rem]">
+              <div className="flex w-full items-baseline justify-between text-[0.9375rem]">
                 <b className="font-semibold text-ink">Off</b>
               </div>
               {off.map((one) => (
@@ -179,7 +179,7 @@ export function Board({
 
             {open.length > 0 && (
               <div className="flex flex-wrap items-center gap-1.5 rounded-card border border-dashed border-hairline-2 p-2">
-                <div className="flex w-full items-baseline justify-between text-[0.875rem]">
+                <div className="flex w-full items-baseline justify-between text-[0.9375rem]">
                   <b className="font-semibold text-ink">Not planned</b>
                   <span className="text-mute tabular-nums">{open.length}</span>
                 </div>

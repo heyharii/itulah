@@ -149,6 +149,23 @@ fn run_quietly(program: &str, arguments: &[&str]) -> bool {
 /// Register, configure and start the service. Idempotent enough for an
 /// installer's repair: an existing service is reconfigured, not duplicated.
 pub fn install() -> Result<(), BoxError> {
+    // Another program on 8082 means the setup window opens on nothing: say
+    // who it is, before anything is registered (riza-1's old StoreEdge,
+    // 30 Oct 2026).
+    if let Some(holder) = crate::edge::laptop::port_holder(8082) {
+        let text = format!(
+            "Port 8082 is in use by {holder}. Close or uninstall that program, then run this installer again."
+        );
+        crate::edge::notice::alert(DISPLAY_NAME, &text);
+        return Err(text.into());
+    }
+    // An install from before the MSI (the hand-built "Central Store" of
+    // 25 Oct) wrote its own port and app folder into node.env. This server
+    // serves on 8082 from <exe>\web, where the setup window and the tills
+    // look; the enrolment itself stays.
+    if let Some(dir) = node::installed_data_dir(ROLE, true) {
+        forget_old_overrides(&dir.join(crate::edge::enrolment::NODE_ENV_FILE));
+    }
     let manager = ServiceManager::local_computer(
         None::<&str>,
         ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE,
@@ -283,6 +300,21 @@ pub fn install() -> Result<(), BoxError> {
     service.start(&[] as &[&OsStr])?;
     println!("{DISPLAY_NAME} installed and started.");
     Ok(())
+}
+
+/// Drop `BIND_ADDR` and `FRONTEND_DIR` from an old node.env, keeping the rest.
+fn forget_old_overrides(path: &std::path::Path) {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return;
+    };
+    let old = |line: &&str| line.starts_with("BIND_ADDR=") || line.starts_with("FRONTEND_DIR=");
+    if !text.lines().any(|line| old(&line)) {
+        return;
+    }
+    let kept: Vec<&str> = text.lines().filter(|line| !old(line)).collect();
+    if std::fs::write(path, kept.join("\n") + "\n").is_ok() {
+        println!("Dropped an older install's port and app folder from node.env.");
+    }
 }
 
 /// Stop and remove the service and its firewall rule. The data stays.

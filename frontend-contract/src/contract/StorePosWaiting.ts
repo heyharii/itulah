@@ -6,6 +6,10 @@ import type { StorePosDecision } from "./StorePosDecision";
  */
 export type StorePosWaiting = { join_id: string, 
 /**
+ * `TILL`, or `WAREHOUSE` for a Central Gudang PC, which takes no seat.
+ */
+kind: string, 
+/**
  * `7K4-P9Q`, as the POS shows it on its screen.
  */
 code: string, 

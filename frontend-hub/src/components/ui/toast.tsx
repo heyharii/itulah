@@ -1,5 +1,7 @@
 import { Toaster as Sonner } from "sonner"
 
+export { toast } from "sonner"
+
 /// Something that happened, said once and then gone.
 ///
 /// The rule this app has written down twice already — in `<Banner>` and in
@@ -40,6 +42,9 @@ export function Toasts() {
       // Long enough to read a number off, short enough not to sit over the
       // corner of a table somebody is already working in.
       duration={5000}
+      // Every toast can be put away by hand (owner, 2026-10-25), not only
+      // waited out or swiped.
+      closeButton
       toastOptions={{
         unstyled: true,
         classNames: {
@@ -54,7 +59,8 @@ export function Toasts() {
           actionButton:
             "shrink-0 rounded-full bg-accent-bg px-2.5 py-0.5 text-[0.9375rem] font-medium text-accent",
           closeButton:
-            "rounded-full border border-hairline bg-canvas text-line-ico hover:text-ink",
+            // Unstyled, sonner leaves it in the row — last, at the right edge.
+            "order-last -mr-1 flex size-7 shrink-0 items-center justify-center rounded-full text-line-ico transition-colors hover:text-ink [&>svg]:size-3.5",
           success: "[&_[data-icon]]:text-ok-fg",
           error: "[&_[data-icon]]:text-bad-fg",
           warning: "[&_[data-icon]]:text-warn-fg",

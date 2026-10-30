@@ -193,6 +193,10 @@ export interface PurchaseOrderLine {
 
 export interface PurchaseOrderDetail {
   readonly purchase_order_id: string
+  /// The order's version, which an edit sends back as `If-Match` so two
+  /// buyers' edits of one order never overwrite each other. Absent on an
+  /// older server.
+  readonly version?: number
   readonly po_number: string
   readonly supplier_id: string
   /// The supplier's record id (`supplier_id` above is its CODE). Null on
@@ -300,6 +304,8 @@ export interface CatalogPurchaseOrderReceipt {
   readonly gross_minor: number
   readonly discount_minor: number
   readonly net_minor: number
+  /// The order's version after this write; absent on an older server.
+  readonly version?: number
 }
 
 /// An order raised line by line rather than from the catalogue. `origin_kind`
@@ -947,16 +953,22 @@ export interface CatalogPurchaseOrderRevision extends WithPaymentTerms {
 
 /// Rewrite an issued catalog order. Same receipt as raising one; the command
 /// id on it is the revision sent to the DC.
+///
+/// `version` is the order's version as it was when the buyer opened it, sent
+/// as `If-Match` (see `guarded`): somebody else saving first answers 409 with
+/// a sentence, instead of the last save silently overwriting the first. An
+/// order read from a server that does not send a version sends no header.
 export function reviseCatalogPurchaseOrder(
   id: string,
   request: CatalogPurchaseOrderRevision,
   idempotencyKey: string,
+  version?: number,
   signal?: AbortSignal
 ) {
   return node.put<CatalogPurchaseOrderReceipt>(
     `/api/v1/purchase-orders/${id}`,
     request,
-    { signal, headers: { "Idempotency-Key": idempotencyKey } }
+    { signal, headers: guarded(idempotencyKey, version) }
   )
 }
 

@@ -26,13 +26,14 @@ import type { AppModule } from "@/lib/navigation"
 ///
 /// Replacements are the third screen, and not a row: a replacement is the
 /// answer "do not repair it" on one asset, proposed from that asset's sheet,
-/// rare, and already listed on the GA overview while it runs. Its row lights
+/// rare, and found on that asset's sheet while it runs. Its row lights
 /// Repairs, the work it grew out of.
 export const maintenanceNav: AppModule = {
   id: "maintenance",
   label: "Repairs",
   icon: Hammer,
   home: "/maintenance",
+  divider: true,
   sections: [
     {
       items: [
@@ -58,7 +59,7 @@ export const maintenanceNav: AppModule = {
 /// because its home is the longer match.
 export const serviceScheduleNav: AppModule = {
   id: "maintenance-schedule",
-  label: "Service Schedule",
+  label: "Routine Service",
   icon: CalendarClock,
   home: "/maintenance/schedule",
   sections: [
@@ -66,7 +67,7 @@ export const serviceScheduleNav: AppModule = {
       items: [
         {
           path: "/maintenance/schedule",
-          label: "Service Schedule",
+          label: "Routine Service",
           icon: CalendarClock,
         },
       ],

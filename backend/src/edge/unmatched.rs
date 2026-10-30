@@ -171,7 +171,11 @@ pub(crate) fn classify(
                 let (name, catalogue_price) = catalogue(connection, &sku_code)?;
                 basket.slots.push(PricedSlot::Unmatched(UnmatchedDraft {
                     index: Some(index),
-                    kind: if held > 0 { KIND_NO_TAG } else { KIND_NOT_IN_STOCK },
+                    kind: if held > 0 {
+                        KIND_NO_TAG
+                    } else {
+                        KIND_NOT_IN_STOCK
+                    },
                     sku_code,
                     epc,
                     from_place: None,
@@ -210,7 +214,9 @@ pub(crate) fn classify(
 /// a tag recorded at another store or unknown here, or an item with no SKU.
 /// 409, on the quote as on the sale, so the till can say it before Bayar.
 pub(crate) fn not_in_this_shop(label: &str) -> EdgeError {
-    EdgeError::Conflict(format!("{label} tidak ada di toko ini · minta barcode baru"))
+    EdgeError::Conflict(format!(
+        "{label} tidak ada di toko ini · minta barcode baru"
+    ))
 }
 
 /// The SKU as the label prints it: `00000004·103`.
@@ -318,7 +324,11 @@ fn classify_tag(
     }))
 }
 
-fn balance(connection: &Connection, subject_id: SubjectId, place_id: &str) -> Result<i64, EdgeError> {
+fn balance(
+    connection: &Connection,
+    subject_id: SubjectId,
+    place_id: &str,
+) -> Result<i64, EdgeError> {
     connection
         .prepare_cached(
             "SELECT quantity FROM inventory_projection WHERE subject_id = ?1 AND place_id = ?2",
@@ -344,7 +354,9 @@ fn on_hand_of_sku(
               WHERE s.sku_code = ?1 AND p.place_id IN (?2, ?3) AND p.quantity > 0",
         )
         .map_err(db)?
-        .query_row(params![sku_code, floor.id(), stockroom.id()], |row| row.get(0))
+        .query_row(params![sku_code, floor.id(), stockroom.id()], |row| {
+            row.get(0)
+        })
         .map_err(db)
 }
 
@@ -357,7 +369,10 @@ fn catalogue(
         .prepare_cached("SELECT name, base_price_minor FROM catalog_item WHERE sku_code = ?1")
         .map_err(db)?
         .query_row([sku_code], |row| {
-            Ok((row.get::<_, Option<String>>(0)?, row.get::<_, Option<i64>>(1)?))
+            Ok((
+                row.get::<_, Option<String>>(0)?,
+                row.get::<_, Option<i64>>(1)?,
+            ))
         })
         .optional()
         .map_err(db)?
@@ -381,9 +396,7 @@ pub(crate) fn approve_unknown(
 ) -> Result<UnknownItemApproval, EdgeError> {
     let name = request.name.trim();
     if name.is_empty() {
-        return Err(EdgeError::Validation(
-            "an unknown item needs a name".into(),
-        ));
+        return Err(EdgeError::Validation("an unknown item needs a name".into()));
     }
     if request.unit_price_minor <= 0 {
         return Err(EdgeError::Validation(
@@ -559,29 +572,34 @@ pub(crate) fn apply_take(
         )
         .optional()
         .map_err(db)?;
-    let record = |outcome: &str, epc: Option<&str>, group: Option<String>| -> Result<(), EdgeError> {
-        tx.prepare_cached(
-            "INSERT INTO unmatched_sale_take
+    let record =
+        |outcome: &str, epc: Option<&str>, group: Option<String>| -> Result<(), EdgeError> {
+            tx.prepare_cached(
+                "INSERT INTO unmatched_sale_take
                  (take_id, command_id, sku_code, epc, outcome, movement_group_id, applied_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        )
-        .map_err(db)?
-        .execute(params![
-            payload.take_id.to_string(),
-            command_id.to_string(),
-            sku_code,
-            epc,
-            outcome,
-            group,
-            stamp(Utc::now())
-        ])
-        .map(|_| ())
-        .map_err(db)
-    };
+            )
+            .map_err(db)?
+            .execute(params![
+                payload.take_id.to_string(),
+                command_id.to_string(),
+                sku_code,
+                epc,
+                outcome,
+                group,
+                stamp(Utc::now())
+            ])
+            .map(|_| ())
+            .map_err(db)
+        };
     let Some((subject_id, epc, place_id)) = piece else {
         return record("NOT_HELD", None, None);
     };
-    let from = if place_id == floor.id() { floor } else { stockroom };
+    let from = if place_id == floor.id() {
+        floor
+    } else {
+        stockroom
+    };
     let subject_id = SubjectId(
         Uuid::parse_str(&subject_id).map_err(|error| EdgeError::Persistence(error.to_string()))?,
     );

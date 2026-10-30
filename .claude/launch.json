@@ -2733,6 +2733,60 @@
       "env": {
         "VITE_API_TARGET": "https://store.34-101-214-48.sslip.io"
       }
+    },
+    {
+      "name": "web-till-c014",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev:web",
+        "--",
+        "--port",
+        "5490",
+        "--strictPort"
+      ],
+      "port": 5490,
+      "cwd": "pos-desktop/ui",
+      "env": {
+        "VITE_API_TARGET": "http://100.73.80.69:8092"
+      }
+    },
+    {
+      "name": "protos",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8799",
+        "--bind",
+        "127.0.0.1",
+        "--directory",
+        "/Users/hari/Documents/itulah"
+      ],
+      "cwd": "/Users/hari/Documents/itulah",
+      "port": 8799
+    },
+    {
+      "name": "hr-profile-proto",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "-e",
+        "const h=require('http'),f=require('fs'),p=require('path'),r=process.cwd(),t={'.html':'text/html','.css':'text/css','.js':'text/javascript','.json':'application/json','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.woff2':'font/woff2'};h.createServer((q,s)=>{let u=decodeURIComponent(q.url.split('?')[0]);if(u.endsWith('/'))u+='index.html';const fp=p.join(r,u);if(!fp.startsWith(r))return s.writeHead(403).end();f.readFile(fp,(e,b)=>{if(e)return s.writeHead(404).end('not found');s.writeHead(200,{'Content-Type':t[p.extname(fp)]||'application/octet-stream','Cache-Control':'no-store'}).end(b)})}).listen(5404,'127.0.0.1',()=>console.log('serving',r,'on :5404'))"
+      ],
+      "port": 5404
+    },
+    {
+      "name": "pos-gudang",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev:gudang"
+      ],
+      "port": 5416,
+      "cwd": "pos-desktop/ui",
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8182"
+      }
     }
   ]
 }

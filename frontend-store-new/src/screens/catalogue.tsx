@@ -4,21 +4,22 @@ import { useNavigate, useRouter } from "@tanstack/react-router"
 import {
   ArrowUpDown,
   Check,
-  ListFilter,
+  PackageCheck,
+  PackageX,
   Search,
   Sparkles,
+  Tag,
   X,
+  type LucideIcon,
 } from "lucide-react"
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react"
 
 import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
-import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { Screen } from "@/components/ui/screen"
 import { Segmented } from "@/components/ui/segmented"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { articleId, count, label, pcs, sku as skuText } from "@/lib/format"
-import { useGo } from "@/lib/go"
 import { useLayout } from "@/lib/layout"
 import { useParam, type Search as UrlSearch } from "@/lib/params"
 import {
@@ -32,26 +33,23 @@ import { cn } from "@/lib/utils"
 import {
   shapeBook,
   sizeLine,
-  sortSizes,
   swatchBackground,
   type ArticleColour,
 } from "@/lib/variants"
-import { FilterDock, FilterSheet } from "@/screens/catalogue-filters"
 import {
   cardsOf,
   dealsOfCard,
-  facetsOf,
-  filterCount,
+  haystackOf,
   holdingsOf,
+  isBlank,
   itemsOf,
-  NO_FILTERS,
+  matchesQuery,
   ORDERS,
-  passes,
+  parseQuery,
   percentOff,
   sizesLeft,
   sortCards,
   type Card,
-  type Filters,
   type Holding,
   type Item,
   type Order,
@@ -59,28 +57,27 @@ import {
 import { Photograph, SoldOutStamp } from "@/screens/catalogue-parts"
 import { CatalogueTable, Sizes } from "@/screens/catalogue-table"
 import { ProductSheet } from "@/screens/product"
-import type { CatalogRow, StoreOffer } from "@itulah/contract"
+import type { StoreOffer } from "@itulah/contract"
 import { money } from "@itulah/contract/money"
 
-/// The range, as somebody standing in front of it sees it — and the TEMPLATE
-/// for a list screen in this app (the hub's patterns, on the shop's data).
+/// The range, as somebody standing in front of it sees it: one box that
+/// finds anything in it.
 ///
 /// ## What is on the page
 ///
-/// Nothing at the top but the title and the figures. Everything that
-/// searches, narrows or orders the list lives in the DOCK over the phone's
-/// bottom bar (`DockTools`): the search, the division as the status chip
-/// (Everything / Pria / Wanita…), and in its ⚙ sheet the filters (sold out,
-/// deals, colour, size, tags), the order, By article / By SKU and Grid /
-/// Table. On a desk the same controls are a toolbar and a docked panel,
-/// because a mouse has the room; a tablet held upright, with no room for the
-/// panel, opens the same filters as a sheet.
+/// A search, and nothing to scroll until something is typed. Under the empty
+/// box, a few things people ask for most — on promotion, in stock, sold out,
+/// each division — each a press that types it, with how many articles it
+/// finds. There are no filters: a name, a code, a barcode, a colour, a size,
+/// a division, a tag, a promotion's name, "sold out", "diskon", "<100k" all
+/// go in the same box and narrow together (`parseQuery`). On a phone the box
+/// is the dock's (`DockTools`), with the order and the views in its ⚙ sheet.
 ///
-/// The records are a shop's product tiles, as any online shop draws them: the
-/// garment, its colours as swatches, the article's name, the price and the
-/// sizes — two across on a phone, as many as fit on a desk — or the same
+/// What it finds are a shop's product tiles, as any online shop draws them:
+/// the garment, its colours as swatches, the article's name, the price and
+/// the sizes — two across on a phone, as many as fit on a desk — or the same
 /// records as a table. Pointing at a swatch shows that colour; pressing one
-/// opens the article on it. An article opens as a sheet over the list
+/// opens the article on it. An article opens as a sheet over the page
 /// (`ProductSheet`, `?sku=` in the URL).
 ///
 /// ## The price is the counter's
@@ -92,28 +89,18 @@ import { money } from "@itulah/contract/money"
 /// voucher or a members' price is not in it — those need a code or a card —
 /// and is said as a deal instead.
 ///
-/// The shop already had a price *list* — `/sell` searches the resident book
-/// when a scan fails, and answers with rows of text. This is the other half of
-/// the same data and a different question: the list answers "how much is this
-/// one", and a person asking it is holding the garment. This answers "what do
-/// we have", and a person asking that is not holding anything yet.
-///
 /// **Everything on this screen is decided in the browser.** One request fetches
 /// the whole resident book — which `lib/queries.ts` already does for the till —
-/// and the search, the filters, the counts and the sort all run over what is
-/// in hand (`catalogue-model.ts`). On the console that would be wrong and the
-/// server counts its own facets; here it is the entire point. A shop's
-/// catalogue is thousands of rows, not millions, it is already cached for the
-/// counter, and a screen that asked the node for each keystroke would stop
-/// working in exactly the hour the shop needs it: the line down, the customer
-/// still standing there.
+/// and the search and the sort run over what is in hand (`catalogue-model.ts`).
+/// A shop's catalogue is thousands of rows, not millions, it is already cached
+/// for the counter, and a screen that asked the node for each keystroke would
+/// stop working in exactly the hour the shop needs it: the line down, the
+/// customer still standing there.
 export function Catalogue() {
-  const go = useGo()
   const router = useRouter()
   const navigate = useNavigate()
   const phone = useLayout() === "phone"
   const search = useParam("q")
-  const division = useParam("division")
   const viewParam = useParam("view")
   const layoutParam = useParam("layout")
   const sku = useParam("sku")
@@ -127,7 +114,7 @@ export function Catalogue() {
   /// every keystroke makes a history nobody can walk back through, and reading
   /// it back on every keystroke makes the caret fight the router. So the input
   /// is local and immediate, and the address bar catches up — which is what
-  /// makes a filtered catalogue survive the tablet going to sleep.
+  /// makes a search survive the tablet going to sleep.
   const [typed, setTyped] = useState(search.value ?? "")
   useEffect(() => {
     const timer = setTimeout(
@@ -140,9 +127,9 @@ export function Catalogue() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [typed])
 
-  // The list is long and the box is typed into fast. Deferring the filter keeps
-  // every keystroke landing immediately while the grid catches up.
-  const needle = useDeferredValue(typed).trim().toLowerCase()
+  // The book is long and the box is typed into fast. Deferring the search
+  // keeps every keystroke landing immediately while the grid catches up.
+  const needle = useDeferredValue(typed).trim()
 
   const catalogue = useQuery({
     ...catalogueQuery(),
@@ -158,13 +145,10 @@ export function Catalogue() {
     refetchInterval: 60_000,
   })
 
-  /// The promotions line, and which deals reach an article. A failure here
-  /// must not take the catalogue down with it — the prices are the point, and
-  /// an offers endpoint an older node does not serve should cost the deals
-  /// and nothing else.
+  /// Which deals reach an article. A failure here must not take the catalogue
+  /// down with it — the prices are the point, and an offers endpoint an older
+  /// node does not serve should cost the deals and nothing else.
   const offers = useQuery(offersQuery())
-  const running = offers.data?.running.length ?? 0
-  const soon = offers.data?.upcoming.length ?? 0
 
   /// The price a walk-in pays. Refetched each minute for the catalogue's own
   /// reason, and more: a promotion's hour starts with no new publication. A
@@ -184,6 +168,7 @@ export function Catalogue() {
 
   const book = catalogue.data
   const rows = useMemo(() => book?.items ?? [], [book])
+  const currency = book?.currency ?? "IDR"
   /// Every article's colours and sizes, read once per book rather than per
   /// tile per keystroke — and over the whole book, so a search for "navy"
   /// still shows the article's other colours on its tile.
@@ -214,68 +199,81 @@ export function Catalogue() {
       }),
     [rows, shapes, finalMap, stockMap, runningOffers],
   )
-  /// Each article's pieces by size and colour, over all its SKUs whatever is
-  /// filtered — a size is sold out whether or not it is being looked at.
+  /// Each article's pieces by size and colour, over all its SKUs whatever was
+  /// found — a size is sold out whether or not it is being looked at.
   const holdings = useMemo(() => holdingsOf(items), [items])
 
-  /// Everything the *words* match. The base every facet is counted over.
-  const wordMatched = useMemo(
-    () => items.filter((item) => matchesWords(item.row, needle)),
-    [items, needle],
-  )
-
-  /// The filters. The division is in the URL — it is the dock's status, a
-  /// place rather than a filter — and the rest is this visit's.
-  const [chosen, setChosen] = useState<Omit<Filters, "division">>(NO_FILTERS)
-  const filters = useMemo<Filters>(
-    () => ({ ...chosen, division: division.value }),
-    [chosen, division.value],
-  )
-  const setFilters = (next: Filters) => {
-    const { division: place, ...rest } = next
-    setChosen(rest)
-    if (place !== division.value) division.set(place)
-  }
-  const [filterOpen, setFilterOpen] = useState(false)
-
-  /// Each facet counted in the unit the list shows — articles, or SKUs — with
-  /// every filter but its own applied, so choosing Navy does not make every
-  /// other colour read zero and stop being a way to look.
-  const facets = useMemo(
+  /// What a word can find on each SKU, and the book's sizes — built once per
+  /// book, not per keystroke.
+  const haystacks = useMemo(
     () =>
-      facetsOf(
-        wordMatched,
-        filters,
-        bySku ? (item) => item.row.sku_code : (item) => item.key,
-        sortSizes,
+      new Map(
+        items.map(
+          (item) =>
+            [item, haystackOf(item, label(item.row.division_code))] as const,
+        ),
       ),
-    [wordMatched, filters, bySku],
+    [items],
   )
-  const matched = useMemo(
-    () => wordMatched.filter((item) => passes(item, filters)),
-    [wordMatched, filters],
+  const sizes = useMemo(
+    () =>
+      new Set(
+        items.flatMap((item) =>
+          item.size === null ? [] : [item.size.toLowerCase()],
+        ),
+      ),
+    [items],
   )
+  const find = useMemo(
+    () => (text: string) => {
+      const query = parseQuery(text, currency)
+      return isBlank(query)
+        ? []
+        : items.filter((item) =>
+            matchesQuery(item, query, haystacks.get(item) ?? "", sizes),
+          )
+    },
+    [items, haystacks, sizes, currency],
+  )
+  const matched = useMemo(() => find(needle), [find, needle])
+
+  /// What to press when nothing is typed: each one is words the box already
+  /// understands, so a suggestion and typing it are the same search.
+  const suggestions = useMemo(() => {
+    const divisions = [
+      ...new Set(
+        items.flatMap((item) =>
+          item.row.division_code ? [item.row.division_code] : [],
+        ),
+      ),
+    ]
+    const all: { icon: LucideIcon; label: string; words: string }[] = [
+      { icon: Sparkles, label: "On promotion", words: "promo" },
+      ...(stockMap === null
+        ? []
+        : [
+            { icon: PackageCheck, label: "In stock", words: "in stock" },
+            { icon: PackageX, label: "Sold out", words: "sold out" },
+          ]),
+      ...divisions.map((code) => ({
+        icon: Tag,
+        label: label(code),
+        words: label(code),
+      })),
+    ]
+    return all
+      .map((one) => ({
+        ...one,
+        articles: new Set(find(one.words).map((item) => item.key)).size,
+      }))
+      .filter((one) => one.articles > 0)
+  }, [items, stockMap, find])
 
   const [order, setOrder] = useState<Order>("range")
   const cards = useMemo(
     () => sortCards(cardsOf(matched, shapes, bySku), order),
     [matched, shapes, bySku, order],
   )
-
-  /// What is on the glass, in the panel's three figures.
-  const figures = useMemo(() => {
-    let pieces: number | null = 0
-    for (const item of matched)
-      pieces =
-        item.stock === null || pieces === null
-          ? null
-          : pieces + item.stock.total
-    return {
-      articles: new Set(matched.map((item) => item.key)).size,
-      skus: matched.length,
-      pieces,
-    }
-  }, [matched])
 
   /// How many cards are in the document.
   ///
@@ -285,28 +283,22 @@ export function Catalogue() {
   /// adding one for a screen somebody scrolls a page or two of would be a
   /// dependency bought for a problem nobody has.
   ///
-  /// Reset by comparing during render rather than in an effect. A new filter
-  /// showing the previous filter's scroll depth would draw four hundred cards
-  /// for a search that matched nine — and an effect would draw them first and
-  /// then throw them away, which on a counter tablet is a visible stutter every
+  /// Reset by comparing during render rather than in an effect. A new search
+  /// showing the previous search's scroll depth would draw four hundred cards
+  /// for one that matched nine — and an effect would draw them first and then
+  /// throw them away, which on a counter tablet is a visible stutter every
   /// time somebody types.
   const [limit, setLimit] = useState(PAGE)
-  const scope = `${needle}|${order}|${view}|${layout}|${JSON.stringify(filters)}`
+  const scope = `${needle}|${order}|${view}|${layout}`
   const [lastScope, setLastScope] = useState(scope)
   if (scope !== lastScope) {
     setLastScope(scope)
     setLimit(PAGE)
   }
 
-  const narrowed = filterCount(filters) + (division.value === undefined ? 0 : 1)
-  const filtered = needle !== "" || narrowed > 0
-  const clearAll = () => {
-    setTyped("")
-    setFilters({ ...NO_FILTERS })
-  }
-  const currency = book?.currency ?? "IDR"
+  const blank = isBlank(parseQuery(needle, currency))
 
-  // An article opens as a sheet over the list. Opening pushes a history entry
+  // An article opens as a sheet over the page. Opening pushes a history entry
   // so the phone's back gesture closes the sheet instead of leaving the screen;
   // swapping to a sibling SKU replaces it. Closing goes back when the sheet was
   // opened here, and otherwise (a link, a reload) just drops the key.
@@ -325,39 +317,14 @@ export function Catalogue() {
     } else sku.set(undefined)
   }
 
-  const sections = {
-    facets,
-    filters,
-    onChange: setFilters,
-    stockKnown: stockMap !== null,
-  }
-
   return (
-    <Screen
-      counter
-      // Named, because the grid below is a container too and the two questions
-      // are different: THIS one asks whether the page has room for the
-      // filter panel, that one how many cards fit beside it.
-      className="@container/page"
-    >
+    <Screen counter>
       {/* The dock, on a phone: renders nothing anywhere else. */}
       <DockTools
         search={{
           value: typed,
           onChange: setTyped,
-          label: bySku ? "Search SKUs" : "Search articles",
-        }}
-        status={{
-          value: division.value ?? "",
-          options: [
-            { value: "", label: "Everything", count: facets.everything },
-            ...facets.divisions.map(([code, howMany]) => ({
-              value: code,
-              label: label(code),
-              count: howMany,
-            })),
-          ],
-          onChange: (next) => division.set(next === "" ? undefined : next),
+          label: "Search the range",
         }}
         sort={{
           label: orderName(order),
@@ -368,11 +335,6 @@ export function Catalogue() {
             desc: false,
             onChange: (next) => setOrder(next as Order),
           },
-        }}
-        filter={{
-          count: filterCount(filters),
-          label: "Filter",
-          onOpen: () => setFilterOpen(true),
         }}
         views={[
           {
@@ -391,196 +353,142 @@ export function Catalogue() {
           },
         ]}
       />
-      {/* A phone's dock and an upright tablet's toolbar open the same sheet;
-          only the tablet's carries the divisions, which on a phone are the
-          dock's status chip. */}
-      <FilterSheet
-        open={filterOpen}
-        onOpenChange={setFilterOpen}
-        withDivision={!phone}
-        {...sections}
-      />
 
-      {/* The Sourcing page's shape: what is on the glass at the left, what
-          narrows it docked at the right where there is room for it.
+      {/* A shop with no price book is not a shop with an empty range, and
+          the difference is whose problem it is: one is a sync that has not
+          landed, the other is a merchandiser's. */}
+      {book !== undefined && !book.has_price_book && (
+        <Banner tone="warn" className="mb-3.5">
+          No price book has reached this shop yet, so nothing here can be
+          priced. Check the sync.
+        </Banner>
+      )}
 
-          Docked by a CONTAINER query on the page, not by `dock:`. The hub's
-          `dock:` reads `data-dock`, which its shell publishes from the width
-          of the page column; this shell does not publish it yet. The page's
-          own width is the same question asked of the same box, with nothing to
-          clean up. 60rem of page is the hub's threshold. */}
-      <KpiStrip>
-        <Kpi
-          label="Articles"
-          value={book === undefined ? "—" : count(figures.articles)}
+      {/* The desk's box: on a phone it is the dock's. */}
+      <label className="relative mb-5 block max-w-[40rem] max-md:hidden">
+        <Search className="pointer-events-none absolute top-1/2 left-4 size-5 -translate-y-1/2 text-line-ico" />
+        <input
+          value={typed}
+          onChange={(event) => setTyped(event.target.value)}
+          placeholder="Name, code, colour, size, promo or price"
+          aria-label="Search the range"
+          enterKeyHint="search"
+          autoFocus={!phone}
+          className="h-12 w-full rounded-card border border-hairline-2 bg-canvas pr-12 pl-12 text-[1rem] text-ink shadow-soft outline-none placeholder:text-body hover:border-hairline-strong focus:border-accent"
         />
-        <Kpi
-          label="SKUs"
-          value={book === undefined ? "—" : count(figures.skus)}
-        />
-        <Kpi
-          label="Pieces on hand"
-          value={figures.pieces === null ? "—" : count(figures.pieces)}
-        />
-      </KpiStrip>
+        {typed !== "" && (
+          <button
+            type="button"
+            onClick={() => setTyped("")}
+            aria-label="Clear the search"
+            className="absolute top-1/2 right-2 grid size-9 -translate-y-1/2 place-items-center rounded-inner text-line-ico transition-colors hover:bg-soft-2 hover:text-ink"
+          >
+            <X className="size-4" />
+          </button>
+        )}
+      </label>
 
-      <div className="grid min-w-0 items-start gap-5 @min-[60rem]/page:grid-cols-[minmax(0,1fr)_16rem]">
-        <div className="flex min-w-0 flex-col">
-          {/* The desk's toolbar: search at the left; the filters (where the
-              panel has no room), the view, the layout and the order at the
-              right. On a phone all of it is the dock's. */}
-          <div className="mb-3.5 flex flex-wrap items-center gap-[0.4375rem] max-md:hidden">
-            <label className="relative min-w-0 flex-[0_1_18rem]">
-              <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-line-ico" />
-              <input
-                value={typed}
-                onChange={(event) => setTyped(event.target.value)}
-                placeholder="Name, SKU or barcode"
-                aria-label="Search the range"
-                enterKeyHint="search"
-                className="h-9 w-full rounded-inner border border-hairline-2 bg-canvas pr-9 pl-8 text-[0.875rem] text-ink shadow-soft outline-none placeholder:text-body hover:border-hairline-strong focus:border-accent pointer-coarse:h-11"
-              />
-              {typed !== "" && (
+      {queryState(catalogue, {
+        loading: "Reading this shop's range…",
+        render: () =>
+          rows.length === 0 ? (
+            <EmptyState>This shop has no priced articles yet.</EmptyState>
+          ) : blank ? (
+            <div className="flex flex-wrap gap-2">
+              {suggestions.map((one) => (
                 <button
+                  key={one.label}
                   type="button"
-                  onClick={() => setTyped("")}
-                  aria-label="Clear the search"
-                  className="absolute top-1/2 right-1 grid size-7 -translate-y-1/2 place-items-center rounded-inner text-line-ico transition-colors hover:bg-soft-2 hover:text-ink pointer-coarse:size-9"
+                  onClick={() => setTyped(one.words)}
+                  className="inline-flex h-11 items-center gap-2 rounded-full border border-hairline-2 bg-canvas pr-4 pl-3.5 text-[0.9375rem] font-medium text-ink shadow-soft transition-[border-color,scale] duration-(--t-press) ease-(--ease-out) hover:border-hairline-strong active:scale-[0.97] motion-reduce:active:scale-100"
                 >
-                  <X className="size-4" />
+                  <one.icon className="size-[1.125rem] text-accent" />
+                  {one.label}
+                  <span className="text-mute tabular-nums">
+                    {count(one.articles)}
+                  </span>
                 </button>
-              )}
-            </label>
-            <span className="flex-1" />
-            <button
-              type="button"
-              onClick={() => setFilterOpen(true)}
-              className={cn(
-                "inline-flex h-9 items-center gap-1.5 rounded-inner px-3 text-[0.875rem] font-medium transition-colors @min-[60rem]/page:hidden pointer-coarse:h-11",
-                narrowed > 0
-                  ? "bg-accent-bg text-accent"
-                  : "text-body hover:bg-soft-2 hover:text-ink",
-              )}
-            >
-              <ListFilter className="size-4" />
-              Filter
-              {narrowed > 0 && (
-                <span className="tabular-nums">{count(narrowed)}</span>
-              )}
-            </button>
-            <Segmented<View>
-              value={view}
-              onChange={(next) =>
-                viewParam.set(next === "article" ? undefined : next)
-              }
-              options={VIEWS}
-            />
-            <Segmented<Layout>
-              value={layout}
-              onChange={(next) =>
-                layoutParam.set(next === "grid" ? undefined : next)
-              }
-              options={LAYOUTS}
-            />
-            <OrderMenu value={order} onChange={setOrder} />
-          </div>
-
-          {/* Where to read the offers, when something is on or due. Hidden
-              entirely at zero rather than shown as "0 promotions". */}
-          {running + soon > 0 && (
-            <div className="mb-3 flex items-center justify-end">
-              <button
-                type="button"
-                onClick={() => go("/promotions")}
-                className="relative inline-flex shrink-0 items-center gap-1.5 text-meta font-medium text-accent after:absolute after:-inset-2 after:content-['']"
-              >
-                <Sparkles className="size-4" />
-                {running > 0
-                  ? `${count(running)} ${running === 1 ? "promotion" : "promotions"} on`
-                  : `${count(soon)} starting soon`}
-              </button>
+              ))}
             </div>
-          )}
-
-          {/* A shop with no price book is not a shop with an empty range, and
-              the difference is whose problem it is: one is a sync that has not
-              landed, the other is a merchandiser's. */}
-          {book !== undefined && !book.has_price_book && (
-            <Banner tone="warn" className="mb-3.5">
-              No price book has reached this shop yet, so nothing here can be
-              priced. Check the sync.
-            </Banner>
-          )}
-
-          {queryState(catalogue, {
-            loading: "Reading this shop's range…",
-            render: () =>
-              cards.length === 0 ? (
-                <EmptyState
-                  action={
-                    filtered ? (
-                      <Button onClick={clearAll}>Show everything</Button>
-                    ) : undefined
-                  }
-                >
-                  {filtered
-                    ? "Nothing in the range matches that."
-                    : "This shop has no priced articles yet."}
-                </EmptyState>
+          ) : cards.length === 0 ? (
+            <EmptyState
+              action={<Button onClick={() => setTyped("")}>Clear</Button>}
+            >
+              Nothing in the range matches that.
+            </EmptyState>
+          ) : (
+            <>
+              {/* What was found, and on a desk how to read it. On a phone
+                  the view, layout and order are the dock's. */}
+              <div className="mb-3.5 flex flex-wrap items-center gap-[0.4375rem]">
+                <span className="text-[0.9375rem] text-body tabular-nums">
+                  {count(cards.length)}{" "}
+                  {bySku
+                    ? cards.length === 1
+                      ? "SKU"
+                      : "SKUs"
+                    : cards.length === 1
+                      ? "article"
+                      : "articles"}
+                </span>
+                <span className="flex-1" />
+                <div className="contents max-md:hidden">
+                  <Segmented<View>
+                    value={view}
+                    onChange={(next) =>
+                      viewParam.set(next === "article" ? undefined : next)
+                    }
+                    options={VIEWS}
+                  />
+                  <Segmented<Layout>
+                    value={layout}
+                    onChange={(next) =>
+                      layoutParam.set(next === "grid" ? undefined : next)
+                    }
+                    options={LAYOUTS}
+                  />
+                  <OrderMenu value={order} onChange={setOrder} />
+                </div>
+              </div>
+              {layout === "table" ? (
+                <CatalogueTable
+                  cards={cards.slice(0, limit)}
+                  bySku={bySku}
+                  currency={currency}
+                  holdings={holdings}
+                  onOpen={open}
+                />
               ) : (
-                <>
-                  {layout === "table" ? (
-                    <CatalogueTable
-                      cards={cards.slice(0, limit)}
-                      bySku={bySku}
-                      currency={currency}
-                      holdings={holdings}
-                      onOpen={open}
-                    />
-                  ) : (
-                    // Columns by the room the list has (a container query, so
-                    // the docked panel and a folded sidebar count): two on a
-                    // phone, three on a tablet held upright, four to six on a
-                    // desk.
-                    <div className="@container min-w-0">
-                      <div className="grid grid-cols-2 gap-2.5 @lg:grid-cols-3 @lg:gap-3.5 @3xl:grid-cols-4 @5xl:grid-cols-5 @7xl:grid-cols-6">
-                        {cards.slice(0, limit).map((card) => (
-                          <ProductTile
-                            key={card.key}
-                            card={card}
-                            bySku={bySku}
-                            holding={
-                              bySku
-                                ? null
-                                : (holdings.get(card.lead.key) ?? null)
-                            }
-                            currency={currency}
-                            onOpen={open}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {cards.length > limit && (
-                    <div className="mt-5 flex justify-center">
-                      <Button onClick={() => setLimit((was) => was + PAGE)}>
-                        Show {count(Math.min(PAGE, cards.length - limit))} more
-                      </Button>
-                    </div>
-                  )}
-                </>
-              ),
-          })}
-        </div>
-
-        {/* The filters, docked beside the list where the page is wide —
-            the hub's Procurement panel (`FilterDock`). */}
-        <FilterDock
-          {...sections}
-          figures={[]}
-          className="hidden @min-[60rem]/page:flex"
-        />
-      </div>
+                // Columns by the room the list has (a container query, so a
+                // folded sidebar counts): two on a phone, three on a tablet
+                // held upright, four to six on a desk.
+                <div className="@container min-w-0">
+                  <div className="grid grid-cols-2 gap-2.5 @lg:grid-cols-3 @lg:gap-3.5 @3xl:grid-cols-4 @5xl:grid-cols-5 @7xl:grid-cols-6">
+                    {cards.slice(0, limit).map((card) => (
+                      <ProductTile
+                        key={card.key}
+                        card={card}
+                        bySku={bySku}
+                        holding={
+                          bySku ? null : (holdings.get(card.lead.key) ?? null)
+                        }
+                        currency={currency}
+                        onOpen={open}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+              {cards.length > limit && (
+                <div className="mt-5 flex justify-center">
+                  <Button onClick={() => setLimit((was) => was + PAGE)}>
+                    Show {count(Math.min(PAGE, cards.length - limit))} more
+                  </Button>
+                </div>
+              )}
+            </>
+          ),
+      })}
 
       <ProductSheet
         sku={sku.value}
@@ -616,22 +524,6 @@ const LAYOUTS: readonly { readonly value: Layout; readonly label: string }[] = [
 
 function orderName(order: Order): string {
   return (ORDERS.find(([one]) => one === order) ?? ORDERS[0])[1]
-}
-
-/// Whether the typed words describe this product.
-///
-/// Name, code and barcode — the three things somebody has when they are asking.
-/// Every word has to match somewhere, so "denim m" finds the medium and not
-/// every denim in the shop.
-function matchesWords(row: CatalogRow, needle: string): boolean {
-  if (needle === "") return true
-  const haystack =
-    `${row.name} ${row.sku_code} ${row.barcode ?? ""} ${row.article_code ?? ""}`.toLowerCase()
-  return needle
-    .split(/\s+/)
-    .every(
-      (word) => haystack.includes(word) || haystack.includes(word.replace(/·/g, "")),
-    )
 }
 
 /// One article — or one SKU — as a shop's product tile.

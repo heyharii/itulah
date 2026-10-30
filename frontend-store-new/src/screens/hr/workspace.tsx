@@ -50,6 +50,7 @@ import { centreState } from "@/screens/hr/centre"
 /// page.
 export function HrWorkspace({
   primary,
+  header = true,
   children,
 }: {
   /// The one thing this screen makes. `label` is the entry point's own words:
@@ -59,6 +60,9 @@ export function HrWorkspace({
     onClick: () => void
     icon?: LucideIcon
   }
+  /// `false` for a page that draws its own head — the hub's Roster and
+  /// Records, whose title row carries the controls.
+  header?: boolean
   children: (scope: StoreScope) => React.ReactNode
 }) {
   const where = useNodeIdentity()
@@ -139,9 +143,7 @@ export function HrWorkspace({
           label: view.unit_name ?? view.unit_id,
         }
 
-        return (
-          children(here)
-        )
+        return children(here)
       },
     })
   }
@@ -151,6 +153,7 @@ export function HrWorkspace({
 
   return (
     <Screen
+      header={header}
       actions={
         ready ? (
           <Button variant="primary" onClick={primary.onClick}>

@@ -1278,7 +1278,6 @@ pub async fn provision_account(
     })
 }
 
-
 /// Whether the signed-in person must choose a new password before using the
 /// hub: true after an administrator set a temporary one (0980).
 pub async fn must_change_password(pool: &PgPool, username: &str) -> Result<bool, AppError> {

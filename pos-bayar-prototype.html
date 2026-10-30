@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bayar kasir</title>
+<style>
+:root{
+  --ink:#1d1d1f;--body:#6e6e73;--faint:#c7c7cc;--stone:#e8ebf0;--hairline:#e8e8ec;--hairline-2:#dcdce1;--soft:#f2f2f5;
+  --accent:#2862dc;--accent-bg:#eef3fc;--warn-bg:#faeacd;--warn-fg:#a66c1f;--bad:#d70015;--bad-bg:#fbeaea;--ok-fg:#248a3d;
+  --font-sans:"Inter Variable",Inter,system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--stone);color:var(--ink);font:15px/1.45 var(--font-sans);-webkit-font-smoothing:antialiased}
+p{margin:0}
+.top{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;align-items:center;gap:10px 20px;padding:14px 24px;background:rgba(232,235,240,.92);backdrop-filter:blur(12px);border-bottom:1px solid var(--hairline-2)}
+.top h1{margin:0;font-size:20px;line-height:28px;font-weight:600;letter-spacing:-.4px}
+.grp{display:flex;align-items:center;gap:8px}
+.grp .k{color:var(--body)}
+.seg{display:inline-flex;flex-wrap:wrap;padding:2px;border-radius:9px;background:#fff;box-shadow:inset 0 0 0 1px var(--hairline-2)}
+.seg button{height:32px;padding:0 12px;border:0;border-radius:7px;background:none;font:inherit;color:var(--ink);cursor:pointer;white-space:nowrap}
+.seg button.on{background:var(--accent);color:#fff;font-weight:600}
+main{padding:24px;display:flex;flex-direction:column;align-items:center;gap:28px}
+/* The cashier's monitor at its real size, scaled to fit this page: the dialog
+   takes the screen's height less a margin, so what fits here fits there. */
+.mon{position:relative;flex:none}
+.screen{position:absolute;left:0;top:0;transform-origin:0 0;display:grid;place-items:center;background:rgba(29,29,31,.32);border-radius:6px;overflow:hidden}
+.screen .pay{width:min(1100px,calc(100% - 32px));height:calc(100% - 32px);max-width:none;grid-template-rows:auto minmax(0,1fr)}
+.screen .pay-l{min-height:0;overflow:hidden}
+/* The band never leaves the screen: only the rows give way, scrolling last. */
+.screen .rows{flex:0 1 auto;min-height:0;overflow:auto}
+.screen .foot{flex:none}
+.screen .pay-r{min-height:0}
+.mon-cap{color:var(--body)}
+/* On the till the dialog is most of the screen: everything a size up. */
+.screen .pay{width:min(1400px,calc(100% - 48px));height:min(900px,calc(100% - 48px));grid-template-columns:minmax(0,1fr) 460px}
+.screen .pay-head{padding:18px 32px 16px}
+.screen .ttl{font-size:20px}
+.screen .pay-l{padding:22px 32px 0}
+.screen .pay-r{padding:22px 28px 28px;gap:12px}
+.screen .fig.lg .k{font-size:20px}
+.screen .fig.lg .v{font-size:42px;line-height:50px}
+.screen .mrow{grid-template-columns:140px minmax(0,1fr) 170px;min-height:54px;padding:5px 14px}
+.screen .mrow .ml{font-size:17px}
+.screen .amt{width:170px;height:48px;font-size:20px}
+.screen .chip{height:32px;padding:0 12px;font-size:17px}
+.screen .qrow{height:62px;padding:0 18px}
+.screen .qrow b{font-size:24px}
+.screen .qrow .l{font-size:17px}
+.screen .btn{height:64px;font-size:17px}
+.screen .due-box{padding:12px 16px;font-size:17px}
+.screen .due-box b{font-size:24px}
+.screen .foot{margin:16px -32px 0}
+.screen .band{padding:18px 32px 22px}
+.screen .band .k{font-size:22px}
+.screen .band .v{font-size:44px;line-height:52px}
+.screen .tell{padding:12px 16px;font-size:17px}
+
+/* The Bayar dialog of the till: inputs left, quick amounts and the go right. */
+.pay{width:1100px;max-width:100%;border-radius:16px;background:#fff;box-shadow:0 4px 8px rgba(24,39,60,.04),0 12px 32px rgba(24,39,60,.08);display:grid;grid-template-columns:minmax(0,1fr) 420px;overflow:hidden}
+.pay-head{grid-column:1/-1;display:flex;justify-content:space-between;align-items:center;padding:16px 28px 14px;border-bottom:1px solid var(--hairline)}
+.ttl{font-size:17px;font-weight:600}
+.cap{color:var(--body)}
+.x{width:32px;height:32px;border-radius:8px;display:grid;place-items:center;color:var(--body)}
+.pay-l{display:flex;flex-direction:column;padding:18px 28px 0;min-width:0;min-height:600px}
+.pay-r{display:flex;flex-direction:column;gap:10px;padding:18px 24px 24px;border-left:1px solid var(--hairline)}
+
+/* Figures to read: label left, figure right, one size per level. */
+.fig{display:flex;justify-content:space-between;align-items:baseline;gap:16px}
+.fig .k{font-size:17px;font-weight:600;color:var(--body)}
+.fig .v{font-size:28px;line-height:36px;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.fig.lg .k{color:var(--ink)}
+.fig.lg .v{font-size:34px;line-height:42px;font-weight:700}
+.fig.due .k,.fig.due .v{color:var(--bad)}
+.fig .k{white-space:nowrap}
+.pay-r .fig .v{font-size:24px;line-height:32px}
+.pay-r .fig.lg .v{font-size:28px;line-height:36px}
+.figs{display:flex;flex-direction:column;gap:2px;padding-bottom:16px;margin-bottom:12px;border-bottom:1px solid var(--hairline)}
+
+/* Ways to pay: every way the shop takes, one row each, the same height. */
+.rows{display:flex;flex-direction:column}
+.mrow{display:grid;grid-template-columns:120px minmax(0,1fr) 160px;align-items:center;gap:12px;min-height:52px;padding:6px 12px;border-radius:10px}
+.mrow+.mrow{margin-top:2px}
+.mrow.on{background:var(--accent-bg)}
+.mrow .ml{font-weight:500}
+.mrow.on .ml{color:var(--accent);font-weight:600}
+.mrow .mid{color:var(--body);min-width:0}
+.chip{display:inline-flex;align-items:center;height:28px;padding:0 10px;margin-right:6px;border-radius:7px;background:var(--accent);color:#fff;font-weight:500}
+.chip.idle{background:#fff;color:var(--ink);box-shadow:inset 0 0 0 1px var(--hairline-2)}
+.edc{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.eq{color:var(--body);margin-right:2px}
+.chip.ask{border:0;background:#fff;color:var(--ink);box-shadow:inset 0 0 0 1px var(--hairline-2);font:inherit;font-weight:500;cursor:pointer;gap:6px;margin:0}
+.chip.ask:hover{box-shadow:inset 0 0 0 1.5px var(--accent)}
+.chip.ask .kbd{min-width:22px;height:20px;padding:0 4px}
+.chip.pick{border:0;font:inherit;font-weight:500;cursor:pointer;gap:6px;margin:0}
+.chip .xx{opacity:.75}
+.screen .chip{height:34px;font-size:15px}
+.screen .edc{flex-wrap:nowrap}
+.edc .chip{flex:none;white-space:nowrap;padding:0 10px}
+.edc .chip .kbd{min-width:20px;padding:0 4px}
+.mrow .ml{white-space:nowrap}
+.more{align-self:flex-start;display:inline-flex;align-items:center;gap:8px;height:34px;margin:4px 0 4px 12px;padding:0 12px;border:0;border-radius:8px;background:var(--accent-bg);color:var(--accent);font:inherit;font-weight:600;cursor:pointer}
+.ph{color:var(--faint);margin-right:8px}
+.adds{display:flex;flex-wrap:wrap;gap:6px;padding:8px 12px 0}
+.adds .more{margin:0}
+.more:disabled{background:var(--soft);color:var(--body);cursor:default}
+.vin{width:240px;height:36px;padding:0 10px;border:0;border-radius:8px;background:#fff;box-shadow:inset 0 0 0 1.5px var(--accent);font:inherit;font-size:17px;letter-spacing:.04em;outline:none}
+.vin.pts{width:110px;text-align:right;margin:0 8px}
+.vin.code{width:110px;letter-spacing:.2em;margin:0 8px}
+.pt-bal{color:var(--body)}
+.pt-eq{margin-right:8px;font-weight:600}
+.vin.bad{box-shadow:inset 0 0 0 1.5px var(--bad)}
+.vin+.kbd{margin-left:6px}
+.vbad{margin-left:8px;color:var(--bad);font-weight:600}
+.ok-t{color:var(--ok-fg);font-weight:600}
+.wait{color:var(--warn-fg);margin-right:8px}
+.mid .chip.ask{margin-left:4px}
+/* EDC answers (Hari, 28 Oct 2026): picked many times a day, often by key, so the
+   motion is barely there — only the chip just picked and the next question
+   come in; nothing leaves. State indication, not decoration. */
+@keyframes chip-in{from{opacity:0;transform:translateX(-6px)}}
+.edc .in{animation:chip-in 160ms cubic-bezier(0.23,1,0.32,1) both}
+.edc .chip.ask.in{animation-delay:40ms}
+.edc .chip.ask.in+.chip.ask.in{animation-delay:70ms}
+.edc .chip.ask.in+.chip.ask.in+.chip.ask.in{animation-delay:100ms}
+@media (prefers-reduced-motion:reduce){@keyframes chip-in{from{opacity:0}}}
+/* Finger on the reader (Hari, 28 Oct 2026): a few times a day, so it may show
+   life — the print wobbles while it is read (1.8 s), then settles green.
+   State indication: the cashier sees the reader is working, not stuck. */
+.fp{display:inline-grid;place-items:center;width:34px;height:34px;margin-right:8px;border-radius:50%;background:var(--warn-bg);color:var(--warn-fg);vertical-align:middle}
+.fp.reading svg{animation:fp-wobble 600ms cubic-bezier(0.77,0,0.175,1) infinite;transform-origin:50% 70%}
+@keyframes fp-wobble{0%,100%{transform:rotate(0)}25%{transform:rotate(-8deg)}75%{transform:rotate(8deg)}}
+.fp.done{background:#d9f4d2;color:var(--ok-fg);animation:fp-in 200ms cubic-bezier(0.23,1,0.32,1)}
+@keyframes fp-in{from{transform:scale(0.9);opacity:.6}}
+@media (prefers-reduced-motion:reduce){.fp.reading svg{animation:fp-fade 900ms ease infinite alternate}@keyframes fp-fade{to{opacity:.4}}.fp.done{animation:none}}
+.edc .chip.drop{margin-left:auto;gap:6px;padding:0 8px;border:0;background:var(--soft);color:var(--body);font:inherit;font-size:18px;cursor:pointer}
+@media (hover:hover) and (pointer:fine){.edc .chip.drop:hover{background:var(--bad-bg);color:var(--bad)}}
+.edc{width:100%}
+.nopay{padding:14px 12px;color:var(--body);font-size:17px}
+.amt{justify-self:end;width:160px;height:40px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;border-radius:8px;background:#fff;box-shadow:inset 0 0 0 1px var(--hairline-2);font-size:17px;font-weight:600;font-variant-numeric:tabular-nums}
+.mrow.on .amt{box-shadow:inset 0 0 0 1.5px var(--accent)}
+.amt .cur{color:var(--body);font-size:15px;font-weight:500}
+.amt.zero{color:var(--faint);font-weight:500}
+
+/* Quick amounts: one clean row each, the key at the end. */
+.qk{display:flex;flex-direction:column;gap:6px}
+.qrow{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:12px;height:50px;padding:0 14px;border-radius:10px;background:#fff;box-shadow:inset 0 0 0 1px var(--hairline-2)}
+.qrow b{font-size:20px;font-weight:600;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.qrow .l{color:var(--accent);font-weight:500}
+.kbd{display:inline-grid;place-items:center;min-width:30px;height:24px;padding:0 6px;border-radius:6px;background:var(--soft);color:var(--body);font-size:15px;font-weight:500}
+.acts{display:flex;flex-direction:column;gap:8px;margin-top:auto}
+.btn{height:56px;white-space:nowrap;border-radius:10px;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 14px;font-weight:600;color:#fff;background:var(--accent)}
+.btn .kbd{background:rgba(255,255,255,.18);color:#fff}
+.act-row{display:flex;gap:8px}
+.btn.red{flex:none;background:var(--bad)}
+.btn.go{flex:1;min-width:0;padding:0 14px}
+.btn.off{background:var(--soft);color:var(--body)}
+.btn.off .kbd{background:#fff;color:var(--body)}
+.due-line{display:flex;justify-content:flex-end;gap:8px;color:var(--bad);font-weight:500}
+.due-line b{font-weight:700;font-variant-numeric:tabular-nums}
+.due-box{display:flex;justify-content:space-between;align-items:baseline;padding:10px 14px;border-radius:10px;box-shadow:inset 0 0 0 1.5px var(--bad);background:var(--bad-bg);color:var(--bad);font-weight:600}
+.due-box b{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums}
+.btn.off b{color:var(--bad);font-variant-numeric:tabular-nums}
+
+/* What the cashier must say: a red line per point, then the band. */
+.tell{margin:0 0 8px;padding:10px 14px;border-radius:10px;background:var(--bad-bg);color:var(--bad);font-weight:600}
+.tell.info{background:var(--accent-bg);color:var(--accent)}
+.foot{margin:12px -28px 0}
+.foot .tells{padding:0 28px}
+.band{display:grid;grid-template-columns:auto 1fr;align-items:baseline;column-gap:20px;padding:16px 28px 20px;background:var(--accent);color:#fff}
+.band .k{font-size:20px;line-height:28px;font-weight:600;white-space:nowrap}
+.band .tell{grid-column:1/-1;margin:0 0 8px;background:#fff}
+.band .tell.info{background:#fff}
+.band .tell+.k{margin-top:4px}
+.band .tell.card{display:flex;flex-direction:column;gap:4px;color:var(--bad)}
+.band .ln.ok{color:var(--ok-fg);display:flex;flex-wrap:wrap;column-gap:10px}
+.band .ln.info{color:var(--accent)}
+/* W2: no white card — the lines sit on the blue, white, a rule under them. */
+.band .tell.card.bare{background:none;padding:0 0 12px;margin-bottom:10px;border-radius:0;border-bottom:1px solid rgba(255,255,255,.3);color:#ffd36b}
+.band .tell.card.bare .ln.ok{color:#fff}
+.band .tell.card.bare .ln.info{color:#fff}
+.band .tell.okfill{background:var(--ok-fg);color:#fff;display:flex;flex-direction:column}
+.band .tell.okrow{background:none;padding:0 2px;color:#fff;font-weight:500}
+.band .tell b{font-weight:700}
+.tk-s{font-weight:500;opacity:.85}
+.band .v{font-size:38px;line-height:46px;font-weight:700;letter-spacing:-.035em;text-align:right;font-variant-numeric:tabular-nums}
+
+/* The list of mistakes and what stops each. */
+.why{width:1100px;max-width:100%;background:#fff;border-radius:16px;padding:20px 24px;box-shadow:0 1px 2px rgb(0 0 0/6%)}
+.why h2{margin:0 0 10px;font-size:17px;font-weight:600}
+.why table{width:100%;border-collapse:collapse}
+.why th{text-align:left;color:var(--body);font-weight:500;padding:6px 8px;border-bottom:1px solid var(--hairline)}
+.why td{padding:8px;border-bottom:1px solid var(--hairline);vertical-align:top}
+.why td:first-child{font-weight:600;width:300px}
+/* Each thing said is its own white card (29 Oct 2026). */
+.tell.card+.tell.card,.tell+.tell.card{margin-top:8px}
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Bayar kasir</h1>
+  <div class="grp"><span class="k">Versi</span><div class="seg" id="ver"></div></div>
+  <div class="grp"><span class="k">Kurang (R1)</span><div class="seg" id="kur"></div></div>
+  <div class="grp"><span class="k">Bisa ditukar</span><div class="seg" id="tuk"></div></div>
+  <div class="grp"><span class="k">Latar</span><div class="seg" id="wv"></div></div>
+  <div class="grp"><span class="k">Layar</span><div class="seg" id="scr"></div></div>
+  <div class="grp"><span class="k">Kasus</span><div class="seg" id="cas"></div></div>
+</header>
+<main id="app"></main>
+<script>
+const fmt = n => n.toLocaleString('id-ID');
+/* Each case the cashier meets at Bayar. `rows`: the ways used, with what was
+   typed; `tell`: pieces that may not be exchanged ('all' for a return). */
+const CASES = {
+  tunai: { lbl: 'Tunai', pcs: 8, total: 1122000, rows: [['Tunai', 1200000]], tell: [] },
+  split: { lbl: 'Split EDC', pcs: 8, total: 1122000, rows: [['Tunai', 322000], ['EDC', 500000, ['BCA', 'Debit', 'Kartu BCA']], ['EDC 2', 300000, ['Mandiri', 'Debit', 'Bank lain']]], tell: [] },
+  kurang: { lbl: 'Masih kurang', pcs: 8, total: 1122000, rows: [['Tunai', 1000000]], tell: [] },
+  nope: { lbl: 'Ada yang tidak bisa ditukar', pcs: 3, total: 403000, rows: [['Tunai', 500000]], tell: ['Bombi Kaos Kaki 3in1'] },
+  voucher: { lbl: 'Voucher lebih besar', pcs: 1, total: 189000, rows: [['Voucher', 200000, 'GC-7Y3K-22QD']], tell: [], voucher: true },
+  member: { lbl: 'Member', pcs: 2, total: 289000, rows: [['EDC', 289000, ['BCA', 'QRIS']]], tell: [], member: ['Siti Rahmawati', 28] },
+  promo: { lbl: 'Promo & kupon', pcs: 2, total: 289000, rows: [['Tunai', 300000]], tell: [], member: ['Siti Rahmawati', 28], save: [75000, 'Member Hemat, Kupon HEMAT50'] },
+  poin: { lbl: 'Tukar poin', pcs: 1, total: 137000, rows: [['Poin', 50000, '5.000 poin'], ['Tunai', 100000]], tell: [], member: ['Siti Rahmawati', 8] },
+  karyawan: { lbl: 'Diskon karyawan', pcs: 1, total: 157000, rows: [['Diskon karyawan', 100000], ['Tunai', 60000]], tell: [] },
+  retless: { lbl: 'Return · lebih murah', pcs: 1, total: 0, rows: [], tell: ['all'], ret: { back: 137000, out: 94000 } },
+  ret: { lbl: 'Return · bayar selisih', pcs: 1, total: 76000, rows: [['Tunai', 100000]], tell: ['all'], ret: { back: 2, out: 1 } },
+};
+/* Every way the shop takes, in the till's order. */
+const WAYS = ['Tunai', 'EDC', 'EDC 2', 'Voucher', 'Poin', 'Diskon karyawan'];
+const VERS = [['A', 'Sekarang'], ['R1', 'Rapi'], ['R2', 'Rapi · total kanan'], ['R3', 'Rapi · total kiri']];
+/* Common till screens, by panel size: 15" POS touch, 18.5–19" desktop monitor, 19.5–20", 21.5–24" full HD. */
+const SCREENS = { '1024': [1024, 768, '15"'], '1366': [1366, 768, '18.5"'], '1600': [1600, 900, '19.5"'], '1920': [1920, 1080, '21.5–24"'] };
+let SC = get('scr', '1366');
+
+let V = get('ver', 'R1'), C = get('cas', 'kurang'), K = get('kurang', 'K2'), T = get('tukar', 'T1'), W = get('kartu', 'W1');
+if (!CASES[C]) C = 'kurang';
+if (!VERS.some(([k]) => k === V)) V = 'R1';
+function get(k, d) { try { return localStorage.getItem('bayar.' + k) || d; } catch { return d; } }
+function set(k, v) { try { localStorage.setItem('bayar.' + k, v); } catch { /* no storage */ } }
+
+/* The unused EDC row, clickable (Hari, 28 Oct 2026): one question at a time —
+   Mesin, then Jenis, then Kartu. An answer is a solid chip; × takes it back. The
+   key beside each choice is the one the counter presses. */
+/* More than one EDC for a split over cards: "+ EDC lagi" (or +) adds a row. */
+const FP = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M7 11a5 5 0 0 1 10 0v2"/><path d="M12 11v4a6 6 0 0 1-1.5 4"/><path d="M9 11.5V14a9 9 0 0 1-1.2 4.5"/><path d="M15 13.5a10 10 0 0 1-.8 4"/><path d="M4.5 9a8 8 0 0 1 15 0"/><path d="M5 14.5a12 12 0 0 0 .3-2"/></svg>';
+/* What the cashier has opened on top of the case: EDC rows, a voucher, points, an employee's finger. */
+/* Tunai and one EDC are always there (Hari, 28 Oct 2026); more EDC by "+ EDC". */
+let FOCUS = 0, ROWS = [];
+const blankEdc = () => ({ mach: null, kind: null, card: null, amt: 0 });
+const X = { edcs: [], voucher: null, poin: null, emp: null };
+function resetX() {
+  const c = CASES[C];
+  FOCUS = 0;
+  X.edcs.length = 0;
+  if (!c.rows.some(r => r[0].startsWith('EDC'))) X.edcs.push(blankEdc());
+  X.voucher = X.poin = X.emp = null;
+}
+const EDCS = X.edcs;
+/* The row just answered (or taken back), so only what changed moves — the
+   whole dialog redraws on every key. Cleared once drawn. */
+let FRESH = null;
+function edcAsk(n) {
+  const EDC = EDCS[n], fresh = FRESH && FRESH.n === n;
+  const picked = [EDC.mach, EDC.kind && { D: 'Debit', K: 'Kredit', Q: 'QRIS' }[EDC.kind], EDC.card].filter(Boolean);
+  const done = picked.map((x, i) => `<button class="chip pick${fresh && FRESH.pick && i === picked.length - 1 ? ' in' : ''}" data-e="undo:${n}:${i}">${x} <span class="xx">×</span></button>`).join('');
+  const q = !EDC.mach ? ['Mesin', [['BCA', '1'], ['Mandiri', '2'], ['BRI', '3']], 'mach']
+    : !EDC.kind ? ['Jenis', [['Debit', 'D'], ['Kredit', 'K'], ['QRIS', 'Q']], 'kind']
+    : EDC.kind !== 'Q' && !EDC.card ? ['Kartu', [[`Kartu ${EDC.mach}`, 'Y'], ['Bank lain', 'T']], 'card'] : null;
+  /* Not using this EDC after all: × takes the row away (the last one empties). */
+  const drop = picked.length || EDC.amt ? `<button class="chip drop" data-e="drop:${n}" title="Batal pakai EDC">× <span class="kbd">Del</span></button>` : '';
+  return `<span class="edc">${done}${q ? `<span class="eq${fresh ? ' in' : ''}">${q[0]}</span>${q[1].map(([l, k]) => `<button class="chip ask${fresh ? ' in' : ''}" data-e="${q[2]}:${n}:${q[2] === 'kind' ? k : l}">${l} <span class="kbd">${k}</span></button>`).join('')}` : ''}${drop}</span>`;
+}
+/* What is still owed, from what the case and the opened rows hold. */
+function due() {
+  const c = CASES[C];
+  const got = c.rows.reduce((a, r) => a + r[1], 0) + X.edcs.reduce((a, e) => a + (e.amt || 0), 0) + (X.voucher ? X.voucher.val : 0) + (X.poin && X.poin.st === 'ok' ? X.poin.pts * POINT_RP : 0) + (X.emp ? X.emp.amt : 0);
+  return c.total - got;
+}
+function view() {
+  const c = CASES[C];
+  const extra = X.edcs.reduce((a, e) => a + (e.amt || 0), 0) + (X.voucher ? X.voucher.val : 0) + (X.poin && X.poin.st === 'ok' ? X.poin.pts * POINT_RP : 0) + (X.emp ? X.emp.amt : 0);
+  const paid = c.rows.reduce((a, r) => a + r[1], 0) + extra, cash = c.rows.filter(r => r[0] === 'Tunai').reduce((a, r) => a + r[1], 0);
+  const due = Math.max(0, c.total - paid), ok = due === 0;
+  const used = Object.fromEntries(c.rows.map(r => [r[0], r]));
+  /* Only the ways in use are rows; the rest wait as "+" buttons on one line, so
+     the dialog never scrolls (Hari, 28 Oct 2026). */
+  /* Every row is reachable by ↑ ↓; ROWS says what each one is, for the keys. */
+  ROWS = [];
+  const row = (w, amt, mid, kind) => { ROWS.push(kind || { t: 'fixed' }); const on = ROWS.length - 1 === Math.min(FOCUS, 99);
+    return `<div class="mrow${on ? ' on' : ''}" data-row="${ROWS.length - 1}"><span class="ml">${w}</span><span class="mid">${mid}</span>
+      <span class="amt${amt ? '' : ' zero'}"><span class="cur">Rp</span>${fmt(amt || 0)}</span></div>`; };
+  const usedEdc = ['EDC', 'EDC 2'].filter(w => used[w]);
+  let rows = row('Tunai', used.Tunai ? used.Tunai[1] : 0, 'Cash on Hand C011', { t: 'tunai' });
+  rows += usedEdc.map((w, k) => row(k ? `EDC ${k + 1}` : 'EDC', used[w][1], used[w][2].map(y => `<span class="chip">${y}</span>`).join(''))).join('');
+  rows += X.edcs.map((e, n) => row(usedEdc.length + n ? `EDC ${usedEdc.length + n + 1}` : 'EDC', e.amt, edcAsk(n), { t: 'edc', n })).join('');
+  if (used.Voucher) rows += row('Voucher', used.Voucher[1], `${used.Voucher[2]} · <span class="ok-t">Voucher kertas</span>`);
+  else if (X.voucher) rows += row('Voucher', X.voucher.val, X.voucher.val
+    ? `${X.voucher.code} · <span class="ok-t">Voucher kertas Rp ${fmt(X.voucher.val)}</span>`
+    : `<input class="vin${X.voucher.bad ? ' bad' : ''}" id="vcode" value="${X.voucher.code}" placeholder="Ketik atau scan kode voucher" autocomplete="off" spellcheck="false">
+       <span class="kbd">Enter</span>${X.voucher.bad ? `<span class="vbad">${X.voucher.bad}</span>` : ''}`, { t: 'voucher' });
+  if (used.Poin) rows += row('Poin', used.Poin[1], used.Poin[2]);
+  /* Tukar poin (Hari, 28 Oct 2026): the cashier types how many points (the
+     most that fits is offered), Enter sends the ask; the shopper approves in the
+     member app, or reads the six digits WhatsApp sent them; then the row pays. */
+  else if (X.poin) rows += row('Poin', X.poin.st === 'ok' ? X.poin.pts * POINT_RP : 0, X.poin.st === 'ask'
+    ? `<span class="pt-bal">Saldo ${fmt(SALDO_POIN)}</span><input class="vin pts" id="ppts" value="${X.poin.pts || ''}" inputmode="numeric" autocomplete="off"><span class="pt-eq">poin = Rp ${fmt((X.poin.pts || 0) * POINT_RP)}</span><span class="kbd">Enter</span>`
+    : X.poin.st === 'wait' ? `<span class="wait">${fmt(X.poin.pts)} poin · kode WhatsApp</span><input class="vin code${X.poin.bad ? ' bad' : ''}" id="pcode" value="${X.poin.code || ''}" maxlength="6" inputmode="numeric" placeholder="6 angka" autocomplete="off"><button class="chip ask" data-x="pok">Setuju di app</button>`
+    : `${fmt(X.poin.pts)} poin`, { t: 'poin' });
+  if (used['Diskon karyawan']) rows += row('Diskon karyawan', used['Diskon karyawan'][1], `<span class="fp done">${FP}</span>Rizky Hidayat · <span class="ok-t">saldo ${fmt(125000)}</span>`, { t: 'emp' });
+  else if (X.emp) rows += row('Diskon karyawan', X.emp.amt, X.emp.st === 'idle'
+    ? `<button class="chip ask" data-x="efinger">☝ Tempel jari karyawan <span class="kbd">Spasi</span></button>`
+    : X.emp.st === 'read' ? `<span class="fp reading">${FP}</span><span class="wait">Membaca jari…</span>`
+    : `<span class="fp done">${FP}</span>Rizky Hidayat · <span class="ok-t">saldo ${fmt(125000)}</span>`, { t: 'emp' });
+  /* A return worth more than its replacement (Hari, 28 Oct 2026): nothing is
+     paid and nothing paid back, so no ways to pay — the cashier only finishes it. */
+  if (c.total === 0) { ROWS = []; rows = '<p class="nopay">Tidak ada yang dibayar</p>'; }
+  /* What may still be added, one line. */
+  const adds = [['edc', '+ EDC', 5], ...(!used.Voucher && !X.voucher ? [['voucher', '+ Voucher', 6]] : []),
+    ...(c.member && !used.Poin && !X.poin ? [['poin', '+ Poin', 7]] : []),
+    ...(!used['Diskon karyawan'] && !X.emp ? [['emp', c.save ? 'Diskon karyawan · tidak bisa dengan promo' : '+ Diskon karyawan', 8]] : [])];
+  if (c.total > 0) rows += `<div class="adds">${adds.map(([k, l, d]) => `<button class="more" data-x="add-${k}"${k === 'emp' && c.save ? ' disabled' : ''}>${l}${k === 'emp' && c.save ? '' : ` <span class="kbd">⇧${d}</span>`}</button>`).join('')}</div>`;
+
+  /* Most serious first; each one a line the cashier says. */
+  const tells = [];
+  /* Until when the pieces may come back, and on what terms (Hari, 28 Oct 2026),
+     unless none may: three ways to show it (T). */
+  if (c.tell[0] !== 'all') {
+    const until = '4 Nov 2026', terms = 'Hang tag utuh · bawa struk';
+    if (T === 'T1') tells.push(['ok', `<span class="tk-l">✓ Bisa ditukar s/d <b>${until}</b></span><span class="tk-s">${terms}</span>`]);
+    else if (T === 'T2') tells.push(['okfill', `<span class="tk-l">Bisa ditukar s/d <b>${until}</b></span><span class="tk-s">${terms}</span>`]);
+    else tells.push(['okrow', `Bisa ditukar s/d <b>${until}</b> · ${terms.toLowerCase()}`]);
+  }
+  if (c.tell[0] === 'all') tells.push(['', 'Barang tidak bisa ditukar']);
+  /* One card per piece, its name first (Hari, 29 Oct 2026). */
+  else c.tell.forEach(name => tells.push(['', `${name} tidak bisa ditukar`]));
+  if (c.voucher || (X.voucher && X.voucher.val)) { const over = paid - c.total; tells.push(['', `Voucher tidak ada kembalian${over > 0 ? ` · sisa ${fmt(over)} hangus` : ''}`]); }
+  if (c.ret && c.ret.back > c.ret.out) tells.push(['', `Sisa ${fmt(c.ret.back - c.ret.out)} hangus · tidak diuangkan`]);
+  if (c.save) tells.push(['info', `Hemat Rp ${fmt(c.save[0])} · ${c.save[1]}`]);
+  if (c.member) tells.push(['info', `Member ${c.member[0]} · +${c.member[1]} poin`]);
+  /* One white card for every line read to the shopper, so the band keeps its room. */
+  const filled = tells.filter(([t]) => t === 'okfill' || t === 'okrow'), lines = tells.filter(([t]) => t !== 'okfill' && t !== 'okrow');
+  const tellHtml = filled.map(([t, w]) => `<p class="tell ${t}">${w}</p>`).join('') + lines.map(([t, w]) => `<div class="tell card${W === 'W2' ? ' bare' : ''}"><p class="ln ${t}">${w}</p></div>`).join('');
+  const band = `<div class="band"><span class="k">Total Belanja</span><span class="v">${c.pcs} Pcs</span>${paid ? `<span class="k">Uang Diterima</span><span class="v">${fmt(paid)}</span>` : ''}</div>`;
+
+  const quickVals = [c.total, Math.ceil(c.total / 10000) * 10000, Math.ceil(c.total / 50000) * 50000, Math.ceil(c.total / 100000) * 100000].filter((v, i, a) => a.indexOf(v) === i).slice(0, 4);
+  const head = `<div class="pay-head"><div><p class="ttl">Bayar</p><p class="cap">SPAPODH${c.member ? ' · ' + c.member[0] : ''}</p></div><span class="x">✕</span></div>`;
+  const totalFig = `<div class="fig lg"><span class="k">Total bayar</span><span class="v">Rp ${fmt(c.total)}</span></div>`;
+  const dueFig = due ? `<div class="fig due"><span class="k">Kurang bayar</span><span class="v">Rp ${fmt(due)}</span></div>` : '';
+
+  let pay;
+  if (V === 'A') {
+    /* Now: total on the left, the sums on the right, keypad toggle, two-by-two quick amounts. */
+    const q = quickVals.map((v, i) => `<div style="height:70px;padding:8px 14px;border-radius:8px;background:var(--accent-bg);display:flex;flex-direction:column;justify-content:center"><b style="font-size:22px">${fmt(v)}</b><span style="color:var(--accent)">Shift+${i + 1} · ${v === c.total ? 'Uang pas' : 'Kembali ' + fmt(v - c.total)}</span></div>`).join('');
+    const sums = [['Total transaksi', c.total], ...(cash ? [['Total cash', cash]] : [])].map(([k, v]) => `<span style="color:var(--body)">${k}</span><span style="text-align:right">Rp ${fmt(v)}</span>`).join('')
+      + (due ? `<span style="color:var(--body)">Kurang bayar</span><span style="text-align:right;color:var(--bad);font-weight:600">Rp ${fmt(due)}</span>` : '');
+    pay = `<section class="pay">${head}
+      <div class="pay-l"><div class="fig" style="padding:6px 0 14px"><span class="k" style="color:var(--ink)">Total bayar</span><span class="v">Rp ${fmt(c.total)}</span></div><div class="rows">${rows}</div><span style="flex:1"></span>
+        <div class="foot">${c.tell.length ? `<div class="tells"><p class="tell" style="background:var(--warn-bg)">${c.tell[0] === 'all' ? 'Barang tidak bisa ditukar' : 'Tidak bisa ditukar: ' + c.tell.join(', ')}</p></div>` : ''}${band}</div></div>
+      <div class="pay-r"><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">${q}</div>
+        <div style="height:38px;border-radius:8px;background:var(--accent-bg);color:var(--accent);display:flex;align-items:center;padding:0 12px;font-weight:600">Tampilkan keypad · F8</div>
+        <div style="display:grid;grid-template-columns:1fr auto;row-gap:4px">${sums}</div>
+        <div class="acts"><span class="btn red">Tunda <span class="kbd">⇧9</span></span><span class="btn go${ok ? '' : ' off'}">Pembayaran diterima <span class="kbd">↵</span></span></div></div></section>`;
+  } else {
+    /* R1–R3: no keypad toggle (the counter types), quick amounts as plain rows,
+       nothing read twice. Only where the totals sit differs. */
+    const quick = c.total === 0 ? '' : `<div class="qk">${quickVals.map((v, i) => `<div class="qrow"><b>${fmt(v)}</b><span class="l">${v === c.total ? 'Uang pas' : ''}</span><span class="kbd">⇧${i + 1}</span></div>`).join('')}</div>`;
+    /* R1 shows the shortfall only next to the button (Hari, 28 Oct 2026): K1 in
+       the button, K2 a small red line above it, K3 a red-bordered box above it. */
+    const short = !ok && V === 'R1';
+    const go = c.total === 0 ? `<span class="btn go">Selesaikan return <span class="kbd">↵</span></span>`
+      : ok ? `<span class="btn go">Pembayaran diterima <span class="kbd">↵</span></span>`
+      : short && K === 'K1' ? `<span class="btn go off"><span>Kurang <b>${fmt(due)}</b></span><span class="kbd">↵</span></span>`
+      : `<span class="btn go off">Pembayaran diterima <span class="kbd">↵</span></span>`;
+    const dueNote = !short || K === 'K1' ? '' : K === 'K2'
+      ? `<p class="due-line"><span>Kurang</span><b>Rp ${fmt(due)}</b></p>`
+      : `<p class="due-box"><span>Kurang bayar</span><b>Rp ${fmt(due)}</b></p>`;
+    /* Tunda stays small, beside Bayar (Hari, 28 Oct 2026). */
+    const acts = `<div class="acts">${dueNote}<div class="act-row">${c.ret ? '' : '<span class="btn red">Tunda <span class="kbd">⇧9</span></span>'}${go}</div></div>`;
+    const leftFigs = V === 'R1' ? `<div class="figs">${totalFig}</div>` : V === 'R3' ? `<div class="figs">${totalFig}${dueFig}</div>` : '';
+    const rightFigs = V === 'R2' ? `<div class="figs">${totalFig.replace('Total bayar', 'Total transaksi')}${dueFig}</div>` : '';
+    pay = `<section class="pay">${head}
+      <div class="pay-l">${leftFigs}<div class="rows">${rows}</div><span style="flex:1"></span>
+        <div class="foot">${band.replace('<div class="band">', `<div class="band">${tellHtml}`)}</div></div>
+      <div class="pay-r">${rightFigs}${quick}${acts}</div></section>`;
+  }
+
+  const why = `<section class="why"><h2>Yang sering salah di kasir, dan yang menahannya</h2><table>
+    <tr><th>Kesalahan</th><th>Yang ditampilkan</th></tr>
+    <tr><td>Jumlah barang beda dengan yang dibawa pelanggan</td><td>Total Belanja n Pcs besar di pita, dibaca bersama pelanggan</td></tr>
+    <tr><td>Menerima sebelum lunas</td><td>Kurang bayar merah; tombol mati sampai lunas</td></tr>
+    <tr><td>Salah mesin EDC / salah bank</td><td>Chip Mesin · Jenis · Kartu di baris EDC</td></tr>
+    <tr><td>Memberi kembalian dari voucher</td><td>Baris merah "Voucher tidak ada kembalian"</td></tr>
+    <tr><td>Tidak bilang barang tidak bisa ditukar</td><td>Baris merah dengan nama barangnya</td></tr>
+    <tr><td>Lupa member / poin</td><td>Baris biru Member · +poin</td></tr>
+  </table></section>`;
+  const [w, h] = SCREENS[SC], fit = Math.min(1, (document.getElementById('app').clientWidth - 48) / w);
+  document.getElementById('app').innerHTML = `<p class="mon-cap">Monitor ${SCREENS[SC][2]} · ${w} × ${h}</p><div class="mon" style="width:${w * fit}px;height:${h * fit}px"><div class="screen" style="width:${w}px;height:${h}px;transform:scale(${fit})">${pay}</div></div>` + why;
+  document.getElementById('wv').innerHTML = [['W1', 'Kartu putih'], ['W2', 'Tanpa putih']].map(([k, l]) => `<button class="${W === k ? 'on' : ''}" data-w="${k}">${l}</button>`).join('');
+  document.getElementById('tuk').innerHTML = [['T1', 'Putih, teks hijau'], ['T2', 'Hijau penuh'], ['T3', 'Satu baris']].map(([k, l]) => `<button class="${T === k ? 'on' : ''}" data-t="${k}">${k} · ${l}</button>`).join('');
+  document.getElementById('scr').innerHTML = Object.keys(SCREENS).map(k => `<button class="${SC === k ? 'on' : ''}" data-s="${k}">${SCREENS[k][2]} · ${SCREENS[k][0]}×${SCREENS[k][1]}</button>`).join('');
+  document.getElementById('ver').innerHTML = VERS.map(([k, l]) => `<button class="${V === k ? 'on' : ''}" data-v="${k}">${k} · ${l}</button>`).join('');
+  document.getElementById('kur').innerHTML = [['K1', 'Di tombol'], ['K2', 'Teks kecil'], ['K3', 'Kotak merah']].map(([k, l]) => `<button class="${K === k ? 'on' : ''}" data-k="${k}">${k} · ${l}</button>`).join('');
+  document.getElementById('cas').innerHTML = Object.entries(CASES).map(([k, x]) => `<button class="${C === k ? 'on' : ''}" data-c="${k}">${x.lbl}</button>`).join('');
+}
+document.addEventListener('click', e => {
+  const rw = e.target.closest('[data-row]'); if (rw && !e.target.closest('button,input')) { FOCUS = Number(rw.dataset.row); view(); return; }
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.e) {
+    const [f, n, v] = b.dataset.e.split(':');
+    if (f === 'add') EDCS.push(blankEdc());
+    else if (f === 'drop') {
+      const keepOne = X.edcs.length === 1 && !CASES[C].rows.some(r => r[0].startsWith('EDC'));
+      if (keepOne) X.edcs[0] = blankEdc(); else X.edcs.splice(Number(n), 1);
+    }
+    else if (f === 'undo') { ['mach', 'kind', 'card'].slice(Number(v)).forEach(k => { EDCS[n][k] = null; }); FRESH = { n: Number(n), pick: false }; }
+    else {
+      EDCS[n][f] = v;
+      FRESH = { n: Number(n), pick: true };
+      const e = EDCS[n];
+      /* Answered: the row takes what is still owed. */
+      if (e.mach && e.kind && (e.kind === 'Q' || e.card) && !e.amt) e.amt = Math.max(0, due());
+    }
+  }
+  if (b.dataset.x) {
+    const x = b.dataset.x;
+    if (x === 'add-edc') X.edcs.push(blankEdc());
+    if (x === 'add-voucher') { X.voucher = { code: '', val: 0 }; setTimeout(() => document.getElementById('vcode')?.focus(), 0); }
+    if (x === 'add-poin') { X.poin = { st: 'ask', pts: Math.min(SALDO_POIN, Math.floor(Math.max(0, due()) / POINT_RP)) }; setTimeout(() => document.getElementById('ppts')?.select(), 0); }
+    if (x === 'pok') X.poin.st = 'ok';
+    if (x === 'add-emp') X.emp = { st: 'idle', amt: 0 };
+    if (x === 'efinger') { X.emp.st = 'read'; setTimeout(() => { X.emp.st = 'ok'; X.emp.amt = Math.max(0, Math.min(125000, due())); view(); }, 1800); }
+  }
+  if (b.dataset.v) { V = b.dataset.v; set('ver', V); }
+  if (b.dataset.c) { C = b.dataset.c; set('cas', C); resetX(); }
+  if (b.dataset.w) { W = b.dataset.w; set('kartu', W); }
+  if (b.dataset.t) { T = b.dataset.t; set('tukar', T); }
+  if (b.dataset.s) { SC = b.dataset.s; set('scr', SC); }
+  if (b.dataset.k) { K = b.dataset.k; set('kurang', K); }
+  view();
+});
+view();
+addEventListener('resize', view);
+const draw = view; view = function () { draw(); FRESH = null; };
+resetX(); view();
+/* The counter never needs the mouse (Hari, 28 Oct 2026): ↑ ↓ pick a row;
+   ⇧5 EDC, ⇧6 Voucher, ⇧7 Poin, ⇧8 Diskon karyawan add one; on an EDC row 1 2 3
+   pick the machine, D K Q the kind, Y T the card, Backspace takes the last
+   answer back and Delete drops the row; Spasi reads the employee's finger;
+   Enter asks for the points. */
+const press = sel => { const b = document.querySelector(sel); if (b && !b.disabled) b.click(); return !!b; };
+document.addEventListener('keydown', e => {
+  if (['vcode', 'ppts', 'pcode'].includes(e.target.id)) { if (e.key === 'ArrowUp' || e.key === 'ArrowDown') e.target.blur(); else return; }
+  const add = { Digit5: 'edc', Digit6: 'voucher', Digit7: 'poin', Digit8: 'emp' }[e.shiftKey ? e.code : ''];
+  if (add) { e.preventDefault(); if (press(`[data-x="add-${add}"]`)) { FOCUS = 99; view(); FOCUS = ROWS.length - 1; view(); } return; }
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); FOCUS = Math.max(0, Math.min(ROWS.length - 1, FOCUS + (e.key === 'ArrowDown' ? 1 : -1))); view(); if (ROWS[FOCUS]?.t === 'voucher') document.getElementById('vcode')?.focus(); if (ROWS[FOCUS]?.t === 'poin') (document.getElementById('ppts') || document.getElementById('pcode'))?.focus(); return; }
+  const r = ROWS[FOCUS]; if (!r || e.ctrlKey || e.metaKey || e.altKey) return;
+  const k = e.key.toLowerCase();
+  if (r.t === 'edc') {
+    const E = EDCS[r.n];
+    const pick = !E.mach ? { 1: 'BCA', 2: 'Mandiri', 3: 'BRI' }[k] && `mach:${r.n}:${{ 1: 'BCA', 2: 'Mandiri', 3: 'BRI' }[k]}`
+      : !E.kind ? ({ d: 'D', k: 'K', q: 'Q' }[k] && `kind:${r.n}:${k.toUpperCase()}`)
+      : E.kind !== 'Q' && !E.card ? ({ y: `Kartu ${E.mach}`, t: 'Bank lain' }[k] && `card:${r.n}:${{ y: `Kartu ${E.mach}`, t: 'Bank lain' }[k]}`) : null;
+    if (pick && !e.shiftKey) { e.preventDefault(); press(`[data-e="${pick}"]`); return; }
+    if (e.key === 'Backspace') { e.preventDefault(); const last = [E.mach, E.kind, E.card].filter(Boolean).length - 1; if (last >= 0) press(`[data-e="undo:${r.n}:${last}"]`); return; }
+    if (e.key === 'Delete') { e.preventDefault(); press(`[data-e="drop:${r.n}"]`); FOCUS = Math.min(FOCUS, ROWS.length - 1); view(); return; }
+  }
+  if (r.t === 'emp' && e.key === ' ') { e.preventDefault(); press('[data-x="efinger"]'); return; }
+  if (r.t === 'poin' && e.key === 'Enter') { e.preventDefault(); press('[data-x="pask"]') || press('[data-x="pok"]'); }
+});
+/* A paper voucher: typed, or read by the scanner (which types it and presses
+   Enter). Used once, at its face value. */
+/* 1 point is Rp 10 at the till; the member's balance in the demo. */
+const POINT_RP = 10, SALDO_POIN = 12400, POINT_CODE = '135790';
+document.addEventListener('input', e => {
+  if (e.target.id === 'ppts') { X.poin.pts = Math.min(SALDO_POIN, Number(e.target.value.replace(/\D/g, '') || 0)); const eq = document.querySelector('.pt-eq'); if (eq) eq.textContent = `poin = Rp ${fmt(X.poin.pts * POINT_RP)}`; }
+  if (e.target.id === 'pcode') { X.poin.code = e.target.value.replace(/\D/g, '').slice(0, 6); X.poin.bad = false; }
+});
+document.addEventListener('keydown', e => {
+  if (e.target.id === 'ppts' && e.key === 'Enter' && X.poin.pts > 0) { e.preventDefault(); X.poin.st = 'wait'; view(); document.getElementById('pcode')?.focus(); }
+  if (e.target.id === 'pcode' && e.key === 'Enter') {
+    e.preventDefault();
+    if (X.poin.code === POINT_CODE) X.poin.st = 'ok'; else X.poin.bad = true;
+    view(); document.getElementById('pcode')?.focus();
+  }
+  if ((e.target.id === 'ppts' || e.target.id === 'pcode') && e.key === 'Escape') { X.poin = null; view(); }
+});
+const PAPER = { 'GC-7Y3K-22QD': 200000, 'CP-QA19-X04M': 50000, 'RF-0276-1KXA': 'used' };
+document.addEventListener('input', e => { if (e.target.id === 'vcode') { X.voucher.code = e.target.value.toUpperCase(); X.voucher.bad = null; } });
+document.addEventListener('keydown', e => {
+  if (e.target.id !== 'vcode' || e.key !== 'Enter') return;
+  const code = X.voucher.code.trim(), v = PAPER[code];
+  if (v === 'used') X.voucher.bad = 'Sudah dipakai';
+  else if (!v) X.voucher.bad = code ? 'Kode tidak dikenal' : null;
+  else X.voucher = { code, val: v };
+  view();
+  const f = document.getElementById('vcode'); if (f) { f.focus(); f.setSelectionRange(f.value.length, f.value.length); }
+});
+</script>
+</body>
+</html>

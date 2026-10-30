@@ -9,4 +9,10 @@ export type TakeOverRequest = { terminal_id: string,
  * The float the person arriving counts in. A new shift always starts
  * from its own float.
  */
-opening_float_minor: number, actor_id: string, idempotency_key: string, };
+opening_float_minor: number, actor_id: string, idempotency_key: string, 
+/**
+ * The Kepala toko who opened the till for this cashier and hands the
+ * float over: "Diserahkan" on the MODAL AWAL slip. Absent when the
+ * cashier opened alone; the slip then names the cashier on both sides.
+ */
+handed_by?: string | null, };

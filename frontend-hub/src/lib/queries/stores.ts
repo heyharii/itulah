@@ -137,6 +137,10 @@ export interface FirstDataStream {
   readonly label: string
   readonly done: boolean
   readonly count: number | null
+  /// Commands of this stream the server has taken, of those sent; both 0 when
+  /// the delivery is not told apart.
+  readonly taken: number
+  readonly queued: number
 }
 
 /// Present while the server is `SYNCING`.
@@ -605,5 +609,54 @@ export function flowNoticesForSite(
   return notices.filter(
     (notice) =>
       notice.origin_site_id === siteId || notice.destination_site_id === siteId
+  )
+}
+
+// ── the picture at the top of the store's receipts (postgres 1009) ───────────
+
+/// One width of the picture: one bit a dot, row after row, 1 for black.
+export interface ReceiptHeaderBitmap {
+  readonly width: number
+  readonly height: number
+  readonly bits_b64: string
+}
+
+export interface ReceiptHeaderView {
+  readonly present: boolean
+  readonly wide: ReceiptHeaderBitmap | null
+  readonly narrow: ReceiptHeaderBitmap | null
+  readonly updated_by: string | null
+  readonly updated_at: string | null
+}
+
+export const receiptHeaderKey = (unit: string) =>
+  [...storesKeys.detail(unit), "receipt-header"] as const
+
+export const receiptHeaderQuery = (unit: string) =>
+  queryOptions({
+    queryKey: receiptHeaderKey(unit),
+    queryFn: ({ signal }) =>
+      node.get<ReceiptHeaderView>(
+        `/api/v1/stores/${encodeURIComponent(unit)}/receipt-header`,
+        { signal }
+      ),
+  })
+
+/// Set the picture the store prints at the top of its receipts (Admin only):
+/// both paper widths, already one bit a dot. Sent to the store's server with
+/// its next policy.
+export function saveReceiptHeader(
+  unit: string,
+  picture: { wide: ReceiptHeaderBitmap; narrow: ReceiptHeaderBitmap }
+): Promise<ReceiptHeaderView> {
+  return node.put<ReceiptHeaderView>(
+    `/api/v1/stores/${encodeURIComponent(unit)}/receipt-header`,
+    picture
+  )
+}
+
+export function clearReceiptHeader(unit: string): Promise<ReceiptHeaderView> {
+  return node.delete<ReceiptHeaderView>(
+    `/api/v1/stores/${encodeURIComponent(unit)}/receipt-header`
   )
 }

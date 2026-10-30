@@ -105,7 +105,14 @@ pub struct Supplier {
 /// What a non-merchandise supplier is for, the way GA says it. The CHECK on
 /// `supplier.kind` says the same.
 pub const SUPPLIER_KINDS: [&str; 8] = [
-    "UTILITIES", "CLEANING", "WORKSHOP", "AC", "LOGISTICS", "OFFICE", "LANDLORD", "OTHER",
+    "UTILITIES",
+    "CLEANING",
+    "WORKSHOP",
+    "AC",
+    "LOGISTICS",
+    "OFFICE",
+    "LANDLORD",
+    "OTHER",
 ];
 
 /// The legal forms a supplier may name. The CHECK on `supplier.legal_form`

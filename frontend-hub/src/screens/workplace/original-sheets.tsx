@@ -334,7 +334,7 @@ function PaperForm({
       }),
     onSuccess: (paper) => {
       void invalidate()
-      toast.success("Paper saved")
+      toast.success("Hard copy saved")
       onSaved?.(paper)
       onClose()
     },
@@ -363,14 +363,14 @@ function PaperForm({
       onOpenChange={(next) => !next && onClose()}
       size="rail"
       context="Files"
-      title="New paper"
+      title="New hard copy"
       dirty={dirty && !save.isSuccess}
       footer={
         <SheetFooter
           error={save.error}
           onCancel={onClose}
           primary={{
-            label: "Save paper",
+            label: "Save hard copy",
             pending: save.isPending,
             onClick: submit,
           }}
@@ -659,7 +659,7 @@ function OriginalBody({ hub }: { hub: GaOriginalHub }) {
         <Facts>
           <Fact term="Paper">
             <AppLink
-              to="/library/papers"
+              to="/library"
               sheet={{ key: "paper", value: paper.document_id }}
               className="record-link"
             >
@@ -772,7 +772,7 @@ function ReleaseForm({
     },
     onSuccess: () => {
       void invalidate()
-      toast.success("Original handed over")
+      toast.success("Hard copy handed over")
       onClose()
     },
   })
@@ -804,7 +804,7 @@ function ReleaseForm({
           ? undefined
           : paperId(original.doc_type, original.doc_number)
       }
-      title="Hand over original"
+      title="Hand over hard copy"
       dirty={(to !== "" || purpose !== "" || where !== "") && !save.isSuccess}
       footer={
         <SheetFooter
@@ -1073,14 +1073,14 @@ function RegisterForm({
       id={
         paper === null ? undefined : paperId(paper.doc_type, paper.doc_number)
       }
-      title="Register original"
+      title="Add hard copy"
       dirty={(place !== "" || notes !== "") && !save.isSuccess}
       footer={
         <SheetFooter
           error={save.error}
           onCancel={onClose}
           primary={{
-            label: "Register original",
+            label: "Add hard copy",
             pending: save.isPending,
             onClick: submit,
           }}
@@ -1190,7 +1190,7 @@ export function PaperSheet({
   )
   const registerButton = (
     <Button variant="ghost" onClick={() => setRegistering(true)}>
-      Register original
+      Add hard copy
     </Button>
   )
 
@@ -1224,7 +1224,7 @@ export function PaperSheet({
             <SheetFooter
               error={attach.error}
               primary={{
-                label: "Register original",
+                label: "Add hard copy",
                 onClick: () => setRegistering(true),
               }}
             />
@@ -1304,9 +1304,9 @@ function PaperBody({ paper }: { paper: GaPaper }) {
         <Subjects subjects={paper.subjects} />
       </SheetSection>
 
-      <SheetSection title="Originals" aside={paper.originals.length}>
+      <SheetSection title="Hard copies" aside={paper.originals.length}>
         {paper.originals.length === 0 ? (
-          <SheetEmpty>No original is registered.</SheetEmpty>
+          <SheetEmpty>No hard copy is kept.</SheetEmpty>
         ) : (
           <MiniTable
             head={["Original", { label: "Where it is", align: "left" }]}

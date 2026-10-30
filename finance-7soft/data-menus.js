@@ -1,0 +1,28 @@
+/* Every menu of the 7Soft manual (table of contents), and the prototype screen that answers it.
+   [number, menu, printed page, group, screen id or null, scope]  scope: 'fin' = finance · 'other' = outside finance (stock, master data, system) */
+const MENUS7 = [
+  ['2.1', 'Daftar Nilai', 45, 'Master', null, 'other'], ['2.2', 'Item', 46, 'Master', null, 'other'], ['2.3', 'Satuan', 53, 'Master', null, 'other'],
+  ['2.4', 'Formula (BOM)', 54, 'Master', null, 'other'], ['2.5', 'Saldo Awal (stock)', 56, 'Master', null, 'other'], ['2.6', 'Konversi Item', 57, 'Master', null, 'other'],
+  ['2.7', 'Gudang', 58, 'Master', null, 'other'], ['2.8', 'Jangka Waktu Kredit', 59, 'Master', 'parties', 'fin'], ['2.9', 'Alamat', 60, 'Master', 'parties', 'fin'],
+  ['2.10', 'Pajak', 61, 'Master', 'parties', 'fin'], ['2.11', 'Customer', 62, 'Master', 'parties', 'fin'], ['2.12', 'Supplier', 67, 'Master', 'parties', 'fin'],
+  ['2.13', 'Karyawan', 71, 'Master', null, 'other'], ['2.14', 'Daftar Harga', 72, 'Master', null, 'other'], ['2.15', 'Asset', 74, 'Master', 'assets', 'fin'],
+  ['2.16', 'Account', 76, 'Master', 'coa-master', 'fin'], ['2.17', 'Saldo Awal COA', 77, 'Master', 'coa-opening', 'fin'], ['2.18', 'Setting COA', 78, 'Master', 'coa-links', 'fin'],
+  ['2.19', 'User & Group', 81, 'Master', 'users', 'fin'], ['2.20', 'Setting Menu', 83, 'Master', 'setup-switches', 'fin'], ['2.21', 'List Report', 85, 'Master', null, 'other'],
+  ['3.1', 'Info Barang & Stok', 86, 'Inventory', null, 'other'], ['3.2', 'Pindah Antar Gudang (PAG)', 93, 'Inventory', null, 'other'], ['3.3', 'Stock Adjustment', 94, 'Inventory', null, 'other'],
+  ['3.4', 'Adjustment Nilai', 96, 'Inventory', null, 'other'], ['3.5', 'Retur Barang ke Supplier', 98, 'Inventory', null, 'other'], ['3.6', 'Retur Barang dari Customer', 99, 'Inventory', null, 'other'],
+  ['3.7', 'Perakitan', 101, 'Inventory', null, 'other'], ['3.8', 'Stok Opname', 103, 'Inventory', null, 'other'], ['3.9', 'Laporan Inventory', 105, 'Inventory', null, 'other'],
+  ['4.1', 'Info Pembelian', 110, 'Pembelian', 'buy-info', 'fin'], ['4.2', 'Order Pembelian (PO)', 114, 'Pembelian', null, 'other'], ['4.3', 'Barang Datang (BPB)', 118, 'Pembelian', null, 'other'],
+  ['4.4', 'Faktur / Invoice Pembelian', 121, 'Pembelian', 'buy-invoice', 'fin'], ['4.5', 'Invoice Retur Beli', 128, 'Pembelian', 'buy-return', 'fin'], ['4.6', 'Laporan Pembelian', 131, 'Pembelian', 'buy-reports', 'fin'],
+  ['5.1', 'Info Penjualan', 138, 'Penjualan', 'sell-info', 'fin'], ['5.2', 'Sales Order', 144, 'Penjualan', null, 'other'], ['5.3', 'Surat Jalan', 147, 'Penjualan', null, 'other'],
+  ['5.4', 'Penjualan Cash', 150, 'Penjualan', 'sell-cash', 'fin'], ['5.5', 'Penjualan Barcode (POS)', 152, 'Penjualan', 'sell-cash', 'fin'], ['5.6', 'Faktur Penjualan', 154, 'Penjualan', 'sell-invoice', 'fin'],
+  ['5.7', 'Transaksi Retur Penjualan', 161, 'Penjualan', 'sell-return', 'fin'], ['5.8', 'Laporan Penjualan', 164, 'Penjualan', 'sell-reports', 'fin'],
+  ['6.1', 'Info Kas Bank', 174, 'Kas - Bank', 'kas-info', 'fin'], ['6.2', 'BKM (Bukti Kas/Bank Masuk)', 179, 'Kas - Bank', 'bkm-bkk', 'fin'], ['6.3', 'BKK (Bukti Kas/Bank Keluar)', 183, 'Kas - Bank', 'bkm-bkk', 'fin'],
+  ['6.4', 'Pencairan BG Masuk', 187, 'Kas - Bank', 'giro-board', 'fin'], ['6.5', 'Pencairan BG Keluar', 190, 'Kas - Bank', 'giro-board', 'fin'], ['6.6', 'Laporan Kas/Bank', 192, 'Kas - Bank', 'kas-report', 'fin'],
+  ['7.1', 'Info Accounting', 200, 'GL · Buku Besar', 'gl-info', 'fin'], ['7.2', 'Transaksi Jurnal', 203, 'GL · Buku Besar', 'gl-journal', 'fin'], ['7.3', 'Closing Periode Akuntansi', 205, 'GL · Buku Besar', 'gl-closing', 'fin'],
+  ['7.4', 'Laporan Accounting', 206, 'GL · Buku Besar', 'report-acc', 'fin'], ['8.1', 'Laporan Keuangan', 209, 'Analisa', 'report-acc', 'fin'], ['8.2', 'Laporan Manajerial', 211, 'Analisa', 'report-acc', 'fin'],
+  ['9.1', 'Reproses Stok', 213, 'Fasilitas', null, 'other'], ['9.2', 'Reproses HPP', 215, 'Fasilitas', null, 'other'], ['9.3', 'Reproses Accounting', 216, 'Fasilitas', 'gl-closing', 'fin', 'Only a confirm sheet inside Closing'],
+  ['9.4', 'List User Online', 217, 'Fasilitas', null, 'other'], ['9.5', 'Restore and Patch', 218, 'Fasilitas', null, 'other'], ['9.6', 'Back Up', 219, 'Fasilitas', null, 'other'],
+  ['9.7', 'Export / Import Master', 219, 'Fasilitas', null, 'other'], ['9.8', 'Archive Data Lama', 221, 'Fasilitas', null, 'other'], ['9.9', 'About', 221, 'Fasilitas', null, 'other'],
+  ['9.10', 'Persiapan Singkat dan Set Up', 222, 'Fasilitas', 'setup-switches', 'fin'], ['9.11', 'History Report', 222, 'Fasilitas', 'history', 'fin'], ['9.12', 'History', 223, 'Fasilitas', 'history', 'fin'],
+  ['10', 'Toolbar · Filter · Find · Calculator', 224, 'Fasilitas', null, 'other', 'Screen furniture, not a menu'],
+]

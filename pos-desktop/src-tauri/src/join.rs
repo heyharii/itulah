@@ -410,14 +410,18 @@ pub fn join_current(joining: tauri::State<'_, Joining>) -> Option<JoinView> {
 
 /// Ask `base_url` to let this till join. `instance` and `host` are the
 /// node's names on the LAN when it was found there, kept for finding it again.
+/// `kind` is the edition's: `TILL` for the POS (the default), `WAREHOUSE` for
+/// Central Gudang, which the node labels "Gudang N" and never lets sell.
 #[tauri::command]
 pub async fn join_begin(
     app: tauri::AppHandle,
     base_url: String,
     instance: Option<String>,
     host: Option<String>,
+    kind: Option<String>,
 ) -> Result<JoinView, String> {
     edge::off_the_window(move || {
+        let kind = join_kind(kind.as_deref());
         let tidy = |value: Option<String>| {
             value
                 .map(|text| text.trim().to_string())
@@ -445,7 +449,7 @@ pub async fn join_begin(
 
         let body = json!({
             "key_sha256": key_digest(&key),
-            "kind": "TILL",
+            "kind": kind,
             "machine": machine(),
         });
         let reply = call(&base, "POST", JOIN_PATH, None, Some(&body), edge::PATIENCE);
@@ -585,6 +589,15 @@ pub async fn join_cancel(app: tauri::AppHandle) -> Result<(), String> {
     .await
 }
 
+/// `TILL` or `WAREHOUSE`, as the window's edition says; anything else is a
+/// till, as every join was before Central Gudang.
+fn join_kind(kind: Option<&str>) -> &'static str {
+    match kind.map(str::trim) {
+        Some(kind) if kind.eq_ignore_ascii_case("WAREHOUSE") => "WAREHOUSE",
+        _ => "TILL",
+    }
+}
+
 /// A till at the node, as the replacement choice lists it.
 #[derive(Serialize)]
 pub struct TillRow {
@@ -609,14 +622,17 @@ pub struct SupervisorHere {
 /// is held in this process until [`join_approve_here`] spends it or
 /// [`join_supervisor_leave`] drops it. Signing in at a node signs the same
 /// person out of their other sessions there (one person, one device) — the
-/// window says so before they type.
+/// window says so before they type. The machines listed to replace are of the
+/// edition's own kind (`kind`, as [`join_begin`] takes it).
 #[tauri::command]
 pub async fn join_supervisor_sign_in(
     app: tauri::AppHandle,
     username: String,
     password: String,
+    kind: Option<String>,
 ) -> Result<SupervisorHere, String> {
     edge::off_the_window(move || {
+        let kind = join_kind(kind.as_deref());
         let pending = pending_of(&app)?;
         let username = username.trim().to_string();
         if username.is_empty() || password.is_empty() {
@@ -660,7 +676,7 @@ pub async fn join_supervisor_sign_in(
                 .map(|items| {
                     items
                         .iter()
-                        .filter(|item| item.get("kind").and_then(Value::as_str) == Some("TILL"))
+                        .filter(|item| item.get("kind").and_then(Value::as_str) == Some(kind))
                         .filter(|item| {
                             item.get("status").and_then(Value::as_str) != Some("REVOKED")
                         })

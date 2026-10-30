@@ -47,12 +47,13 @@ import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
 import { SheetFooter } from "@/components/ui/sheet-footer"
 import { EmptyState, LoadingState } from "@/components/ui/states"
-import { toast } from "@/components/ui/toast"
+import { toast } from "@/lib/toast"
 import { count, day, dayMonth, label, money, monthYear } from "@/lib/format"
 import { cashDocumentsQuery } from "@/lib/queries/cash-documents"
 import {
   accountLedger,
   cashCountsQuery,
+  companyBankAccountsQuery,
   financeKeys,
   ledgerWindowQuery,
   moneyOverviewQuery,
@@ -120,6 +121,13 @@ function accountText(row: MoneyAccountRow): string {
   return `${row.account_code} · ${row.account_name}`
 }
 
+/// The quiet line under an account's name, as the card and the list write it:
+/// a bank's own number, or where a cash box sits and its ledger code.
+function accountSub(a: AccountCard): string {
+  if (a.kind === "bank") return a.no ?? a.row.account_code
+  return `${a.row.unit_name} · ${a.row.account_code}`
+}
+
 // ---------------------------------------------------------------------------
 // Cash & Bank
 // ---------------------------------------------------------------------------
@@ -153,6 +161,10 @@ interface AccountCard {
   readonly key: string
   readonly row: MoneyAccountRow
   readonly kind: Kind
+  /// The account's own number at the bank, when somebody has described it.
+  readonly no: string | null
+  /// The unit as a person says it: "C003 · Purbalingga".
+  readonly place: string
   readonly books: number
   /// The statement's closing figure, and the day it closes.
   readonly bank: number | null
@@ -255,6 +267,7 @@ function KasBankScreen() {
 
   const overview = useSuspenseQuery(moneyOverviewQuery())
   const counts = useQuery(cashCountsQuery())
+  const described = useQuery(companyBankAccountsQuery())
   const units = useUnits()
 
   const accounts = useMemo(
@@ -301,16 +314,39 @@ function KasBankScreen() {
     return newest
   }, [counts.data, units.data])
 
+  /// The account number at the bank, from the accounts somebody described —
+  /// the same key the ledger row carries, so a code in two units' books keeps
+  /// its own number.
+  const describedOf = useMemo(() => {
+    const table = new Map<string, string>()
+    for (const one of described.data ?? [])
+      table.set(`${one.unit_id}\t${one.ledger_account_code}`, one.account_no)
+    return table
+  }, [described.data])
+
+  /// The unit as a person says it, `C003 · Purbalingga`, rather than the bare
+  /// name the ledger row carries.
+  const placeOf = useMemo(() => {
+    const table = new Map<string, string>()
+    for (const unit of units.data ?? [])
+      table.set(unit.id, `${unit.code} · ${unit.name}`)
+    return table
+  }, [units.data])
+
   const cards = useMemo<AccountCard[]>(
     () =>
       accounts.map((row, index) => {
         const key = accountKey(row)
         const kindOf = KIND_OF[row.pot] ?? "cash"
         const last = countOf.get(key)
+        const number = describedOf.get(key)
         return {
           key,
           row,
           kind: kindOf,
+          // An empty number is "nobody has said", not a number.
+          no: number === undefined || number === "" ? null : number,
+          place: placeOf.get(row.unit_id) ?? row.unit_name,
           books: row.per_books_minor,
           bank: row.last_statement?.closing_minor ?? null,
           stmtOn: row.last_statement?.period_end ?? null,
@@ -322,7 +358,7 @@ function KasBankScreen() {
           outM: flows[index]?.outM ?? null,
         }
       }),
-    [accounts, countOf, flows]
+    [accounts, countOf, flows, describedOf, placeOf]
   )
 
   const today = todayIso()
@@ -344,8 +380,10 @@ function KasBankScreen() {
         query,
         a.row.account_name,
         a.row.account_code,
+        a.place,
         a.row.unit_name,
-        a.row.unit_id
+        a.row.unit_id,
+        a.no
       )
   )
   const n = (k: Kind) => cards.filter((a) => a.kind === k).length
@@ -382,19 +420,19 @@ function KasBankScreen() {
             <span className="font-medium text-ink">
               {row.original.row.account_name}
             </span>{" "}
-            <span className="text-mute">{row.original.row.account_code}</span>
+            <span className="text-mute">{accountSub(row.original)}</span>
           </span>
         ),
       },
       {
         id: "place",
-        accessorFn: (a) => a.row.unit_name,
+        accessorFn: (a) => a.place,
         header: "Place",
         size: 170,
         enableSorting: false,
         meta: { card: "meta", priority: 2 },
         cell: ({ row }) => (
-          <span className="block truncate">{row.original.row.unit_name}</span>
+          <span className="block truncate">{row.original.place}</span>
         ),
       },
       {
@@ -736,10 +774,10 @@ function AccountCardView({
           <b className="block truncate font-semibold text-ink">
             {a.row.account_name}
           </b>
-          <span className="block truncate text-body">{a.row.account_code}</span>
+          <span className="block truncate text-body">{accountSub(a)}</span>
         </div>
         <span className="max-w-[40%] shrink-0 truncate text-body">
-          {a.row.unit_name}
+          {a.place}
         </span>
       </div>
       <div className="mt-[1.125rem] mb-3.5 grid grid-cols-2 gap-4">
@@ -809,15 +847,19 @@ function AccountSheet({
       onOpenChange={(next) => !next && onClose()}
       context="Cash & Bank"
       id={a.row.account_code}
-      title={a.row.account_name}
-      caption={a.row.unit_name}
+      title={
+        bank && a.no !== null
+          ? `${a.row.account_name} · ${a.no}`
+          : a.row.account_name
+      }
+      caption={a.place}
       size="workspace"
       stack
       footer={
         <SheetFooter
           onPrint={() => window.print()}
           start={
-            bank ? (
+            bank && a.statementId !== null ? (
               <Button variant="ghost" onClick={onUpload}>
                 <Download />
                 Upload statement
@@ -836,11 +878,7 @@ function AccountSheet({
     >
       <KpiStrip className="mb-2! xl:grid-cols-4">
         <Kpi label="Books" value={money(a.books)} />
-        <Kpi
-          label={bank ? "Bank" : "Counted"}
-          value={line.big}
-          delta={line.sm}
-        />
+        <Kpi label={line.sm} value={line.big} />
         <Kpi
           label={`Money in · ${monthYear(to)}`}
           value={
@@ -945,6 +983,7 @@ function KartuLines({
           const doc =
             row.source_id === null ? undefined : documents.get(row.source_id)
           const name = row.supplier_name ?? doc?.party_name ?? ""
+          const memo = doc?.memo ?? row.memo ?? ""
           return (
             <MiniRow key={row.line_id}>
               <MiniCell>{dayMonth(row.posting_date)}</MiniCell>
@@ -958,8 +997,18 @@ function KartuLines({
                 </button>
               </MiniCell>
               <MiniCell>
-                <span className="block max-w-72 truncate" title={name}>
-                  {name === "" ? "—" : name}
+                <span
+                  className="block max-w-72 truncate"
+                  title={
+                    memo === ""
+                      ? name
+                      : `${name}${name === "" ? "" : " · "}${memo}`
+                  }
+                >
+                  {name === "" ? (memo === "" ? "—" : memo) : name}
+                  {name !== "" && memo !== "" && (
+                    <span className="text-mute"> · {memo}</span>
+                  )}
                 </span>
               </MiniCell>
               <MiniCell align="right">
@@ -1086,8 +1135,8 @@ function CountCashSheet({
       open
       onOpenChange={(next) => !next && onClose()}
       context="Cash & Bank"
-      id={a.row.unit_name}
       title={`Count ${a.row.account_name.toLowerCase()}`}
+      caption={a.place}
       size="rail"
       stack
       dirty={counted > 0}
@@ -1113,7 +1162,11 @@ function CountCashSheet({
             counted === 0 ? (
               "—"
             ) : (
-              <span className={cn(diff !== 0 && "text-warn-fg")}>
+              <span
+                className={cn(
+                  diff !== 0 && (diff < 0 ? "text-bad-fg" : "text-warn-fg")
+                )}
+              >
                 {diff === 0 ? money(0) : signedMoney(diff)}
               </span>
             )

@@ -48,6 +48,7 @@ import {
   useRecordBeside,
 } from "@/lib/layout"
 import { domains, type AppDomain } from "@/lib/navigation"
+import { usePanelFolded } from "@/lib/panel-fold"
 import { useSections } from "@/lib/session"
 import { useSheetsOpen } from "@/lib/sheet-space"
 import { cn } from "@/lib/utils"
@@ -175,7 +176,12 @@ function Shell() {
   /// only — the desk's own choice is left alone.
   const [focusPanel, setFocusPanel] = useState(false)
   if (!focus && focusPanel) setFocusPanel(false)
-  const panelShown = focus ? focusPanel : sidebarOpen
+  /// A wide page (the month of the roster) folds the panel while it is there.
+  /// Opened from the fold, it stays open for that visit only, like `focusPanel`.
+  const folded = usePanelFolded()
+  const [peek, setPeek] = useState(false)
+  if (!folded && peek) setPeek(false)
+  const panelShown = focus ? focusPanel : folded ? peek : sidebarOpen
   /// The floating screens panel, on a compact desk. A boolean closed by every
   /// finished navigation, like the drawer.
   const [floatDomain, setFloatDomain] = useState<string | null>(null)
@@ -231,13 +237,14 @@ function Shell() {
         open !== null ? null : (subSidebar?.id ?? null)
       )
     else if (docked && focus) setFocusPanel((open) => !open)
+    else if (docked && folded) setPeek((open) => !open)
     else if (docked) {
       setSidebarOpen((open) => {
         writeSidebarOpen(!open)
         return !open
       })
     } else setDrawerOpen((open) => !open)
-  }, [docked, compact, focus, subSidebar?.id])
+  }, [docked, compact, focus, folded, subSidebar?.id])
 
   /// Every finished navigation shuts it. One subscription rather than a rule
   /// each in the drawer, the palette, the domain bar and every link a screen

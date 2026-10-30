@@ -28,11 +28,10 @@ import type { AppModule } from "@/lib/navigation"
 /// See the stage report for what is still open.
 export const gaSuppliesNav: AppModule = {
   id: "ga-supplies",
-  label: "Supply Requests",
+  label: "Supplies",
   icon: Package,
   home: "/supplies",
-  // First of the day-to-day work, under the overview (owner, 2026-09-27).
-  divider: true,
+  // First row of GA; the overview that used to sit above it is gone (owner, 2026-10-26).
   // Live: the list, its sheet and the "Request supplies" composer are written, so
   // the row navigates. One door — the stage of a request is read in its sheet,
   // and the seven categories are tiles in the form and chips on the list, not a
@@ -42,7 +41,7 @@ export const gaSuppliesNav: AppModule = {
       items: [
         {
           path: "/supplies",
-          label: "Supply Requests",
+          label: "Supplies",
           // The bottom bar's word: a 14px label has a fifth of the width.
           short: "Supplies",
           icon: Package,

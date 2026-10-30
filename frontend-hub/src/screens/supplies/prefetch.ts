@@ -1,7 +1,7 @@
 import { warmInfinite, type PrefetchMap } from "@/lib/prefetch"
 import { OPENING_SCOPE, supplyBookQuery } from "@/screens/supplies/book-data"
 
-/// What Supply Requests asks first, before the screen is open
+/// What Supplies asks first, before the screen is open
 /// (`lib/prefetch.ts`). The register is read with `useSuspenseInfiniteQuery`
 /// inside a `<Suspense>`, so the server starts the read too and streams the
 /// real page.

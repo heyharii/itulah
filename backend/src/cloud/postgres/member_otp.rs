@@ -76,9 +76,8 @@ pub async fn send_member_otp(
     origin_id: Option<&str>,
     asked_by: Option<&str>,
 ) -> Result<SentOtp, AppError> {
-    let phone = member_phone(phone).ok_or_else(|| {
-        AppError::Validation("a code is sent to a mobile number, 08…".into())
-    })?;
+    let phone = member_phone(phone)
+        .ok_or_else(|| AppError::Validation("a code is sent to a mobile number, 08…".into()))?;
     let recent: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM member_otp
           WHERE phone = $1 AND requested_at > now() - interval '1 hour'",
@@ -216,10 +215,12 @@ pub async fn verify_member_otp(
 
 /// The code has done its work: a member registered, a shopper signed in.
 pub async fn use_member_otp(pool: &PgPool, challenge_id: Uuid) -> Result<(), AppError> {
-    sqlx::query("UPDATE member_otp SET used_at = now() WHERE challenge_id = $1 AND used_at IS NULL")
-        .bind(challenge_id)
-        .execute(pool)
-        .await?;
+    sqlx::query(
+        "UPDATE member_otp SET used_at = now() WHERE challenge_id = $1 AND used_at IS NULL",
+    )
+    .bind(challenge_id)
+    .execute(pool)
+    .await?;
     Ok(())
 }
 
@@ -229,9 +230,18 @@ mod tests {
 
     #[test]
     fn a_member_number_is_the_local_form() {
-        assert_eq!(member_phone("6281234567890").as_deref(), Some("081234567890"));
-        assert_eq!(member_phone("0812 3456 7890").as_deref(), Some("081234567890"));
-        assert_eq!(member_phone("+62 812-3456-7890").as_deref(), Some("081234567890"));
+        assert_eq!(
+            member_phone("6281234567890").as_deref(),
+            Some("081234567890")
+        );
+        assert_eq!(
+            member_phone("0812 3456 7890").as_deref(),
+            Some("081234567890")
+        );
+        assert_eq!(
+            member_phone("+62 812-3456-7890").as_deref(),
+            Some("081234567890")
+        );
         assert_eq!(member_phone("12345"), None);
     }
 }

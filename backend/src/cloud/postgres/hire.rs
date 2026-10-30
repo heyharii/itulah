@@ -395,6 +395,18 @@ pub async fn save_hire_proposal(
     from: HireProposalState,
 ) -> Result<(), AppError> {
     let mut tx = pool.begin().await?;
+    save_hire_proposal_in(&mut tx, proposal, from).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// [`save_hire_proposal`] inside a caller's transaction, for a step written
+/// together with what it decides — a refusal erasing the dossier.
+pub async fn save_hire_proposal_in(
+    tx: &mut Transaction<'_, Postgres>,
+    proposal: &HireProposal,
+    from: HireProposalState,
+) -> Result<(), AppError> {
     let updated = sqlx::query(
         "UPDATE hire_proposal
             SET state = $2, history = $3, updated_at = now()
@@ -404,7 +416,7 @@ pub async fn save_hire_proposal(
     .bind(proposal.state().code())
     .bind(serde_json::to_value(proposal.history())?)
     .bind(from.code())
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
     if updated.rows_affected() == 0 {
         return Err(AppError::Conflict(format!(
@@ -413,7 +425,6 @@ pub async fn save_hire_proposal(
             from.code()
         )));
     }
-    write_versions(&mut tx, proposal).await?;
-    tx.commit().await?;
+    write_versions(tx, proposal).await?;
     Ok(())
 }

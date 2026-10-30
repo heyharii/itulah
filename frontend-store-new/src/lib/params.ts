@@ -112,6 +112,13 @@ export const PARAMS = {
   /// wakes. It is also what makes "look at the week of the 21st" a thing one
   /// person can send another.
   week: day,
+  /// People › Staff: the person whose page is open, by employee id. In the URL
+  /// so a reload, a back gesture and a link to a colleague all land on the same
+  /// page.
+  employee: text,
+  /// Which group of that page shows: the hub's Profile · Work · Time · Access.
+  /// The chart opens a card on Work, where the line of report is.
+  section: oneOf(["profile", "work", "time", "access"] as const),
 } as const
 
 export type ParamKey = keyof typeof PARAMS

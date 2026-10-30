@@ -11,6 +11,11 @@ pub enum EmployeeError {
     TooLong { field: &'static str, max: usize },
     #[error("{field} must be printable text without control characters")]
     NotPrintable { field: &'static str },
+    #[error("{field} must be one of {expected}")]
+    NotOneOf {
+        field: &'static str,
+        expected: &'static str,
+    },
     #[error("employment cannot go from {from} via {transition}")]
     IllegalTransition {
         from: &'static str,
@@ -72,6 +77,7 @@ impl EmployeeError {
             Self::Required { field } => Some((field, "required")),
             Self::TooLong { field, .. } => Some((field, "too_large")),
             Self::NotPrintable { field } => Some((field, "invalid")),
+            Self::NotOneOf { field, .. } => Some((field, "invalid")),
             Self::MalformedNik => Some(("nik", "invalid")),
             _ => None,
         }

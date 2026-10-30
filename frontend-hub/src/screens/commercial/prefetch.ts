@@ -8,6 +8,10 @@ import {
 } from "@/lib/prefetch"
 import { priceChangesQuery, priceEventPagesQuery } from "@/lib/queries/changes"
 import {
+  benefitBalancesQuery,
+  benefitSettingsQuery,
+} from "@/lib/queries/hr-benefit"
+import {
   articlePricesPagesQuery,
   campaignIntents,
   campaignPagesQuery,
@@ -136,6 +140,19 @@ export const prefetch: PrefetchMap = {
   "/commercial/vouchers": async (client, { search }) => {
     if (carriesView(search)) return
     await warmInfinite(client, voucherPagesQuery({}))
+  },
+
+  // The employee discount opens on every balance, with the setting line above
+  // it. Both are small reads; the screen waits for the balances and reads the
+  // setting beside them.
+  "/commercial/employee-discount": async (client) => {
+    await Promise.all([
+      warmQuery(client, benefitBalancesQuery()),
+      warmQuery(client, benefitSettingsQuery()),
+    ])
+  },
+  "/commercial/employee-discount-settings": async (client) => {
+    await warmQuery(client, benefitSettingsQuery())
   },
 
   // Changes opens on what is still outstanding (`settled` off). Mirrors

@@ -1,8 +1,13 @@
 import {
   Clock,
+  Coins,
+  Gift,
+  History,
   LayoutDashboard,
   Megaphone,
   Percent,
+  RotateCcw,
+  Settings,
   Tags,
   Ticket,
   Waypoints,
@@ -56,6 +61,11 @@ import type { AppModule } from "@/lib/navigation"
 /// of the others. It carries money — it is tender, sitting beside cash and a
 /// card at the counter. Filing it under pricing is the mistake the system this
 /// replaces made, and it is why a clearance there was booked as a discount.
+///
+/// A return policy is its own row because it is a promise, not a price: how
+/// long a piece may come back, and on what conditions. The till prints it and
+/// enforces it offline, so the screen that writes it belongs where a
+/// merchandiser sets the terms rather than inside a promotion.
 export const commercialNav: AppModule = {
   id: "commercial",
   label: "Commercial",
@@ -96,6 +106,49 @@ export const commercialNav: AppModule = {
         { path: "/commercial/promotions", label: "Promotions", icon: Percent },
         { path: "/commercial/campaigns", label: "Campaigns", icon: Megaphone },
         { path: "/commercial/vouchers", label: "Vouchers", icon: Ticket },
+        {
+          path: "/commercial/return-policy",
+          label: "Return policy",
+          icon: RotateCcw,
+        },
+        // Beside the return policy and the same shape (owner, 30 Oct 2026).
+        // Its points add to a promotion's.
+        {
+          path: "/commercial/point-policy",
+          label: "Point policy",
+          icon: Coins,
+        },
+        // The employee discount moved here from HR › Benefits (owner, 29 Oct
+        // 2026). It is a shopping benefit Marketing sets, not a payroll rule:
+        // the balance is spent at the till like a voucher, and HR no longer
+        // offers the menu. The old URLs redirect to the one page.
+        {
+          path: "/commercial/employee-discount",
+          label: "Employee discount",
+          icon: Gift,
+          audience: "employer",
+          moved: ["/people/benefit"],
+          alsoLights: [
+            "/commercial/employee-discount-history",
+            "/commercial/employee-discount-settings",
+          ],
+        },
+        {
+          path: "/commercial/employee-discount-history",
+          label: "Employee discount history",
+          icon: History,
+          audience: "employer",
+          hidden: true,
+          moved: ["/people/benefit-history"],
+        },
+        {
+          path: "/commercial/employee-discount-settings",
+          label: "Employee discount settings",
+          icon: Settings,
+          audience: "employer",
+          hidden: true,
+          moved: ["/people/settings/benefit"],
+        },
       ],
     },
   ],

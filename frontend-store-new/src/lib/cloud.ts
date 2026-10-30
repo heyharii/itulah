@@ -49,6 +49,10 @@ export const cloud = {
     node.patch<T>(relayed(path), body, options),
   delete: <T>(path: string, options?: Options) =>
     node.delete<T>(relayed(path), options),
+  /// A scan's bytes (1001): the one relayed body that is not a JSON form. The
+  /// node passes it through as it came, up to 8 MiB (`RELAY_UPLOAD_PATH`).
+  upload: <T>(path: string, body: Blob, options?: Options) =>
+    node.upload<T>(relayed(path), body, options),
 }
 
 /// Whether the person signed in at this till can be relayed for.

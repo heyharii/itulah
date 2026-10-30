@@ -41,10 +41,11 @@ use super::employment::reach_of;
 use crate::cloud::{
     application::{AppError, AppState},
     domain::{
-        actions, required_role_for_action, role_allows, AssignmentSpan, AssignmentTimeline,
-        Authorization, CandidateName, ContractKind, Employee, EmployeeId, HireDecision,
-        HireProposal, HireProposalEvent, HireProposalId, HireProposalState, HireProposalStep,
-        HiringNeed, Position, ProposedTerms, RecordKind, UnitId,
+        actions, required_role_for_action, role_allows, Address, AssignmentSpan,
+        AssignmentTimeline, Authorization, CandidateName, Contact, ContractKind, Employee,
+        EmployeeId, FullName, HireDecision, HireProposal, HireProposalEvent, HireProposalId,
+        HireProposalState, HireProposalStep, HiringNeed, Nik, Position, Profile, ProposedTerms,
+        RecordKind, UnitId,
     },
     http::audit::DeclaredSubject,
     postgres::{self as infrastructure, HireProposalRecord},
@@ -612,6 +613,20 @@ pub async fn decide(
     let mut record = infrastructure::load_hire_proposal(&state.db, &id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("hire proposal {id}")))?;
+    // A store that keyed the new hire in has to have put the KTP and the KK
+    // on the dossier before head office can take the person (1001): approval
+    // is where "wajib" means something. A proposal with no dossier is
+    // approved as before, and head office keys the person in itself.
+    if matches!(decision, HireDecision::Approve) {
+        let candidate = record.proposal.current().candidate().as_str().to_owned();
+        let dossier = super::dossier::hire_dossier_view(&state, &id, &candidate).await?;
+        if dossier.personal.is_some() && !dossier.missing.is_empty() {
+            return Err(AppError::Conflict(format!(
+                "{candidate}'s dossier has no {} yet; return the proposal for the store to add it",
+                dossier.missing.join(" or ")
+            )));
+        }
+    }
     let was = record.proposal.state();
     record
         .proposal
@@ -620,7 +635,16 @@ pub async fn decide(
             authorize(&principal, actions::HIRE_PROPOSAL_DECIDE, &body.reason)?,
         )
         .map_err(infrastructure::hire_error)?;
-    infrastructure::save_hire_proposal(&state.db, &record.proposal, was).await?;
+    // A refused candidate's personal data and scans go with the refusal, in
+    // its transaction — the line 0232 drew, kept now that a store keys the
+    // person in (1001). Erased after a committed refusal, a failure would
+    // leave the papers behind with no retry: the proposal is answered.
+    let mut tx = state.db.begin().await?;
+    infrastructure::save_hire_proposal_in(&mut tx, &record.proposal, was).await?;
+    if record.proposal.state() == HireProposalState::Rejected {
+        infrastructure::erase_hire_dossier_in(&mut tx, &id).await?;
+    }
+    tx.commit().await?;
     read_back(&state, &id).await
 }
 
@@ -665,6 +689,12 @@ pub async fn open_employment(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("hire proposal {id}")))?;
     let was = record.proposal.state();
+    // A store's dossier makes this a write to the person's personal data too,
+    // so it takes that key as well — asked before anything is written.
+    let dossier = infrastructure::hire_dossier(&state.db, &id).await?;
+    if dossier.is_some() {
+        require(&principal, actions::PROFILE_CHANGE)?;
+    }
 
     let employee_id = format!("emp_{}", Uuid::new_v4().simple());
     let employee = Employee::try_register(&employee_id, &body.employee_code).map_err(invalid)?;
@@ -720,6 +750,52 @@ pub async fn open_employment(
             "hire proposal {id} records that employment record {employee_id} was opened, but it \
              could not be written: {error}. Create it in People > Directory with that code."
         )));
+    }
+
+    // What the store keyed in becomes the person's own (1001): the personal
+    // data enrolled through the profile kernel, the detail set as its first
+    // revision, the scans onto the file. Reported rather than swallowed, for
+    // the reason above — the record exists now, and a dossier left on the
+    // proposal is the store's work still waiting to be moved.
+    if let Some(dossier) = dossier {
+        let candidate = record.proposal.current().candidate().as_str().to_owned();
+        let adopted = async {
+            let contact = |raw: &Option<String>| -> Result<Option<Contact>, AppError> {
+                raw.as_deref()
+                    .map(|raw| Contact::try_new(raw).map_err(invalid))
+                    .transpose()
+            };
+            let profile = Profile::try_new(
+                FullName::try_new(&candidate).map_err(invalid)?,
+                Nik::try_new(&dossier.personal.nik).map_err(invalid)?,
+                dossier.personal.birth_date,
+                Address::try_new(&dossier.personal.address).map_err(invalid)?,
+                contact(&dossier.personal.phone)?,
+                contact(&dossier.personal.email)?,
+                Vec::new(),
+            )
+            .map_err(invalid)?;
+            infrastructure::adopt_hire_dossier(
+                &state.db,
+                &id,
+                &employee_id,
+                &profile,
+                &dossier.details,
+                &authorize(
+                    &principal,
+                    actions::PROFILE_CHANGE,
+                    &format!("keyed in by {} on hire proposal {id}", dossier.saved_by),
+                )?,
+            )
+            .await
+        }
+        .await;
+        if let Err(error) = adopted {
+            return Err(AppError::Configuration(format!(
+                "employment record {employee_id} was opened, but the store's dossier could not \
+                 be moved onto it: {error}. Key the personal data in on the person's sheet."
+            )));
+        }
     }
 
     // Filed against the employee, not the proposal: this is the act that made

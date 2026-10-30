@@ -23,8 +23,11 @@ rm -rf dist-web
 # The demo has no fingerprint scanner in a browser: a press on the sensor
 # stands for a finger (owner, 23 Oct 2026), signing in as the demo's test
 # people from scripts/seed-pos-door.sh. SIM_FINGERS= (empty) builds without.
+# A Tunda locks the till after HOLD_MAX_MINUTES (30 in the Windows build); the
+# demo is built at 6 so the lock can be tried without waiting half an hour.
 VITE_SIM_FINGERS="${SIM_FINGERS-andi,rizky,dimas,bima}" VITE_SIM_HEAD="${SIM_HEAD:-bima}" \
 VITE_SIM_PASSWORD="${SIM_PASSWORD:-Password01}" \
+VITE_HOLD_MAX_MINUTES="${HOLD_MAX_MINUTES:-6}" \
 npx vite build --mode web --outDir dist-web >/dev/null
 test -f dist-web/index.html
 tgz=$(mktemp -t pos-dist).tgz

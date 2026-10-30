@@ -36,6 +36,7 @@ async fn main() -> Result<(), AppError> {
         .connect(&config.database_url)
         .await?;
     postgres::MIGRATOR.run(&pool).await?;
+    inventory_backend::cloud::dc::common::warn_if_second_writer(&pool).await;
     // Durable sync identity: origin id + generation live in the node's own
     // database, not in the process environment, so a restart cannot change
     // what stream this node's facts belong to.

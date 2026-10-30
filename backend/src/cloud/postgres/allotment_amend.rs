@@ -2,8 +2,9 @@
 //! is sent (owner, 9 Oct 2026; docs/research/2026-10-09-outbound-cancel-edit-build.md).
 //!
 //! Only an allotment the centre runs itself — the cloud-run Gudang,
-//! `activation_target_origin_id IS NULL`. One a DC server owns is changed
-//! through that server, and every route here refuses it.
+//! `activation_target_origin_id IS NULL` — is changed here. An edit of one a
+//! DC server holds is forwarded to that server and waits for its answer
+//! (`allotment_node`); `allotment_work` still refuses it.
 //!
 //! # The arithmetic
 //!
@@ -141,6 +142,16 @@ pub struct AmendAllotmentResult {
     /// The lines added, each `was` 0.
     #[serde(default)]
     pub added: Vec<AmendedAllotmentLine>,
+    /// PENDING while the Gudang server that holds the allotment has not
+    /// answered the edit Central forwarded ("waiting for the Gudang"); absent
+    /// when the edit was made where the allotment is written.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub edge_amendment_status: Option<String>,
+    /// The forwarded request, to follow it to its answer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub amendment_request_id: Option<Uuid>,
 }
 
 /// Pieces at one stage, and how many stores they are for.
@@ -647,13 +658,29 @@ pub async fn amend_allotment(
     }
 
     let header = lock_open_allotment(&mut tx, allotment_id).await?;
-    if header
-        .get::<Option<String>, _>("activation_target_origin_id")
-        .is_some()
-    {
-        return Err(AppError::Conflict(
-            "Edge-owned allotment is changed through its DC, not here".into(),
-        ));
+    // The Gudang server holds the pen for this allotment (GUDANG-SERVER-PLAN
+    // §0): nothing is written here; the edit is forwarded and waits for the
+    // server's answer. While Central hosts the Gudang no allotment has a
+    // holder, and everything below runs as it always did.
+    if let Some(origin_id) = header.get::<Option<String>, _>("activation_target_origin_id") {
+        let result = super::allotment_node::forward_amend_tx(
+            &mut tx,
+            allotment_id,
+            &header,
+            &origin_id,
+            &request,
+            reason.as_deref(),
+            actor,
+        )
+        .await?;
+        complete_idempotent(
+            &mut tx,
+            &request.idempotency_key,
+            &serde_json::to_value(&result)?,
+        )
+        .await?;
+        tx.commit().await?;
+        return Ok(result);
     }
     // A cancel is the last word on an allotment: one still open only because
     // a carton has to be opened, or a store has to count what was sent, is
@@ -784,6 +811,8 @@ pub async fn amend_allotment(
         owed_total: lines.iter().map(|line| line.owed).sum(),
         lines,
         added,
+        edge_amendment_status: None,
+        amendment_request_id: None,
     };
     complete_idempotent(
         &mut tx,

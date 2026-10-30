@@ -135,6 +135,43 @@ pub async fn set_till_seats(
     ))
 }
 
+/// `GET|PUT|DELETE /api/v1/stores/{unit}/receipt-header`: the picture the store
+/// prints at the top of its receipts (1009).
+pub async fn read_receipt_header(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(unit): Path<String>,
+) -> Result<Json<infrastructure::ReceiptHeaderView>, AppError> {
+    require_admin(&principal, "read a store's receipt picture")?;
+    Ok(Json(
+        infrastructure::read_receipt_header(&state.db, unit.trim()).await?,
+    ))
+}
+
+pub async fn save_receipt_header(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(unit): Path<String>,
+    Json(request): Json<infrastructure::SaveReceiptHeader>,
+) -> Result<Json<infrastructure::ReceiptHeaderView>, AppError> {
+    require_admin(&principal, "set a store's receipt picture")?;
+    Ok(Json(
+        infrastructure::save_receipt_header(&state.db, unit.trim(), &request, &principal.username)
+            .await?,
+    ))
+}
+
+pub async fn clear_receipt_header(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(unit): Path<String>,
+) -> Result<Json<infrastructure::ReceiptHeaderView>, AppError> {
+    require_admin(&principal, "remove a store's receipt picture")?;
+    Ok(Json(
+        infrastructure::clear_receipt_header(&state.db, unit.trim(), &principal.username).await?,
+    ))
+}
+
 /// `POST /api/v1/stores/{unit}/server/install`: a code for the store's server,
 /// its QR, and where the installer is.
 pub async fn install_server(

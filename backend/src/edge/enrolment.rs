@@ -451,6 +451,7 @@ pub async fn run_setup(
     dir: PathBuf,
     bind: SocketAddr,
     default_cloud: Option<String>,
+    frontend: PathBuf,
     stop: impl std::future::Future<Output = ()> + Send + 'static,
 ) -> Result<bool, EdgeError> {
     std::fs::create_dir_all(&dir).map_err(|error| {
@@ -467,6 +468,7 @@ pub async fn run_setup(
             error: None,
         },
     };
+    let laptop = crate::edge::laptop::Laptop::new(frontend, default_cloud.clone(), bind);
     let setup = Arc::new(Setup {
         dir,
         state: Mutex::new(initial),
@@ -481,7 +483,8 @@ pub async fn run_setup(
         .route("/setup", get(setup_page))
         .route("/setup/state", get(setup_state))
         .route("/setup/claim", post(setup_claim))
-        .with_state(setup.clone());
+        .with_state(setup.clone())
+        .merge(crate::edge::laptop::router(laptop, false));
     let loopback = SocketAddr::from(([127, 0, 0, 1], bind.port()));
     let listener = tokio::net::TcpListener::bind(loopback)
         .await
@@ -492,19 +495,23 @@ pub async fn run_setup(
     let finished = setup.clone();
     let enrolled = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let flag = enrolled.clone();
-    axum::serve(listener, router)
-        .with_graceful_shutdown(async move {
-            tokio::select! {
-                _ = finished.done.notified() => {
-                    flag.store(true, std::sync::atomic::Ordering::SeqCst);
-                    // Long enough for the open page to read "Enrolled" once.
-                    tokio::time::sleep(Duration::from_secs(3)).await;
-                }
-                _ = stop => {}
+    // With the caller's address: the laptop checks answer loopback only.
+    axum::serve(
+        listener,
+        router.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(async move {
+        tokio::select! {
+            _ = finished.done.notified() => {
+                flag.store(true, std::sync::atomic::Ordering::SeqCst);
+                // Long enough for the open page to read "Enrolled" once.
+                tokio::time::sleep(Duration::from_secs(3)).await;
             }
-        })
-        .await
-        .map_err(|error| EdgeError::Configuration(format!("setup server: {error}")))?;
+            _ = stop => {}
+        }
+    })
+    .await
+    .map_err(|error| EdgeError::Configuration(format!("setup server: {error}")))?;
     Ok(enrolled.load(std::sync::atomic::Ordering::SeqCst))
 }
 

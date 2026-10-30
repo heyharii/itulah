@@ -83,6 +83,25 @@ export function giroWord(row: GiroRow): readonly [string, GiroTone] {
   }
 }
 
+/// 7Soft's three words for a giro: New (not yet through the bank), Cair
+/// (cleared), Tolakan (bounced). A voided giro has none.
+export type GiroWord = "New" | "Cair" | "Tolakan" | "Void"
+
+export function giroStatusWord(row: GiroRow): GiroWord {
+  switch (row.status) {
+    case "ISSUED":
+    case "DELIVERED":
+    case "DUE":
+      return "New"
+    case "CLEARED":
+      return "Cair"
+    case "REJECTED":
+      return "Tolakan"
+    default:
+      return "Void"
+  }
+}
+
 /// The giro's own bank account, in the unit whose books it is drawn in.
 function accountKey(row: GiroRow): string {
   return `${row.unit_id}\t${row.bank.toUpperCase()}`

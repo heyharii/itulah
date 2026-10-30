@@ -73,7 +73,9 @@ async fn stock(
     State(s): State<AppState>,
     Query(q): Query<StockQuery>,
 ) -> Result<Json<Vec<infrastructure::UnmatchedStockRow>>, AppError> {
-    Ok(Json(infrastructure::unmatched_stock(&s.db, &q.site_id).await?))
+    Ok(Json(
+        infrastructure::unmatched_stock(&s.db, &q.site_id).await?,
+    ))
 }
 
 async fn match_line(
@@ -128,7 +130,6 @@ async fn sync_list(
         }
     };
     let status = infrastructure::unmatched_status(q.status.as_deref())?;
-    let rows =
-        infrastructure::list_unmatched_sales(&s.db, status.as_deref(), Some(&site)).await?;
+    let rows = infrastructure::list_unmatched_sales(&s.db, status.as_deref(), Some(&site)).await?;
     Ok(Json(json!({ "rows": rows })))
 }

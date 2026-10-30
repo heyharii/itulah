@@ -31,8 +31,8 @@ use crate::{
             SetRfidDeviceActiveRequest, SetRfidDeviceKindRequest, UpsertEdgeAssignmentRequest,
         },
         domain::{
-            auth_policy_content_hash, AuthPolicyDevice, AuthPolicySnapshot, AuthPolicyUser, Role,
-            SiteProfile, COMMAND_AUTH_POLICY_REPLACE,
+            auth_policy_content_hash, AuthPolicyDevice, AuthPolicyEdcMachine, AuthPolicySnapshot,
+            AuthPolicyUser, Role, SiteProfile, COMMAND_AUTH_POLICY_REPLACE,
         },
     },
     edge::{EdgeRole, NodeContext, OperationalPool, SiteId},
@@ -49,6 +49,17 @@ use super::{hash_edge_credential, issue_command};
 
 const DEFAULT_OPERATOR_TTL_SECONDS: i32 = 7 * 24 * 60 * 60;
 const DEFAULT_PRIVILEGED_TTL_SECONDS: i32 = 24 * 60 * 60;
+/// How long a finger still lets a person in at a node that has stopped
+/// hearing from head office (`AuthPolicySnapshot::finger_valid_until`).
+///
+/// Longer than the 24 hours a store head's or an admin's password is held to,
+/// on purpose: a password can be read over a shoulder and typed anywhere, a
+/// finger proves the person is standing at the till. A store whose line has
+/// been down for two days must still be opened and its voids approved by its
+/// head. Head office's own word still wins whenever it arrives: a stopped
+/// login, a stop on the POS or a removed grant reaches the node with the next
+/// policy and ends the finger with everything else.
+const FINGER_LEASE_SECONDS: i32 = 7 * 24 * 60 * 60;
 const MIN_TTL_SECONDS: i32 = 15 * 60;
 const MAX_TTL_SECONDS: i32 = 30 * 24 * 60 * 60;
 
@@ -69,6 +80,23 @@ fn assignment_ttl(role: Role, offered: Option<i32>) -> Result<i32, AppError> {
         ));
     }
     Ok(ttl)
+}
+
+/// Until when a finger lets this person in.
+///
+/// A store head or an admin: [`FINGER_LEASE_SECONDS`] from issue, never
+/// earlier than their password lease. A cashier: exactly their password
+/// lease — theirs is already a week by default, and one head office set
+/// shorter by hand (a temporary helper, say) is meant to stay short.
+fn finger_lease(
+    issued_at: DateTime<Utc>,
+    password_lease: DateTime<Utc>,
+    privileged: bool,
+) -> DateTime<Utc> {
+    if !privileged {
+        return password_lease;
+    }
+    password_lease.max(issued_at + Duration::seconds(i64::from(FINGER_LEASE_SECONDS)))
 }
 
 async fn origin_node(pool: &PgPool, origin_id: &str) -> Result<NodeContext, AppError> {
@@ -1251,13 +1279,23 @@ pub async fn publish_auth_policy(
     .fetch_all(&mut *tx)
     .await?;
     let mut users = Vec::with_capacity(user_rows.len());
+    // The finger's lease rides beside the users, not inside them: an older
+    // node hashes `users` field by field (see `finger_valid_until`). Left out
+    // of the snapshot's own `valid_until`, which also bounds the DC's sign-on
+    // trust and must stay the password's.
+    let mut finger_valid_until = BTreeMap::new();
     let mut valid_until = issued_at + Duration::minutes(15);
     for row in user_rows {
         let expiry =
             issued_at + Duration::seconds(i64::from(row.get::<i32, _>("offline_ttl_seconds")));
         valid_until = valid_until.max(expiry);
+        let user_id: Uuid = row.get("user_id");
+        let privileged = !row
+            .get::<String, _>("edge_role")
+            .eq_ignore_ascii_case("CASHIER");
+        finger_valid_until.insert(user_id, finger_lease(issued_at, expiry, privileged));
         users.push(AuthPolicyUser {
-            user_id: row.get("user_id"),
+            user_id,
             username: row.get("username"),
             display_name: row.get("display_name"),
             role: row.get("edge_role"),
@@ -1309,11 +1347,32 @@ pub async fn publish_auth_policy(
         });
     }
     let (site, sites) = site_profiles(&mut tx, &node, issued_at).await?;
+    // Every EDC machine Finance holds against this site: Tutup kasir asks a
+    // count on each, including one that took nothing this shift.
+    let edc_machines = sqlx::query(
+        "SELECT terminal_id,label FROM edc_terminal
+          WHERE site_id=$1 AND active ORDER BY terminal_id",
+    )
+    .bind(node.site_id.as_str())
+    .fetch_all(&mut *tx)
+    .await?
+    .into_iter()
+    .map(|row| AuthPolicyEdcMachine {
+        machine_id: row.get("terminal_id"),
+        label: row.get("label"),
+    })
+    .collect::<Vec<_>>();
     // Stops on the POS here (0990): always sent, even empty, so the node
     // drops a stop head office has lifted.
     let pos_stops =
         super::pos_access::pos_stops_for(&mut tx, origin_id, node.site_id.as_str()).await?;
     tx.commit().await?;
+    // The return promise this node prints and enforces. Read after the commit
+    // because it is fleet-wide state, not this policy's own transaction, and a
+    // window saved a moment ago must be on the next receipt.
+    let return_policy = super::return_policy::snapshot(pool).await?;
+    let point_policy = super::point_policy::point_policy_snapshot(pool).await?;
+    let receipt_header = super::stores::receipt_header_for_site(pool, node.site_id.as_str()).await?;
 
     let mut snapshot = AuthPolicySnapshot {
         snapshot_id: Uuid::new_v4(),
@@ -1335,6 +1394,11 @@ pub async fn publish_auth_policy(
         sites,
         device_kinds,
         pos_stops: Some(pos_stops),
+        finger_valid_until,
+        edc_machines: Some(edc_machines),
+        return_policy: Some(return_policy),
+        point_policy: Some(point_policy),
+        receipt_header: Some(receipt_header),
     };
     snapshot.content_hash = auth_policy_content_hash(&snapshot);
     let payload = serde_json::to_value(&snapshot)?;
@@ -1543,5 +1607,24 @@ pub async fn publish_node_access(pool: &PgPool, origins: &[String], actor: &str)
                 "a server's sign-in list changed and it could not be told yet"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_finger_outlives_a_store_heads_password_but_never_a_cashiers() {
+        let issued_at = Utc::now();
+        let head = issued_at + Duration::seconds(i64::from(DEFAULT_PRIVILEGED_TTL_SECONDS));
+        assert_eq!(
+            finger_lease(issued_at, head, true),
+            issued_at + Duration::days(7)
+        );
+        let long_cashier = issued_at + Duration::seconds(i64::from(MAX_TTL_SECONDS));
+        assert_eq!(finger_lease(issued_at, long_cashier, false), long_cashier);
+        let short_cashier = issued_at + Duration::hours(4);
+        assert_eq!(finger_lease(issued_at, short_cashier, false), short_cashier);
     }
 }

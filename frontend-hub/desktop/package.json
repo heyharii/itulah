@@ -1,7 +1,7 @@
 {
   "name": "itulah-hub-desktop",
   "productName": "Central",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "private": true,
   "description": "The hub as a desktop app: the hosted hub in its own window, with a tray, native notifications, printing and downloads.",
   "scripts": {

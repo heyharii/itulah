@@ -1370,7 +1370,9 @@ fn device_part(
     let online_within = Duration::minutes(DEVICE_ONLINE_MINUTES);
     let mut parts = Vec::new();
     match device.kind.as_str() {
-        wire::KIND_TILL => {
+        // A warehouse PC is judged as a till is, by its last request; it has
+        // no drawer to be open.
+        wire::KIND_TILL | wire::KIND_WAREHOUSE => {
             let drawer_open = status
                 .till
                 .open_shift_terminals

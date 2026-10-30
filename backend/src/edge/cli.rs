@@ -74,6 +74,25 @@ pub fn main(default_role: EdgeRole) -> Result<(), BoxError> {
         "service" => return crate::edge::winservice::run_dispatcher(),
         "install-service" => return crate::edge::winservice::install(),
         "uninstall-service" => return crate::edge::winservice::uninstall(),
+        // The MSI, as SYSTEM, and the setup page's buttons through UAC
+        // (`edge/laptop.rs`): the shop's network Private, awake on mains.
+        "prepare-pc" => {
+            crate::edge::laptop::prepare_pc()?;
+            println!("This PC's network is Private and it stays awake while plugged in.");
+            return Ok(());
+        }
+        "start-over" => {
+            crate::edge::laptop::start_over()?;
+            println!("The old data moved aside; this PC waits for a new install code.");
+            return Ok(());
+        }
+        "open-link" => {
+            let link = args.get(1).map(String::as_str).unwrap_or_default();
+            if let Err(refusal) = crate::edge::laptop::open_link(link) {
+                crate::edge::notice::alert("Central Store Server", &refusal);
+            }
+            return Ok(());
+        }
         _ => {}
     }
 

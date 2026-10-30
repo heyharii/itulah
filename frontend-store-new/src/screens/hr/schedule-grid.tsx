@@ -9,7 +9,13 @@ import {
   type WeekSheet,
 } from "@/lib/queries/schedule"
 import { cn } from "@/lib/utils"
-import { dayName, hoursOf, OFF_HATCH } from "@/screens/hr/schedule-look"
+import {
+  dayName,
+  hoursOf,
+  OFF_HATCH,
+  type DayNote,
+  type NotesOf,
+} from "@/screens/hr/schedule-look"
 import { personName } from "@/screens/hr/words"
 import type { EmployeeList } from "@itulah/contract"
 
@@ -91,6 +97,7 @@ export function Grid({
   today,
   team,
   tint,
+  notes,
   picking,
   plannedBy,
 }: {
@@ -98,6 +105,7 @@ export function Grid({
   today: string
   team: EmployeeList | undefined
   tint: (shiftId: string | null) => string
+  notes: NotesOf
   picking: Picking
   /// A login as a full name, for the tooltip.
   plannedBy: (login: string | null) => string
@@ -115,14 +123,14 @@ export function Grid({
           </colgroup>
           <thead>
             <tr>
-              <th className="sticky left-0 z-10 h-10 border-b border-hairline bg-soft px-3.5 text-left text-eyebrow font-medium text-body">
+              <th className="sticky left-0 z-10 h-10 border-b border-hairline bg-soft px-3.5 text-left text-meta font-medium text-body">
                 Employee
               </th>
               {week.days.map((date) => (
                 <th
                   key={date}
                   className={cn(
-                    "h-10 border-b border-hairline p-0 text-center text-eyebrow font-medium",
+                    "h-10 border-b border-hairline p-0 text-center text-meta font-medium",
                     date === today
                       ? "bg-accent-bg text-accent"
                       : "bg-soft text-body",
@@ -142,7 +150,7 @@ export function Grid({
                   </button>
                 </th>
               ))}
-              <th className="h-10 border-b border-hairline bg-soft px-3.5 text-right text-eyebrow font-medium text-body">
+              <th className="h-10 border-b border-hairline bg-soft px-3.5 text-right text-meta font-medium text-body">
                 Hours
               </th>
             </tr>
@@ -183,6 +191,7 @@ export function Grid({
                       >
                         <Cell
                           slot={slot}
+                          note={notes(employeeId, date)}
                           tint={tint}
                           selected={on}
                           label={`${personName(team, employeeId)}, ${dayLong(date)}: ${rowWord(slot)}`}
@@ -263,6 +272,7 @@ export function Grid({
 /// tells the picker that a press here is not "outside" it.
 function Cell({
   slot,
+  note,
   tint,
   selected,
   label,
@@ -270,6 +280,7 @@ function Cell({
   onClick,
 }: {
   slot: Slot | undefined
+  note: DayNote | undefined
   tint: (shiftId: string | null) => string
   selected: boolean
   label: string
@@ -305,9 +316,9 @@ function Cell({
           <b className="max-w-full truncate text-cell font-semibold text-ink">
             {cellWord(worked)}
           </b>
-          <span className="text-[0.875rem] text-body">{hoursOf(worked)}</span>
+          <span className="text-[0.9375rem] text-body">{hoursOf(worked)}</span>
           {short && (
-            <span className="text-[0.875rem] font-semibold text-bad-fg">
+            <span className="text-[0.9375rem] font-semibold text-bad-fg">
               {readMinutes(worked.minutes)}
             </span>
           )}
@@ -315,15 +326,42 @@ function Cell({
       ) : (
         <span className="text-cell">{cellWord(slot)}</span>
       )}
+      <NoteLines note={note} />
       {slot !== undefined && slot.revisions > 1 && !slot.saving && (
         <span
           aria-label="Re-planned"
-          className="absolute top-0.5 right-1.5 text-[0.875rem] text-warn-fg"
+          className="absolute top-0.5 right-1.5 text-[0.9375rem] text-warn-fg"
         >
           ↻
         </span>
       )}
     </button>
+  )
+}
+
+/// Leave and overtime under the plan, in the same cell: leave in the body
+/// colour (grey and led by "Waiting" until it is approved), overtime in hours.
+function NoteLines({ note }: { note: DayNote | undefined }) {
+  if (note === undefined) return null
+  return (
+    <>
+      {note.leave !== null && (
+        <span
+          title={note.leave}
+          className={cn(
+            "max-w-full truncate text-meta",
+            note.leaveWaiting ? "text-mute" : "text-body",
+          )}
+        >
+          {note.leaveWaiting ? `Waiting · ${note.leave}` : note.leave}
+        </span>
+      )}
+      {note.overtime !== null && (
+        <span className="max-w-full truncate text-meta font-medium text-ink">
+          Overtime {readMinutes(note.overtime)}
+        </span>
+      )}
+    </>
   )
 }
 
@@ -335,11 +373,13 @@ export function Cards({
   week,
   today,
   team,
+  notes,
   picking,
 }: {
   week: WeekSheet
   today: string
   team: EmployeeList | undefined
+  notes: NotesOf
   picking: Picking
 }) {
   return (
@@ -364,7 +404,7 @@ export function Cards({
                   {personName(team, employeeId)}
                 </span>
                 {position ? (
-                  <span className="text-[0.875rem] text-mute">{position}</span>
+                  <span className="text-[0.9375rem] text-mute">{position}</span>
                 ) : null}
               </span>
               <span className="min-w-0 shrink-0">
@@ -401,7 +441,7 @@ export function Cards({
                     >
                       <span
                         className={cn(
-                          "w-[4.5rem] shrink-0 text-[0.875rem] tabular-nums",
+                          "w-[4.5rem] shrink-0 text-[0.9375rem] tabular-nums",
                           date === today
                             ? "font-semibold text-accent"
                             : "text-body",
@@ -421,15 +461,16 @@ export function Cards({
                       >
                         {rowWord(slot)}
                       </span>
+                      <CardNote note={notes(employeeId, date)} />
                       {short && slot !== undefined && (
-                        <span className="shrink-0 text-[0.875rem] font-semibold text-bad-fg tabular-nums">
+                        <span className="shrink-0 text-[0.9375rem] font-semibold text-bad-fg tabular-nums">
                           {readMinutes(slot.minutes)}
                         </span>
                       )}
                       {slot !== undefined &&
                         slot.revisions > 1 &&
                         !slot.saving && (
-                          <span className="shrink-0 text-[0.875rem] text-warn-fg">
+                          <span className="shrink-0 text-[0.9375rem] text-warn-fg">
                             Re-planned
                           </span>
                         )}
@@ -468,7 +509,7 @@ export function Cards({
                 >
                   <span
                     className={cn(
-                      "w-[4.5rem] shrink-0 text-[0.875rem] tabular-nums",
+                      "w-[4.5rem] shrink-0 text-[0.9375rem] tabular-nums",
                       date === today
                         ? "font-semibold text-accent"
                         : "text-body",
@@ -476,7 +517,7 @@ export function Cards({
                   >
                     {dayName(date)}
                   </span>
-                  <span className="min-w-0 flex-1 truncate text-[0.875rem] text-mute">
+                  <span className="min-w-0 flex-1 truncate text-[0.9375rem] text-mute">
                     {week.used
                       .map(
                         (shift) =>
@@ -499,5 +540,23 @@ export function Cards({
         </ul>
       </section>
     </div>
+  )
+}
+
+/// The same leave and overtime, as the tail of a phone row.
+function CardNote({ note }: { note: DayNote | undefined }) {
+  if (note === undefined) return null
+  const words = [
+    note.leave === null
+      ? null
+      : note.leaveWaiting
+        ? `Waiting · ${note.leave}`
+        : note.leave,
+    note.overtime === null ? null : `Overtime ${readMinutes(note.overtime)}`,
+  ].filter((word) => word !== null)
+  return (
+    <span className="max-w-[40%] shrink-0 truncate text-meta text-body">
+      {words.join(" · ")}
+    </span>
   )
 }

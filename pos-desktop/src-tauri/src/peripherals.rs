@@ -205,6 +205,18 @@ pub struct Peripherals {
     /// printer ("EPSON TM-T82 Receipt") or the CUPS queue — which receipts are
     /// sent to as a raw job.
     pub usb_printer_name: Option<String>,
+    /// For [`RECEIPT_USB`]: the language the printer reads — `ESCPOS` (a
+    /// receipt printer) or `TSPL` (a label printer such as the Xprinter
+    /// XP-D4601B, which takes a receipt as one long label). Not said: guessed
+    /// from the model (`printer::language_of`), so a label printer plugged in
+    /// prints on its own (Hari, 30 Oct 2026: "make both").
+    pub receipt_language: Option<String>,
+    /// For a label printer: the size of one label on the roll and the gap
+    /// between labels, in mm. Everything printed is cut to this label, a long
+    /// receipt over several. Not said: continuous paper (`GAP 0`).
+    pub label_width_mm: Option<u16>,
+    pub label_height_mm: Option<u16>,
+    pub label_gap_mm: Option<u16>,
     /// True while the node has not acknowledged the description as it is now.
     pub unsent: bool,
     /// Unix seconds of the node's last acknowledgement.
@@ -232,6 +244,10 @@ impl Default for Peripherals {
             printer_label: None,
             usb_printer_model: None,
             usb_printer_name: None,
+            receipt_language: None,
+            label_width_mm: None,
+            label_height_mm: None,
+            label_gap_mm: None,
             unsent: false,
             reported_at: None,
         }
@@ -326,12 +342,14 @@ fn tidy(mut next: Peripherals) -> Result<Peripherals, String> {
             next.printer_label = None;
             next.usb_printer_model = None;
             next.usb_printer_name = None;
+            next.receipt_language = None;
         }
         RECEIPT_RECORDED => {
             next.printer_id = filled(&next.printer_id);
             next.printer_label = filled(&next.printer_label);
             next.usb_printer_model = None;
             next.usb_printer_name = None;
+            next.receipt_language = None;
             if next.printer_id.is_none() {
                 return Err("Pilih printer jaringan yang tercatat di node.".into());
             }
@@ -341,6 +359,14 @@ fn tidy(mut next: Peripherals) -> Result<Peripherals, String> {
             next.printer_label = None;
             next.usb_printer_model = filled(&next.usb_printer_model);
             next.usb_printer_name = filled(&next.usb_printer_name);
+            next.receipt_language = filled(&next.receipt_language)
+                .map(|language| language.to_ascii_uppercase())
+                .filter(|language| language == "ESCPOS" || language == "TSPL");
+            // A label is 20 to 300 mm either way; anything else is not said.
+            let size = |mm: Option<u16>, low: u16, high: u16| mm.filter(|v| (low..=high).contains(v));
+            next.label_width_mm = size(next.label_width_mm, 20, 120);
+            next.label_height_mm = size(next.label_height_mm, 20, 300);
+            next.label_gap_mm = size(next.label_gap_mm, 0, 10);
             if next.usb_printer_name.is_none() {
                 return Err(
                     "Pilih printer USB di komputer ini — namanya seperti di daftar \
@@ -409,6 +435,7 @@ pub fn describe(config: &NodeConfig) -> Value {
                 json!({
                     "model": filled(&peripherals.usb_printer_model),
                     "name": filled(&peripherals.usb_printer_name),
+                    "language": crate::printer::language_of(peripherals),
                     "purpose": "RECEIPT",
                     "paper": config.paper,
                 }),

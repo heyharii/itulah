@@ -8,6 +8,12 @@ import type { StorePosWaiting } from "./StorePosWaiting";
  */
 export type StorePos = { tills: Array<StorePosTill>, 
 /**
+ * The store's warehouse PCs (Central Gudang, postgres 1000): stopped,
+ * resumed and removed like a till, never in a seat and never with a
+ * drawer.
+ */
+warehouses: Array<StorePosTill>, 
+/**
  * New POS asking to join, for head office to approve into a free seat
  * or refuse (`pos_joins`).
  */

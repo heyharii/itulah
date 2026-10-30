@@ -153,7 +153,11 @@ pub fn sku_parts(sku: &str) -> Result<(&str, char, &str), String> {
 /// eleven digits. Anything that is not a canonical SKU comes back as it was.
 pub fn sku_display(sku: &str) -> String {
     if validate_sku_code(sku).is_ok() {
-        format!("{}\u{00b7}{}", &sku[..ARTICLE_CODE_LEN], &sku[ARTICLE_CODE_LEN..])
+        format!(
+            "{}\u{00b7}{}",
+            &sku[..ARTICLE_CODE_LEN],
+            &sku[ARTICLE_CODE_LEN..]
+        )
     } else {
         sku.to_string()
     }

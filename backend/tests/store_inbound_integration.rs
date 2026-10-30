@@ -380,7 +380,10 @@ async fn an_announced_delivery_shows_what_was_packed_and_then_compares() {
     assert_eq!(delivery["shipment_reference"], SJ);
     assert_eq!(delivery["source_site_id"], DC_SITE);
     assert_eq!(delivery["koli_count"], 2);
-    assert!(delivery["result"].is_null(), "nothing counted yet: {delivery}");
+    assert!(
+        delivery["result"].is_null(),
+        "nothing counted yet: {delivery}"
+    );
     assert!(delivery["received_at"].is_null());
 
     let detail = ok(
@@ -1196,7 +1199,10 @@ async fn an_in_transit_koli_is_announced_to_its_shop_and_received_blind(pool: Pg
     assert_eq!(delivery["koli_count"], 1);
     assert_eq!(delivery["shipment_reference"], json!(shipment_reference));
     assert_eq!(delivery["source_site_id"], DC_SITE);
-    assert!(delivery["result"].is_null(), "nothing counted yet: {delivery}");
+    assert!(
+        delivery["result"].is_null(),
+        "nothing counted yet: {delivery}"
+    );
     let delivery_id = delivery["delivery_id"]
         .as_str()
         .unwrap_or_else(|| panic!("no id: {delivery}"))

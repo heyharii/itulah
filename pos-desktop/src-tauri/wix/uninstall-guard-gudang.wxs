@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Central Gudang's guard: `uninstall-guard.wxs`, for the warehouse edition
+  (tauri.gudang.conf.json). Only head office removes a warehouse PC from its
+  store, as it removes a POS (the client's review, 23 Oct 2026).
+
+  The app holds itself under its own product's key, HKCU\Software\Central
+  Gudang (src/uninstall.rs takes the key from productName), so a POS and a
+  warehouse PC on one machine never hold each other's installer. `Unsent`
+  never appears here — a warehouse PC rings no sales — and is read all the
+  same, so the two guards stay one rule.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <Property Id="CENTRAL_GUDANG_HELD">
+      <RegistrySearch Id="CentralGudangHeld" Root="HKCU" Key="Software\Central Gudang" Name="Held" Type="raw" />
+    </Property>
+    <Condition Message="Komputer gudang ini masih aktif. Hanya kantor pusat yang bisa menghapusnya."><![CDATA[NOT (REMOVE~="ALL") OR UPGRADINGPRODUCTCODE OR NOT CENTRAL_GUDANG_HELD]]></Condition>
+    <Property Id="CENTRAL_GUDANG_UNSENT">
+      <RegistrySearch Id="CentralGudangUnsent" Root="HKCU" Key="Software\Central Gudang" Name="Unsent" Type="raw" />
+    </Property>
+    <Condition Message="Komputer gudang ini masih menyimpan [CENTRAL_GUDANG_UNSENT] catatan yang belum sampai ke server toko. Sambungkan ke jaringan toko, buka Central Gudang, lalu tunggu sampai semuanya terkirim."><![CDATA[NOT (REMOVE~="ALL") OR UPGRADINGPRODUCTCODE OR NOT CENTRAL_GUDANG_UNSENT]]></Condition>
+    <ComponentGroup Id="CentralGudangUninstallGuard" />
+  </Fragment>
+</Wix>

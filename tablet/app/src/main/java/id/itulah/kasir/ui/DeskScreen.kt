@@ -52,6 +52,9 @@ import androidx.compose.ui.unit.sp
 import id.itulah.kasir.data.CatalogRow
 import id.itulah.kasir.data.Config
 import id.itulah.kasir.data.Money
+import id.itulah.kasir.data.OutboxEntry
+import id.itulah.kasir.data.OutboxView
+import id.itulah.kasir.data.WhenIt
 import id.itulah.kasir.data.skuDisplay
 import id.itulah.kasir.pos.BasketLine
 import id.itulah.kasir.pos.ReaderState
@@ -159,6 +162,10 @@ fun DeskScreen(
                             trailing = { ReaderMark(state.reader) },
                         )
                     }
+                    // Money the store server has not taken, or refused: never
+                    // behind a menu, because it is the first thing a manager
+                    // asks about before the drawer is counted.
+                    OutboxBanner(state.outbox)
                     val note = state.note
                     if (note != null) {
                         Box(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 12.dp)) {
@@ -372,6 +379,13 @@ private fun plural(n: Int, word: String) = "$n $word" + if (n == 1) "" else "s"
 /** What the status bar says while the till is up. */
 @Composable
 fun RowScope.TillStatus(state: TillState) {
+    // First, so a crowded bar clips the machinery and not the money.
+    val outbox = state.outbox
+    if (outbox.storageProblem != null) StatusText("Penyimpanan kasir bermasalah", Bad)
+    if (outbox.refused > 0) StatusText("${outbox.refused} penjualan ditolak server toko", Bad)
+    if (outbox.unsent > 0) StatusText("${outbox.unsent} penjualan menunggu dikirim", Warn)
+    if (outbox.unacknowledged == 0) StatusText("Semua penjualan terkirim", Ok)
+
     val reader = state.reader
     when {
         !reader.available -> StatusText("No reader · keyboard scanner", Mute)
@@ -387,6 +401,49 @@ fun RowScope.TillStatus(state: TillState) {
     )
     StatusText("${state.namesKnown} names known")
 }
+
+/**
+ * What the store server owes this till an answer about, and what it refused.
+ *
+ * Nothing at all while the queue is empty. An owed sale is amber and says why
+ * the node has not taken it, in the node's own words where it gave any; a
+ * refused one is red and carries the sentence it was refused with, because a
+ * refusal is a verdict a person has to read. There is no dismiss: it goes when
+ * the sale does. A disk that is not keeping the queue is the loudest of the
+ * three — everything owed is then only in memory.
+ */
+@Composable
+private fun OutboxBanner(outbox: OutboxView) {
+    val refused = outbox.entries.filter { it.refused }
+    if (outbox.unsent == 0 && refused.isEmpty() && outbox.storageProblem == null) return
+    Column(
+        Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        outbox.storageProblem?.let { Notice(it, bad = true, title = "Penyimpanan kasir") }
+        if (refused.isNotEmpty()) {
+            Notice(
+                text = refused.take(3).joinToString("\n") { refusalLine(it) } +
+                    if (refused.size > 3) "\n+${refused.size - 3} lagi" else "",
+                bad = true,
+                title = "${refused.size} penjualan ditolak server toko",
+            )
+        }
+        if (outbox.unsent > 0) {
+            Notice(
+                text = outbox.entries.firstNotNullOfOrNull { if (it.isOwed) it.problem else null }
+                    ?: "Tersimpan di kasir ini, dikirim otomatis begitu server toko menjawab.",
+                warn = true,
+                title = "${outbox.unsent} penjualan menunggu dikirim",
+            )
+        }
+    }
+}
+
+/** When it was rung, what it came to, how many tags — and the node's sentence. */
+private fun refusalLine(entry: OutboxEntry): String =
+    WhenIt.local(entry.takenAt) + " · " + Money.format(entry.quotedTotalMinor) +
+        " · " + entry.epcs.size + " tag" + (entry.problem?.let { " — $it" } ?: "")
 
 /**
  * The reader, as a glyph inside the scan field: green when the antenna is on,

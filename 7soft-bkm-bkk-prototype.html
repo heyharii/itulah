@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>7Soft · BKM BKK</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:#dfe3ea;font-family:Inter,-apple-system,"Helvetica Neue",Arial,sans-serif;color:#20242c}
+button{font:inherit;cursor:pointer}
+/* ---- page chrome (not part of 7Soft) ---- */
+.top{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:center;padding:14px 20px;background:#fff;border-bottom:1px solid #e7eaf0;position:sticky;top:0;z-index:10}
+.top h1{font-size:16px;font-weight:600}
+.top small{color:#626b78;font-size:15px}
+.grp{display:inline-flex;background:#f0f2f5;border-radius:8px;padding:2px;gap:2px}
+.grp button{height:34px;padding:0 14px;border:0;border-radius:6px;background:none;color:#626b78;font-weight:500;font-size:15px}
+.grp button[aria-pressed=true]{background:#fff;color:#20242c;box-shadow:0 1px 3px rgb(24 39 60/10%)}
+.sp{flex:1}
+.stagewrap{padding:20px}
+#fit{position:relative;transform-origin:0 0}
+.layer{position:absolute;left:0;top:0}
+#orig{display:none;image-rendering:auto}
+/* ---- the 7Soft window, in screenshot pixels ---- */
+.win{position:relative;overflow:hidden;background:#dfecfb;font:11px/1 Tahoma,"Lucida Grande",Verdana,Arial,sans-serif;color:#000;-webkit-font-smoothing:none;user-select:none}
+.win *{position:absolute;white-space:nowrap}
+.win .tx{position:absolute}
+.win .c{transform:translate(-50%,-50%)}
+.win .m{transform:translateY(-50%)}
+.win .r{transform:translate(-100%,-50%)}
+.titlebar{left:0;top:0;width:100%;height:22px;background:#598dd3}
+.titlebar span{left:20px;top:11px;transform:translateY(-50%);color:#fff;font-size:12px}
+.menubar span{top:33px;transform:translateY(-50%);font-size:12px}
+.bevel{border:1px solid;border-color:#a0a0a0 #e3e3e3 #e3e3e3 #a0a0a0;box-shadow:inset 1px 1px 0 #696969}
+.panel{border:1px solid #d0d9e5;background:#e7f1fe;box-shadow:inset 0 0 0 1px #f5f9ff}
+.fld{background:#fff}
+.fld span{left:3px;top:50%;transform:translateY(-50%);font-size:11px}
+.dd{width:17px;height:17px;right:0;top:0;border:1px solid;border-color:#fff #808080 #808080 #fff;background:#e7f1fe}
+.dd::after{content:"";left:3px;top:6px;border:4px solid transparent;border-top:5px solid #000}
+.dd.dis::after{border-top-color:#a0a0a0}
+.dots{width:17px;height:17px;background:#e7f1fe;border:1px solid #9aa3b0;border-radius:2px}
+.dots::after{content:"···";left:2px;top:2px;font-size:9px;letter-spacing:-1px;font-weight:bold}
+.lb{font-size:11px;transform:translateY(-50%);color:#000}
+.tbtn{font-size:11px;transform:translate(-50%,-50%)}
+.tbtn.dis{color:#8a8f98}
+.sel{background:#e7f1fe}
+.gl{background:#000}
+.hd{font-weight:bold;font-size:11px;transform:translate(-50%,-50%);color:#000}
+.cell{font-size:11px;transform:translateY(-50%)}
+.cell.n{transform:translate(-100%,-50%)}
+.row{background:#fff}
+.row.g{background:#c0dcc0}
+.row .sep{left:0;right:0;bottom:0;height:1px;background:#c0c0c0}
+.chk{width:13px;height:13px;background:#fff;border:1px solid;border-color:#808080 #fff #fff #808080;box-shadow:inset 1px 1px 0 #404040;transform:translate(-50%,-50%)}
+.chk svg{left:1px;top:1px;width:9px;height:9px}
+.crop{background-repeat:no-repeat}
+.tip{background:#ffffe1;border:1px solid #000;padding:3px 5px;font-size:11px}
+.tab{height:19px;border:1px solid #919ba8;border-bottom:0;border-radius:2px 2px 0 0;background:#e7f1fe;font-size:11px}
+.tab span{left:5px;top:50%;transform:translateY(-50%)}
+.tab.off{background:#dfecfb;height:17px;top:2px}
+</style>
+</head>
+<body>
+<div class="top">
+ <h1>7Soft · BKM &amp; BKK</h1>
+ <small>Replika layar manual 7Soft hal. 179–186 — data persis dari screenshot</small>
+ <span class="sp"></span>
+ <div class="grp" id="scr" role="group" aria-label="Layar"></div>
+ <div class="grp" id="view" role="group" aria-label="Tampilan"></div>
+</div>
+<p id="note" style="padding:10px 20px 0;color:#626b78;font-size:15px;min-height:30px"></p>
+<div class="stagewrap" style="padding-top:8px"><div id="fit"><div class="layer win" id="win"></div><img class="layer" id="orig" alt="Screenshot asli 7Soft"></div></div>
+
+<script>
+/* ===== the six screens the manual shows =====
+   Every number, name and column width below is read off the screenshots in
+   "Integrated Accounting Application - DONE (2).pdf" (pages 179–186). */
+const SCREENS=[
+ {k:'bkm-detail',  mode:'bkm',rec:0,tab:'detail',page:179,w:1280,h:746,tip:{x:347,y:98,w:72,t:'Refresh data'}},
+ {k:'bkm-lain',    mode:'bkm',rec:1,tab:'lain',  page:181,w:1280,h:748},
+ {k:'bkm-hutang',  mode:'bkm',rec:2,tab:'hutang',page:182,w:1269,h:765,tip:{x:117,y:114,w:103,t:'Ke data berikutnya'},foot:true},
+ {k:'bkk-detail',  mode:'bkk',rec:0,tab:'detail',page:183,w:1280,h:739},
+ {k:'bkk-lain',    mode:'bkk',rec:1,tab:'lain',  page:185,w:1280,h:744},
+ {k:'bkk-piutang', mode:'bkk',rec:2,tab:'piutang',page:186,w:1280,h:741},
+];
+const LABEL={'bkm-detail':'BKM · Pelunasan Piutang','bkm-lain':'BKM · Lain-lain','bkm-hutang':'BKM · Hutang','bkk-detail':'BKK · Pelunasan Hutang','bkk-lain':'BKK · Lain-lain','bkk-piutang':'BKK · Piutang'};
+const z='0.00';
+const RECS={
+ bkm:[
+  {voucher:'KM-09-01-00001',date:'08 Jan 2009  10:18:29',kas:'Kas Besar',ref:'',ket:'',plabel:'CUSTOMER',party:'AGUNG JAYA SENTOSA',code:'M89',total:'30,413,250.00',counter:'1 of 1',
+   detail:[['PJL-07-10-00338','11/15/2007','16,105,000.00','M-82002.07','',z,'16,105,000.00'],['PJL-07-10-00404','11/17/2007','2,220,000.00','83015.07','',z,'2,220,000.00'],['PJL-07-11-00048','11/23/2007','1,737,500.00','A-04047.07','',z,'1,737,500.00'],['PJL-07-11-00115','11/26/2007','948,750.00','A-04115.07','',z,'948,750.00'],['PJL-07-11-00152','11/27/2007','1,575,000.00','A-04123.07','',z,'1,575,000.00'],['PJL-07-11-00402','12/4/2007','1,485,000.00','M-04204.07','',z,'1,485,000.00'],['PJL-07-11-00444','12/5/2007','6,342,000.00','M-04212.07','',z,'6,342,000.00']],
+   lain:[],hutang:[]},
+  {voucher:'KM-07-08-00005',date:'02 Aug 2007  00:00:00',kas:'Kas Besar',ref:'',ket:'',plabel:'CUSTOMER',party:'CITRA TERANG SINAR MULYO (7',code:'C17',total:'443,000.00',counter:'1 of 2',
+   /* the Detail tab is not on the page — one invoice that makes the total add up */
+   detail:[['PJL-07-07-00412','8/1/2007','442,850.00','M-00412.07','',z,'442,850.00']],
+   lain:[['Kurang / Lebih Bayar','612104','LEBIH BAYAR','150.00']],hutang:[]},
+  {voucher:'KM-07-11-00196',date:'08 Nov 2007  00:00:00',kas:'Bank BCA',ref:'',ket:'KEMBALI UM ISPAT',plabel:'SUPPLIER',party:'SUMBER KOMPUTER',code:'SI02',total:'8,375,000.00',counter:'4 of 4',
+   detail:[],lain:[],
+   hutang:[['07-11-00069','11/29/2007','8,374,200.00','U-07/V-18','',z,'8,374,200.00']]},
+ ],
+ bkk:[
+  {voucher:'KK-08-08-00003',date:'28 Aug 2008  18:35:16',kas:'Kas Besar',ref:'',ket:'',plabel:'SUPPLIER',party:'LANGGENG JAYA SENTOSA',code:'ST02',total:'33,689,000.00',counter:'2 of 2',
+   detail:[['07-11-00102','12/5/2007','33,689,000.00','D-583/11/07','',z,'33,689,000.00']],lain:[],piutang:[]},
+  {voucher:'KK-07-08-00002',date:'02 Aug 2007  00:00:00',kas:'Bank BCA',ref:'',ket:'TARIKAN ATM',plabel:'SUPPLIER',party:'',code:'',total:'1,000,000.00',counter:'2 of 377',
+   detail:[],lain:[['Biaya Bon Direksi','511204','RK 146','1,000,000.00']],piutang:[]},
+  {voucher:'KK-07-09-00028',date:'07 Sep 2007  00:00:00',kas:'Kas Kecil',ref:'',ket:'tn',plabel:'CUSTOMER',party:'GUNAWAN.BPK INDAH',code:'G03',total:'34,250.00',counter:'16 of 43',
+   detail:[],lain:[],piutang:[['RJ-07-09-00005','8/24/2007','34,250.00','66021.07/CSH','',z,'34,250.00']]},
+ ]};
+/* grid column edges (x) and header words, per tab as the screenshot has it */
+const GRID={
+ 'bkm-detail': {band:'PENJUALAN',e:[33,182,355,492,629,850,963,1106,1250],h:['NO FAKTUR','J.TEMPO','PIUTANG','REFF NO','KETERANGAN','POTONGAN','TERIMA','LUNAS']},
+ 'bkm-hutang': {band:'PEMBELIAN',e:[33,182,361,498,635,850,963,1106,1250],h:['NO FAKTUR','J. TEMPO','HUTANG','REFF NO','KETERANGAN','POTONGAN','TERIMA','LUNAS']},
+ 'bkk-detail': {band:'PEMBELIAN',e:[33,176,325,462,557,772,903,1058,1250],h:['NO FAKTUR','J.TEMPO','HUTANG','REF NO','KETERANGAN','POTONGAN','BAYAR','LUNAS']},
+ 'bkk-piutang':{band:'PENJUALAN',e:[33,182,361,504,629,850,981,1124,1250],h:['NO FAKTUR','J. TEMPO','PIUTANG','REFF NO','KETERANGAN','POTONGAN','BAYAR','LUNAS']},
+ 'lain':{e:[33,320,523,942,1250]},
+};
+const THUMB={'bkm-detail':[367,541],'bkm-lain':[367,694],'bkm-hutang':[367,694],'bkk-detail':[375,694],'bkk-lain':[375,694],'bkk-piutang':[375,694]};
+const TABS={bkm:[['detail','Detail'],['lain','Lain-lain'],['hutang','Hutang']],bkk:[['detail','Detail'],['lain','Lain-lain'],['piutang','Piutang']]};
+const TITLE={bkm:'BKM (Bukti Kas/Bank Masuk)',bkk:'BKK (Bukti Kas/Bank Keluar)'};
+
+/* ===== small drawing helpers ===== */
+const A=(cls,x,y,w,h,inner='',st='',at='')=>`<div class="${cls}" ${at} style="left:${x}px;top:${y}px;${w!=null?`width:${w}px;`:''}${h!=null?`height:${h}px;`:''}${st}">${inner}</div>`;
+const T=(cls,x,y,t,st='')=>`<span class="tx ${cls}" style="left:${x}px;top:${y}px;${st}">${t}</span>`;
+/* The icon set is 7Soft's own and is not in the manual as files, so the icons
+   are cut from its screenshots. */
+const crop=(k,sx,sy,w,h,x,y,st='')=>`<div class="crop" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px;background-image:url(7soft-ref/${k}.png);background-position:-${sx}px -${sy}px;${st}"></div>`;
+
+function frame(S){
+ const R=RECS[S.mode][S.rec],bkm=S.mode==='bkm',dy=bkm?0:8,W=S.w,H=S.h;
+ let h='';
+ /* title bar, menu, tabs */
+ h+=A('titlebar',0,0,W,22,'<span>Seventhsoft Premium Accounting *** SEVENTHSOFT ACCOUNTING ***</span>');
+ h+=crop('bkm-lain',0,0,20,22,0,0)+crop('bkm-lain',1210,0,70,22,1210,0);
+ h+=['Tools','Menu','Windows','Help'].map((m,i)=>`<span class="tx menubar" style="left:${[7,50,95,158][i]}px;top:33px;transform:translateY(-50%);font-size:12px">${m}</span>`).join('');
+ h+=A('tab off',14,48,55,19,'<span style="left:3px;color:#444">general</span><span style="left:41px;font-size:10px;color:#5a6b86">⊠</span>');
+ h+=A('tab',70,44,203,27,`<span style="left:6px;top:14px;font-size:12px">${TITLE[S.mode]}</span><span style="left:187px;top:11px;font-size:11px;color:#5a6b86">⊠</span>`,'border-bottom:0;height:27px;background:#e7f1fe;z-index:1');
+ /* toolbar */
+ h+=A('panel',14,74,1261,41,'','background:#e7f1fe');
+ const tb=[['First',35,'first'],['Prior',78,'prior'],['Next',120,'next'],['Last',162,'last'],['New',204,'new'],['Del',246,'del',1],['Filter',288,'filter'],['Refresh',330,'refresh'],['Save',371,'save',1],['Undo',412,'undo',1],['View',454,'view'],['Print',494,'print'],['Info',535,'info']];
+ h+=crop('bkm-lain',20,77,540,20,20,77);
+ [['first',35],['prior',78],['next',120],['last',162]].forEach(([n,x])=>{h+=A('',x-20,77,40,36,'','cursor:pointer;z-index:5',`data-nav="${n}"`)});
+ tb.forEach(([t,x,i,d])=>{h+=`<span class="tx tbtn ${d?'dis':''}" style="left:${x}px;top:103px">${t}</span>`});
+ h+=A('',564,77,119,19,'<span class="tx c" style="left:59px;top:9px;color:#8a1a1a;font-size:11px;text-shadow:0 0 0 #000;opacity:.85">NEW</span>','background:#f00');
+ h+=A('bevel',564,96,119,17,`<span class="tx c" style="left:59px;top:8px;color:#6d6d6d;font-size:11px">${R.counter}</span>`,'background:#fff');
+ h+=A('',690,76,156,36,'<span class="tx c" style="left:78px;top:18px;color:#f00;font:bold 20px Arial,Helvetica,sans-serif;letter-spacing:.2px">READ ONLY</span>','background:#ffffe1;border:1px solid #f0f3e0');
+ /* form panel */
+ const fy=121,fb=bkm?283:291;
+ h+=A('panel',14,fy,1261,fb-fy+1,'');
+ const lx=bkm?40:32,inW=bkm?167:168;
+ const rows=[149,173,197,221,246];
+ const L=(t,x,y)=>`<span class="tx lb" style="left:${x}px;top:${y}px">${t}</span>`;
+ h+=L('NO VOUCHER',lx,149)+A('bevel fld',120,140,167,19,`<span style="color:#808080">${R.voucher}</span>`);
+ h+=L('TANGGAL',lx,173);
+ h+=A('bevel fld',120,164,bkm?136:167,19,`<span>${R.date}</span><div class="dd"></div>`);
+ h+=L('KAS/BANK',lx,197);
+ h+=bkm?A('bevel fld',120,188,170,19,`<span>${R.kas}</span>`)+A('dots',290,189,17,17):A('bevel fld',120,188,168,19,`<span>${R.kas}</span><div class="dots" style="left:149px;top:1px;width:17px;height:15px"></div>`);
+ h+=L('NO REF',lx,221)+A('bevel fld',120,212,167,19,`<span>${R.ref}</span>`);
+ h+=L('KETERANGAN',lx,246)+A('bevel fld',120,236,238,44,`<span style="top:8px;transform:none">${R.ket}</span>`);
+ if(bkm){
+  h+=L(R.plabel,366,149)+A('bevel fld',508,140,187,19,`<span>${R.party}</span><div class="dots" style="left:169px;top:1px;width:17px;height:15px"></div>`)+A('bevel fld',705,140,85,19,`<span>${R.code}</span><div class="dots" style="left:67px;top:1px;width:17px;height:15px"></div>`);
+  h+=L('NO CHECK / GIRO',366,173)+A('bevel fld',508,164,187,19,'');
+  h+=L('CHECK/ CARD DARI BANK',366,197)+A('bevel fld',508,188,187,19,'');
+  h+=L('TGL. J. TEMPO',366,221)+A('bevel',508,212,134,19,'<div class="dd dis"></div>','background:#e7f1fe');
+  h+=L('TOTAL',366,246)+A('bevel',508,237,215,26,`<span class="tx r" style="left:211px;top:13px;font:17px Arial,Helvetica,sans-serif;color:#696969;letter-spacing:.3px">${R.total}</span>`,'background:#f0fbff');
+ }else{
+  h+=L(R.plabel,366,149)+A('bevel fld',469,140,187,19,`<span>${R.party}</span><div class="dots" style="left:169px;top:1px;width:17px;height:15px"></div>`)+A('bevel fld',665,140,110,19,`<span>${R.code}</span><div class="dots" style="left:92px;top:1px;width:17px;height:15px"></div>`);
+  h+=L('NO CHECK / GIRO',366,173)+A('bevel fld',469,164,187,19,'');
+  h+=L('TGL. J. TEMPO',366,197)+A('bevel',469,188,134,19,'<div class="dd dis"></div>','background:#e7f1fe');
+  h+=L('TOTAL',366,221)+A('bevel',469,212,215,32,`<span class="tx r" style="left:211px;top:16px;font:bold 20px Arial,Helvetica,sans-serif;color:#696969;letter-spacing:.3px">${R.total}</span>`,'background:#f0fbff');
+ }
+ /* second toolbar + tabs */
+ const ty=fb+19+dy*0, tbY=bkm?302:311;
+ h+=A('panel',14,fb+6,1261,719-(fb+6),'');
+ h+=bkm?crop('bkm-lain',20,292,345,21,20,292):crop('bkk-lain',20,301,345,21,20,301);
+ h+=T('m',375,tbY,'Del All',`transform:translateY(-50%)`)+T('m',425,tbY,'Tolakan','transform:translateY(-50%)')+T('m',494,tbY,'Browse Nota','transform:translateY(-50%)');
+ const tabY=bkm?324:332;
+ const n=R.detail.length;
+ let tx=18;
+ TABS[S.mode].forEach(([k,t])=>{
+  const label=k==='detail'?(n?`Detail 1 of ${n}`:'Detail'):t;
+  const w=k==='detail'?(n?70:42):k==='lain'?52:k==='hutang'?44:46;
+  const on=S.tab===k;
+  h+=on?A('tab',tx,tabY-1,w,20,`<span>${label}</span>`,'z-index:2;height:20px;cursor:pointer',`data-tab="${k}"`)
+       :A('tab off',tx,tabY+1,w,18,`<span style="top:9px">${label}</span>`,'cursor:pointer',`data-tab="${k}"`);
+  tx+=w+1;
+ });
+ /* grid */
+ const g=GRID[S.tab==='lain'?'lain':S.k], gt=bkm?348:356, rt=gt+31;
+ const e=g.e;
+ h+=A('',22,gt,1246,716-gt,'','background:#e7f1fe;border:1px solid #c0d1e5;border-color:#919ba8 #fff #fff #919ba8');
+ h+=A('',22,gt,1246,30,'','background:#e7f1fe;border-bottom:1px solid #000');
+ /* header */
+ const hdr=(l,r,y0,y1,t)=>A('hd',(l+r)/2,(y0+y1)/2,null,null,t);
+ if(S.tab==='lain'){
+  h+=A('gl',e[0],gt+14,e[2]-e[0],1,'');
+  h+=hdr(e[0],e[2],gt+2,gt+14,'ACCOUNT')+hdr(e[0],e[1],gt+16,gt+29,'NAMA')+hdr(e[1],e[2],gt+16,gt+29,'KODE');
+  h+=hdr(e[2],e[3],gt,gt+30,'KETERANGAN');
+  h+=A('hd',(e[3]+e[4])/2,gt+8,null,null,'JUMLAH')+A('hd',(e[3]+e[4])/2,gt+21,null,null,'Rp');
+  e.forEach((x,i)=>{h+=A('gl',x,gt+(i===1?14:0),1,i===1?16:30,'')});
+ }else{
+  h+=A('gl',e[0],gt+14,e[4]-e[0],1,'');
+  h+=hdr(e[0],e[4],gt+2,gt+14,g.band);
+  for(let i=0;i<4;i++)h+=hdr(e[i],e[i+1],gt+16,gt+29,g.h[i]);
+  for(let i=4;i<8;i++)h+=hdr(e[i],e[i+1],gt,gt+30,g.h[i]);
+  e.forEach((x,i)=>{h+=A('gl',x,gt+((i>=1&&i<=3)?14:0),1,(i>=1&&i<=3)?16:30,'')});
+ }
+ /* body rows */
+ const data=S.tab==='lain'?R.lain:R[S.tab];
+ data.forEach((r,i)=>{
+  const y=rt+i*18;
+  h+=A(`row ${i%2?'g':''}`,33,y,1217,18,'<div class="sep"></div>');
+  h+=A('',22,y,11,17,i===0?'<div style="left:2px;top:4px;border:4px solid transparent;border-left:5px solid #000;border-right:0"></div>':'','background:#e7f1fe');
+  if(S.tab==='lain'){
+   h+=T('cell',e[0]+2,y+9,r[0])+T('cell',e[1]+2,y+9,r[1])+T('cell',e[2]+2,y+9,r[2])+T('cell n',e[4]-2,y+9,r[3]);
+  }else{
+   h+=T('cell',e[0]+2,y+9,r[0])+T('cell',e[1]+2,y+9,r[1])+T('cell n',e[3]-2,y+9,r[2])+T('cell',e[3]+2,y+9,r[3])+T('cell',e[4]+2,y+9,r[4]);
+   h+=T('cell n',e[6]-2,y+9,r[5])+T('cell n',e[7]-2,y+9,r[6])+A('chk',(e[7]+e[8])/2,y+9,null,null,r[7]===false?'':'<svg viewBox="0 0 9 9"><path d="M1 4.5l2.2 2.4L8 1.5" fill="none" stroke="#000" stroke-width="1.6"/></svg>');
+  }
+ });
+ if(!data.length){/* blank grid: marker only */}
+ /* left edge row marks */
+ h+=A('',0,363,8,50,[0,1,2,3,4].map(i=>`<div class="tx" style="left:2px;top:${i*12}px;font-size:10px;color:#00369a">&gt;</div>`).join(''));
+ /* scrollbar */
+ const [t0,t1]=THUMB[S.k]||(bkm?[367,694]:[375,694]);
+ h+=A('',1251,gt,17,716-gt,'','background:#fff;border-left:1px solid #c0c0c0');
+ h+=A('',1253,t0-4,13,t1-t0+9,'','background:#e7f1fe;border:1px solid #898f97;border-radius:3px');
+ h+=A('',1256,gt+5,0,0,'','border:4px solid transparent;border-bottom:7px solid #797979;border-top:0');
+ h+=A('',1256,701,0,0,'','border:4px solid transparent;border-top:7px solid #797979;border-bottom:0');
+ /* status */
+ h+=A('',12,722,400,20,'','border:1px solid;border-color:#919ba9 #fbfbfc #fbfbfc #919ba9;background:#dfecfb');
+ h+=A('',412,722,862,20,'<span class="tx c" style="left:433px;top:10px;font:bold 11px Tahoma,Verdana,sans-serif">READ ONLY</span>','border:1px solid;border-color:#919ba9 #fbfbfc #fbfbfc #919ba9;background:#dfecfb');
+ if(S.foot){
+  h+=T('c',99,757,'ADMIN','transform:translate(-50%,-50%)')+T('m',207,757,'PERIODE : FEB 2016&nbsp;&nbsp;&nbsp;&nbsp;2/1/2016&nbsp;&nbsp;-&nbsp;&nbsp;2/29/2016')+T('m',524,757,'SERVER : Demo on Localhost');
+ }
+ if(S.tip)h+=A('tip',S.tip.x,S.tip.y,S.tip.w,19,`<span class="tx" style="left:5px;top:3px">${S.tip.t}</span>`,'z-index:9');
+ return h;
+}
+
+/* ===== page ===== */
+let st={mode:'bkm',rec:0,tab:'detail'},view='replica';
+const $=q=>document.querySelector(q);
+const shot=x=>SCREENS.find(s=>s.mode===x.mode&&s.rec===x.rec&&s.tab===x.tab);
+/* a state the manual has no screenshot of borrows the size of its record's page */
+function screenOf(x){
+ const hit=shot(x);if(hit)return{...hit,orig:true};
+ const base=SCREENS.find(s=>s.mode===x.mode&&s.rec===x.rec);
+ return{...base,k:x.mode+'-'+x.tab,tab:x.tab,orig:false,tip:null,foot:false};
+}
+function draw(){
+ const S=screenOf(st);
+ const win=$('#win'),img=$('#orig'),fit=$('#fit');
+ const v=S.orig?view:'replica';
+ win.style.width=S.w+'px';win.style.height=S.h+'px';
+ win.innerHTML=frame(S);
+ if(S.orig){img.src='7soft-ref/'+S.k+'.png';img.style.width=S.w+'px';img.style.height=S.h+'px'}
+ win.style.display=v==='original'?'none':'block';
+ img.style.display=v==='replica'?'none':'block';
+ img.style.opacity=v==='overlay'?.5:1;img.style.mixBlendMode=v==='difference'?'difference':'normal';
+ fit.style.width=S.w+'px';fit.style.height=S.h+'px';
+ $('#note').textContent=S.orig?'':'Layar ini tidak ada di manual — hanya replika, belum ada gambar asli untuk dibandingkan.';
+ scale();
+ $('#scr').innerHTML=SCREENS.map(s=>`<button data-k="${s.mode}.${s.rec}.${s.tab}" aria-pressed="${s.mode===st.mode&&s.rec===st.rec&&s.tab===st.tab}">${LABEL[s.k]}</button>`).join('');
+ $('#view').innerHTML=[['replica','Replika'],['original','Asli'],['overlay','Overlay'],['difference','Selisih']].map(([k,l])=>`<button data-v="${k}" aria-pressed="${view===k}">${l}</button>`).join('');
+}
+function scale(){
+ const S=screenOf(st),fit=$('#fit'),avail=window.innerWidth-40,s=Math.min(1.6,avail/S.w);
+ fit.style.transform=`scale(${s})`;
+ fit.parentElement.style.height=(S.h*s+40)+'px';
+}
+document.addEventListener('click',e=>{
+ const b=e.target.closest('button');
+ if(b&&b.dataset.k){const[m,r,t]=b.dataset.k.split('.');st={mode:m,rec:+r,tab:t};draw();return}
+ if(b&&b.dataset.v){view=b.dataset.v;draw();return}
+ /* inside the window: the tabs and the record arrows work */
+ const tab=e.target.closest('[data-tab]');
+ if(tab){st.tab=tab.dataset.tab;draw();return}
+ const nav=e.target.closest('[data-nav]');
+ if(nav){const n=RECS[st.mode].length-1;st.rec=nav.dataset.nav==='first'?0:nav.dataset.nav==='last'?n:Math.max(0,Math.min(n,st.rec+(nav.dataset.nav==='next'?1:-1)));draw()}
+});
+window.addEventListener('resize',scale);
+draw();
+</script>
+</body>
+</html>

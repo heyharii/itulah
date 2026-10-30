@@ -37,12 +37,11 @@ pub async fn put(
             "the photo is a link of at most 2000 characters".into(),
         ));
     }
-    let known: bool = sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM purchase_return WHERE return_id = $1)",
-    )
-    .bind(id)
-    .fetch_one(&state.db)
-    .await?;
+    let known: bool =
+        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM purchase_return WHERE return_id = $1)")
+            .bind(id)
+            .fetch_one(&state.db)
+            .await?;
     if !known {
         return Err(AppError::NotFound("purchase return".into()));
     }

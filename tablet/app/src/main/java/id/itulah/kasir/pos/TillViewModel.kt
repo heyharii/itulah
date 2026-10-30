@@ -10,6 +10,11 @@ import id.itulah.kasir.data.BenefitHolder
 import id.itulah.kasir.data.CatalogRow
 import id.itulah.kasir.data.Config
 import id.itulah.kasir.data.ConfigStore
+import id.itulah.kasir.data.NO_SALE_ID
+import id.itulah.kasir.data.Outbox
+import id.itulah.kasir.data.OutboxEntry
+import id.itulah.kasir.data.OutboxView
+import id.itulah.kasir.data.SaleDraft
 import id.itulah.kasir.data.skuDisplay
 import id.itulah.kasir.data.Quote
 import id.itulah.kasir.data.ReceiptDocument
@@ -18,15 +23,20 @@ import id.itulah.kasir.data.ShiftReport
 import id.itulah.kasir.data.Supervisor
 import id.itulah.kasir.data.Tender
 import id.itulah.kasir.data.PaymentMethod
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** One garment in the basket. Keyed by its tag, because that is what a unit is. */
 data class BasketLine(
@@ -110,7 +120,22 @@ data class TillState(
     /// here so leaving the payment screen cannot lose track of money that has
     /// left the employee's balance.
     val benefit: BenefitHold? = null,
+    /// The outbox as the screens read it: what is owed, what the node refused,
+    /// and whether the disk is keeping it. Fed from the outbox itself, so a sale
+    /// that lands (or is refused) late changes the screen without anyone asking.
+    val outbox: OutboxView = OutboxView(),
+    /// The sale just rung at this counter, by its outbox name: what the receipt
+    /// screen is about. Null once the cashier has moved on, and when that screen
+    /// was opened for the last receipt instead.
+    val rungId: String? = null,
+    /// The sale in [rungId] is on its first attempt at the node. Until that
+    /// attempt answers, or has had its few seconds, the screen says "sending"
+    /// rather than "saved here" — so the ordinary case never flashes a worry.
+    val settlingId: String? = null,
 ) {
+    /** The sale just rung, as the outbox now holds it. */
+    val rungEntry: OutboxEntry? get() = rungId?.let { id -> outbox.entries.firstOrNull { it.localId == id } }
+
     /**
      * What the screen shows while the node has not answered yet.
      *
@@ -145,13 +170,42 @@ data class TillState(
 /** Rupiah spent from an employee's benefit balance for the basket whose sale_ref this is. */
 data class BenefitHold(val saleRef: String, val amountMinor: Long)
 
-class TillViewModel(private val api: Api, private val store: ConfigStore) : ViewModel() {
+class TillViewModel(
+    private val api: Api,
+    private val store: ConfigStore,
+    private val outbox: Outbox,
+) : ViewModel() {
 
-    private val _state = MutableStateFlow(TillState())
+    private val _state = MutableStateFlow(TillState(outbox = outbox.view.value))
     val state: StateFlow<TillState> = _state.asStateFlow()
 
     private var quoteJob: Job? = null
     private var searchJob: Job? = null
+
+    /// One pass over the outbox at a time. A caller that asks while a pass is
+    /// running waits its turn rather than joining it, so no sale is ever sent by
+    /// two passes at once.
+    private val flushLock = Mutex()
+
+    /// A sale is being written down. Separate from `busy`, which other work
+    /// (a receipt, a print) also sets and clears: this is the one flag that
+    /// stands between a double tap and two sales.
+    private var ringing = false
+
+    init {
+        viewModelScope.launch {
+            outbox.view.collect { view -> _state.update { it.copy(outbox = view) } }
+        }
+        // Every 15 s, while anything is owed. A tick that finds a pass already
+        // running does nothing: a node that answers slowly must not collect a
+        // line of passes behind it.
+        viewModelScope.launch {
+            while (true) {
+                delay(PUMP_MS)
+                if (outbox.view.value.unsent > 0 && !flushLock.isLocked) flush()
+            }
+        }
+    }
 
     fun start(config: Config) {
         api.config = config
@@ -172,6 +226,9 @@ class TillViewModel(private val api: Api, private val store: ConfigStore) : View
             rememberSite()
             refreshShift()
             refreshPaymentMethods()
+            // Whatever was rung and not sent before the app last stopped, or
+            // before the session lapsed.
+            flush()
         }
     }
 
@@ -528,81 +585,283 @@ class TillViewModel(private val api: Api, private val store: ConfigStore) : View
     /**
      * Take the money.
      *
-     * The idempotency key is minted here, where the intent is formed, and held
-     * across retries — a till that generated a fresh key on retry would sell
-     * the same garments twice the first time a socket timed out after the node
-     * had already written the sale.
+     * The sale is written down first, with its idempotency key, and only then is
+     * anything sent (see [Outbox]). Between "the cashier pressed Pay" and "the
+     * node answered" the cash is already in the till and the garment in the
+     * customer's bag: if the wifi drops there, the sale has to exist somewhere
+     * that survives this app being killed. So the basket clears the moment the
+     * write is done, the cashier is on the receipt screen at once, and getting
+     * the sale to the node is the outbox's job from there — see [flush].
+     *
+     * [onSaved] is called as soon as the sale is on this tablet, not when the
+     * node has it. The first attempt then has [FIRST_ATTEMPT_MS] to answer, so
+     * the ordinary case still ends in a receipt that prints, and a node that is
+     * slow does not hold the counter: after that the screen says "Tersimpan di
+     * kasir ini" and the pump keeps trying.
      */
-    fun sell(tenders: List<Tender>, onDone: (SaleResult) -> Unit) {
+    fun sell(tenders: List<Tender>, autoPrint: Boolean, onSaved: () -> Unit) {
         val current = _state.value
-        if (current.lines.isEmpty() || current.busy) return
-        val epcs = current.lines.map { it.epc }
-        val idempotency = Api.key()
+        if (current.lines.isEmpty() || current.busy || ringing) return
+        // The node prices the sale. A till that has not heard that price must not
+        // write down money it cannot name: that would be a sale the node refuses
+        // and a record kept for ever. A node that goes quiet AFTER pricing is the
+        // case the outbox exists for, and gets through here.
+        val quote = current.quote
+        if (quote == null || !quote.hasPriceBook) {
+            _state.update {
+                it.copy(note = Note(true, "Harga resmi belum terjawab — tunggu sebentar, lalu bayar lagi."))
+            }
+            return
+        }
+        val total = current.totalMinor
+        val draft = SaleDraft(
+            epcs = current.lines.map { it.epc },
+            tenders = tenders,
+            // Who rang it, as it stands now: a sale sent after a sign-out is
+            // still this person's.
+            actorId = api.config.cashier,
+            quotedTotalMinor = total,
+            changeMinor = changeOf(tenders, total),
+        )
+        ringing = true
         _state.update { it.copy(busy = true, note = null) }
         viewModelScope.launch {
-            val rang = android.os.SystemClock.elapsedRealtime()
-            var result = runCatching {
-                withContext(Dispatchers.IO) { api.sale(epcs, tenders, emptyList(), null, idempotency) }
+            val saved = try {
+                withContext(Dispatchers.IO) { runCatching { outbox.enqueue(draft) } }
+            } finally {
+                ringing = false
+            }
+            val written = saved.getOrNull()
+            if (written == null) {
+                // Not written, so not sold: the basket stays and nothing was
+                // sent. Said where the cashier is looking, in the payment dialog.
+                val why = saved.exceptionOrNull()?.let { reason(it) } ?: "tidak diketahui"
+                _state.update {
+                    it.copy(
+                        busy = false,
+                        note = Note(
+                            true,
+                            "Penjualan belum tercatat di kasir ini, jadi belum dikirim ($why). " +
+                                "Keranjang tetap — coba bayar lagi.",
+                        ),
+                    )
+                }
+                return@launch
             }
 
-            // Sold from the stockroom.
-            //
-            // The node refuses a unit that is not on the shop floor. That is
-            // not an exception at a counter — somebody fetched it from the
-            // back — and by ruling it needs no supervisor. So the till files
-            // the movement that actually happened and asks again, ONCE, with
-            // the same idempotency key: a retry that minted a fresh key would
-            // sell the garments twice the first time a socket timed out after
-            // the node had already written the sale.
-            val refusal = result.exceptionOrNull() as? ApiError
-            if (refusal?.status == 409 && refusal.message?.contains("floor") == true) {
-                val site = siteOf(_state.value)
-                if (site == null) {
-                    // The node has not said which shop this is. Moving stock
-                    // anyway would file it against somebody else's floor.
-                    _state.update {
-                        it.copy(
-                            busy = false,
-                            note = Note(
-                                true,
-                                "Node belum menyebut sitenya — gudangkan ulang dan coba lagi " +
-                                    "setelah koneksi ke node tersedia",
-                            ),
-                        )
+            // From here the sale exists. The balance spent on it travels in its
+            // tenders, so nothing is given back if this screen is closed.
+            val id = written.entry.localId
+            quoteJob?.cancel()
+            basketRef = null
+            _state.update {
+                it.copy(
+                    busy = false, lines = emptyList(), quote = null, quoting = false,
+                    benefit = null, rungId = id, settlingId = id,
+                    // Not left to the collector: the receipt screen opens on the
+                    // next line and looks the sale up here.
+                    outbox = outbox.view.value,
+                    // The disk said no. The sale is safe in memory and will go
+                    // out now if it can; what is lost is surviving a restart,
+                    // and the cashier is told so rather than left to find out.
+                    note = if (written.durable) null else Note(
+                        true,
+                        "Penjualan belum tersimpan di penyimpanan kasir — jangan matikan " +
+                            "aplikasi sampai terkirim.",
+                    ),
+                )
+            }
+            onSaved()
+
+            val first = viewModelScope.async { flush() }
+            withTimeoutOrNull(FIRST_ATTEMPT_MS) { first.await() }
+            _state.update { if (it.settlingId == id) it.copy(settlingId = null) else it }
+
+            // The paper only when the node has named the sale, and only for the
+            // attempt the cashier waited on: a sale that lands minutes later
+            // must not pop the drawer in front of the next customer.
+            val named = outbox.entry(id)?.saleId
+            if (autoPrint && named != null && named != NO_SALE_ID) printReceipt(named, copy = false)
+        }
+    }
+
+    /**
+     * Cash to hand back, worked the way the payment dialog works it: change
+     * comes out of the cash tendered, and only after the non-cash has covered
+     * what it covers. The node's figure replaces this on the receipt.
+     */
+    private fun changeOf(tenders: List<Tender>, totalMinor: Long): Long {
+        val cash = tenders.filter { it.method == "CASH" }.sumOf { it.amountMinor }
+        val rest = tenders.sumOf { it.amountMinor } - cash
+        return (cash - (totalMinor - rest).coerceAtLeast(0)).coerceAtLeast(0)
+    }
+
+    /** The receipt screen is no longer about the sale just rung. */
+    fun forgetRung() = _state.update { it.copy(rungId = null, settlingId = null) }
+
+    // ── The outbox ──────────────────────────────────────────────────────
+
+    /** Send what is owed, if anything is, without anyone waiting for it. */
+    fun flushNow() {
+        if (outbox.view.value.unsent == 0) return
+        viewModelScope.launch { flush() }
+    }
+
+    /**
+     * One pass over everything owed: oldest first, one at a time, each under the
+     * key it was rung with.
+     *
+     * A pass is queued behind one already running, not beside it. In order,
+     * because a day's takings read back in the order they were rung is a day a
+     * manager can follow; one at a time, because the node behind the counter is
+     * a single writer. It never throws: whatever goes wrong inside it is the
+     * sale's problem, written on the sale, and the sale stays.
+     */
+    private suspend fun flush() {
+        withContext(Dispatchers.IO) {
+            flushLock.withLock {
+                try {
+                    pass()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    android.util.Log.w(Perf.TAG, "outbox pass failed: ${e.message}")
+                }
+            }
+        }
+    }
+
+    private sealed interface Verdict {
+        /** The node took it. */
+        data class Taken(val sale: SaleResult) : Verdict
+
+        /** The node read it and said no, in these words. It will say the same tomorrow. */
+        data class Refused(val words: String) : Verdict
+
+        /** Nobody can say whether it landed, or the node is not ready for it. */
+        data class Silent(val words: String) : Verdict
+    }
+
+    private suspend fun pass() {
+        // No session, nothing to send it with. The sale waits, and goes the
+        // moment somebody signs in (`start`).
+        if (api.config.token.isBlank()) return
+        var took = false
+        try {
+            while (true) {
+                val next = outbox.nextOwed() ?: return
+                val asked = android.os.SystemClock.elapsedRealtime()
+                val verdict = deliver(next)
+                Perf.mark("sale", android.os.SystemClock.elapsedRealtime() - asked, "${next.epcs.size} unit")
+                when (verdict) {
+                    is Verdict.Taken -> {
+                        took = true
+                        // Told to the screens first, then to the outbox: the
+                        // receipt screen flips to "done" the moment the outbox
+                        // says so, and must find the sale already here. A kill
+                        // in between only means the same key is sent again.
+                        taken(next, verdict.sale)
+                        outbox.accept(next.localId, verdict.sale.saleId)
                     }
-                    return@launch
-                }
-                val laid = withContext(Dispatchers.IO) {
-                    epcs.count { api.layOnFloor(it, site) }
-                }
-                if (laid > 0) {
-                    _state.update { it.copy(note = Note(false, "$laid barang digelar dari gudang")) }
-                    result = runCatching {
-                        withContext(Dispatchers.IO) {
-                            api.sale(epcs, tenders, emptyList(), null, idempotency)
-                        }
+                    // This sale's answer, written down. The pass carries on: a
+                    // refusal of one says nothing about the next.
+                    is Verdict.Refused -> outbox.refuse(next.localId, verdict.words)
+                    // If the node cannot be reached for this sale it cannot be
+                    // reached for the next, and forty attempts against a
+                    // rebooting switch only cost a battery. Stop; the pump comes
+                    // back in 15 s.
+                    is Verdict.Silent -> {
+                        outbox.defer(next.localId, verdict.words)
+                        return
                     }
                 }
             }
-            Perf.mark("sale", android.os.SystemClock.elapsedRealtime() - rang, "${epcs.size} unit")
-            result.fold(
-                onSuccess = { sale ->
-                    _state.update {
-                        it.copy(
-                            busy = false, lines = emptyList(), quote = null, lastSale = sale, note = null,
-                            benefit = null,
-                        )
-                    }
-                    basketRef = null
-                    refreshShift()
-                    onDone(sale)
-                },
-                onFailure = { error ->
-                    noticeAuth(error)
-                    _state.update { it.copy(busy = false, note = Note(true, reason(error))) }
-                },
-            )
+        } finally {
+            if (took) refreshShift()
         }
+    }
+
+    /**
+     * One sale, delivered or not.
+     *
+     * # Sold from the stockroom
+     *
+     * The node refuses a unit that is not on the shop floor. That is not an
+     * exception at a counter — somebody fetched it from the back — and by ruling
+     * it needs no supervisor. So the till files the movement that actually
+     * happened and asks again, ONCE, with the SAME idempotency key: a retry that
+     * minted a fresh key would sell the garments twice the first time a socket
+     * timed out after the node had already written the sale. It works the same
+     * for a sale that has been waiting in the outbox since the wifi dropped.
+     */
+    private suspend fun deliver(entry: OutboxEntry): Verdict {
+        var result = attempt(entry)
+
+        val refusal = result.exceptionOrNull() as? ApiError
+        if (refusal?.status == 409 && refusal.message?.contains("floor") == true) {
+            if (siteOf(_state.value) == null) rememberSite()
+            val site = siteOf(_state.value)
+            if (site == null) {
+                // The node has not said which shop this is. Moving stock anyway
+                // would file it against somebody else's floor. Not a refusal of
+                // the sale — the sale stays owed and is asked again once the
+                // node has answered who it is.
+                return Verdict.Silent(
+                    "Node belum menyebut sitenya — gudangkan ulang dan coba lagi " +
+                        "setelah koneksi ke node tersedia",
+                )
+            }
+            val laid = entry.epcs.count { api.layOnFloor(it, site) }
+            if (laid > 0) {
+                _state.update { it.copy(note = Note(false, "$laid barang digelar dari gudang")) }
+                result = attempt(entry)
+            }
+        }
+        return verdictOf(result)
+    }
+
+    /** One attempt, under the key this sale was rung with. */
+    private fun attempt(entry: OutboxEntry): Result<SaleResult> = runCatching {
+        api.sale(
+            entry.epcs, entry.tenders, entry.couponCodes, entry.customerId,
+            entry.idempotencyKey, entry.actorId, entry.takenAt,
+        )
+    }
+
+    /**
+     * Whether this was the node answering *about this sale*.
+     *
+     * A 4xx it reasoned about — a tag it has never seen, tenders that do not
+     * cover the basket — is a verdict, and retrying only buries the sentence a
+     * person needs to read. Three are not verdicts and are excluded on purpose:
+     * 401 is a lapsed session (the sale is perfectly good, the tablet has to
+     * sign in again — and throwing away takings because a token expired would be
+     * the worst failure on this list); 408 and 429 are the node saying "not now"
+     * without having looked at the sale. Everything from 500 up is the node
+     * broken rather than the node judging.
+     */
+    private fun verdictOf(result: Result<SaleResult>): Verdict {
+        result.getOrNull()?.let { return Verdict.Taken(it) }
+        val error = result.exceptionOrNull() ?: return Verdict.Silent("Server toko belum menjawab.")
+        noticeAuth(error)
+        val status = (error as? ApiError)?.status ?: 0
+        return when {
+            status in 400..499 && status != 401 && status != 408 && status != 429 ->
+                Verdict.Refused(reason(error))
+            status == 401 -> Verdict.Silent("Sesi habis — masuk lagi, penjualan ini akan terkirim.")
+            error is ApiError && status != 0 ->
+                Verdict.Silent("Server toko belum menerima (HTTP $status): ${reason(error)}")
+            else -> Verdict.Silent("Server toko belum menjawab: ${reason(error)}")
+        }
+    }
+
+    /** The node has this sale: it becomes the last sale, and the screen waiting on it reads its receipt. */
+    private fun taken(entry: OutboxEntry, sale: SaleResult) {
+        // A 2xx that named nothing is accepted (the outbox stops sending it) but
+        // there is nothing to read a receipt or a void against.
+        if (sale.saleId.isBlank()) return
+        _state.update { it.copy(lastSale = sale) }
+        if (_state.value.rungId == entry.localId) loadReceipt(sale.saleId)
     }
 
     // ── The drawer ──────────────────────────────────────────────────────
@@ -631,6 +890,15 @@ class TillViewModel(private val api: Api, private val store: ConfigStore) : View
 
     fun closeShift(declaredMinor: Long, note: String?, onDone: (ShiftReport) -> Unit) =
         run("menutup shift") {
+            // A sale the node has not acknowledged belongs to this drawer, and
+            // closing fixes what the drawer should hold. Closed first, it would
+            // arrive afterwards as cash nobody counted. The shift screen does not
+            // offer the button either; this is the lock behind that door.
+            val out = outbox.view.value
+            if (out.unsent > 0) {
+                throw ApiError("${out.unsent} penjualan belum terkirim ke server toko")
+            }
+            // A refused sale does not block: see `CloseShift` for why.
             val shift = _state.value.shift ?: throw ApiError("belum ada shift terbuka")
             val closed = api.closeShift(shift.shiftId, declaredMinor, note)
             _state.update { it.copy(shift = null) }
@@ -746,5 +1014,17 @@ class TillViewModel(private val api: Api, private val store: ConfigStore) : View
 
         /** Names held at once. A shift meets a few hundred; this is headroom. */
         const val NAME_CACHE = 4_000
+
+        /** How often the outbox is tried again while anything is owed. */
+        const val PUMP_MS = 15_000L
+
+        /**
+         * How long the cashier waits for the node to take a sale just rung.
+         * Long enough that an ordinary answer (and a stockroom tag moved to the
+         * floor on the way) still lands on the receipt that prints; short enough
+         * that a node that hangs does not hold a customer at the counter. The
+         * sale is already safe on this tablet, so nothing depends on the wait.
+         */
+        const val FIRST_ATTEMPT_MS = 5_000L
     }
 }

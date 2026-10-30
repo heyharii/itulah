@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Finance Plan prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="frontend-hub/design-system/tokens.css">
+<link rel="stylesheet" href="frontend-hub/design-system/bundle.css">
+<style>
+:root{--font-sans:"Inter Variable","Inter",system-ui,-apple-system,"Segoe UI",sans-serif}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--stone);font-family:var(--font-sans);font-size:15px;line-height:1.45;color:var(--ink);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;cursor:pointer}
+
+/* ── desk shell (hub sizes, as cash-bank-options.html) ── */
+.shell{min-width:1260px;min-height:100vh;align-items:flex-start}
+.shell .ds-rail{position:sticky;top:0;align-self:flex-start}
+.shell .ds-rail-btn{border-radius:var(--r-inner)}
+.shell .ds-rail-btn .ds-ico{width:18px;height:18px}
+.shell .ds-rail-btn.is-current{color:var(--accent)}
+.shell .ds-rail .find{margin-bottom:10px;color:var(--rail-text)}
+.shell .ds-panel{position:sticky;top:var(--float);display:flex;flex-direction:column;height:calc(100vh - 2 * var(--float));padding:0}
+.p-head{display:flex;align-items:center;height:52px;padding:0 8px 0 16px}
+.p-head .ds-panel-title{flex:1;padding:0}
+.p-body{flex:1;padding:6px 10px;overflow:auto}
+.p-body .ds-nav-row.is-active{font-weight:600}
+.nav-label{display:inline-block;margin:14px 0 4px 10px;padding:0 7px;border-radius:var(--r-chip);background:var(--soft-2);color:var(--body);font-size:15px;line-height:22px}
+.p-foot{display:flex;align-items:center;gap:10px;height:52px;padding:0 16px;font-weight:500;color:var(--panel-ink);font-variant-numeric:tabular-nums}
+.p-foot .ds-ico{width:18px;height:18px;color:var(--line-ico)}
+.shell .ds-page{min-height:calc(100vh - 2 * var(--float));overflow:visible}
+.door-head{display:flex;flex-direction:column;gap:12px;margin:0 calc(-1 * var(--page-gutter)) 24px;padding:0 var(--page-gutter);border-bottom:1px solid var(--hairline)}
+.door-top{display:flex;align-items:center;justify-content:space-between;gap:20px;min-height:36px}
+.door-tabs{margin-bottom:0;box-shadow:none}
+.ds-tab:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.mute{color:var(--body)}
+
+/* ── the plan card ── */
+.pf-card{border:1px solid var(--hairline);border-radius:var(--r-card);background:var(--canvas);overflow:hidden}
+.pf-head{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:18px 20px 14px}
+.pf-title{font-size:17px;line-height:24px;font-weight:600;letter-spacing:-.3px}
+.pf-line{margin-top:2px;color:var(--body);font-variant-numeric:tabular-nums}
+.pf-line b{color:var(--ink);font-weight:500}
+.dot{margin:0 6px;color:var(--faint)}
+.pf-tools{display:flex;align-items:center;gap:8px}
+.sel{position:relative;flex:none}
+.sel select{appearance:none;-webkit-appearance:none;height:var(--control);padding:0 34px 0 12px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);font:inherit;color:var(--ink);cursor:pointer;outline:none}
+.sel select:focus-visible{border-color:var(--accent);box-shadow:var(--shadow-focus)}
+.sel .ds-ico{position:absolute;right:11px;top:50%;margin-top:-8px;color:var(--line-ico);pointer-events:none}
+
+.pf-pills{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:0 20px 16px;border-bottom:1px solid var(--hairline)}
+.pill{position:relative;display:inline-flex;align-items:center;gap:10px;height:36px;padding:0 12px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);white-space:nowrap;font-variant-numeric:tabular-nums}
+.pill .k{color:var(--body)}
+.pill .v{color:var(--accent);cursor:text}
+.pill select{appearance:none;-webkit-appearance:none;margin:0;padding:0 20px 0 0;border:0;background:none;font:inherit;color:var(--accent);cursor:pointer;outline:none}
+.pill .ds-ico{position:absolute;right:9px;top:50%;margin-top:-8px;color:var(--line-ico);pointer-events:none}
+.pill input{width:72px;height:26px;padding:0 6px;border:1px solid var(--accent);border-radius:6px;font:inherit;color:var(--ink);text-align:right;outline:none;box-shadow:var(--shadow-focus)}
+.pill:focus-within{border-color:var(--accent)}
+.pf-sum{margin-left:auto;color:var(--body);white-space:nowrap;font-variant-numeric:tabular-nums}
+.pf-sum b{color:var(--ink);font-weight:500}
+
+.pf-scroll{overflow:auto;max-height:calc(100vh - 286px);min-height:420px}
+table.pf{border-collapse:separate;border-spacing:0;table-layout:fixed;width:max-content;min-width:100%;font-variant-numeric:tabular-nums}
+.pf th,.pf td{height:44px;padding:0 14px;border-bottom:1px solid var(--row-line);background:var(--canvas);text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pf thead th{position:sticky;top:0;z-index:3;background:var(--band);color:var(--body);font-weight:500;border-bottom-color:var(--hairline)}
+.pf .c-name,.pf .c-basis,.pf .c-amt{position:sticky;z-index:2;text-align:left}
+.pf .c-name{left:0}
+.pf .c-basis{left:224px;color:var(--body)}
+.pf .c-amt{left:392px;text-align:right;border-right:1px solid var(--hairline)}
+.pf .c-more{position:sticky;right:0;z-index:2;padding:0;text-align:center;border-left:1px solid var(--row-line)}
+.pf thead .c-name,.pf thead .c-basis,.pf thead .c-amt,.pf thead .c-more{z-index:5}
+.pf th.per{cursor:pointer;transition:color var(--t-hover) var(--ease-out)}
+@media (hover:hover){.pf th.per:hover{color:var(--ink)}}
+.pf th.per.f{color:var(--ink)}
+.pf .f{background:#f5f8fe}
+.pf th.f{background:#edf2fc}
+.pf td.c-name{padding-left:40px}
+
+/* section rows: one weight up, soft band; the line that matters reads first */
+.pf tr.sec td{background:var(--soft);font-weight:600}
+.pf tr.sec td.f{background:#f0f4fb}
+.pf tr.sec td.c-name{padding-left:8px}
+.sec-in{display:flex;align-items:center;gap:6px}
+.chev{display:grid;place-items:center;width:26px;height:26px;border:0;border-radius:6px;background:none;color:var(--line-ico)}
+.chev .ds-ico{transition:transform var(--t-pop) var(--ease-out)}
+.chev.shut .ds-ico{transform:rotate(-90deg)}
+@media (hover:hover){.chev:hover,.addb:hover,.more:hover{background:var(--soft-2);color:var(--ink)}}
+.addb{display:grid;place-items:center;width:26px;height:26px;margin-left:2px;border:0;border-radius:6px;background:none;color:var(--line-ico)}
+.pf tr.key td{font-weight:600;border-top:1px solid var(--hairline-2)}
+.pf tr.key td.c-name{padding-left:16px}
+.pf tr.sum td{font-weight:600}
+.pf .in{color:var(--accent);cursor:text}
+.pf .ov{color:var(--accent)}
+.pf .ed{cursor:text}
+@media (hover:hover){.pf td.ed:hover,.pf td.in:hover{box-shadow:inset 0 0 0 1px var(--hairline-2)}}
+.pf .bad{color:var(--bad-fg)}
+.pf .basis{position:relative;display:inline-flex;align-items:center;max-width:100%}
+.pf .basis select{appearance:none;-webkit-appearance:none;max-width:100%;margin:0;padding:0 22px 0 0;border:0;background:none;font:inherit;color:var(--body);cursor:pointer;outline:none;text-overflow:ellipsis}
+@media (hover:hover){.pf .basis select:hover{color:var(--ink)}}
+.pf .basis .ds-ico{position:absolute;right:0;top:50%;margin-top:-8px;color:var(--faint);pointer-events:none}
+.more{display:inline-grid;place-items:center;width:28px;height:28px;border:0;border-radius:6px;background:none;color:var(--line-ico)}
+.pf td input{width:100%;height:32px;padding:0 8px;border:1px solid var(--accent);border-radius:6px;font:inherit;font-weight:400;color:var(--ink);text-align:right;outline:none;box-shadow:var(--shadow-focus)}
+.pf td.c-name input{text-align:left}
+.pf tfoot td{position:sticky;bottom:0;z-index:3;height:46px;border-top:1px solid var(--hairline-2);border-bottom:0;font-weight:600}
+.pf tfoot td.c-name,.pf tfoot td.c-basis,.pf tfoot td.c-amt,.pf tfoot td.c-more{z-index:5}
+.pf tfoot td.c-name{padding-left:16px}
+.pf tfoot .c-name .mute{font-weight:400;margin-left:8px}
+
+/* row menu */
+.menu{position:fixed;z-index:30;min-width:180px;padding:5px;border:1px solid var(--hairline);border-radius:var(--r-card);background:var(--canvas);box-shadow:var(--shadow-pop);transform-origin:top right;animation:pop var(--t-pop) var(--ease-out)}
+.menu button{display:block;width:100%;padding:7px 10px;border:0;border-radius:var(--r-inner);background:none;text-align:left;white-space:nowrap}
+.menu button.red{color:var(--bad-fg)}
+@media (hover:hover){.menu button:hover{background:var(--soft-2)}}
+@keyframes pop{from{opacity:0;transform:scale(.97)}}
+@media (prefers-reduced-motion:reduce){.menu{animation:none}.chev .ds-ico{transition:none}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const ico = n => `<span class="ds-ico ds-ico-${n}"></span>`
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+const nf = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 })
+const nf1 = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 })
+const fmt = x => Math.round(x) < 0 ? `(${nf.format(-x)})` : nf.format(x)
+const pct = x => isFinite(x) ? `${(x * 100).toFixed(1)}%` : '—'
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const MONTH = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+
+// 2026 gross sales, all stores, Rp million (Lebaran 20 Mar 2026)
+const LY = [5200, 5050, 9800, 5600, 5400, 5900, 6100, 5500, 5300, 5600, 6000, 7900]
+const STORES = [['C001', 'Karawaci', .11], ['C002', 'Bekasi', .09], ['C003', 'Depok', .08], ['C004', 'Bogor', .07], ['C005', 'Tangerang', .09], ['C006', 'Cibubur', .08], ['C007', 'Serpong', .085], ['C008', 'Cikarang', .06], ['C009', 'Bintaro', .075], ['C010', 'Kelapa Gading', .09], ['C011', 'Cileungsi', .05], ['C012', 'Pondok Indah', .065], ['C013', 'Puri', .055]]
+
+const BASIS = { mo: 'Monthly', yr: 'Annual', pNet: '% Net sales', pGross: '% Gross sales', pSal: '% Salaries', pOp: '% Op. profit', ly: '2026 + growth', thr: 'Salary months', fit: 'Fit-out ÷ years', vs: 'vs 2026', umk: 'From January', yearly: 'Yearly' }
+const BASIS_B = { pGross: '% Sales' }
+const PCT = new Set(['pNet', 'pGross', 'pSal', 'pOp'])
+const MONEY = new Set(['mo', 'yr'])
+const CORE = new Set(['gross', 'disc', 'ret', 'cogs', 'sal', 'tax', 'dep', 'rent'])
+const CALC = {
+  net: (V, p) => V.gross[p] - V.disc[p] - V.ret[p],
+  gp: (V, p) => V.net[p] - V.cogs[p],
+  op: (V, p) => V.gp[p] - V['sec:x'][p],
+  np: (V, p) => V.op[p] - V.tax[p],
+  addb: (V, p) => V.dep[p],
+  cash: (V, p) => V.np[p] + V.addb[p],
+}
+
+/* ── templates: plain data, so a model clones as JSON ── */
+const tplA = s => [
+  { sec: 'g', label: 'Growth', rows: [
+    { id: 'sg', name: 'Sales growth', basis: 'vs', v: 8, g: 1 },
+    { id: 'pr', name: 'Pay rise', basis: 'umk', v: 6.5, g: 1 }] },
+  { sec: 's', label: 'Sales', total: 'net', rows: [
+    { id: 'gross', name: 'Gross sales', basis: 'ly', bases: ['ly', 'mo'] },
+    { id: 'disc', name: 'Discounts', basis: 'pGross', v: 6, neg: 1, bases: ['pGross', 'mo'] },
+    { id: 'ret', name: 'Returns', basis: 'pGross', v: 1.5, neg: 1, bases: ['pGross', 'mo'] },
+    { id: 'net', name: 'Net sales', calc: 1, sum: 1 }] },
+  { sec: 'gp', label: 'Gross profit', total: 'gp', rows: [
+    { id: 'cogs', name: 'Cost of goods', basis: 'pNet', v: 55, neg: 1, bases: ['pNet', 'mo'] },
+    { id: 'gp', name: 'Gross profit', calc: 1, sum: 1 }] },
+  { sec: 'x', label: 'Expenses', total: 'sum', add: 1, rows: [
+    { id: 'rent', name: 'Store rent', basis: 'mo', v: 412 * s },
+    { id: 'sal', name: 'Salaries', basis: 'mo', v: 535 * s, grow: 'pay' },
+    { id: 'thr', name: 'THR', basis: 'thr', v: 1 },
+    { id: 'bpjs', name: 'BPJS', basis: 'pSal', v: 5.7, bases: ['pSal', 'mo'] },
+    { id: 'elec', name: 'Electricity & water', basis: 'mo', v: 96 * s },
+    { id: 'fees', name: 'Card & QRIS fees', basis: 'pNet', v: .6 },
+    { id: 'mkt', name: 'Marketing', basis: 'pNet', v: 2 },
+    { id: 'rep', name: 'Repairs', basis: 'yr', v: 360 * s },
+    { id: 'dep', name: 'Depreciation', basis: 'mo', v: 140 * s },
+    { id: 'oth', name: 'Other', basis: 'mo', v: 45 * s }] },
+  { key: 'op', name: 'Operating profit' },
+  { sec: 'p', label: 'Profit', total: 'np', rows: [
+    { id: 'tax', name: 'Income tax', basis: 'pOp', v: 22, neg: 1 },
+    { id: 'np', name: 'Net profit', calc: 1, sum: 1 }] },
+]
+const tplB = () => [
+  { sec: 'g', label: 'Growth', rows: [
+    { id: 'sg', name: 'Sales growth', basis: 'yearly', v: 10, g: 1 },
+    { id: 'cg', name: 'Cost growth', basis: 'yearly', v: 4, g: 1 },
+    { id: 'pr', name: 'Pay rise', basis: 'yearly', v: 6.5, g: 1 }] },
+  { sec: 's', label: 'Sales', total: 'net', rows: [
+    { id: 'gross', name: 'Sales', basis: 'mo', v: 480, grow: 'sales', bases: ['mo', 'yr'] },
+    { id: 'disc', name: 'Discounts', basis: 'pGross', v: 6, neg: 1, bases: ['pGross', 'mo'] },
+    { id: 'ret', name: 'Returns', basis: 'pGross', v: 1.5, neg: 1, bases: ['pGross', 'mo'] },
+    { id: 'net', name: 'Net sales', calc: 1, sum: 1 }] },
+  { sec: 'gp', label: 'Gross profit', total: 'gp', rows: [
+    { id: 'cogs', name: 'Cost of goods', basis: 'pNet', v: 55, neg: 1, bases: ['pNet', 'mo'] },
+    { id: 'gp', name: 'Gross profit', calc: 1, sum: 1 }] },
+  { sec: 'x', label: 'Expenses', total: 'sum', add: 1, rows: [
+    { id: 'rent', name: 'Rent', basis: 'mo', v: 38 },
+    { id: 'sal', name: 'Staff', basis: 'mo', v: 47, grow: 'pay' },
+    { id: 'thr', name: 'THR', basis: 'thr', v: 1 },
+    { id: 'elec', name: 'Electricity & water', basis: 'mo', v: 9, grow: 'cost' },
+    { id: 'fees', name: 'Card & QRIS fees', basis: 'pNet', v: .6 },
+    { id: 'mkt', name: 'Marketing', basis: 'yr', v: 120, grow: 'cost' },
+    { id: 'rep', name: 'Repairs', basis: 'yr', v: 40, grow: 'cost' },
+    { id: 'dep', name: 'Depreciation', basis: 'fit', v: 5 }] },
+  { key: 'op', name: 'Operating profit' },
+  { sec: 'c', label: 'Cash', total: 'cash', rows: [
+    { id: 'tax', name: 'Income tax', basis: 'pOp', v: 22, neg: 1 },
+    { id: 'np', name: 'Net profit', calc: 1 },
+    { id: 'addb', name: 'Depreciation back', calc: 1 },
+    { id: 'cash', name: 'Cash from the store', calc: 1, sum: 1 }] },
+]
+const clone = x => JSON.parse(JSON.stringify(x))
+const freshA = () => Object.fromEntries(STORES.map(([c, , s]) => [c, tplA(s)]))
+const freshB = () => ({ items: tplB(), fitout: 1850, stock: 1200, depo: 3, name: 'Bekasi Timur' })
+
+const S = { tab: 'budget', store: 'all', leb: 2, range: { budget: 'm', store: 5 }, focus: { budget: '2027', store: 'Year 1' }, shut: {}, edit: null, menu: null, A: freshA(), B: freshB() }
+
+/* ── engine: base periods are months (Budget) or years (New store) ── */
+const rowsOf = items => items.flatMap(it => it.rows || [])
+function compute(items, ctx) {
+  const V = {}, G = {}, N = ctx.n
+  const arr = f => Array.from({ length: N }, (_, p) => f(p))
+  const gf = (k, p) => k ? G[{ sales: 'sg', cost: 'cg', pay: 'pr' }[k]]?.[p] ?? 1 : 1
+  const basis = (r, p) => {
+    const n = ctx.mpp, f = gf(r.grow, p)
+    switch (r.basis) {
+      case 'mo': return r.v * n * f
+      case 'yr': return r.v / 12 * n * f
+      case 'pNet': return r.v / 100 * V.net[p]
+      case 'pGross': return r.v / 100 * V.gross[p]
+      case 'pSal': return r.v / 100 * V.sal[p]
+      case 'pOp': return r.v / 100 * Math.max(0, V.op[p])
+      case 'ly': return ctx.ly[p] * gf('sales', p)
+      case 'thr': return ctx.mpp === 1 ? (p === ctx.leb ? r.v * V.sal[p] : 0) : r.v * V.sal[p] / 12
+      case 'fit': return p < r.v ? ctx.fitout / r.v : 0
+    }
+    return 0
+  }
+  for (const it of items) {
+    if (it.key) { V[it.key] = arr(p => CALC[it.key](V, p)); continue }
+    for (const r of it.rows) {
+      const ov = r.ov || {}
+      if (r.calc) V[r.id] = arr(p => CALC[r.id](V, p))
+      else if (r.g) {
+        V[r.id] = arr(p => ov[p] ?? (ctx.compound && p === 0 ? 0 : r.v))
+        let acc = 1
+        G[r.id] = V[r.id].map(x => ctx.compound ? (acc *= 1 + x / 100) : 1 + x / 100)
+      } else V[r.id] = arr(p => ov[p] ?? basis(r, p))
+    }
+    V['sec:' + it.sec] = it.total === 'sum' ? arr(p => it.rows.reduce((t, r) => t + (r.neg ? -1 : 1) * V[r.id][p], 0)) : it.total ? V[it.total] : null
+  }
+  return V
+}
+const ctxA = share => ({ n: 12, mpp: 1, compound: false, ly: LY.map(x => x * share), leb: S.leb })
+const ctxB = () => ({ n: 10, mpp: 12, compound: true, fitout: S.B.fitout })
+const cashIn = () => S.B.fitout + S.B.stock + S.B.depo * (rowsOf(S.B.items).find(r => r.id === 'rent')?.v || 0)
+
+// the models one edit touches: every store on "All stores", else the one in view
+const scope = () => S.tab === 'store' ? [{ items: S.B.items, ctx: ctxB(), share: 1 }]
+  : (S.store === 'all' ? STORES : STORES.filter(s => s[0] === S.store)).map(([c, , sh]) => ({ items: S.A[c], ctx: ctxA(sh), share: sh }))
+const allModels = () => S.tab === 'store' ? [S.B.items] : Object.values(S.A)
+function values() {
+  const ms = scope().map(m => ({ ...m, V: compute(m.items, m.ctx) }))
+  if (ms.length === 1) return { V: ms[0].V, ms }
+  const V = {}, tot = ms.reduce((t, m) => t + m.share, 0)
+  for (const k of Object.keys(ms[0].V)) {
+    if (!ms[0].V[k]) continue
+    const rate = ms[0].items[0].rows.some(r => r.id === k)
+    V[k] = ms[0].V[k].map((_, p) => ms.reduce((t, m) => t + m.V[k][p] * (rate ? m.share / tot : 1), 0))
+  }
+  return { V, ms }
+}
+
+/* ── display columns ── */
+function columns() {
+  if (S.tab === 'budget') {
+    const yr = { label: '2027', idx: [...Array(12).keys()], total: 1 }
+    if (S.range.budget === 'q') return [0, 1, 2, 3].map(q => ({ label: `Q${q + 1}`, idx: [q * 3, q * 3 + 1, q * 3 + 2] })).concat(yr)
+    return MON.map((m, i) => ({ label: m, idx: [i], long: MONTH[i] })).concat(yr)
+  }
+  return Array.from({ length: S.range.store }, (_, i) => ({ label: `Year ${i + 1}`, idx: [i] }))
+}
+const isRate = id => ['sg', 'cg', 'pr'].includes(id)
+const agg = (V, id, col) => { const xs = col.idx.map(p => V[id][p]); const t = xs.reduce((a, b) => a + b, 0); return isRate(id) ? t / xs.length : t }
+function footVal(V, col) {
+  if (S.tab === 'budget') return agg(V, 'np', col) / agg(V, 'net', col)
+  return agg(V, 'cash', col) / cashIn()
+}
+function payback(V) {
+  const c = cashIn(); let cum = 0
+  for (let y = 0; y < 10; y++) { const x = V.cash[y]; if (cum + x >= c) return y + (c - cum) / x; cum += x }
+  return null
+}
+
+/* ── amount column: what was typed ── */
+function amountOf(r, ms) {
+  if (r.calc) return ''
+  if (r.basis === 'ly') return ''
+  const vs = ms.map(m => rowsOf(m.items).find(x => x.id === r.id)?.v ?? 0)
+  const tot = ms.reduce((t, m) => t + m.share, 0)
+  const v = MONEY.has(r.basis) ? vs.reduce((a, b) => a + b, 0) : vs.reduce((t, x, i) => t + x * ms[i].share / tot, 0)
+  if (r.g || PCT.has(r.basis)) return `${v.toFixed(1)}%`
+  if (r.basis === 'thr') return `${nf1.format(v)} ×`
+  if (r.basis === 'fit') return `${nf1.format(v)} yr`
+  const n = v < 100 ? nf1.format(v) : nf.format(v)
+  return r.basis === 'yr' ? `${n} /yr` : n
+}
+const basisLabel = k => (S.tab === 'store' && BASIS_B[k]) || BASIS[k]
+const basesOf = r => r.bases || (MONEY.has(r.basis) || r.basis === 'pNet' && r.id !== 'cogs' ? ['mo', 'yr', 'pNet'] : [r.basis])
+
+/* ── edits ── */
+const num = s => { s = String(s).trim().replace(/[,\s%×]|yr|\/yr/g, ''); const neg = /^\(.*\)$/.test(s); const x = parseFloat(s.replace(/[()]/g, '')); return isFinite(x) ? (neg ? -x : x) : null }
+const find = (items, id) => rowsOf(items).find(r => r.id === id)
+function setAmount(id, x) {
+  const ms = scope(), rs = ms.map(m => find(m.items, id))
+  if (MONEY.has(rs[0].basis) && ms.length > 1) {
+    const old = rs.reduce((t, r) => t + r.v, 0)
+    rs.forEach((r, i) => r.v = old ? r.v * x / old : x * ms[i].share)
+  } else rs.forEach(r => r.v = x)
+}
+function setCell(id, p, x) {
+  const { ms } = values(), rs = ms.map(m => find(m.items, id))
+  const cur = ms.map(m => m.V[id][p]), old = cur.reduce((a, b) => a + b, 0)
+  rs.forEach((r, i) => {
+    r.ov = r.ov || {}
+    r.ov[p] = r.g || ms.length === 1 ? x : old ? cur[i] * x / old : x * ms[i].share
+    if (!r.g) r.ov[p] = r.neg ? Math.abs(r.ov[p]) : r.ov[p]
+  })
+}
+function setBasis(id, k) {
+  for (const m of scope().length > 1 || S.store === 'all' ? scope() : allScopeOf()) {
+    const r = find(m.items, id), old = compute(m.items, m.ctx)[id].reduce((a, b) => a + b, 0)
+    r.basis = k; r.v = 1; delete r.ov
+    const one = compute(m.items, m.ctx)[id].reduce((a, b) => a + b, 0)
+    r.v = one ? old / one : 0
+    r.v = PCT.has(k) ? Math.round(r.v * 10) / 10 : Math.round(r.v * 10) / 10
+  }
+  render()
+}
+// lines are the same for every store: basis, names, new and removed lines go to all of them
+const allScopeOf = () => S.tab === 'store' ? scope() : STORES.map(([c, , sh]) => ({ items: S.A[c], ctx: ctxA(sh), share: sh }))
+
+function startEdit(e) { S.edit = e; S.menu = null; render() }
+function commit(el, move) {
+  const e = S.edit; if (!e) return
+  const raw = el.value
+  S.edit = null
+  if (e.pill) { const x = num(raw); if (x != null && x >= 0) S.B[e.pill] = x }
+  else if (e.c === 'name') { const t = raw.trim(); if (t) allModels().forEach(items => { const r = find(items, e.r); if (r) r.name = t }) }
+  else {
+    const x = num(raw)
+    if (x != null) e.c === 'amt' ? setAmount(e.r, Math.abs(x)) : setCell(e.r, e.p, x)
+  }
+  if (move && e.c === 'cell') {
+    const cols = columns().filter(c => c.idx.length === 1), i = cols.findIndex(c => c.idx[0] === e.p)
+    if (cols[i + move]) S.edit = { r: e.r, c: 'cell', p: cols[i + move].idx[0] }
+  }
+  render()
+}
+function key(ev, el) {
+  if (ev.key === 'Enter') { ev.preventDefault(); commit(el) }
+  else if (ev.key === 'Escape') { S.edit = null; render() }
+  else if (ev.key === 'Tab') { ev.preventDefault(); commit(el, ev.shiftKey ? -1 : 1) }
+}
+// paste a row of figures from a spreadsheet: they fill this cell and the ones to its right
+function paste(ev) {
+  const e = S.edit, t = ev.clipboardData.getData('text')
+  if (!e || e.c !== 'cell' || !/[\t\n]/.test(t.trim())) return
+  ev.preventDefault()
+  const xs = t.trim().split(/[\t\n]+/).map(num)
+  xs.forEach((x, i) => { if (x != null && e.p + i < (S.tab === 'budget' ? 12 : 10)) setCell(e.r, e.p + i, x) })
+  S.edit = null; render()
+}
+function addLine(sec) {
+  const id = 'u' + Date.now()
+  allModels().forEach(items => items.find(it => it.sec === sec).rows.push({ id, name: 'New line', basis: 'mo', v: 0 }))
+  S.shut[S.tab + sec] = false
+  startEdit({ r: id, c: 'name' })
+}
+function removeLine(id) { allModels().forEach(items => items.forEach(it => { if (it.rows) it.rows = it.rows.filter(r => r.id !== id) })); S.menu = null; render() }
+function clearEdits(id) { scope().forEach(m => delete find(m.items, id).ov); S.menu = null; render() }
+function openMenu(ev, id) { ev.stopPropagation(); const b = ev.currentTarget.getBoundingClientRect(); S.menu = { id, x: b.right, y: b.bottom + 4 }; S.edit = null; render() }
+function reset() { if (S.tab === 'budget') S.A = freshA(); else S.B = freshB(); S.edit = null; render() }
+
+/* ── page ── */
+function rail() {
+  const b = (n, label, cur, dot) => `<span class="ds-rail-btn ${cur ? 'is-current' : ''}" aria-label="${label}" title="${label}">${ico(n)}${dot ? '<span class="ds-dot-alert"></span>' : ''}</span>`
+  return `<nav class="ds-rail"><span class="ds-rail-btn find" aria-label="Search">${ico('search')}</span>${b('cart', 'Procurement', 0, 1)}${b('shirt', 'Merchandise', 0, 1)}${b('package', 'Inventory', 0, 1)}${b('megaphone', 'Marketing')}${b('store', 'Sales')}${b('wallet', 'Finance', 1)}${b('users', 'People', 0, 1)}</nav>`
+}
+function panel() {
+  const row = (label, n, on) => `<span class="ds-nav-row ${on ? 'is-active' : ''}">${label}${n ? `<span class="ds-count">${n}</span>` : ''}</span>`
+  return `<aside class="ds-panel"><div class="p-head"><div class="ds-panel-title">Finance</div></div>
+    <div class="p-body"><div class="ds-nav">${row('Overview')}</div>
+      <span class="nav-label">Daily work</span><div class="ds-nav">${row('Stores')}${row('Payables', 55)}${row('Cash &amp; Bank', 12)}</div>
+      <span class="nav-label">Accounting</span><div class="ds-nav">${row('Journal')}${row('Assets')}${row('Month End')}${row('Reports')}${row('Plan', 0, 1)}</div>
+      <span class="nav-label">Configuration</span><div class="ds-nav">${row('Setup', 45)}</div></div>
+    <div class="p-foot">${ico('clock')}27 Oct 2026 · 10:12</div></aside>`
+}
+const editor = (val, extra = '') => `<input value="${esc(val)}" onkeydown="key(event,this)" onblur="commit(this)" onpaste="paste(event)" ${extra}>`
+
+function card() {
+  const { V, ms } = values(), cols = columns(), budget = S.tab === 'budget'
+  const fcol = cols.find(c => c.label === S.focus[S.tab]) || cols[cols.length - 1]
+  const fl = fcol.long || fcol.label
+  const line = budget
+    ? `Rp million<span class="dot">•</span>${fl}<span class="dot">•</span>Net sales <b>${fmt(agg(V, 'net', fcol))}</b><span class="dot">•</span>Operating profit <b>${fmt(agg(V, 'op', fcol))}</b><span class="dot">•</span>Margin <b>${pct(footVal(V, fcol))}</b>`
+    : `Rp million<span class="dot">•</span>${fl}<span class="dot">•</span>Net sales <b>${fmt(agg(V, 'net', fcol))}</b><span class="dot">•</span>Cash <b>${fmt(agg(V, 'cash', fcol))}</b><span class="dot">•</span>Return <b>${pct(footVal(V, fcol))}</b>`
+  const range = budget
+    ? `<span class="sel"><select aria-label="Columns" onchange="S.range.budget=this.value;render()"><option value="m" ${S.range.budget === 'm' ? 'selected' : ''}>Months</option><option value="q" ${S.range.budget === 'q' ? 'selected' : ''}>Quarters</option></select>${ico('chevron-down')}</span>`
+    : `<span class="sel"><select aria-label="Years" onchange="S.range.store=+this.value;render()">${[5, 10].map(n => `<option value="${n}" ${S.range.store === n ? 'selected' : ''}>${n} Years</option>`).join('')}</select>${ico('chevron-down')}</span>`
+  const head = `<div class="pf-head"><div><div class="pf-title">${budget ? 'Budget 2027' : esc(S.B.name)}</div><div class="pf-line">${line}</div></div>
+    <div class="pf-tools">${range}<button class="ds-btn ds-btn--primary" type="button" onclick="reset()">${ico('undo')}Reset</button></div></div>`
+
+  const pillNum = (k, label, unit = '') => S.edit?.pill === k
+    ? `<span class="pill"><span class="k">${label}</span>${editor(nf1.format(S.B[k]))}${unit ? `<span class="mute">${unit}</span>` : ''}</span>`
+    : `<span class="pill"><span class="k">${label}</span><span class="v" role="button" tabindex="0" onclick="startEdit({pill:'${k}'})">${nf.format(S.B[k])}</span>${unit ? `<span class="mute">${unit}</span>` : ''}</span>`
+  let pills
+  if (budget) {
+    const ly = LY.reduce((a, b) => a + b, 0) * ms.reduce((t, m) => t + m.share, 0), g = V.gross.reduce((a, b) => a + b, 0)
+    pills = `<span class="pill"><span class="k">Store</span><select aria-label="Store" onchange="S.store=this.value;render()"><option value="all">All stores</option>${STORES.map(([c, n]) => `<option value="${c}" ${S.store === c ? 'selected' : ''}>${n}</option>`).join('')}</select>${ico('chevron-down')}</span>
+      <span class="pill"><span class="k">Lebaran</span><select aria-label="Lebaran month" onchange="S.leb=+this.value;render()">${MONTH.map((m, i) => `<option value="${i}" ${S.leb === i ? 'selected' : ''}>${m}</option>`).join('')}</select>${ico('chevron-down')}</span>
+      <span class="pf-sum">2026 sales <b>${fmt(ly)}</b><span class="dot">•</span>2027 sales <b>${fmt(g)}</b><span class="dot">•</span>Growth <b>${pct(g / ly - 1)}</b></span>`
+  } else {
+    const pb = payback(V)
+    pills = `${pillNum('fitout', 'Fit-out')}${pillNum('stock', 'Opening stock')}${pillNum('depo', 'Deposit', 'months rent')}
+      <span class="pf-sum">Cash in <b>${fmt(cashIn())}</b><span class="dot">•</span>Payback <b>${pb == null ? 'over 10 years' : `${pb.toFixed(1)} years`}</b></span>`
+  }
+
+  const colgroup = `<colgroup><col style="width:224px"><col style="width:168px"><col style="width:120px">${cols.map(c => `<col style="width:${c.total ? 116 : budget ? 100 : 112}px">`).join('')}<col style="width:44px"></colgroup>`
+  const fc = c => c === fcol ? 'f' : ''
+  const thead = `<thead><tr><th class="c-name"></th><th class="c-basis">Basis</th><th class="c-amt">Amount</th>${cols.map(c => `<th class="per ${fc(c)}" onclick="S.focus.${S.tab}='${c.label}';render()" ${c.long ? `title="${c.long}"` : ''}>${c.label}</th>`).join('')}<th class="c-more"></th></tr></thead>`
+
+  const cell = (r, c) => {
+    const v = agg(V, r.id, c), one = c.idx.length === 1 && !c.total && !r.calc
+    const p = c.idx[0], on = S.edit && S.edit.r === r.id && S.edit.c === 'cell' && S.edit.p === p
+    if (on) return `<td class="${fc(c)}">${editor(r.g ? v.toFixed(1) : Math.round(v))}</td>`
+    const ov = one && ms.some(m => find(m.items, r.id)?.ov?.[p] != null)
+    const text = r.g ? `${v.toFixed(1)}%` : fmt(r.neg ? -v : v)
+    const bad = (r.sum || r.id === 'cash') && v < 0
+    return `<td class="${fc(c)} ${one ? 'ed' : ''} ${ov ? 'ov' : ''} ${bad ? 'bad' : ''}" ${one ? `onclick="startEdit({r:'${r.id}',c:'cell',p:${p}})"` : ''}>${text}</td>`
+  }
+  const rowHTML = r => {
+    const name = S.edit?.r === r.id && S.edit.c === 'name' ? editor(r.name) : esc(r.name)
+    const bs = basesOf(r)
+    const basis = r.calc ? '' : bs.length > 1
+      ? `<span class="basis"><select aria-label="Basis of ${esc(r.name)}" onchange="setBasis('${r.id}',this.value)">${bs.map(k => `<option value="${k}" ${k === r.basis ? 'selected' : ''}>${basisLabel(k)}</option>`).join('')}</select>${ico('chevron-down')}</span>`
+      : basisLabel(r.basis)
+    const amt = S.edit?.r === r.id && S.edit.c === 'amt' ? editor(amountOf(r, ms).replace(/ ?(×|yr|\/yr)$/, '')) : amountOf(r, ms)
+    const editable = !r.calc && r.basis !== 'ly'
+    const hasMenu = !r.calc
+    return `<tr class="${r.sum ? 'sum' : ''}"><td class="c-name" ${!r.calc ? `ondblclick="startEdit({r:'${r.id}',c:'name'})"` : ''}>${name}</td><td class="c-basis">${basis}</td>
+      <td class="c-amt ${editable ? 'in' : ''}" ${editable && !(S.edit?.r === r.id && S.edit.c === 'amt') ? `onclick="startEdit({r:'${r.id}',c:'amt'})"` : ''}>${amt}</td>
+      ${cols.map(c => cell(r, c)).join('')}
+      <td class="c-more">${hasMenu ? `<button class="more" type="button" aria-label="More for ${esc(r.name)}" onclick="openMenu(event,'${r.id}')">${ico('more')}</button>` : ''}</td></tr>`
+  }
+  const items = ms[0].items
+  const body = items.map(it => {
+    if (it.key) return `<tr class="key"><td class="c-name">${it.name}</td><td class="c-basis"></td><td class="c-amt"></td>${cols.map(c => { const v = agg(V, it.key, c); return `<td class="${fc(c)} ${v < 0 ? 'bad' : ''}">${fmt(v)}</td>` }).join('')}<td class="c-more"></td></tr>`
+    const shut = S.shut[S.tab + it.sec]
+    const tot = V['sec:' + it.sec]
+    const head = `<tr class="sec"><td class="c-name"><div class="sec-in"><button class="chev ${shut ? 'shut' : ''}" type="button" aria-expanded="${!shut}" aria-label="${shut ? 'Show' : 'Hide'} ${it.label}" onclick="S.shut['${S.tab + it.sec}']=${!shut};render()">${ico('chevron-down')}</button>${it.label}${it.add ? `<button class="addb" type="button" aria-label="Add a line to ${it.label}" title="Add a line" onclick="addLine('${it.sec}')">${ico('plus')}</button>` : ''}</div></td><td class="c-basis"></td><td class="c-amt"></td>
+      ${cols.map(c => `<td class="${fc(c)}">${tot ? fmt(agg({ t: tot }, 't', c)) : ''}</td>`).join('')}<td class="c-more"></td></tr>`
+    return head + (shut ? '' : it.rows.map(rowHTML).join(''))
+  }).join('')
+  const foot = `<tfoot><tr><td class="c-name">${budget ? 'Margin<span class="mute">On net sales</span>' : 'Return<span class="mute">On cash in</span>'}</td><td class="c-basis"></td><td class="c-amt"></td>${cols.map(c => { const v = footVal(V, c); return `<td class="${fc(c)} ${v < 0 ? 'bad' : ''}">${pct(v)}</td>` }).join('')}<td class="c-more"></td></tr></tfoot>`
+
+  return `<div class="pf-card">${head}<div class="pf-pills">${pills}</div><div class="pf-scroll"><table class="pf">${colgroup}${thead}<tbody>${body}</tbody>${foot}</table></div></div>`
+}
+function menu() {
+  if (!S.menu) return ''
+  const r = rowsOf(scope()[0].items).find(x => x.id === S.menu.id)
+  const hasOv = scope().some(m => Object.keys(find(m.items, r.id)?.ov || {}).length)
+  return `<div class="menu" role="menu" style="top:${S.menu.y}px;left:${S.menu.x - 180}px" onclick="event.stopPropagation()">
+    <button type="button" role="menuitem" onclick="startEdit({r:'${r.id}',c:'name'})">Rename</button>
+    ${hasOv ? `<button type="button" role="menuitem" onclick="clearEdits('${r.id}')">Clear typed ${S.tab === 'budget' ? 'months' : 'years'}</button>` : ''}
+    ${!CORE.has(r.id) && !r.g ? `<button class="red" type="button" role="menuitem" onclick="removeLine('${r.id}')">Remove</button>` : ''}</div>`
+}
+function render() {
+  const sc = document.querySelector('.pf-scroll'), keep = sc ? [sc.scrollLeft, sc.scrollTop] : null
+  document.getElementById('app').innerHTML = `<div class="ds ds-shell shell">${rail()}${panel()}
+    <main class="ds-page"><div class="ds-page-content">
+      <div class="door-head"><div class="door-top"><h1 class="ds-title">Plan</h1></div>
+        <div class="ds-tabs door-tabs" role="tablist">${[['budget', 'Budget'], ['store', 'New store']].map(([k, l]) => `<button class="ds-tab ${S.tab === k ? 'is-selected' : ''}" role="tab" aria-selected="${S.tab === k}" type="button" onclick="S.tab='${k}';S.edit=null;S.menu=null;render()">${l}</button>`).join('')}</div></div>
+      ${card()}
+    </div></main></div>${menu()}`
+  const sc2 = document.querySelector('.pf-scroll'); if (sc2 && keep) [sc2.scrollLeft, sc2.scrollTop] = keep
+  const inp = document.querySelector('.pf td input, .pill input'); if (inp) { inp.focus(); inp.select() }
+}
+document.addEventListener('click', () => { if (S.menu) { S.menu = null; render() } })
+render()
+</script>
+</body>
+</html>

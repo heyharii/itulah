@@ -213,11 +213,7 @@ pub async fn list_unfilled(pool: &PgPool) -> Result<UnfilledList, AppError> {
             let to_pack: i64 = row.try_get("to_pack_qty")?;
             // Picked for the store and waiting for a carton: it goes on to
             // the store, so a Close short never takes it.
-            let picked = waiting
-                .get(&allotment_line_id)
-                .copied()
-                .unwrap_or(0)
-                .max(0);
+            let picked = waiting.get(&allotment_line_id).copied().unwrap_or(0).max(0);
             let free = (to_pack - picked).max(0);
             let short_reason = flags
                 .get(&(allotment_id, destination_id.clone(), sku_code.clone()))
@@ -458,10 +454,7 @@ pub async fn close_allotment_short(
                 )
                 .await?
             }
-            None => waiting
-                .get(&asked.allotment_line_id)
-                .copied()
-                .unwrap_or(0),
+            None => waiting.get(&asked.allotment_line_id).copied().unwrap_or(0),
         }
         .clamp(0, to_pack);
         let free = to_pack - picked;

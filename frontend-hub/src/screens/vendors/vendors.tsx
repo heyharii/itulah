@@ -22,7 +22,6 @@ import {
 import { Status } from "@/components/ui/pill"
 import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState, LoadingState } from "@/components/ui/states"
-import { SubTabs } from "@/components/ui/sub-tabs"
 import {
   useFilterState,
   type FilterField,
@@ -49,7 +48,6 @@ import {
   contractedSuppliersQuery,
   useAccountNames,
   useMayEditSuppliers,
-  vendorCountQuery,
   vendorRegisterQuery,
 } from "@/screens/vendors/vendor-data"
 import { AddVendorSheet, VendorSheet } from "@/screens/vendors/vendor-sheet"
@@ -73,7 +71,7 @@ import type { Supplier } from "@itulah/contract"
 /// # The list format
 ///
 /// Head, figures, tabs, one bar, a framed table (owner, 18 Oct 2026, as
-/// Contracts draws it). The tabs are the two books, Operating and Affiliate.
+/// Contracts draws it). There is one book, the operating one.
 /// The bar narrows by what the supplier is for — the chips — and the kind is
 /// read off the account its bills debit (`kinds.ts`), which is also the column
 /// this screen is for: a supplier with no account is a supplier whose bills
@@ -82,7 +80,7 @@ import type { Supplier } from "@itulah/contract"
 /// The figures describe the register (both books, whatever the bar narrows
 /// to); the tab counts and the foot describe the list.
 export function Vendors() {
-  const [book, setBook] = useState<SupplierCategory>("EXPENSE")
+  const book: SupplierCategory = "EXPENSE"
   const filters = useFilterState(FIELDS)
   const [search, setSearch] = useState("")
   const [adding, setAdding] = useState<{ open: boolean; round: number }>({
@@ -98,39 +96,31 @@ export function Vendors() {
   // The search is the server's, so it waits for the typing to stop.
   const needle = useDebounced(search.trim(), 300)
 
-  // The kinds differ from one book to the other: leaving the book leaves the
-  // chip.
-  const chooseBook = (next: SupplierCategory) => {
-    setBook(next)
-    filters.clear()
-  }
-
   // The head, the + and the figures stand at once; the book waits for its
   // first page and streams in with it (the server starts the read too).
   return (
     <PageContent>
       <PageHeader
-        title="Suppliers"
+        title="Vendors"
         small
         actions={
           // On a phone the one thing this page makes is its round button.
           phone || !mayEdit ? undefined : (
             <Button variant="primary" onClick={startAdding}>
               <Plus />
-              Add supplier
+              Add vendor
             </Button>
           )
         }
       />
 
-      {mayEdit && <Fab label="Add supplier" onClick={startAdding} />}
+      {mayEdit && <Fab label="Add vendor" onClick={startAdding} />}
 
       <Figures />
 
-      <Suspense fallback={<LoadingState>Loading suppliers…</LoadingState>}>
+      <Suspense fallback={<LoadingState>Loading vendors…</LoadingState>}>
         <VendorBook
           book={book}
-          onBook={chooseBook}
           filters={filters}
           search={search}
           onSearch={setSearch}
@@ -157,7 +147,7 @@ function Figures() {
   ).length
   return (
     <KpiStrip className="grid-cols-2 md:grid-cols-3 xl:grid-cols-3">
-      <Kpi label="Suppliers" value={figure(register.data?.length)} />
+      <Kpi label="Vendors" value={figure(register.data?.length)} />
       <Kpi
         label="No expense account"
         value={
@@ -220,7 +210,7 @@ const COLUMNS: ColumnDef<TableSetup, VendorLine>[] = [
   {
     id: "supplier",
     accessorFn: (row) => supplierDisplayName(row.supplier),
-    header: "Supplier",
+    header: "Vendor",
     size: 340,
     meta: { grow: 240 },
     cell: ({ row }) => {
@@ -308,7 +298,6 @@ const FIELDS: FilterField[] = [
 
 function VendorBook({
   book,
-  onBook,
   filters,
   search,
   onSearch,
@@ -320,7 +309,6 @@ function VendorBook({
   onAdded,
 }: {
   book: SupplierCategory
-  onBook: (next: SupplierCategory) => void
   filters: FilterState
   search: string
   onSearch: (next: string) => void
@@ -388,17 +376,7 @@ function VendorBook({
   )
 
   // The tab counts: over what the search leaves, before the tab.
-  const operating = useQuery(
-    vendorCountQuery({ category: "EXPENSE", q: scope.q })
-  )
-  const affiliate = useQuery(
-    vendorCountQuery({ category: "AFFILIATE", q: scope.q })
-  )
-  const bookCount = (which: SupplierCategory) =>
-    which === "EXPENSE" ? operating.data : affiliate.data
   const bookTotal = head?.total
-  const tabCount = (which: SupplierCategory) =>
-    bookCount(which) ?? (which === book ? bookTotal : undefined)
 
   // The chips: every kind this book holds, with how many, the one chosen kept
   // even when the search has emptied it.
@@ -449,23 +427,6 @@ function VendorBook({
 
   return (
     <>
-      <SubTabs
-        // On a phone the tab is the status chip over the bottom bar.
-        className="max-md:hidden"
-        tabs={[
-          {
-            value: "EXPENSE",
-            label: <TabLabel text="Operating" n={tabCount("EXPENSE")} />,
-          },
-          {
-            value: "AFFILIATE",
-            label: <TabLabel text="Affiliate" n={tabCount("AFFILIATE")} />,
-          },
-        ]}
-        value={book}
-        onChange={(next) => onBook(next as SupplierCategory)}
-      />
-
       {/* One bar: the search at the left, Columns at the right, and the kinds
           on a line of their own under them. On a phone they are the dock's. */}
       <div className="max-md:hidden">
@@ -493,22 +454,6 @@ function VendorBook({
           count: filters.filters.length,
           panel: { model: filters, filterModel: model },
         }}
-        status={{
-          value: book,
-          options: [
-            {
-              value: "EXPENSE",
-              label: "Operating",
-              count: tabCount("EXPENSE"),
-            },
-            {
-              value: "AFFILIATE",
-              label: "Affiliate",
-              count: tabCount("AFFILIATE"),
-            },
-          ],
-          onChange: (next) => onBook(next as SupplierCategory),
-        }}
       />
 
       <div aria-busy={asked !== scope || undefined} className="list-swap">
@@ -525,9 +470,7 @@ function VendorBook({
             >
               {narrowed
                 ? "No supplier matches these filters."
-                : book === "EXPENSE"
-                  ? "No operating suppliers yet."
-                  : "No affiliate suppliers yet."}
+                : "No vendors yet."}
             </EmptyState>
           </Card>
         ) : phone ? (
@@ -584,19 +527,6 @@ function VendorBook({
         onClose={open.close}
       />
     </>
-  )
-}
-
-/// A tab's word and its count, the count quiet (as Contracts draws it). A count
-/// still being read is left out.
-function TabLabel({ text, n }: { text: string; n: number | undefined }) {
-  return (
-    <span>
-      {text}
-      {n !== undefined && (
-        <span className="ml-1.5 text-body tabular-nums">{count(n)}</span>
-      )}
-    </span>
   )
 }
 

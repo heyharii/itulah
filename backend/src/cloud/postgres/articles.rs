@@ -561,15 +561,14 @@ pub async fn search_articles(pool: &PgPool, scope: ArticleScope) -> Result<Artic
         item.stock_qty = Some(stock.get(id).copied().unwrap_or(0));
     }
 
-    let (total, facets) =
-        article_facets(
-            pool,
-            needle.as_deref(),
-            epc_sku.as_deref(),
-            scope.active,
-            scope.in_stock,
-        )
-        .await?;
+    let (total, facets) = article_facets(
+        pool,
+        needle.as_deref(),
+        epc_sku.as_deref(),
+        scope.active,
+        scope.in_stock,
+    )
+    .await?;
     Ok(ArticlePage {
         items,
         next_cursor,

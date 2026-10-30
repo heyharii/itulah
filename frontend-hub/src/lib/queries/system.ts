@@ -517,6 +517,7 @@ export function nodeIncidents(
 
 export type DeviceKind =
   | "TILL"
+  | "WAREHOUSE"
   | "HANDHELD"
   | "RFID_READER"
   | "PRINTER"

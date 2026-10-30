@@ -30,8 +30,19 @@ import {
   ReceiptPreview,
   Sheet,
 } from "@/screens/dialogs"
-import { KeyBar, type KeyId } from "@/keybar"
-import { useShortcuts, viaPointer } from "@/shortcuts"
+import {
+  BAGS_KEY,
+  CANCEL_KEY,
+  CHECK_KEY,
+  CLOSE_KEY,
+  DRAWER_KEY,
+  HOLD_KEY,
+  KeyBar,
+  MEMBER_KEY,
+  RETURN_KEY,
+  type KeyId,
+} from "@/keybar"
+import { isKey, useShortcuts, viaPointer } from "@/shortcuts"
 import {
   enqueue,
   flush,
@@ -64,6 +75,7 @@ import {
   redeemProgress,
   type ConfirmedRedeemRequest,
 } from "@/redeem"
+import { useExchangeDays } from "@/exchange-policy"
 import { useNodeConfig, useSession, type NodeConfig } from "@/session"
 import {
   refreshPaymentMethods,
@@ -79,31 +91,36 @@ import { Photo, usePhoto } from "@/photo"
 import { readScan } from "@epc"
 import { money, units as grouped } from "@itulah/contract/money"
 
+import { CheckMode, matchRows } from "@/screens/check"
 import {
   asCount,
   asMap,
   asText,
-  creditMethod,
-  referenceFor,
-  ReturnPick,
+  returnFrom,
   type ExchangeCredit,
   type Receipt,
+  type ReturnPiece,
 } from "@/screens/exchange"
-import { HeldDialog, type HeldRow } from "@/screens/held"
-import { SetoranDialog, TambahModalDialog } from "@/screens/laci"
-import { VoidDialog } from "@/screens/void"
+import {
+  FreezeOverlay,
+  HeldMode,
+  heldOver,
+  HOLD_MAX,
+  HOLD_MINUTES,
+  HOLD_WARN,
+  mmss,
+  type HeldLine,
+  type HeldRow,
+} from "@/screens/held"
+import { SetoranDialog, SetorModalFromSeat, TambahModalDialog } from "@/screens/laci"
+import { ShopHead } from "@/screens/thermal"
+import { ReceiptsMode, type ReceiptPurpose } from "@/screens/receipts"
+import { figureOf, plain } from "@/list-parts"
 import { MemberSheet, memberFromScan } from "@/screens/member"
+import { divisionName } from "@/division"
 import "./till-d.css"
 import "./pay-d.css"
 
-/// The client's nine divisions (cloud 0382), by the name the floor uses.
-const DIVISION_NAME: Readonly<Record<string, string>> = {
-  WANITA: "Wanita", PRIA: "Pria", ANAK_LAKI: "Anak Laki-laki", ANAK_PEREMPUAN: "Anak Perempuan",
-  PERLENGKAPAN_BAYI: "Perlengkapan Bayi", SANDAL_SEPATU: "Sandal dan Sepatu", TAS: "Tas",
-  AKSESORIS: "Aksesoris", NON_DIVISI: "Non Divisi",
-}
-const divisionName = (code: string | null | undefined) =>
-  code ? (DIVISION_NAME[code] ?? code.charAt(0) + code.slice(1).toLowerCase().replace(/_/g, " ")) : "—"
 
 /// The counter, and everywhere a cashier goes from it.
 ///
@@ -125,7 +142,7 @@ const divisionName = (code: string | null | undefined) =>
 /// store does not hold and a Barang tak dikenal go in `untagged`, one entry
 /// per piece (docs/unmatched-sales-contract.md): the sale always goes through,
 /// the node says which kind each one is, and head office matches it to a real
-/// piece later. A barcode alone is still "how much is this" (F2), not a line.
+/// piece later. A barcode alone is still "how much is this" (⇧2), not a line.
 ///
 /// **The price on screen is a preview; the receipt is the truth.** Lines are
 /// priced from the book this shop was published, so a basket draws instantly
@@ -230,6 +247,9 @@ type Held = {
   readonly coupons: readonly string[]
   readonly customerId: string | null
   readonly at: string
+  /// When it was parked, to count its 30 minutes by. A hold written before the
+  /// till kept it has none.
+  readonly heldAt?: string
   /// What it came to after its discounts, as the node last priced it.
   readonly totalMinor?: number
   /// The bags on its bill, so a resume is the basket exactly as it was parked.
@@ -440,6 +460,17 @@ export function ReaderChip({
 /// A note about one read, in the cashier's words with its code.
 const noteOf = (fault: Omit<Fault, "detail">) => sentence({ ...fault, detail: "" })
 
+/// How a Return's call to the node ended.
+export type ExchangeOutcome =
+  | {
+      readonly ok: true
+      readonly saleId: string | null
+      readonly receiptNo: string
+      readonly changeMinor: number
+      readonly forfeitMinor: number
+    }
+  | { readonly ok: false; readonly problem: string; readonly cancelled?: boolean }
+
 export type Sold = {
   readonly id: string
   /// The outbox row it was written down as — what Resolve opens on a refusal.
@@ -474,37 +505,6 @@ export type Sold = {
 // cloud master (Mode of Payment) via `payment-methods.ts`, which also keeps the
 // old hard-coded list (cash, debit/credit/QRIS × BCA/Mandiri/BRI/BNI, voucher)
 // as the fallback when the master cannot be read.
-
-/// The three most recent sales of one shift, newest first — what the cashier
-/// sees of the day's receipts, and nothing more: enough to reprint the one just
-/// handed over, never a book to browse. Null while unknown, when the node
-/// refuses (it does not show a drawer's sales to a CASHIER) and before any
-/// answer; a later failure keeps the last list rather than blanking it.
-function useLastSales(
-  shiftId: string | null,
-  refresh: string,
-): readonly api.ShiftSale[] | null {
-  const [sales, setSales] = useState<readonly api.ShiftSale[] | null>(null)
-  const asked = useRef(0)
-  useEffect(() => {
-    if (shiftId === null) {
-      setSales(null)
-      return
-    }
-    const mine = ++asked.current
-    void api.shiftSales(shiftId).then((reply) => {
-      if (mine !== asked.current) return
-      if (reply.ok && Array.isArray(reply.body)) {
-        // Newest first by the time they were rung, not by the order they came.
-        const newest = [...reply.body].sort(
-          (a, b) => Date.parse(b.completed_at) - Date.parse(a.completed_at),
-        )
-        setSales(newest.slice(0, 3))
-      } else if (reply.status === 403) setSales(null)
-    })
-  }, [shiftId, refresh])
-  return sales
-}
 
 /// What Merchandising calls each article, by SKU, kept as long as this window
 /// lives (owner, 24 Oct 2026: "Pria · Koko, Lebaran" under the name). The node
@@ -619,10 +619,34 @@ function reviveHeld(row: unknown, fallbackId: string | null = null): Held | null
       : [],
     customerId: typeof one.customerId === "string" ? one.customerId : null,
     at: typeof one.at === "string" ? one.at : new Date().toISOString(),
+    heldAt: typeof one.heldAt === "string" ? one.heldAt : undefined,
     totalMinor: typeof one.totalMinor === "number" ? one.totalMinor : undefined,
     charges: Array.isArray(one.charges) ? (one.charges as api.Charge[]) : [],
     member: typeof one.member === "object" && one.member !== null ? (one.member as api.Member) : null,
   }
+}
+
+/// The pieces of a held basket as lines of the item list: the same article at
+/// the same price is one line with its count; a Barang tak dikenal stands alone.
+function heldLinesOf(units: readonly Unit[]): HeldLine[] {
+  const out: HeldLine[] = []
+  for (const unit of units) {
+    const same = isUnknown(unit)
+      ? -1
+      : out.findIndex((one) => one.sku === unit.sku_code && one.priceMinor === unit.unitPriceMinor)
+    if (same >= 0) {
+      out[same] = { ...out[same], quantity: out[same].quantity + 1 }
+    } else {
+      out.push({
+        key: String(out.length),
+        sku: unit.sku_code,
+        name: unit.name ?? (unit.sku_code === "" ? "Barang tak dikenal" : skuText(unit.sku_code)),
+        quantity: 1,
+        priceMinor: unit.unitPriceMinor,
+      })
+    }
+  }
+  return out
 }
 
 function readHolds(): readonly Held[] {
@@ -662,9 +686,10 @@ function countOut(amount: number): readonly (readonly [number, number])[] {
   return out
 }
 
-/// Send one sale's receipt where this till prints. The one print path: the
-/// receipt step after a sale and a reprint from the last receipts both go
-/// through it, so a copy can never come out differently from the original.
+/// Send one sale's receipt where this till prints. The one print path, and it
+/// prints once: a struk is never printed again (client, 28 Oct 2026), so the
+/// drawer is kicked with this print only, when this till's drawer is opened by
+/// the printer.
 ///
 /// The USB printer on this till: the node renders, this till sends. `usb` is
 /// never set in web — there is no peripherals screen there to choose one — but
@@ -673,15 +698,13 @@ function countOut(amount: number): readonly (readonly [number, number])[] {
 async function sendReceipt(
   config: NodeConfig | null,
   saleId: string,
-  copy: boolean,
 ): Promise<{ readonly ok: boolean; readonly text: string } | null> {
   if (config === null) return null
   const { target, here: usb } = receiptTarget(config)
-  // A reprint never kicks the drawer: the money is already in.
-  const drawer = copy ? "NONE" : drawerOnSale(config)
-  const done = copy ? "Salinan struk tercetak." : "Struk tercetak."
+  const drawer = drawerOnSale(config)
+  const done = "Struk tercetak."
   if (!isWeb && usb !== null) {
-    const printed = await printReceiptHere(saleId, { paper: config.paper, drawer, copy })
+    const printed = await printReceiptHere(saleId, { paper: config.paper, drawer, copy: false })
     return printed.ok
       ? { ok: true, text: done }
       : { ok: false, text: printed.problem }
@@ -691,10 +714,34 @@ async function sendReceipt(
     ...target,
     paper: config.paper,
     drawer,
-    copy,
+    copy: false,
   })
   return reply.ok
     ? { ok: true, text: done }
+    : { ok: false, text: reply.problem ?? "Struk tidak tercetak." }
+}
+
+/// A return that rang no replacement has no sale id: its struk goes by its
+/// number, once, to the network printer. A USB printer cannot be reached
+/// without a sale id, and says so.
+async function sendReceiptNo(
+  config: NodeConfig | null,
+  receiptNo: string,
+): Promise<{ readonly ok: boolean; readonly text: string } | null> {
+  if (config === null) return null
+  const { target, here: usb } = receiptTarget(config)
+  if (!isWeb && usb !== null) {
+    return { ok: false, text: `Struk ${receiptNo} belum bisa dicetak di printer USB tanpa penjualan.` }
+  }
+  if (target === null) return null
+  const reply = await api.printReceiptNo(receiptNo, {
+    ...target,
+    paper: config.paper,
+    drawer: "NONE",
+    copy: false,
+  })
+  return reply.ok
+    ? { ok: true, text: "Struk tercetak." }
     : { ok: false, text: reply.problem ?? "Struk tidak tercetak." }
 }
 
@@ -705,8 +752,6 @@ export type Where =
   /// The shift screen, straight at counting the drawer — what the header's
   /// Finish shift button opens.
   | "finish"
-  | "return"
-  | "void"
   | "setup"
   /// What is plugged into this till — an Admin's, opened from the door.
   | "peripherals"
@@ -714,15 +759,28 @@ export type Where =
   | "join"
 
 /// Return mode (client, 23 Oct 2026): the sale screen itself. The pieces that
-/// came back are read by RFID and sit as amber rows; each replacement sits
-/// right under the piece it replaces.
+/// came back are read first and sit as struck rows, then the replacements in
+/// one ungrouped list (28 Oct 2026); a replacement is optional. A tag the
+/// receipt sold counts as back, a stock tag as a replacement.
+///
+/// Two steps (owner, 30 Oct 2026): 1 · "Jumlah kembali" lists the receipt and
+/// the cashier sets how many of each line came back — nothing that comes back
+/// is scanned or typed by SKU; 2 · "Pengganti" scans only the replacements.
 type ReturnMode = {
   readonly receipt: Receipt
   /// The tags that receipt sold and has not taken back; null when the
   /// movements do not reach that far (the node still checks every one).
   readonly soldTags: ReadonlySet<string> | null
+  /// Every piece of the receipt that has not come back yet, in its order.
+  readonly pieces: readonly ReturnPiece[]
+  readonly step: "back" | "new"
+  /// How many of each receipt line (by SKU) come back.
+  readonly qty: Readonly<Record<string, number>>
+  /// One entry per returned piece, chosen from `pieces` by `qty`: a tagged
+  /// piece by its tag, a piece sold without one by its SKU.
   readonly back: readonly {
-    /// The tag read back; for a piece sold without a tag, a key of the till's.
+    /// The tag that goes to the node; for a piece sold without a tag, a key of
+    /// the till's.
     readonly epc: string
     readonly sku: string
     readonly name: string
@@ -730,12 +788,62 @@ type ReturnMode = {
     /// Sold without a tag: it comes back by its SKU (owner, 25 Oct 2026).
     readonly untagged?: boolean
   }[]
-  /// The returned piece the next replacement goes under; -1 (the piece clicked
-  /// again) means the next scan is "Barang baru", an extra item paid in Bayar.
+  /// The receipt line in focus in step 1.
   readonly sel: number
-  /// Replacement unit (its `epc`) -> index into `back`.
-  readonly rep: ReadonlyMap<string, number>
 }
+
+/// What a receipt line can still give back: its pieces the head-office policy
+/// lets come back.
+const returnable = (pieces: readonly ReturnPiece[], sku: string) =>
+  pieces.filter((piece) => piece.sku === sku && piece.exchangeable).length
+
+/// The returned pieces for these counts: the first still-returnable pieces of
+/// each line, in the receipt's order.
+function piecesBack(receipt: Receipt, pieces: readonly ReturnPiece[], qty: Readonly<Record<string, number>>) {
+  const back: ReturnMode["back"][number][] = []
+  // A SKU on two lines of one struk is counted once, by its first line.
+  const seen = new Set<string>()
+  for (const line of receipt.lines) {
+    if (seen.has(line.skuCode)) continue
+    seen.add(line.skuCode)
+    const want = Math.min(qty[line.skuCode] ?? 0, returnable(pieces, line.skuCode))
+    pieces
+      .filter((piece) => piece.sku === line.skuCode && piece.exchangeable)
+      .slice(0, want)
+      .forEach((piece, n) => {
+        back.push({
+          epc: piece.epc ?? `untagged-back:${line.skuCode}:${n}`,
+          sku: line.skuCode,
+          name: line.name,
+          unitMinor: line.unitMinor,
+          ...(piece.epc === null ? { untagged: true } : {}),
+        })
+      })
+  }
+  return back
+}
+
+/// What the item list is showing besides the sale (client, 25 Oct 2026:
+/// "kurangi sheet"): the list itself turns into Tunda, Struk or Cek — no dialog,
+/// no sheet. Esc steps back one level, from what is open to the list, from the
+/// list to the sale.
+type ListMode =
+  | {
+      readonly kind: "held"
+      /// The held sale whose pieces are shown.
+      readonly open: string | null
+    }
+  | {
+      readonly kind: "receipts"
+      /// ⇧0 looks, ⇧8 returns.
+      readonly purpose: ReceiptPurpose
+      readonly open: api.ReceiptLookup | null
+    }
+  | { readonly kind: "check" }
+
+/// A Kepala toko's finger given to open a locked till stays good for three
+/// minutes at the node; asked again after a little less.
+const UNLOCK_GOOD_FOR = 150_000
 
 export function Till({
   actorId,
@@ -761,20 +869,12 @@ export function Till({
   const [rows, setRows] = useState<readonly api.CatalogRow[]>([])
   const [bookProblem, setBookProblem] = useState<string | null>(null)
   const [units, setUnits] = useState<readonly Unit[]>([])
-  // F8 Return: which receipt (the picker), then Return mode on this screen
-  // (`ret`); the credit a recorded return carries into Bayar for the
+  // ⇧8 Return: the receipt picked in the item list, then Return mode on this
+  // screen (`ret`); the credit a recorded return carries into Bayar for the
   // replacements now in the basket.
-  const [exchanging, setExchanging] = useState(false)
   const [ret, setRet] = useState<ReturnMode | null>(null)
-  const retRef = useRef(ret)
-  retRef.current = ret
-  // Bayar asks "Apakah pelanggan member?" once per sale.
-  const [asked, setAsked] = useState(false)
-  // F3: the drawer menu, and the two dialogs it opens.
-  const [laci, setLaci] = useState<null | "menu" | "modal" | "setor">(null)
-  // F1 Void: a dialog over the counter, with its own keys (and its own finger
-  // sheet), so the counter's keys stand aside.
-  const [voiding, setVoiding] = useState(false)
+  // ⇧3: the drawer menu, and the three dialogs it opens.
+  const [laci, setLaci] = useState<null | "menu" | "modal" | "setor" | "float">(null)
   const [credit, setCredit] = useState<ExchangeCredit | null>(null)
   // The sale as it is now, for work that finishes after a render (a typed SKU).
   const unitsRef = useRef(units)
@@ -819,6 +919,10 @@ export function Till({
   const [held, setHeld] = useState<readonly Held[]>(readHolds)
   const [nodeHeld, setNodeHeld] = useState<readonly api.HeldSale[]>([])
   const [heldOn, setHeldOn] = useState<boolean | null>(null)
+  // A Tunda that has been taken up must be finished — paid, or dropped — before
+  // it can be parked again. Re-holding it would reset the clock the lock runs
+  // on (owner, 28 Oct 2026): the Tunda button is not offered while this is on.
+  const [resumed, setResumed] = useState(false)
   const heldOnNow = useRef(heldOn)
   heldOnNow.current = heldOn
   const [coupons, setCoupons] = useState<readonly string[]>([])
@@ -839,11 +943,10 @@ export function Till({
   const [panel, setPanel] = useState<
     | null
     | "cancel"
-    | "hold"
     | "rfid"
     /// "Apakah pelanggan member?", asked once when Bayar is pressed.
     | "ask"
-    /// F5: Daftar member, the registration form straight away, with the
+    /// ⇧5: Daftar member, the registration form straight away, with the
     /// optional "No. transaksi" of a sale already rung.
     | "register"
     | "coupon"
@@ -856,12 +959,14 @@ export function Till({
   >(null)
   // The bag choices open in their row, not in a dialog.
   const [bagPick, setBagPick] = useState(false)
-  // Kantong pops in for a pointer; F6 shows it at once.
+  // Kantong pops in for a pointer; ⇧6 shows it at once.
   const bagEnter = useMemo(() => bagPick && viaPointer(), [bagPick])
   const bagRow = useRef<HTMLDivElement>(null)
-  // F2: the next scan or typed word is a price check — a tag is looked up, not
-  // sold. Left again by Escape, or by the one check it was for.
-  const [checking, setChecking] = useState(false)
+  // ⇧9, ⇧0, ⇧8 and ⇧2 turn the item list into Tunda, Struk or Cek; Esc
+  // steps back out of it. `working` is a Lanjutkan or a Return waiting on the
+  // node.
+  const [mode, setMode] = useState<ListMode | null>(null)
+  const [working, setWorking] = useState(false)
   // The line numpad − takes a unit off, picked with ↑ ↓ or a click; null is
   // "the newest", which is where a scan leaves it.
   const [pickedKey, setPickedKey] = useState<string | null>(null)
@@ -869,7 +974,7 @@ export function Till({
   // SKU column, no Warna/Ukuran split, a narrower Keterangan.
   const narrow = useNarrow()
   const [customerId, setCustomerId] = useState<string | null>(null)
-  // Who head office says the member is, from F5 or from registering one. Shown
+  // Who head office says the member is, from ⇧5 or from registering one. Shown
   // in the member row only while it is still the member on the sale; a card
   // scanned at the scan field names a number and has no name here.
   const [memberInfo, setMemberInfo] = useState<api.Member | null>(null)
@@ -886,8 +991,10 @@ export function Till({
     let alive = true
     void api.unmatchedProbe().then((reply) => {
       if (!alive) return
-      if (reply.ok) setUntaggedOk((was) => was ?? true)
-      else if (reply.status === 404 || reply.status === 405) setUntaggedOk((was) => was ?? false)
+      // The route is a relay to head office: a refusal from there (a 403 on
+      // the sync key, a 502) still says this node has it, and stock 0 sells.
+      if (reply.status === 404 || reply.status === 405) setUntaggedOk((was) => was ?? false)
+      else if (reply.ok || reply.status !== 0) setUntaggedOk((was) => was ?? true)
     })
     return () => {
       alive = false
@@ -923,26 +1030,23 @@ export function Till({
   // reads or picks the exact tag that goes, so the tag handed back is the tag
   // taken off — never whichever of them was scanned last.
   const [removing, setRemoving] = useState<string | null>(null)
+  // − Kurangi on a line of several: how many it becomes, asked in one dialog
+  // (Hari, 30 Oct 2026: "200 lalu dikurangi ke 20 … biar ga satu-satu").
+  const [lessOf, setLessOf] = useState<string | null>(null)
   const [check, setCheck] = useState<readonly api.CatalogRow[]>([])
-  // The matches are for selling (a search at the scan field), not for F2's
-  // read-only price check; and which of them ↑ ↓ points at.
+  // The matches are for selling (a search at the scan field); and which of
+  // them ↑ ↓ points at.
   const [checkSell, setCheckSell] = useState(false)
   const [checkAt, setCheckAt] = useState(0)
-  // F2 on a voucher: what head office says it is. Read-only — it never goes
-  // into the basket; the request counter drops an answer that came late.
-  const [voucher, setVoucher] = useState<api.VoucherCheck | null>(null)
-  const voucherAsk = useRef(0)
   const [quote, setQuote] = useState<Quote>(emptyQuote)
   const quoteRequest = useRef(0)
   const [sold, setSold] = useState<Sold | null>(null)
-  // Ctrl+P: the last sale this window completed.
-  const lastSoldId = useRef<string | null>(null)
   // What Transaksi selesai prints besides the node's receipt — the promotions by
   // name, the member and the points — kept as they were when the sale was rung:
   // the basket under the dialog is priced again until the next customer.
   const soldFor = useRef<{
     readonly id: string
-    readonly promos: readonly { readonly name: string; readonly cutMinor: number }[]
+    readonly promos: readonly Promo[]
     readonly bags: readonly { readonly name: string; readonly quantity: number; readonly priceMinor: number }[]
     readonly member: string | null
     readonly points: number
@@ -952,12 +1056,23 @@ export function Till({
       id: sold.id,
       promos: quote.promotions
         .filter((one) => one.applied && one.benefit_minor > 0)
-        .map((one) => ({ name: one.name, cutMinor: one.benefit_minor })),
+        .map((one) => {
+          // Which SKUs it took something off, so the struk can print it under
+          // those pieces. A coupon, or an offer on the whole sale, has none.
+          const bySku = new Map<string, number>()
+          if (!one.coupon_code)
+            for (const hit of one.line_benefits ?? []) {
+              const sku = quote.lines[hit.line]?.sku_code
+              if (sku && hit.benefit_minor > 0) bySku.set(sku, (bySku.get(sku) ?? 0) + hit.benefit_minor)
+            }
+          return { name: one.name, cutMinor: one.benefit_minor, bySku: [...bySku] }
+        }),
       // The node's receipt carries the goods alone; a bag is on the bill, so
       // the paper adds it as the line it is on the counter.
       bags: BAGS.flatMap((bag) => {
         const quantity = charges.filter((charge) => charge.description === bag.description).length
-        return quantity > 0 && bag.amount_minor > 0
+        // A free bag prints too, 1 x Rp 0 (Hari, 29 Oct 2026).
+        return quantity > 0
           ? [{ name: bagName(bag), quantity, priceMinor: bag.amount_minor }]
           : []
       }),
@@ -973,20 +1088,8 @@ export function Till({
   // This till's own configuration: its peripherals (the R3's check tag, the
   // receipt printer) and how it reaches its node.
   const { config: shell } = useNodeConfig()
-  // The last three receipts of this person's shift, for the column under the
-  // money, and which of them Ctrl+P / Print sends to the printer. Asked again
-  // after every sale (the sale itself, and the outbox emptying when the node
-  // takes it later) and on coming back from Return or Void, which change a
-  // receipt's status.
   const session = useSession()
   const seat = useSeat()
-  const [voidCount, setVoidCount] = useState(0)
-  const lastSales = useLastSales(
-    seat?.shift_id ?? null,
-    `${sold?.saleId ?? ""}|${outbox.unsent}|${where}|${voidCount}`,
-  )
-  // Ctrl+P prints this shift's latest receipt again; the status strip names it.
-  const pickedSale = lastSales?.[0] ?? null
 
   // Finance's payment methods, read once per sign-in (the till mounts after
   // the shift gate) and again whenever a shift is opened (`screens/shift.tsx`).
@@ -1018,7 +1121,7 @@ export function Till({
       // The generation first: a catalogue swapped during the walk then no
       // longer matches it, and the next look walks again.
       const state = await api.catalogueState()
-      const walked = await api.wholeCatalogue()
+      const walked = await api.takeCatalogue()
       if (!walked.ok) {
         bookKey.current = null
         setBookProblem(walked.problem)
@@ -1093,12 +1196,16 @@ export function Till({
     ...units.filter((unit) => !isUnknown(unit)).map((unit) => unit.sku_code),
     ...(ret?.back.map((one) => one.sku) ?? []),
   ])
-  const subOf = (sku: string) => {
+  // The division on its own, for the item card's "Divisi" line; the grid's
+  // second line is that name and the tags together.
+  const divisionOf = (sku: string) => {
     const division = bySku.get(sku)?.division_code
-    return [division ? divisionName(division) : "", (tagsOf.get(sku) ?? []).join(", ")]
+    return division ? divisionName(division) : ""
+  }
+  const subOf = (sku: string) =>
+    [divisionOf(sku), (tagsOf.get(sku) ?? []).join(", ")]
       .filter((word) => word !== "")
       .join(" · ")
-  }
 
   const booked = units.reduce((sum, unit) => sum + (unit.unitPriceMinor ?? 0), 0)
   const unpriced = units.some((unit) => unit.unitPriceMinor === null)
@@ -1159,18 +1266,15 @@ export function Till({
         units: Unit[]
         idTag: IdTag | null
         unknown: boolean
-        /// Return mode: the returned piece this line replaces.
-        repFor: number | undefined
       }
     >()
     for (const unit of units) {
       const idTag = idTagOf(unit, quote.labels)
-      const repFor = ret?.rep.get(unit.epc)
       const key = isUnknown(unit)
         ? `unknown:${unit.epc}`
         : `${unit.sku_code}|${unit.unitPriceMinor ?? "none"}${isUntagged(unit) ? "|u" : ""}${
             idTag === null ? "" : `|${idTag.text}`
-          }${repFor === undefined ? "" : `|r${repFor}`}`
+          }`
       const found = byKey.get(key)
       if (found === undefined) {
         byKey.set(key, {
@@ -1181,7 +1285,6 @@ export function Till({
           units: [unit],
           idTag,
           unknown: isUnknown(unit),
-          repFor,
         })
       } else {
         found.units.push(unit)
@@ -1189,15 +1292,6 @@ export function Till({
     }
     return [...byKey.values()]
   }, [units, quote.labels, ret])
-  // In Return mode each replacement sits right under the piece it replaces.
-  const shownGroups = useMemo(() => {
-    if (ret === null) return groups
-    const under = (at: number) => groups.filter((group) => group.repFor === at)
-    return [
-      ...ret.back.flatMap((_, at) => under(at)),
-      ...groups.filter((group) => group.repFor === undefined || group.repFor >= ret.back.length),
-    ]
-  }, [groups, ret])
   // The newest tag is marked, never animated: scans are scanner input, a
   // hundred a day, and the line just has to be where the eye lands.
   const newestEpc = units.length > 0 ? units[units.length - 1].epc : null
@@ -1439,45 +1533,12 @@ export function Till({
   /// masukin sku dong di search"): part of a name, or the SKU — whole, with or
   /// without its dot (00000001·104), or any part of it such as the 8-digit
   /// article code.
-  const matching = useCallback(
-    (text: string) => {
-      const needle = text.toLowerCase()
-      const digits = text.replace(/[·.\s-]/g, "")
-      const bySkuPart = /^\d{3,}$/.test(digits)
-      return rows.filter(
-        (row) =>
-          row.name.toLowerCase().includes(needle) ||
-          (bySkuPart && row.sku_code.includes(digits)),
-      )
-    },
-    [rows],
-  )
-  /// A whole SKU that is not in this store's book: said as such.
-  const notSold = (text: string) => {
-    const digits = text.replace(/[·.\s-]/g, "")
-    return /^\d{11}$/.test(digits)
-      ? `SKU ${skuText(digits)} tidak dijual di toko ini.`
-      : null
-  }
+  const matching = useCallback((text: string) => matchRows(rows, text), [rows])
 
   /// One piece of this SKU, sold as if its tag had been scanned (owner, 23 Oct
   /// 2026: a tag that will not read): a tag of it on the shop floor that is
   /// not already in this sale. What a node that predates unmatched sales gets.
   const typedEpcs = useRef(new Set<string>())
-  /// In Return mode a replacement goes under the returned piece picked now; with
-  /// none picked (-1) it is "Barang baru", under no piece at all.
-  const pairReplacement = useCallback((epcs: readonly string[], to?: number) => {
-    setRet((was) => {
-      if (was === null) return was
-      const rep = new Map(was.rep)
-      const at = to ?? was.sel
-      for (const epc of epcs) {
-        if (at < 0) rep.delete(epc)
-        else rep.set(epc, at)
-      }
-      return { ...was, rep }
-    })
-  }, [])
   const sellFromFloor = useCallback((row: api.CatalogRow) => {
     setCheck([])
     setCheckSell(false)
@@ -1503,7 +1564,6 @@ export function Till({
         return
       }
       typedEpcs.current.add(epc)
-      pairReplacement([epc])
       setUnits((was) =>
         was.some((unit) => unit.epc === epc)
           ? was
@@ -1518,12 +1578,11 @@ export function Till({
   /// some of it and "Luar toko" when it holds none — the node says which, and
   /// the sale goes through either way (docs/unmatched-sales-contract.md). A
   /// second piece of the same SKU is a second entry.
-  const sellNoTag = useCallback((row: api.CatalogRow, to?: number) => {
+  const sellNoTag = useCallback((row: api.CatalogRow) => {
     setCheck([])
     setCheckSell(false)
     setNote(null)
     const epc = `untagged:${newCheckoutId()}`
-    pairReplacement([epc], to)
     setUnits((was) => [
       ...was,
       {
@@ -1534,41 +1593,12 @@ export function Till({
         untagged: {},
       },
     ])
-  }, [pairReplacement])
+  }, [])
 
   /// A typed SKU, the way this shop's node takes it.
   const sellTyped = useCallback(
     (row: api.CatalogRow, many = 1) => {
-      // Return mode: a SKU this receipt sold without a tag, and not all of
-      // it back yet, is a piece coming back (owner, 25 Oct 2026: "yg penting
-      // tau skunya"). Anything else typed is a replacement, once something
-      // came back.
-      const r = retRef.current
-      if (r !== null) {
-        const open = r.receipt.untagged.get(row.sku_code) ?? 0
-        const picked = r.back.filter((one) => one.untagged === true && one.sku === row.sku_code).length
-        const take = Math.min(many, open - picked)
-        if (take > 0) {
-          const line = r.receipt.lines.find((one) => one.skuCode === row.sku_code)
-          const added = Array.from({ length: take }, () => ({
-            epc: `untagged-back:${crypto.randomUUID()}`,
-            sku: row.sku_code,
-            name: line?.name ?? row.name,
-            unitMinor: line?.unitMinor ?? row.unit_price_minor ?? 0,
-            untagged: true,
-          }))
-          setCheck([])
-          setCheckSell(false)
-          setRet({ ...r, back: [...r.back, ...added], sel: r.back.length })
-          setNote(null)
-          sound.read()
-          return
-        }
-        if (r.back.length === 0) {
-          setNote({ bad: true, text: "Scan dulu barang yang dikembalikan" })
-          return
-        }
-      }
+      // In Return mode a typed SKU is always a replacement.
       // Stock 0 sells too: the node takes the stock below zero (★ Stok minus).
       if (untaggedOkNow.current === true) {
         for (let n = 0; n < many; n += 1) sellNoTag(row)
@@ -1591,46 +1621,15 @@ export function Till({
         text = leading ? typedMany[2] : typedMany[1]
       }
       if (text === "") return "other"
-      setCheck([])
-      setCheckSell(false)
-      setVoucher(null)
-      voucherAsk.current += 1
-
-      // F2 asked "how much is this": a tag, a barcode or a name is looked up in
-      // the price book and nothing goes into the basket. Text that is no item
-      // but could be a voucher's code is asked of head office instead.
-      if (checking) {
-        setChecking(false)
-        const tag = readScan(text.replace(/·/g, ""))
-        const byTag =
-          tag.kind === "epc" || tag.kind === "sku" ? bySku.get(tag.sku_code) : undefined
-        const found = byTag !== undefined ? [byTag] : matching(text).slice(0, 8)
-        if (found.length > 0) {
-          setCheck(found)
-          setNote(null)
-        } else if (looksLikeVoucher(text)) {
-          const ask = voucherAsk.current
-          setNote({ bad: false, text: "Mengecek voucher…" })
-          void api.checkVoucher(text).then((reply) => {
-            if (ask !== voucherAsk.current) return
-            if (reply.ok && reply.body) {
-              setVoucher(reply.body)
-              setNote(null)
-            } else {
-              setNote({
-                bad: true,
-                text:
-                  reply.status === 404
-                    ? `Tidak ada barang atau voucher “${text}”.`
-                    : (reply.problem ?? "Kantor pusat tidak menjawab untuk voucher itu."),
-              })
-            }
-          })
-        } else {
-          setNote({ bad: true, text: notSold(text) ?? `Tidak ada yang cocok dengan “${text}”.` })
-        }
+      // Step 1 of a Return has no scan: the counts are set on the struk's list.
+      if (ret !== null && ret.step === "back") {
+        setNote({ bad: true, text: "Atur jumlah return dulu, lalu pilih pengganti" })
         return "other"
       }
+      // A scan is a sale: whatever list was open gives way to it.
+      setMode(null)
+      setCheck([])
+      setCheckSell(false)
 
       // Taking one off a line of several: the tag scanned is the tag that
       // goes, after the same second person every removal needs.
@@ -1687,36 +1686,10 @@ export function Till({
           return "already"
         }
         const row = bySku.get(scanned.sku_code)
-        if (ret !== null) {
-          // A tag this receipt sold is a piece coming back; any other tag is a
-          // replacement, under the returned piece picked now.
-          const epc = scanned.epc.toUpperCase()
-          const at = ret.receipt.lines.findIndex((line) => line.skuCode === scanned.sku_code)
-          const sold = ret.soldTags !== null ? ret.soldTags.has(epc) : at >= 0
-          if (at >= 0 && sold) {
-            if (ret.back.some((one) => one.epc === epc)) {
-              setNote({ bad: true, text: "Tag itu sudah dipilih" })
-              return "already"
-            }
-            const line = ret.receipt.lines[at]
-            if (ret.back.filter((one) => one.sku === line.skuCode).length >= line.quantity) {
-              setNote({ bad: true, text: `Semua ${line.name} di struk ini sudah dipilih` })
-              return "other"
-            }
-            setRet({
-              ...ret,
-              back: [...ret.back, { epc, sku: line.skuCode, name: line.name, unitMinor: line.unitMinor }],
-              sel: ret.back.length,
-            })
-            setNote(null)
-            sound.read()
-            return "added"
-          }
-          if (ret.back.length === 0) {
-            setNote({ bad: true, text: "Scan dulu barang yang dikembalikan" })
-            return "other"
-          }
-          pairReplacement([scanned.epc])
+        // Return mode scans replacements only; a tag the struk sold is not one.
+        if (ret !== null && ret.pieces.some((piece) => piece.epc === scanned.epc.toUpperCase())) {
+          setNote({ bad: true, text: "Itu tag dari struk yang dikembalikan, bukan pengganti" })
+          return "other"
         }
         setUnits((was) => [
           ...was,
@@ -1736,8 +1709,6 @@ export function Till({
       if (scanned.kind === "sku") {
         const row = bySku.get(scanned.sku_code)
         if (row !== undefined) {
-          // In Return mode `sellTyped` decides: a piece this receipt sold
-          // without a tag comes back; else, once one has, a replacement.
           sellTyped(row, many)
           return "other"
         }
@@ -1792,7 +1763,7 @@ export function Till({
       setNote({ bad: true, text: `“${text}” tidak ada di toko ini · minta barcode baru` })
       return "other"
     },
-    [bySku, matching, units, removing, checkTag, checking, coupons, customerId, charges, couponHolds, sellTyped, ret, pairReplacement],
+    [bySku, matching, units, removing, checkTag, coupons, customerId, charges, couponHolds, sellTyped, ret],
   )
 
   /// Read every garment on the R3's pad at once. Each of this shop's tags goes
@@ -1867,24 +1838,126 @@ export function Till({
     }
   }, [onScan, rfidBusy, removing, units])
 
+  // ── Tunda, as the item list draws it ──────────────────────────────────
+
+  /// The held sales — the node's, or this counter's own when the node keeps
+  /// none — with their pieces, who held them and when.
+  const heldRows = useMemo<readonly HeldRow[]>(() => {
+    const me = session.me
+    const myName = me?.display_name ?? me?.username ?? ""
+    if (heldOn === true) {
+      return nodeHeld.map((one) => {
+        const revived = reviveHeld(one.basket, one.id)
+        const at = Date.parse(one.held_at)
+        return {
+          id: one.id,
+          at: Number.isNaN(at) ? null : at,
+          time: hhmm(new Date(one.held_at)),
+          by: one.held_by_name,
+          mine: one.held_by !== undefined ? one.held_by === me?.username : one.held_by_name === myName,
+          pcs: one.pcs,
+          totalMinor: one.total_minor,
+          member: revived?.member?.display_name ?? null,
+          lines: heldLinesOf(revived?.units ?? []),
+        }
+      })
+    }
+    return held.map((one) => {
+      const at = one.heldAt === undefined ? Number.NaN : Date.parse(one.heldAt)
+      return {
+        id: one.id,
+        at: Number.isNaN(at) ? null : at,
+        time: one.at,
+        by: myName,
+        mine: true,
+        pcs: one.units.length,
+        totalMinor:
+          one.totalMinor ??
+          one.units.reduce((sum, unit) => sum + (unit.unitPriceMinor ?? 0), 0) +
+            (one.charges ?? []).reduce((sum, charge) => sum + charge.amount_minor, 0),
+        member: one.member?.display_name ?? null,
+        lines: heldLinesOf(one.units),
+      }
+    })
+  }, [heldOn, nodeHeld, held, session.me])
+  // A Tunda in its last five minutes counts down on the counter itself, not
+  // only inside ⇧9 (owner, 28 Oct 2026). One clock, one second, and only while
+  // one is counting down: the till is a big screen to redraw every second.
+  const [, setClock] = useState(0)
+  const approaching =
+    heldRows
+      .filter((one): one is HeldRow & { at: number } => one.at !== null)
+      .map((one) => ({ row: one, age: Date.now() - one.at }))
+      .filter((one) => one.age >= HOLD_WARN && one.age < HOLD_MAX)
+      .sort((a, b) => b.age - a.age)[0] ?? null
+  useEffect(() => {
+    if (approaching === null) return
+    const timer = window.setInterval(() => setClock((n) => n + 1), 1000)
+    return () => window.clearInterval(timer)
+  }, [approaching?.row.id])
+  // The Kepala toko opened a till that a Tunda past 30 minutes had locked, for
+  // that one sale. Her proof, unspent, waits in a ref for Lanjutkan (it is
+  // good for three minutes at the node); only a finger's grant is kept, never
+  // a password.
+  const [unlockedId, setUnlockedId] = useState<string | null>(null)
+  const unlockProof = useRef<{ id: string; supervisor: api.Supervisor; at: number } | null>(null)
+  useEffect(() => {
+    // Left alone — back to the list, or to the sale — the till is locked again.
+    if (unlockedId !== null && !(mode?.kind === "held" && mode.open === unlockedId)) {
+      setUnlockedId(null)
+      unlockProof.current = null
+    }
+  }, [mode, unlockedId])
+  // A Tunda is at most 30 minutes; the till locks the moment one is past them.
+  const [tick, wake] = useState(0)
+  const locked =
+    where === "sale" && sold === null
+      ? (heldRows.find((one) => heldOver(one, Date.now()) && unlockedId !== one.id) ?? null)
+      : null
+  useEffect(() => {
+    const now = Date.now()
+    const next = heldRows.flatMap((one) => {
+      if (one.at === null) return []
+      return [one.at + HOLD_WARN, one.at + HOLD_MAX].filter((mark) => mark > now)
+    })
+    if (next.length === 0) return
+    const timer = window.setTimeout(() => wake((n) => n + 1), Math.min(...next) - now + 50)
+    return () => window.clearTimeout(timer)
+  }, [heldRows, tick])
+
+  // The caret is in the scan field for everything but the lists that have a
+  // search of their own: Struk, until a receipt is open, and Cek.
+  const scanFocus =
+    mode === null || mode.kind === "held" || (mode.kind === "receipts" && mode.open !== null)
+
   // Back to the scan field whenever the counter is at rest — including after a
   // panel over it closes, so the next tag lands in the basket. With the bag
   // choices open the caret waits on the first of them instead, so Tab and Enter
-  // pick a bag without a mouse; F6 or Escape closes them and comes back here.
+  // pick a bag without a mouse; ⇧6 or Escape closes them and comes back here.
   useEffect(() => {
     if (
       where === "sale" &&
       sold === null &&
       panel === null &&
       !approval.open &&
-      !exchanging &&
-      !voiding &&
-      laci === null
+      laci === null &&
+      locked === null
     ) {
       if (bagPick) bagRow.current?.querySelector("button")?.focus()
-      else scan.current?.focus()
+      else if (scanFocus) scan.current?.focus()
+      else document.querySelector<HTMLInputElement>(".tilld .t-find input")?.focus()
     }
-  }, [where, sold, panel, approval.open, bagPick, exchanging, voiding, laci])
+  }, [where, sold, panel, approval.open, bagPick, laci, locked, scanFocus])
+
+  // Return step 1 has no scan field: the caret lives in the count of the line
+  // in focus, selected, so a number typed replaces it.
+  const backSel = ret !== null && ret.step === "back" ? ret.sel : -1
+  useEffect(() => {
+    if (backSel < 0 || where !== "sale" || sold !== null || panel !== null || approval.open || bagPick) return
+    const field = document.querySelector<HTMLInputElement>(`.tilld input[data-rq="${backSel}"]`)
+    field?.focus()
+    field?.select()
+  }, [backSel, where, sold, panel, approval.open, bagPick, ret?.step])
 
   /// Empty the counter. The coupon holds go back to head office unless the
   /// basket was SOLD — then the sale carries them, and head office commits
@@ -1908,6 +1981,7 @@ export function Till({
     }
     setCouponHolds([])
     couponAsks.current.clear()
+    setResumed(false)
     setUnits([])
     setCredit(null)
     setCoupons([])
@@ -1917,7 +1991,6 @@ export function Till({
     setPanel(null)
     setRemoving(null)
     setRet(null)
-    setAsked(false)
     setCheck([])
     setCheckSell(false)
     if (scan.current !== null) scan.current.value = ""
@@ -1970,11 +2043,10 @@ export function Till({
   const doKeyRaw: Record<KeyId, () => void> = {
     new: addPicked,
     remove: lessPicked,
-    void: () => setVoiding(true),
-    check: priceCheck,
+    check: () => (mode?.kind === "check" ? setMode(null) : openCheck()),
     drawer: () => setLaci((was) => (was === "menu" ? null : "menu")),
     close: () => void tryFinish(),
-    // F5 is Daftar member, the form straight away (24 Oct 2026); who a sale is
+    // ⇧5 is Daftar member, the form straight away (24 Oct 2026); who a sale is
     // for is asked at Bayar.
     member: () => setPanel("register"),
     bags: () => setBagPick((was) => !was),
@@ -1993,9 +2065,11 @@ export function Till({
         setNote({ bad: true, text: "Selesaikan atau tunda transaksi dulu, lalu Return." })
         return
       }
-      setExchanging(true)
+      openReceipts("return")
     },
     hold: openHeld,
+    receipts: () =>
+      mode?.kind === "receipts" && mode.purpose === "view" ? setMode(null) : openReceipts("view"),
     pay: () => pay(),
   }
   // A status line is about the last thing done: the next key clears it
@@ -2014,16 +2088,16 @@ export function Till({
   const overlayOpen =
     panel !== null ||
     approval.open ||
-    exchanging ||
-    voiding ||
     laci !== null ||
     bagPick ||
+    locked !== null ||
     where !== "sale" ||
     sold !== null
+  // Nothing is drawn over the list: its own keys (`list-keys.ts`) answer.
+  const listLive = !overlayOpen && removing === null
   const leavePanel = () => {
     setPanel(null)
     setRemoving(null)
-    setChecking(false)
     setBagPick(false)
     setLaci(null)
     scan.current?.focus()
@@ -2034,20 +2108,16 @@ export function Till({
           Escape: leavePanel,
         }
       : {
-          F1: doKey.void,
-          F2: doKey.check,
-          F3: doKey.drawer,
-          F4: doKey.close,
-          F5: doKey.member,
-          "shift+F5": doKey.member,
-          F6: doKey.bags,
-          F7: doKey.cancel,
-          F8: doKey.return,
-          F9: doKey.hold,
-          F12: doKey.pay,
+          [CHECK_KEY[1]]: doKey.check,
+          [DRAWER_KEY[1]]: doKey.drawer,
+          [CLOSE_KEY[1]]: doKey.close,
+          [MEMBER_KEY[1]]: doKey.member,
+          [BAGS_KEY[1]]: doKey.bags,
+          [CANCEL_KEY[1]]: doKey.cancel,
+          [RETURN_KEY[1]]: doKey.return,
+          [HOLD_KEY[1]]: doKey.hold,
           NumpadAdd: doKey.new,
           NumpadSubtract: doKey.remove,
-          "ctrl+p": () => void reprintPicked(),
           "ctrl+l": onLock,
           ...(onMenu !== undefined ? { "ctrl+m": onMenu } : {}),
           Escape: leavePanel,
@@ -2055,16 +2125,16 @@ export function Till({
     where === "sale" &&
       sold === null &&
       !approval.open &&
-      !exchanging &&
-      !voiding &&
-      laci === null,
+      laci === null &&
+      locked === null,
   )
 
   /// Payment, only on the node's answer for exactly this basket (`quoteReady`).
   /// Pressed early, it says what it is waiting for instead.
   function pay() {
     if (ret !== null) {
-      finishReturn()
+      if (ret.step === "back") nextStep()
+      else finishReturn()
       return
     }
     if (units.length === 0) return
@@ -2084,77 +2154,113 @@ export function Till({
   /// One key per attempt: a retry of the same return is the same return.
   const returnAttempt = useRef<{ shape: string; key: string } | null>(null)
 
-  /// Return's button — "Bayar selisih" / "Selesaikan return": the Kepala
-  /// toko's finger records the pieces that came back, and what came back pays
-  /// for the replacements in Bayar (nothing to pay: it settles at once).
+  /// The exchange, in one call (`POST /store/returns`): the pieces that came
+  /// back, the replacements and the tenders for the difference of a dearer
+  /// replacement. The Kepala toko's finger is asked here and spent there.
+  /// Nothing is paid out whatever the pieces were worth; what a cheaper or
+  /// missing replacement leaves is forfeited.
+  function runExchange(tenders: readonly api.SaleTender[]): Promise<ExchangeOutcome> {
+    return new Promise((resolve) => {
+      if (ret === null || ret.back.length === 0) {
+        resolve({ ok: false, problem: "Scan dulu barang yang dikembalikan" })
+        return
+      }
+      const sent = wireOf(units)
+      const receipt = ret.receipt
+      const returnedEpcs = ret.back.filter((one) => one.untagged !== true).map((one) => one.epc)
+      const returnedSkus = ret.back.filter((one) => one.untagged === true).map((one) => one.sku)
+      const shape = JSON.stringify([receipt.saleId, returnedEpcs, returnedSkus, sent.epcs, sent.untagged, tenders])
+      if (returnAttempt.current?.shape !== shape) {
+        returnAttempt.current = { shape, key: crypto.randomUUID() }
+      }
+      const key = returnAttempt.current.key
+      const backPcs = ret.back.length
+      const addPcs = sent.epcs.length + sent.untagged.length
+      let result: api.ExchangeResult | null = null
+      // Next tick: the sheet treats Enter as a press on the sensor, and the
+      // Enter that asked must not be that press.
+      window.setTimeout(
+        () =>
+          approval.ask({
+            action: "EDIT_CART",
+            title: "Return",
+            detail: `Return ${backPcs} → ${addPcs} barang · ${receipt.receiptNo}`,
+            perform: async (supervisor) => {
+              const reply = await api.exchange({
+                sale_id: receipt.saleId,
+                returned_epcs: returnedEpcs,
+                returned_skus: returnedSkus,
+                replacement_epcs: sent.epcs,
+                replacement_untagged: sent.untagged,
+                tenders,
+                reason: addPcs === 0 ? "Return tanpa pengganti" : "Return → tukar barang",
+                supervisor,
+                idempotency_key: key,
+              })
+              if (!reply.ok || reply.body === undefined) {
+                return reply.problem ?? `Server toko menolak (${reply.status})`
+              }
+              result = reply.body
+              return null
+            },
+            onApproved: () => {
+              if (result === null) {
+                resolve({ ok: false, problem: "Return belum tercatat" })
+                return
+              }
+              resolve({
+                ok: true,
+                saleId: result.sale_id,
+                receiptNo: result.receipt_no,
+                changeMinor: result.change_minor,
+                forfeitMinor: result.unused_credit_minor,
+              })
+            },
+            onCancel: () => resolve({ ok: false, problem: "", cancelled: true }),
+          }),
+        0,
+      )
+    })
+  }
+
+  /// Return's button — "Bayar selisih" / "Selesaikan return". With replacements
+  /// Bayar takes the difference first and the exchange is recorded with it
+  /// (`runExchange` from Bayar). With none, or a cheaper one, there is nothing
+  /// to pay: the head's finger records it at once and what is left is
+  /// forfeited ("Sisa … hangus · tidak diuangkan").
   function finishReturn() {
-    if (ret === null || ret.back.length === 0 || units.length === 0) return
-    if (credit !== null) {
-      // Already recorded at the node (Bayar was left with Esc): on to the money.
+    if (ret === null || ret.back.length === 0) return
+    if (units.length > 0) {
+      if (!quoteReady) {
+        setNote({ bad: true, text: quoteNote ?? "Menghitung…" })
+        return
+      }
+      setCredit({
+        capMinor: ret.back.reduce((sum, one) => sum + one.unitMinor, 0),
+        receiptNo: ret.receipt.receiptNo,
+      })
       onGo("payment")
       return
     }
-    if (!quoteReady) {
-      setNote({ bad: true, text: quoteNote ?? "Menghitung…" })
-      return
-    }
-    const tags = ret.back.map((one) => one.epc)
-    // A piece sold without a tag goes by its SKU (owner, 25 Oct 2026).
-    const lines: api.ReturnLine[] = ret.back.map((one) =>
-      one.untagged === true
-        ? { epc: "", sku_code: one.sku, disposition: "RESALEABLE" }
-        : { epc: one.epc, disposition: "RESALEABLE" },
-    )
-    const receipt = ret.receipt
-    const backMinor = ret.back.reduce((sum, one) => sum + one.unitMinor, 0)
-    const shape = JSON.stringify([receipt.saleId, tags])
-    if (returnAttempt.current?.shape !== shape) {
-      returnAttempt.current = { shape, key: crypto.randomUUID() }
-    }
-    const key = returnAttempt.current.key
-    const backPcs = ret.back.length
-    const addPcs = units.length
-    let given: ExchangeCredit | null = null
-    // Next tick: the sheet treats Enter as a press on the sensor, and the
-    // Enter that asked must not be that press.
-    window.setTimeout(
-      () =>
-        approval.ask({
-          action: "EDIT_CART",
-          title: "Return",
-          detail: `Return ${backPcs} → ${addPcs} barang · ${receipt.receiptNo}`,
-          perform: async (supervisor) => {
-            const method = await creditMethod()
-            const reply = await api.returnSale({
-              sale_id: receipt.saleId,
-              lines,
-              refund_method: method,
-              refund_reference: referenceFor(receipt.receiptNo),
-              reason: "Return → tukar barang",
-              supervisor,
-              actor_id: actorId,
-              idempotency_key: key,
-            })
-            if (!reply.ok) return reply.problem ?? `Server toko menolak (${reply.status})`
-            given = {
-              method,
-              capMinor: asCount(asMap(reply.body)?.refund_minor) ?? backMinor,
-              reference: referenceFor(receipt.receiptNo),
-              receiptNo: receipt.receiptNo,
-            }
-            return null
-          },
-          onApproved: () => {
-            if (given === null) return
-            setCredit(given)
-            onGo("payment")
-          },
-        }),
-      0,
-    )
+    void runExchange([]).then((done) => {
+      if (!done.ok) {
+        if (!done.cancelled) setNote({ bad: true, text: done.problem })
+        return
+      }
+      clearBasket()
+      setNote({
+        bad: false,
+        text: `Return ${done.receiptNo} selesai`,
+      })
+      // The return's own struk, by its number: it has no sale id.
+      void sendReceiptNo(shell, done.receiptNo).then((printed) => {
+        if (printed !== null && !printed.ok) setNote({ bad: true, text: printed.text })
+      })
+      scan.current?.focus()
+    })
   }
 
-  /// F7 in Return mode: back to an empty counter — unless the pieces are
+  /// ⇧7 in Return mode: back to an empty counter — unless the pieces are
   /// already recorded at the node, then the money still has to be settled.
   function cancelReturn() {
     if (credit !== null) {
@@ -2219,34 +2325,16 @@ export function Till({
   }, [where, refreshHeld])
   const heldCount = heldOn === true ? nodeHeld.length : held.length
 
-  const heldRows: readonly HeldRow[] =
-    heldOn === true
-      ? nodeHeld.map((one) => {
-          const revived = reviveHeld(one.basket, one.id)
-          return {
-            id: one.id,
-            time: hhmm(new Date(one.held_at)),
-            by: one.held_by_name,
-            pcs: one.pcs,
-            totalMinor: one.total_minor,
-            member: revived?.member?.display_name ?? null,
-          }
-        })
-      : held.map((one) => ({
-          id: one.id,
-          time: one.at,
-          by: session.me?.display_name ?? session.me?.username ?? "",
-          pcs: one.units.length,
-          totalMinor:
-            one.totalMinor ??
-            one.units.reduce((sum, unit) => sum + (unit.unitPriceMinor ?? 0), 0) +
-              (one.charges ?? []).reduce((sum, charge) => sum + charge.amount_minor, 0),
-          member: one.member?.display_name ?? null,
-        }))
-
   /// Park the basket: on the node when it keeps them, else on this counter.
   /// True when it is parked and the counter is empty.
   async function holdBasket(): Promise<boolean> {
+    if (resumed) {
+      setNote({
+        bad: true,
+        text: "Tunda yang dilanjutkan harus diselesaikan atau dibatalkan dulu.",
+      })
+      return false
+    }
     if (units.length === 0) return false
     const basket = {
       units,
@@ -2277,7 +2365,13 @@ export function Till({
     }
     setHeld((was) => [
       ...was,
-      { id: crypto.randomUUID(), ...basket, at: hhmm(new Date()), totalMinor: total },
+      {
+        id: crypto.randomUUID(),
+        ...basket,
+        at: hhmm(new Date()),
+        heldAt: new Date().toISOString(),
+        totalMinor: total,
+      },
     ])
     forgetPayment()
     clearBasket()
@@ -2286,26 +2380,23 @@ export function Till({
 
   /// Bring a held basket back onto the counter. What is on it now is parked
   /// first (prototype `resumeHeld`); what was typed into Bayar is not kept.
-  async function resumeHeld(id: string) {
-    if (ret !== null) {
-      setNote({ bad: true, text: "Return tidak bisa ditunda." })
-      return
+  /// Answers the node's refusal in its own words, or null once the basket is
+  /// back — `supervisor` is the Kepala toko's finger, needed for a Tunda that
+  /// is somebody else's.
+  async function resumeHeld(id: string, supervisor?: api.Supervisor): Promise<string | null> {
+    if (ret !== null) return "Return tidak bisa ditunda."
+    if (resumed && units.length > 0) {
+      return "Tunda yang dilanjutkan harus diselesaikan atau dibatalkan dulu."
     }
-    if (units.length > 0 && !(await holdBasket())) return
+    if (units.length > 0 && !(await holdBasket())) return null
     let found: Held | null = null
     if (heldOnNow.current === true) {
-      const reply = await api.resumeHeldSale(id)
+      const reply = await api.resumeHeldSale(id, supervisor)
       if (!reply.ok) {
-        setPanel(null)
-        setNote({
-          bad: true,
-          text:
-            reply.status === 404 || reply.status === 409
-              ? "Transaksi tunda itu sudah tidak ada."
-              : (reply.problem ?? "Server toko tidak menjawab."),
-        })
         void refreshHeld()
-        return
+        return reply.status === 404 || reply.status === 409
+          ? "Transaksi tunda itu sudah tidak ada."
+          : (reply.problem ?? "Server toko tidak menjawab.")
       }
       found = reviveHeld(reply.body?.basket, id)
       void refreshHeld()
@@ -2313,7 +2404,7 @@ export function Till({
       found = held.find((one) => one.id === id) ?? null
       if (found !== null) setHeld((was) => was.filter((one) => one.id !== id))
     }
-    if (found === null) return
+    if (found === null) return null
     forgetPayment()
     setUnits(found.units)
     setCoupons(found.coupons)
@@ -2321,51 +2412,240 @@ export function Till({
     setCharges(found.charges ?? [])
     if (found.member) setMemberInfo(found.member)
     setPanel(null)
-    setAsked(found.customerId !== null)
+    setMode(null)
     setNote({ bad: false, text: "Transaksi dilanjutkan" })
+    setResumed(true)
+    scan.current?.focus()
+    return null
   }
 
-  /// Hapus: the Kepala toko's finger.
-  function dropHeld(id: string) {
-    const row = heldRows.find((one) => one.id === id)
-    if (row === undefined) return
-    setPanel(null)
-    const reopen = () => {
-      void refreshHeld().then((count) => count !== 0 && setPanel("hold"))
+  /// Lanjutkan. The person who held the sale takes it up; for anyone else it
+  /// is the Kepala toko's finger — the one that opened the locked till, while
+  /// it is still good, or a new one.
+  async function continueHeld(row: HeldRow) {
+    const proof = unlockProof.current !== null && unlockProof.current.id === row.id ? unlockProof.current : null
+    if (!row.mine && (proof === null || Date.now() - proof.at >= UNLOCK_GOOD_FOR)) {
+      approval.ask({
+        action: "EDIT_CART",
+        title: "Lanjutkan tunda",
+        detail: `${row.by} · ${row.pcs} pcs · ditunda ${row.time}`,
+        amountMinor: row.totalMinor,
+        perform: (supervisor) => resumeHeld(row.id, supervisor),
+        onApproved: () => undefined,
+      })
+      return
+    }
+    // Spent here whatever comes of it: a grant is good for one action.
+    unlockProof.current = null
+    setWorking(true)
+    const problem = await resumeHeld(row.id, row.mine ? undefined : proof?.supervisor)
+    setWorking(false)
+    if (problem !== null) setNote({ bad: true, text: problem })
+  }
+
+  /// Buka · kepala toko: the finger that opens a till locked by a Tunda past 30
+  /// minutes. It opens it for that sale only, and the sale is shown at once.
+  function unlockFor(row: HeldRow) {
+    approval.ask({
+      action: "EDIT_CART",
+      title: "Buka kasir terkunci",
+      detail: `Tunda ${row.by} · ${row.time} · ${money(row.totalMinor, currency)} lewat ${HOLD_MINUTES} menit`,
+      perform: async (supervisor) => {
+        unlockProof.current =
+          supervisor.authorization === undefined || supervisor.authorization === null
+            ? null
+            : {
+                id: row.id,
+                supervisor: { username: supervisor.username, authorization: supervisor.authorization },
+                at: Date.now(),
+              }
+        return null
+      },
+      onApproved: () => {
+        setUnlockedId(row.id)
+        showList({ kind: "held", open: row.id })
+        setNote({ bad: false, text: "Selesaikan tunda ini dulu — lanjutkan & bayar, atau tutup tunda." })
+      },
+    })
+  }
+
+  /// Tutup tunda, once the Kepala toko has ticked every piece: her finger closes
+  /// it, and the node is told which pieces she checked.
+  function closeHeld(row: HeldRow) {
+    const bySku = new Map<string, number>()
+    for (const line of row.lines) bySku.set(line.sku, (bySku.get(line.sku) ?? 0) + line.quantity)
+    const checked = [...bySku].map(([sku, quantity]) => ({ sku, quantity }))
+    const done = () => {
+      setMode((was) =>
+        was !== null && was.kind === "held" ? (heldRows.length > 1 ? { kind: "held", open: null } : null) : was,
+      )
+      setNote({
+        bad: false,
+        text: `Tunda ditutup — ${row.pcs} pcs · ${money(row.totalMinor, currency)} · barang dicek supervisor`,
+      })
+      void refreshHeld()
     }
     approval.ask({
       action: "DROP_HOLD",
-      title: "Hapus transaksi tunda",
+      title: "Tutup tunda",
       detail: `${row.pcs} pcs · ditunda ${row.time}`,
       amountMinor: row.totalMinor,
       ...(heldOnNow.current === true
         ? {
             perform: async (supervisor: api.Supervisor) => {
-              const reply = await api.dropHeldSale(id, supervisor)
-              return reply.ok ? null : (reply.problem ?? "Server toko menolak menghapus.")
+              const reply = await api.dropHeldSale(row.id, supervisor, checked)
+              return reply.ok ? null : (reply.problem ?? "Server toko menolak menutup tunda.")
             },
-            onApproved: reopen,
+            onApproved: done,
           }
         : {
             onApproved: () => {
-              setHeld((was) => was.filter((one) => one.id !== id))
-              setPanel(held.length > 1 ? "hold" : null)
+              setHeld((was) => was.filter((one) => one.id !== row.id))
+              done()
             },
           }),
     })
   }
 
-  /// F9: the day's held sales; any cashier continues one.
+  /// Show a list in place of the sale. Whatever was half done over the list
+  /// is put away first.
+  function showList(next: ListMode) {
+    setBagPick(false)
+    setRemoving(null)
+    setCheck([])
+    setCheckSell(false)
+    setMode(next)
+  }
+
+  /// One step back out of a list: from what is open to the list, from the list
+  /// to the sale.
+  function listBack() {
+    setMode((was) => {
+      if (was === null) return was
+      if ((was.kind === "held" || was.kind === "receipts") && was.open !== null) return { ...was, open: null }
+      return null
+    })
+    scan.current?.focus()
+  }
+
+  /// ⇧9: the day's held sales, any cashier's.
   function openHeld() {
     if (ret !== null) {
       setNote({ bad: true, text: "Return tidak bisa ditunda." })
       return
     }
+    // Shift+9 on the counter parks the basket in it, as Bayar's Tunda does
+    // (Hari, 30 Oct 2026: "Tunda ada di depan juga"); with nothing on the
+    // counter it lists what is waiting.
+    if (units.length > 0 && mode?.kind !== "held" && credit === null && !resumed) {
+      void holdBasket().then((done) => {
+        if (done) setNote({ bad: false, text: "Transaksi ditunda" })
+      })
+      return
+    }
+    if (mode?.kind === "held") {
+      setMode(null)
+      return
+    }
     if (heldCount === 0) return
-    setPanel("hold")
+    void refreshHeld()
+    showList({ kind: "held", open: null })
   }
 
-  /// F4: closing waits for held sales, and for a basket (prototype `keyAct`).
+  /// ⇧0, and ⇧8 to return one: a struk is found by its whole number only.
+  function openReceipts(purpose: ReceiptPurpose) {
+    showList({ kind: "receipts", purpose, open: null })
+  }
+
+  /// ⇧2: what an article costs and how many there are, or what a voucher or a
+  /// member card holds.
+  function openCheck() {
+    showList({ kind: "check" })
+  }
+
+  /// Return on an open receipt: the sale screen, in Return mode, for it.
+  async function returnReceipt(row: api.ReceiptLookup) {
+    if (ret !== null || units.length > 0) {
+      setNote({ bad: true, text: "Selesaikan atau tunda transaksi dulu, lalu Return." })
+      return
+    }
+    // A struk that is itself a return never comes back again, and the node says
+    // why a struk cannot be returned (client, 28 Oct 2026).
+    const loaded = returnFrom(row)
+    if (typeof loaded === "string") {
+      setNote({ bad: true, text: loaded })
+      return
+    }
+    setMode(null)
+    setRet({
+      receipt: loaded.receipt,
+      soldTags: loaded.soldTags,
+      pieces: loaded.pieces,
+      step: "back",
+      qty: {},
+      back: [],
+      sel: 0,
+    })
+    setNote(null)
+  }
+
+  /// Step 1: how many of a receipt line come back (owner, 30 Oct 2026). The
+  /// pieces are the first still-returnable ones of that line on the struk.
+  function setBackQty(sku: string, count: number) {
+    setRet((was) => {
+      if (was === null) return was
+      const cap = returnable(was.pieces, sku)
+      const qty = { ...was.qty, [sku]: Math.max(0, Math.min(cap, Number.isFinite(count) ? count : 0)) }
+      return { ...was, qty, back: piecesBack(was.receipt, was.pieces, qty) }
+    })
+  }
+
+  /// Step 1 to 2: only with something coming back.
+  function nextStep() {
+    if (ret === null || ret.back.length === 0) return
+    setRet({ ...ret, step: "new" })
+    setNote(null)
+    window.setTimeout(() => scan.current?.focus(), 0)
+  }
+
+  /// Step 2 to 1: the replacements stay; the counts can change.
+  function backStep() {
+    if (ret === null) return
+    setRet({ ...ret, step: "back" })
+    setNote(null)
+    if (scan.current !== null) scan.current.value = ""
+  }
+
+  /// Step 1: a line picked puts the caret in its count, selected.
+  function pickLine(at: number) {
+    setRet((was) => (was === null || was.sel === at ? was : { ...was, sel: at }))
+    const field = document.querySelector<HTMLInputElement>(`.tilld input[data-rq="${at}"]`)
+    field?.focus()
+    field?.select()
+  }
+
+  /// Step 1 keys, on the count in focus or on any of its buttons: ↑ ↓ move
+  /// between lines, + and − change the count, Enter goes on.
+  function backKey(event: React.KeyboardEvent, at: number) {
+    if (ret === null) return
+    const line = ret.receipt.lines[at]
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault()
+      const to = Math.max(0, Math.min(ret.receipt.lines.length - 1, at + (event.key === "ArrowDown" ? 1 : -1)))
+      setRet((was) => (was === null ? was : { ...was, sel: to }))
+    } else if (event.key === "+" || event.key === "=") {
+      event.preventDefault()
+      setBackQty(line.skuCode, (ret.qty[line.skuCode] ?? 0) + 1)
+    } else if (event.key === "-" || event.key === "−") {
+      event.preventDefault()
+      setBackQty(line.skuCode, (ret.qty[line.skuCode] ?? 0) - 1)
+    } else if (event.key === "Enter") {
+      event.preventDefault()
+      nextStep()
+    }
+  }
+
+  /// ⇧4: closing waits for held sales, and for a basket (prototype `keyAct`).
   async function tryFinish() {
     if (units.length > 0 || ret !== null) {
       setNote({ bad: true, text: "Selesaikan atau tunda transaksi dulu" })
@@ -2374,22 +2654,10 @@ export function Till({
     const count = heldOnNow.current === true ? await refreshHeld() : held.length
     if (count > 0) {
       setNote({ bad: true, text: `Masih ada ${count} transaksi tunda` })
-      setPanel("hold")
+      showList({ kind: "held", open: null })
       return
     }
     onGo("finish")
-  }
-
-  /// F2: the next scan or typed word is looked up, not sold.
-  function priceCheck() {
-    setChecking(true)
-    setRemoving(null)
-    setBagPick(false)
-    setCheck([])
-    setVoucher(null)
-    voucherAsk.current += 1
-    setNote(null)
-    scan.current?.focus()
   }
 
   /// A member found at head office, or one just registered, joins the sale.
@@ -2400,7 +2668,7 @@ export function Till({
     if (registered) setNote({ bad: false, text: "Member terdaftar" })
   }
 
-  /// F3. Only the desktop shell could ever open a drawer, and today a drawer is
+  /// ⇧3. Only the desktop shell could ever open a drawer, and today a drawer is
   /// opened by the receipt printer with a sale — the shell says so itself.
   function openDrawer() {
     if (isWeb) {
@@ -2437,7 +2705,7 @@ export function Till({
         groups.find((group) => group.units.some((unit) => unit.epc === newestEpc)) ??
         null)
   const pickedLineKey = pickedBag !== null ? bagKey(pickedBag) : (pickedGroup?.key ?? null)
-  const lineKeys = [...shownGroups.map((group) => group.key), ...addedBags.map(bagKey)]
+  const lineKeys = [...groups.map((group) => group.key), ...addedBags.map(bagKey)]
   // The item card follows its line: if the line is gone (its last piece came
   // off), the card goes with it rather than leaving the counter blocked.
   const itemKey = panel !== null && typeof panel === "object" && "item" in panel ? panel.item : null
@@ -2461,6 +2729,11 @@ export function Till({
   /// the label — the store's tag count is the reader's business — or one more
   /// bag.
   function addPicked() {
+    if (ret !== null && ret.step === "back") {
+      const line = ret.receipt.lines[ret.sel]
+      if (line !== undefined) setBackQty(line.skuCode, (ret.qty[line.skuCode] ?? 0) + 1)
+      return
+    }
     if (pickedBag !== null) {
       bagOne(pickedBag)
       return
@@ -2477,25 +2750,51 @@ export function Till({
     }
     // A returned piece's replacement gets another under the same piece; a
     // "Barang baru" gets another loose one.
-    sellNoTag(row, pickedGroup.repFor ?? -1)
+    sellNoTag(row)
   }
 
-  /// Kurangi (numpad −): one piece off the picked line, with the Kepala
-  /// toko's finger.
+  /// Kurangi (numpad −): how many the picked line becomes, in one dialog.
+  ///
+  /// No finger to reduce (Hari, 30 Oct 2026: "Tambah kurang gaperlu sidik
+  /// jari"); down to nothing, the line leaving the sale, still waits for the
+  /// Kepala toko's or an Admin's.
   function lessPicked() {
+    if (ret !== null && ret.step === "back") {
+      const line = ret.receipt.lines[ret.sel]
+      if (line !== undefined) setBackQty(line.skuCode, (ret.qty[line.skuCode] ?? 0) - 1)
+      return
+    }
     if (pickedBag !== null) {
       bagLess(pickedBag)
       return
     }
     if (pickedGroup === null) return
-    // Every piece taken off waits for the Kepala toko's or an Admin's finger,
-    // a typed piece too (owner, 25 Oct 2026).
-    const loose = pickedGroup.units.filter(isUntagged)
-    if (pickedGroup.units.length > 1 && loose.length > 0) {
-      askRemove(loose.slice(-1))
+    if (pickedGroup.units.length === 1) {
+      askRemove(pickedGroup.units)
       return
     }
-    removeFromLine(pickedGroup.sku, pickedGroup.units)
+    setLessOf(pickedGroup.key)
+  }
+
+  /// Take a line down to `keep` pieces: typed pieces go first, then the tags
+  /// added last.
+  function lessTo(groupKey: string, keep: number) {
+    const group = groups.find((one) => one.key === groupKey)
+    setLessOf(null)
+    scan.current?.focus()
+    if (group === undefined) return
+    const take = group.units.length - keep
+    if (take <= 0) return
+    const order = [
+      ...group.units.filter(isUntagged).reverse(),
+      ...group.units.filter((unit) => !isUntagged(unit)).reverse(),
+    ]
+    const gone = new Set(order.slice(0, take).map((unit) => unit.epc))
+    setUnits((was) => was.filter((one) => !gone.has(one.epc)))
+    setNote({
+      bad: false,
+      text: `${unitName(group.units[0])}: ${group.units.length} → ${keep}`,
+    })
   }
 
   /// Batalkan transaksi: the whole basket goes once the Kepala toko or an
@@ -2512,28 +2811,6 @@ export function Till({
         clearBasket()
       },
     })
-  }
-
-  /// Ctrl+P / Print: this shift's picked receipt again, stamped as a copy.
-  async function reprintPicked() {
-    // The last sale this session completed, else the shift's latest.
-    const mine = lastSoldId.current
-    const saleId = mine ?? pickedSale?.sale_id ?? null
-    if (saleId === null) {
-      setNote({ bad: true, text: "Belum ada struk untuk dicetak." })
-      return
-    }
-    const receiptNo =
-      lastSales?.find((one) => one.sale_id === saleId)?.receipt_no ?? (mine === null ? null : "Struk terakhir")
-    const sent = await sendReceipt(shell, saleId, true)
-    setNote(
-      sent === null
-        ? {
-            bad: true,
-            text: receiptTarget(shell).why ?? "Belum ada printer struk untuk kasir ini.",
-          }
-        : { bad: !sent.ok, text: `${receiptNo ?? "Struk"}: ${sent.text}` },
-    )
   }
 
   /// Taking units off needs a second person, and names each tag it takes off:
@@ -2600,22 +2877,28 @@ export function Till({
   // what is left to pay.
   const retBack = ret === null ? 0 : ret.back.reduce((sum, one) => sum + one.unitMinor, 0)
   const shownTotal = ret === null ? total : Math.max(0, total - retBack)
-  const payEnabled = ret === null ? quoteReady : quoteReady && ret.back.length > 0
+  // A return needs a piece back; the replacements are optional, and with none
+  // there is nothing to price.
+  const payEnabled =
+    ret === null ? quoteReady : ret.back.length > 0 && (units.length === 0 || quoteReady)
   const totalFigure = figureOf(shownTotal, currency)
+  // Return step 1: what the counts come to.
+  const backFigure = figureOf(retBack, currency)
   // The node's own words when the figure is not its answer for this basket —
   // above the scan field. "Menghitung…" is a moment, not a problem: it rides in
   // the total's label instead, so the page does not jump on every scan.
   const quoteProblemNote = quoteNote !== null && quoteNote !== "Menghitung…" ? quoteNote : null
-  // Return mode, the footer's chip: how many replacements sit under a returned
-  // piece, and how many are "Barang baru".
-  const replacing =
-    ret === null
-      ? 0
-      : units.filter((unit) => {
-          const at = ret.rep.get(unit.epc)
-          return at !== undefined && at < ret.back.length
-        }).length
-  const freshOnes = units.length - replacing
+  // The articles the node says may not come back (its flag per article, set at
+  // head office; underwear is one of them): said to the shopper at Bayar as
+  // "SKU NAME tidak bisa ditukar" (Hari, 30 Oct 2026).
+  const finalSkus = new Set(quote.lines.filter((line) => line.exchangeable === false).map((line) => line.sku_code))
+  const noExchange = [
+    ...new Set(
+      units
+        .filter((unit) => finalSkus.has(unit.sku_code))
+        .map((unit) => unit.name ?? skuText(unit.sku_code)),
+    ),
+  ]
   // A line the node gives away (a "buy two, one free" grant) wears a tag.
   const freeSkus = new Set(quote.grantedLines.map((line) => line.sku_code))
   // A markdown is the one discount a line itself carries: the book's normal
@@ -2773,8 +3056,8 @@ export function Till({
     /// Under the name: "Pria · Koko, Lebaran", the division then the tags. A
     /// bag has none.
     readonly sub?: string
-    /// Return mode: "↳" before the name of a replacement.
-    readonly arrow?: boolean
+    /// Return step 2: the line is a replacement, tagged "Pengganti".
+    readonly replacement?: boolean
     readonly quantity: number
     /// Null: the article has no price on this shop's book.
     readonly price: string | null
@@ -2788,7 +3071,6 @@ export function Till({
     readonly free?: { readonly count: number; readonly value: number; readonly epcs: readonly string[] } | null
     /// Return mode: where this line goes ("ganti <barang> ▾", "Barang baru ▾"),
     /// and what ▾ does about it.
-    readonly pair?: { readonly label: string; readonly onCycle: () => void } | null
     readonly removeLabel: string
     readonly onRemove: () => void
     /// An article line wears its photograph (a plain square without one); a
@@ -2810,8 +3092,11 @@ export function Till({
         ref={picked ? pickedRow : undefined}
         onClick={() => {
           setPickedKey(line.key)
-          // Picking a line leaves the caret where the next scan goes.
-          scan.current?.focus()
+          // Every article opens its card, not just the photo and the name: the
+          // whole row is the way in (Hari, 30 Oct 2026). A bag has no article
+          // behind it, so it only picks, with the caret left on the scan field.
+          if (line.photoSku !== undefined) setPanel({ item: line.key })
+          else scan.current?.focus()
         }}
       >
         {!narrow && <td className="mute num">{line.sku}</td>}
@@ -2834,7 +3119,6 @@ export function Till({
             )}
           <div className="nm-2">
             <div className="nm-w">
-              {line.arrow === true && <span className="rep-arrow">↳</span>}
               <span
                 className={line.name === null ? "nm-t none" : line.photoSku !== undefined ? "nm-t link" : "nm-t"}
                 onClick={
@@ -2875,20 +3159,8 @@ export function Till({
         )}
         <td className={line.subtotal === null ? "r faint" : "r b"}>{line.subtotal ?? "—"}</td>
         <td className="t-notec">
-          {line.pair != null ? (
-            <button
-              type="button"
-              className="rep-pick"
-              title="Pindahkan ke barang lain"
-              onClick={(event) => {
-                event.stopPropagation()
-                line.pair?.onCycle()
-              }}
-            >
-              {line.pair.label} ▾
-            </button>
-          ) : (
             <span className="t-marks">
+              {line.replacement === true && <span className="r-tag new">Pengganti</span>}
               {line.struck != null && <s className="t-was">{line.struck}</s>}
               {idTag !== null && <span className={idTag.warn ? "id-tag warn" : "id-tag"}>{idTag.text}</span>}
               {line.tag !== null && <span className="promo-tag">{line.tag}</span>}
@@ -2899,14 +3171,19 @@ export function Till({
               ))}
               {cut && tags.length === 0 && line.tag === null && <span className="promo-tag">Diskon</span>}
             </span>
-          )}
         </td>
         {/* No trash on a line (owner, 25 Oct 2026): a piece comes off with
             − Kurangi, and the Kepala toko's finger, one at a time. */}
         <td className="c" />
       </tr>
       {free !== null && (
-        <tr className="t-free" onClick={() => setPickedKey(line.key)}>
+        <tr
+          className="t-free"
+          onClick={() => {
+            setPickedKey(line.key)
+            if (line.photoSku !== undefined) setPanel({ item: line.key })
+          }}
+        >
           {!narrow && <td />}
           <td>
             <span className="t-free-n">
@@ -2932,60 +3209,28 @@ export function Till({
     )
   }
 
-  /// Return, look D "Tenang" (client, 24 Oct 2026). Clicking a returned piece
-  /// picks it: the next scan is its replacement. Clicking it again takes the
-  /// pick back: the next scan is a "Barang baru", an extra item paid in Bayar
-  /// selisih.
-  function pickBack(at: number) {
-    setRet((was) => (was === null ? was : { ...was, sel: was.sel === at ? -1 : at }))
-    scan.current?.focus()
-  }
-
-  /// The trash on the picked returned piece: it is no longer coming back, and
-  /// what replaced it is "Barang baru" now.
-  function dropBack(at: number) {
-    setRet((was) => {
-      if (was === null || was.back[at] === undefined) return was
-      const rep = new Map<string, number>()
-      for (const [epc, to] of was.rep) {
-        if (to !== at) rep.set(epc, to > at ? to - 1 : to)
-      }
-      const back = was.back.filter((_, index) => index !== at)
-      return { ...was, back, rep, sel: Math.min(was.sel, back.length - 1) }
-    })
-    scan.current?.focus()
-  }
-
-  /// ▾ on a replacement: on to the next returned piece, then to "Barang baru".
-  function cycleReplacement(epcs: readonly string[], now: number | undefined) {
-    const next = now === undefined ? 0 : now + 1
-    setRet((was) => {
-      if (was === null) return was
-      const rep = new Map(was.rep)
-      for (const epc of epcs) {
-        if (next < was.back.length) rep.set(epc, next)
-        else rep.delete(epc)
-      }
-      return { ...was, rep }
-    })
-    scan.current?.focus()
-  }
-
-  /// A returned piece: grey, "−1", its price struck through, Keterangan
-  /// "Dikembalikan". The picked one wears the trash.
-  function backRow(one: ReturnMode["back"][number], at: number) {
-    const picked = ret?.sel === at
-    const variant = variants.get(one.name)
-    const sub = subOf(one.sku)
+  /// Step 2: what came back, one grey row per receipt line with its count
+  /// from step 1 ("−2", the price struck through), tagged "Kembali"; the
+  /// replacements follow, tagged "Pengganti" (owner, 30 Oct 2026).
+  function backRow(line: Receipt["lines"][number], count: number) {
+    const variant = variants.get(line.name)
+    const sub = subOf(line.skuCode)
     return (
-      <tr key={`back:${one.epc}`} className={picked ? "rb-d rsel" : "rb-d"} onClick={() => pickBack(at)}>
-        {!narrow && <td className="mute num">{skuText(one.sku)}</td>}
+      <tr key={`back:${line.skuCode}`} className="rb-d">
+        {!narrow && <td className="mute num">{skuText(line.skuCode)}</td>}
         <td>
-          <div className="nm-2">
-            <div className="nm-w">
-              <span className="nm-t">{one.name}</span>
+          {/* The piece coming back shows its photo too, like the one going
+              out (Hari, 30 Oct 2026). */}
+          <div className="nm-r">
+            <span className="ph-b">
+              <Photo sku={line.skuCode} has={bySku.get(line.skuCode)?.has_image === true} />
+            </span>
+            <div className="nm-2">
+              <div className="nm-w">
+                <span className="nm-t">{line.name}</span>
+              </div>
+              {sub !== "" && <span className="nm-sub">{sub}</span>}
             </div>
-            {sub !== "" && <span className="nm-sub">{sub}</span>}
           </div>
         </td>
         {!narrow && (
@@ -2994,31 +3239,178 @@ export function Till({
             <td>{variant?.size || "—"}</td>
           </>
         )}
-        <td className="c num">−1</td>
-        <td className="r">{plain(one.unitMinor, currency)}</td>
+        <td className="c num">−{count}</td>
+        <td className="r">{plain(line.unitMinor, currency)}</td>
         {showDisc && <td className="r faint">—</td>}
-        <td className="r b rb-sub">−{plain(one.unitMinor, currency)}</td>
+        <td className="r b rb-sub">−{plain(line.unitMinor * count, currency)}</td>
         <td className="t-notec">
-          <span className="mute">Dikembalikan</span>
+          <span className="r-tag back">Kembali</span>
         </td>
-        <td className="c">
-          {picked && (
-            <button
-              type="button"
-              className="t-rm"
-              aria-label="Batalkan barang kembali ini"
-              onClick={(event) => {
-                event.stopPropagation()
-                dropBack(at)
-              }}
-            >
-              <Lu name="trash" />
-            </button>
-          )}
-        </td>
+        <td />
       </tr>
     )
   }
+
+  /// Return step 1, "Jumlah kembali": every line of the struk (no bags) with
+  /// its count to set, 0 up to what can still come back. Nothing is scanned.
+  function backGrid() {
+    if (ret === null) return null
+    return (
+      <div className="t-grid">
+        <table>
+          <colgroup>
+            {!narrow && <col style={{ width: 156 }} />}
+            <col />
+            <col style={{ width: 104 }} />
+            <col style={{ width: 132 }} />
+            <col style={{ width: 188 }} />
+            <col style={{ width: 150 }} />
+          </colgroup>
+          <thead>
+            <tr>
+              {!narrow && <th>SKU</th>}
+              <th>Barang</th>
+              <th className="c">Dibeli</th>
+              <th className="r">Harga</th>
+              <th className="c">Kembali</th>
+              <th className="r">Subtotal</th>
+            </tr>
+          </thead>
+          <tbody>
+            {ret.receipt.lines.map((line, at) => {
+              const count = ret.qty[line.skuCode] ?? 0
+              const cap = returnable(ret.pieces, line.skuCode)
+              const sub = subOf(line.skuCode)
+              const variant = variants.get(line.name)
+              const row = at === ret.sel
+              return (
+                <tr
+                  key={line.skuCode}
+                  className={`rq${count > 0 ? " got" : ""}${row ? " sel" : ""}`}
+                  onClick={() => pickLine(at)}
+                >
+                  {!narrow && <td className="mute num">{skuText(line.skuCode)}</td>}
+                  <td>
+                    <div className="nm-r">
+                      <span className="ph-b">
+                        <Photo sku={line.skuCode} has={bySku.get(line.skuCode)?.has_image === true} />
+                      </span>
+                      <div className="nm-2">
+                        <div className="nm-w">
+                          <span className="nm-t">{line.name}</span>
+                          {variant !== undefined && (
+                            <span className="nm-v">
+                              {[variant.colour, variant.size].filter((one) => one).join(" · ")}
+                            </span>
+                          )}
+                        </div>
+                        {sub !== "" && <span className="nm-sub">{sub}</span>}
+                      </div>
+                    </div>
+                  </td>
+                  <td className="c num">{line.quantity}</td>
+                  <td className="r">{plain(line.unitMinor, currency)}</td>
+                  <td className="c">
+                    {cap === 0 ? (
+                      <span className="mute">Tidak bisa ditukar</span>
+                    ) : (
+                      <span className="rq-step" onKeyDown={(event) => backKey(event, at)}>
+                        <button
+                          type="button"
+                          tabIndex={-1}
+                          aria-label={`Kurangi satu ${line.name}`}
+                          disabled={count === 0}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => {
+                            pickLine(at)
+                            setBackQty(line.skuCode, count - 1)
+                          }}
+                        >
+                          −
+                        </button>
+                        <input
+                          className="num"
+                          data-rq={at}
+                          value={count}
+                          inputMode="numeric"
+                          autoComplete="off"
+                          aria-label={`Jumlah ${line.name} yang kembali`}
+                          onFocus={(event) => {
+                            setRet((was) => (was === null || was.sel === at ? was : { ...was, sel: at }))
+                            event.currentTarget.select()
+                          }}
+                          onChange={(event) => {
+                            // A tag read into the box is not a count.
+                            const text = event.target.value.replace(/\D/g, "")
+                            if (text.length > 3) return
+                            setBackQty(line.skuCode, text === "" ? 0 : Number(text))
+                          }}
+                        />
+                        <button
+                          type="button"
+                          tabIndex={-1}
+                          aria-label={`Tambah satu ${line.name}`}
+                          disabled={count >= cap}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => {
+                            pickLine(at)
+                            setBackQty(line.skuCode, count + 1)
+                          }}
+                        >
+                          +
+                        </button>
+                      </span>
+                    )}
+                  </td>
+                  <td className="r b">{count > 0 ? `−${plain(count * line.unitMinor, currency)}` : "—"}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    )
+  }
+
+  // The item list turned into Tunda, Struk or Cek (client, 25 Oct 2026): each
+  // brings its own mode row, table and floating foot in place of the sale's.
+  const listView =
+    mode === null ? null : mode.kind === "held" ? (
+      <HeldMode
+        rows={heldRows}
+        open={mode.open}
+        live={listLive}
+        busy={working}
+        unlocked={unlockedId !== null && unlockedId === mode.open}
+        currency={currency}
+        onOpen={(id) => setMode({ kind: "held", open: id })}
+        onBack={listBack}
+        onResume={(row) => void continueHeld(row)}
+        onClose={closeHeld}
+      />
+    ) : mode.kind === "receipts" ? (
+      <ReceiptsMode
+        purpose={mode.purpose}
+        open={mode.open}
+        live={listLive}
+        busy={working}
+        currency={currency}
+        onOpen={(sale) => setMode({ ...mode, open: sale })}
+        onBack={listBack}
+        onReturn={(sale) => void returnReceipt(sale)}
+      />
+    ) : (
+      <CheckMode
+        rows={rows}
+        live={listLive}
+        currency={currency}
+        onBack={listBack}
+        onAdd={(row) => {
+          sellTyped(row)
+          setNote({ bad: false, text: `Ditambah ${row.name}` })
+        }}
+      />
+    )
 
   return (
     <div id="app" data-screen="sale">
@@ -3115,222 +3507,277 @@ export function Till({
               </div>
             )}
 
-            <div className="t-scan">
-              {/* The R3 is a USB reader bound in the shell — `readRfidPad`
-                  refuses outright with no bridge — so on the web the chip only
-                  says what the counter holds; at the desktop pressing it reads
-                  the pad, and its state is the reader's own. */}
-              {isWeb ? (
-                <div className="t-rfid" role="status" aria-live="polite">
-                  <span className="t-rfid-dot" />
-                  <span className="t-rfid-t">
-                    <b>RFID</b>
-                    <span>{rfidWords}</span>
-                  </span>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  className={`t-rfid${rfidTone}`}
-                  onClick={() => void readWithR3()}
-                  disabled={!inShell() || rfidBusy}
-                  aria-live="polite"
-                  aria-label={
-                    removing === null
-                      ? `RFID ${rfidWords} — baca semua tag di pad Chainway R3`
-                      : `RFID ${rfidWords} — baca tag yang mau dihapus di pad Chainway R3`
-                  }
-                  title={
-                    reader === null
-                      ? "Menanyakan R3…"
-                      : reader.fault !== null
-                        ? `${sentence(reader.fault)} ${reader.fault.detail}`
-                        : reader.detail
-                  }
-                >
-                  <span className="t-rfid-dot" />
-                  <span className="t-rfid-t">
-                    <b>RFID</b>
-                    <span>{rfidWords}</span>
-                  </span>
-                </button>
-              )}
-              <form
-                className={checking ? "t-scanbox check" : note?.bad === true ? "t-scanbox bad" : "t-scanbox"}
-                onMouseDown={(event) => {
-                  // The whole box is the field, as the prototype's label is.
-                  const target = event.target as HTMLElement
-                  if (target !== scan.current && target.closest("button") === null) {
-                    event.preventDefault()
-                    scan.current?.focus()
-                  }
-                }}
-                onSubmit={(event) => {
-                  event.preventDefault()
-                  const field = scan.current
-                  if (field === null) return
-                  // Enter on an empty field is Bayar, beside F12 (owner, 25 Oct
-                  // 2026); a scan always arrives with its code before its Enter.
-                  if (field.value.trim() === "") {
-                    if (overlayOpen) return
-                    // A line picked with ↑ ↓ or a click: Enter shows the item
-                    // (owner, 25 Oct 2026). Nothing picked: Bayar, as before.
-                    if (pickedKey !== null && !checking && pickedGroup !== null && pickedGroup.key === pickedKey) {
-                      setPanel({ item: pickedGroup.key })
-                      return
+            {/* The mode marker, "Pita" (owner, 30 Oct 2026): a full-width band
+                above the scan box. Blue for a sale; orange for a Return, with
+                its two steps at the right. */}
+            {mode === null && (
+              <div className={ret === null ? "t-band tone-sale" : "t-band tone-ret"}>
+                {ret === null ? (
+                  <b>Penjualan</b>
+                ) : (
+                  <>
+                    <b>Return</b>
+                    <span className="mh-sub num">Struk {ret.receipt.receiptNo}</span>
+                    <span className="r-steps">
+                      <button
+                        type="button"
+                        className={ret.step === "back" ? "r-st on" : "r-st"}
+                        onClick={() => backStep()}
+                      >
+                        <span className="n">1</span>Jumlah kembali<b>{ret.back.length}</b>
+                      </button>
+                      <span className="r-arrow">→</span>
+                      <button
+                        type="button"
+                        className={ret.step === "new" ? "r-st on" : "r-st"}
+                        disabled={ret.back.length === 0}
+                        onClick={() => nextStep()}
+                      >
+                        <span className="n">2</span>Pengganti<b>{units.length}</b>
+                      </button>
+                    </span>
+                  </>
+                )}
+              </div>
+            )}
+
+            {!(ret !== null && ret.step === "back") && (
+              <div className="t-scan">
+                {/* The R3 is a USB reader bound in the shell — `readRfidPad`
+                    refuses outright with no bridge — so on the web the chip only
+                    says what the counter holds; at the desktop pressing it reads
+                    the pad, and its state is the reader's own. */}
+                {isWeb ? (
+                  <div className="t-rfid" role="status" aria-live="polite">
+                    <span className="t-rfid-dot" />
+                    <span className="t-rfid-t">
+                      <b>RFID</b>
+                      <span>{rfidWords}</span>
+                    </span>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className={`t-rfid${rfidTone}`}
+                    onClick={() => void readWithR3()}
+                    disabled={!inShell() || rfidBusy}
+                    aria-live="polite"
+                    aria-label={
+                      removing === null
+                        ? `RFID ${rfidWords} — baca semua tag di pad Chainway R3`
+                        : `RFID ${rfidWords} — baca tag yang mau dihapus di pad Chainway R3`
                     }
-                    if (units.length > 0 && !checking) doKey.pay()
-                    return
-                  }
-                  onScan(field.value)
-                  field.value = ""
-                }}
-              >
-                <Lu name="search" />
-                <input
-                  ref={scan}
-                  readOnly={overlayOpen}
-                  autoFocus
-                  autoComplete="off"
-                  spellCheck={false}
-                  autoCapitalize="off"
-                  placeholder={
-                    removing !== null
-                      ? "Scan tag barang yang mau dihapus"
-                      : checking
-                        ? "Cek harga: scan tag, ketik SKU atau nama barang"
-                        : "SKU (3*SKU untuk jumlah), kupon atau nama barang"
-                  }
-                  aria-label="SKU, kupon atau nama barang"
-                  onKeyDown={(event) => {
-                    // The main row's + and = are Tambah, and − and - Kurangi,
-                    // while the field is empty (inside a code or a name they
-                    // still type). The numpad's are caught by the window.
-                    const quantity =
-                      overlayOpen ||
-                      event.currentTarget.value !== "" ||
-                      event.ctrlKey ||
-                      event.metaKey ||
-                      event.altKey ||
-                      event.code === "NumpadAdd" ||
-                      event.code === "NumpadSubtract"
-                        ? null
-                        : event.key === "+" || event.key === "="
-                          ? "new"
-                          : event.key === "-" || event.key === "−"
-                            ? "remove"
-                            : null
-                    if (quantity !== null) {
+                    title={
+                      reader === null
+                        ? "Menanyakan R3…"
+                        : reader.fault !== null
+                          ? `${sentence(reader.fault)} ${reader.fault.detail}`
+                          : reader.detail
+                    }
+                  >
+                    <span className="t-rfid-dot" />
+                    <span className="t-rfid-t">
+                      <b>RFID</b>
+                      <span>{rfidWords}</span>
+                    </span>
+                  </button>
+                )}
+                <form
+                  className={note?.bad === true ? "t-scanbox bad" : "t-scanbox"}
+                  onMouseDown={(event) => {
+                    // The whole box is the field, as the prototype's label is.
+                    const target = event.target as HTMLElement
+                    if (target !== scan.current && target.closest("button") === null) {
                       event.preventDefault()
-                      doKey[quantity]()
-                      return
-                    }
-                    // Search matches up: ↑ ↓ point, 1–9 or Enter (field empty)
-                    // sell one piece of that SKU.
-                    if (checkSell && check.length > 0) {
-                      const empty = event.currentTarget.value === ""
-                      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-                        event.preventDefault()
-                        setCheckAt((was) =>
-                          Math.max(0, Math.min(check.length - 1, was + (event.key === "ArrowDown" ? 1 : -1))),
-                        )
-                        return
-                      }
-                      if (empty && /^[1-9]$/.test(event.key) && check[Number(event.key) - 1] !== undefined) {
-                        event.preventDefault()
-                        sellTyped(check[Number(event.key) - 1])
-                        return
-                      }
-                      if (empty && event.key === "Enter" && check[checkAt] !== undefined) {
-                        event.preventDefault()
-                        sellTyped(check[checkAt])
-                        return
-                      }
-                    }
-                    // The line numpad − will take a unit off.
-                    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-                      event.preventDefault()
-                      movePick(event.key === "ArrowDown" ? 1 : -1)
-                    }
-                    // Escape: close whatever is open over the counter and keep
-                    // the caret here; with nothing open it clears the field. The
-                    // window hook leaves Escape to a field, so it is read here.
-                    if (event.key === "Escape") {
-                      event.preventDefault()
-                      const open = panel !== null || removing !== null || checking || bagPick
-                      leavePanel()
-                      if (!open) event.currentTarget.value = ""
+                      scan.current?.focus()
                     }
                   }}
-                />
-                {/* A sweep a handheld already gave the node, pulled onto the
-                    counter on purpose. */}
-                <button
-                  type="button"
-                  className="t-sib"
-                  onClick={() => setPanel("rfid")}
-                  aria-label="Ambil dari handheld"
-                  title="Ambil dari handheld"
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    const field = scan.current
+                    if (field === null) return
+                    // Enter on an empty field is Bayar, beside Enter (owner, 25 Oct
+                    // 2026); a scan always arrives with its code before its Enter.
+                    // Over a list it is the list's: Lanjutkan, Void, Return.
+                    if (field.value.trim() === "") {
+                      if (overlayOpen || mode !== null) return
+                      // Enter on the counter is Bayar, beside Enter (owner, 28 Oct
+                      // 2026). The article card is opened by its photo or name,
+                      // never by the key a cashier presses to take the money.
+                      if (units.length > 0 || (ret !== null && ret.step === "new")) doKey.pay()
+                      return
+                    }
+                    onScan(field.value)
+                    field.value = ""
+                  }}
                 >
-                  <Lu name="rfid" size={18} />
-                </button>
-                <span className="kbd" aria-hidden="true">
-                  F2
-                </span>
-              </form>
-            </div>
-
-            {/* What the counter is doing, above the table (client, 24 Oct 2026).
-                The coupons the shopper handed over ride at the right: they have
-                no head to sit in, and each one can be taken off. */}
-            <div className="t-mode">
-              {ret === null ? (
-                <span className="mode-flag">Penjualan</span>
-              ) : (
-                <>
-                  <span className="mode-flag ret">Return</span>
-                  <span className="mute num">{ret.receipt.receiptNo}</span>
-                </>
-              )}
-              {coupons.length > 0 && (
-                <>
-                  <span className="sp" />
-                  <span className="t-coupons">
-                    <span className="mute">
-                      Kupon
-                      {unapplied.length > 0 && <span className="warn"> · {unapplied.length} tanpa diskon</span>}
-                    </span>
-                    {coupons.map((code) => (
-                      <span
-                        className={unapplied.includes(code) ? "t-code off" : "t-code"}
-                        key={code}
-                        title={unapplied.includes(code) ? `${code} — tanpa diskon dari server toko` : undefined}
-                      >
-                        {code}
-                        <button
-                          type="button"
-                          className="t-x"
-                          aria-label={`Hapus kupon ${code}`}
-                          onClick={() => {
-                            dropCoupon(code)
-                            scan.current?.focus()
-                          }}
-                        >
-                          <Lu name="x" />
-                        </button>
-                      </span>
-                    ))}
+                  <Lu name="search" />
+                  <input
+                    ref={scan}
+                    readOnly={overlayOpen}
+                    autoFocus
+                    autoComplete="off"
+                    spellCheck={false}
+                    autoCapitalize="off"
+                    placeholder={
+                      removing !== null
+                        ? "Scan tag barang yang mau dihapus"
+                        : ret !== null
+                          ? "Scan tag atau ketik SKU barang pengganti"
+                          : "SKU (3*SKU untuk jumlah), kupon atau nama barang"
+                    }
+                    aria-label="SKU, kupon atau nama barang"
+                    onKeyDown={(event) => {
+                      // The main row's + and = are Tambah, and − and - Kurangi,
+                      // while the field is empty (inside a code or a name they
+                      // still type). The numpad's are caught by the window.
+                      const quantity =
+                        overlayOpen ||
+                        mode !== null ||
+                        event.currentTarget.value !== "" ||
+                        event.ctrlKey ||
+                        event.metaKey ||
+                        event.altKey ||
+                        event.code === "NumpadAdd" ||
+                        event.code === "NumpadSubtract"
+                          ? null
+                          : event.key === "+" || event.key === "="
+                            ? "new"
+                            : event.key === "-" || event.key === "−"
+                              ? "remove"
+                              : null
+                      if (quantity !== null) {
+                        event.preventDefault()
+                        doKey[quantity]()
+                        return
+                      }
+                      // Search matches up: ↑ ↓ point, 1–9 or Enter (field empty)
+                      // sell one piece of that SKU.
+                      if (checkSell && check.length > 0) {
+                        const empty = event.currentTarget.value === ""
+                        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                          event.preventDefault()
+                          setCheckAt((was) =>
+                            Math.max(0, Math.min(check.length - 1, was + (event.key === "ArrowDown" ? 1 : -1))),
+                          )
+                          return
+                        }
+                        if (empty && /^[1-9]$/.test(event.key) && check[Number(event.key) - 1] !== undefined) {
+                          event.preventDefault()
+                          sellTyped(check[Number(event.key) - 1])
+                          return
+                        }
+                        if (empty && event.key === "Enter" && check[checkAt] !== undefined) {
+                          event.preventDefault()
+                          sellTyped(check[checkAt])
+                          return
+                        }
+                      }
+                      // The line numpad − will take a unit off. Over a list the arrows
+                      // are the list's (`list-keys.ts`), and so is Escape.
+                      if (mode === null && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+                        event.preventDefault()
+                        movePick(event.key === "ArrowDown" ? 1 : -1)
+                      }
+                      // Escape: close whatever is open over the counter and keep
+                      // the caret here; with nothing open it clears the field. The
+                      // window hook leaves Escape to a field, so it is read here.
+                      if (event.key === "Escape" && (mode === null || overlayOpen || removing !== null)) {
+                        event.preventDefault()
+                        const open = panel !== null || removing !== null || bagPick || mode !== null
+                        leavePanel()
+                        // Return step 2, nothing open and nothing typed: back to
+                        // the counts (owner, 30 Oct 2026).
+                        if (!open && event.currentTarget.value === "" && ret !== null && ret.step === "new") {
+                          backStep()
+                          return
+                        }
+                        if (!open) event.currentTarget.value = ""
+                      }
+                    }}
+                  />
+                  {/* A sweep a handheld already gave the node, pulled onto the
+                      counter on purpose. */}
+                  <button
+                    type="button"
+                    className="t-sib"
+                    onClick={() => setPanel("rfid")}
+                    aria-label="Ambil dari handheld"
+                    title="Ambil dari handheld"
+                  >
+                    <Lu name="rfid" size={18} />
+                  </button>
+                  <span className="kbd" aria-hidden="true">
+                    {CHECK_KEY[0]}
                   </span>
-                </>
-              )}
-            </div>
+                </form>
+              </div>
+            )}
 
-            {(removing !== null ||
-              checking ||
-              note !== null ||
-              check.length > 0 ||
-              voucher !== null) && (
+            {/* The coupons the shopper handed over ride under the scan box: they
+                have no head to sit in, and each one can be taken off. */}
+            {mode === null && coupons.length > 0 && (
+              <div className="t-mode">
+                <span className="sp" />
+                {coupons.length > 0 && (
+                  <>
+                    <span className="t-coupons">
+                      <span className="mute">
+                        Kupon
+                        {unapplied.length > 0 && <span className="warn"> · {unapplied.length} tanpa diskon</span>}
+                      </span>
+                      {coupons.map((code) => (
+                        <span
+                          className={unapplied.includes(code) ? "t-code off" : "t-code"}
+                          key={code}
+                          title={unapplied.includes(code) ? `${code} — tanpa diskon dari server toko` : undefined}
+                        >
+                          {code}
+                          <button
+                            type="button"
+                            className="t-x"
+                            aria-label={`Hapus kupon ${code}`}
+                            onClick={() => {
+                              dropCoupon(code)
+                              scan.current?.focus()
+                            }}
+                          >
+                            <Lu name="x" />
+                          </button>
+                        </span>
+                      ))}
+                    </span>
+                  </>
+                )}
+              </div>
+            )}
+
+            {(removing !== null || note !== null || check.length > 0 || approaching !== null) && (
               <div className="t-msgs">
+                {approaching !== null && (
+                  <div className="t-tunda" role="status" aria-live="polite">
+                    <div className="t-tunda-clock">
+                      <span className="k">Sisa tunda</span>
+                      <b className="v">{mmss(HOLD_MAX - approaching.age)}</b>
+                    </div>
+                    <div className="t-tunda-what">
+                      <p>
+                        <b>{approaching.row.by}</b> · {approaching.row.time} ·{" "}
+                        {money(approaching.row.totalMinor, currency)}
+                      </p>
+                      <p className="warn">
+                        Lewat {HOLD_MINUTES} menit kasir terkunci — selesaikan tunda ini dulu.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="ds-btn ds-btn--ghost"
+                      onClick={() => showList({ kind: "held", open: null })}
+                    >
+                      Lihat tunda
+                    </button>
+                  </div>
+                )}
                 {/* Taking one off a line of several: the tag handed back is the
                     tag taken off, so the cashier reads it, scans it or picks it
                     here — each named by the end of its EPC. Escape leaves. */}
@@ -3372,15 +3819,6 @@ export function Till({
                   </div>
                 )}
 
-                {checking && (
-                  <div className="t-msg" role="status">
-                    <Lu name="search" />
-                    <span className="grow">
-                      Scan tag, ketik barcode atau nama barang
-                    </span>
-                  </div>
-                )}
-
                 {note !== null && (
                   <div className={note.bad ? "t-msg bad" : "t-msg"} role="status">
                     <span className="grow">{note.text}</span>
@@ -3390,11 +3828,11 @@ export function Till({
                 {check.length > 0 && (
                   <div className="t-card">
                     <div className="t-card-h">
-                      <span>{checkSell ? "Pilih barang · ↑↓ 1–9 Enter" : "Cek harga"}</span>
+                      <span>Pilih barang · ↑↓ 1–9 Enter</span>
                       <button
                         type="button"
                         className="t-x"
-                        aria-label={checkSell ? "Tutup hasil cari" : "Tutup cek harga"}
+                        aria-label="Tutup hasil cari"
                         onClick={() => {
                           setCheck([])
                           setCheckSell(false)
@@ -3405,72 +3843,40 @@ export function Till({
                       </button>
                     </div>
                     <div className="t-card-b">
-                      {check.map((row, index) =>
-                        checkSell ? (
-                          <button
-                            type="button"
-                            className={index === checkAt ? "t-chk t-chk-pick on" : "t-chk t-chk-pick"}
-                            key={row.sku_code}
-                            onMouseDown={(event) => event.preventDefault()}
-                            onClick={() => sellTyped(row)}
-                          >
-                            <Photo sku={row.sku_code} has={row.has_image === true} className="chk" />
-                            <span className="nm">
-                              {index < 9 && <span className="kbd">{index + 1}</span>} {row.name}
-                            </span>
-                            <span className="pr">{money(row.unit_price_minor, currency)}</span>
-                            <span className="mt">
-                              {articleId(row.article_code, row.sku_code)} · {skuText(row.sku_code)}
-                            </span>
-                          </button>
-                        ) : (
-                          <div className="t-chk" key={row.sku_code}>
-                            <Photo sku={row.sku_code} has={row.has_image === true} className="chk" />
-                            <span className="nm">{row.name}</span>
-                            <span className="pr">{money(row.unit_price_minor, currency)}</span>
-                            <span className="mt">
-                              {articleId(row.article_code, row.sku_code)} · {skuText(row.sku_code)}
-                            </span>
-                          </div>
-                        ),
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {voucher !== null && (
-                  <div className="t-card">
-                    <div className="t-card-h">
-                      <span>Voucher</span>
-                      <button
-                        type="button"
-                        className="t-x"
-                        aria-label="Tutup cek voucher"
-                        onClick={() => setVoucher(null)}
-                      >
-                        <Lu name="x" />
-                      </button>
-                    </div>
-                    <div className="t-card-b">
-                      <div className="t-pad">
-                        <VoucherCard voucher={voucher} currency={currency} />
-                      </div>
+                      {check.map((row, index) => (
+                        <button
+                          type="button"
+                          className={index === checkAt ? "t-chk t-chk-pick on" : "t-chk t-chk-pick"}
+                          key={row.sku_code}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => sellTyped(row)}
+                        >
+                          <Photo sku={row.sku_code} has={row.has_image === true} className="chk" />
+                          <span className="nm">
+                            {index < 9 && <span className="kbd">{index + 1}</span>} {row.name}
+                          </span>
+                          <span className="pr">{money(row.unit_price_minor, currency)}</span>
+                          <span className="mt">
+                            {articleId(row.article_code, row.sku_code)} · {skuText(row.sku_code)}
+                          </span>
+                        </button>
+                      ))}
                     </div>
                   </div>
                 )}
               </div>
             )}
 
-            {units.length === 0 && addedBags.length === 0 && (ret === null || ret.back.length === 0) ? (
+            {listView !== null ? (
+              listView
+            ) : ret !== null && ret.step === "back" ? (
+              backGrid()
+            ) : units.length === 0 && addedBags.length === 0 && (ret === null || ret.back.length === 0) ? (
               <div className="t-grid">
                 <div className="t-empty">
                   <Lu name="rfid" size={40} stroke={1.5} />
                   <p>
-                    {ret !== null
-                      ? ret.receipt.untagged.size > 0
-                        ? "Scan tag atau ketik SKU barang yang dikembalikan"
-                        : "Scan tag barang yang dikembalikan"
-                      : "Taruh barang di reader"}
+                    {ret !== null ? "Scan tag atau ketik SKU barang pengganti" : "Taruh barang di reader"}
                   </p>
                 </div>
               </div>
@@ -3490,7 +3896,7 @@ export function Till({
                     <col style={{ width: 104 }} />
                     {showDisc && <col style={{ width: 112 }} />}
                     <col style={{ width: 116 }} />
-                    <col style={{ width: narrow ? 168 : 210 }} />
+                    <col style={{ width: narrow ? 110 : 120 }} />
                     <col style={{ width: 48 }} />
                   </colgroup>
                   <thead>
@@ -3517,17 +3923,15 @@ export function Till({
                         const quantity = group.units.length
                         const base = markdownBase(group)
                         const promo = lineCuts.get(group.key)
-                        const paired =
-                          ret !== null && group.repFor !== undefined ? ret.back[group.repFor] : undefined
                         return lineRow({
                           key: group.key,
                           sku: skuText(group.sku),
                           name: group.name,
                           tag: freeSkus.has(group.sku) ? "Gratis" : null,
+                          replacement: ret !== null,
                           idTag: group.idTag,
                           noVariant: group.unknown,
                           sub: subOf(group.sku),
-                          arrow: paired !== undefined,
                           quantity,
                           // A markdown is a price, not a discount: the old one
                           // struck through, the new one beside it.
@@ -3536,41 +3940,26 @@ export function Till({
                           cut: promo?.cut ?? null,
                           tags: promo?.tags ?? [],
                           free: promo?.free ?? null,
-                          // Under a returned piece it says which ("ganti Andeska
-                          // STL"); under none it is "Barang baru".
-                          pair:
-                            ret === null
-                              ? null
-                              : {
-                                  label:
-                                    paired === undefined
-                                      ? "Barang baru"
-                                      : `ganti ${paired.name.split(" ").slice(0, 2).join(" ")}`,
-                                  onCycle: () =>
-                                    cycleReplacement(
-                                      group.units.map((unit) => unit.epc),
-                                      paired === undefined ? undefined : group.repFor,
-                                    ),
-                                },
                           subtotal:
                             group.price === null
                               ? null
                               : plain(group.price * quantity - (promo?.cut ?? 0), currency),
                           removeLabel: `Hapus satu ${group.name ?? skuText(group.sku)}`,
                           onRemove: () => removeFromLine(group.sku, group.units),
-                          photoSku: group.unknown ? undefined : group.sku,
+                          // One photo slot for every article, the unknown ones
+                          // included: a square with nothing in it still keeps
+                          // the names on one line and says there is no picture.
+                          photoSku: group.sku,
                         })
                       }
                       if (ret === null) return groups.map(groupRow)
-                      // Each replacement right under the piece it replaces.
+                      // What came back first, one row per struk line, struck; then
+                      // what goes out, one list.
                       return [
-                        ...ret.back.flatMap((one, at) => [
-                          backRow(one, at),
-                          ...groups.filter((group) => group.repFor === at).map(groupRow),
-                        ]),
-                        ...groups
-                          .filter((group) => group.repFor === undefined || group.repFor >= ret.back.length)
-                          .map(groupRow),
+                        ...ret.receipt.lines
+                          .filter((line) => (ret.qty[line.skuCode] ?? 0) > 0)
+                          .map((line) => backRow(line, ret.qty[line.skuCode] ?? 0)),
+                        ...groups.map(groupRow),
                       ]
                     })()}
                     {addedBags.map((bag) => {
@@ -3601,41 +3990,38 @@ export function Till({
                 chip of what came back; the total and Bayar at the right. A bag is
                 on the bill, not in the basket: picked here, it becomes a line of
                 the grid. */}
+            {listView === null && (
             <div className="t-float">
-              <button
-                type="button"
-                className="ds-btn ds-btn--primary t-big t-bags"
-                aria-expanded={bagPick}
-                aria-keyshortcuts="F6"
-                onClick={() => setBagPick((was) => !was)}
-              >
-                <Lu name="bag" />
-                <span>Kantong</span>
-                <span className="kbd">F6</span>
-              </button>
-              {ret !== null && (
-                <span className="tf-chip">
-                  <span className="mute">Return</span>
-                  <b className="num">{ret.receipt.receiptNo}</b>
-                  <span className="id-tag warn">
-                    {ret.back.length} kembali · {replacing} pengganti
-                    {freshOnes > 0 && ` · ${freshOnes} baru`}
-                  </span>
-                </span>
+              {/* Return step 2: back to the counts (Esc with an empty scan box
+                  does the same). Step 1 has no Kantong: nothing is sold yet. */}
+              {ret !== null && ret.step === "new" && (
+                <button type="button" className="ds-btn ds-btn--primary t-big" onClick={() => backStep()}>
+                  Ubah jumlah return <span className="kbd">Esc</span>
+                </button>
               )}
-              {/* A Return can be called off from the screen, not only with F7
-                  (owner, 25 Oct 2026). */}
-              {ret !== null && (
-                <button type="button" className="tf-cancel" onClick={() => cancelReturn()}>
-                  Batalkan return <span className="kbd">F7</span>
+              {!(ret !== null && ret.step === "back") && (
+                <button
+                  type="button"
+                  className="ds-btn ds-btn--primary t-big t-bags"
+                  aria-expanded={bagPick}
+                  aria-keyshortcuts={BAGS_KEY[1]}
+                  onClick={() => setBagPick((was) => !was)}
+                >
+                  <Lu name="bag" />
+                  <span>Kantong</span>
+                  <span className="kbd">{BAGS_KEY[0]}</span>
                 </button>
               )}
               <span className="sp" />
               <div className="tf-total">
                 <span className="tf-k">
-                  {ret !== null
-                    ? `${shownTotal > 0 ? "Bayar selisih" : "Selisih"}${ret.back.length > 0 ? ` · kembali ${money(retBack, currency)}` : ""}`
-                    : "Total"}
+                  {ret !== null && ret.step === "back"
+                    ? `Kembali${ret.back.length > 0 ? ` · ${grouped(ret.back.length)} pcs` : ""}`
+                    : ret !== null
+                      ? shownTotal > 0
+                        ? "Bayar selisih"
+                        : "Tidak ada yang dibayar"
+                      : "Total"}
                   {ret === null && units.length > 0 && ` · ${grouped(units.length)} pcs`}
                   {ret === null && quote.discountTotalMinor > 0 && (
                     <>
@@ -3643,26 +4029,42 @@ export function Till({
                       <span className="ok">−{money(quote.discountTotalMinor, currency)}</span>
                     </>
                   )}
-                  {quoteNote === "Menghitung…" && " · Menghitung…"}
+                  {quoteNote === "Menghitung…" && ret?.step !== "back" && " · Menghitung…"}
                 </span>
                 <span className="tf-v">
-                  <span className="cur">{totalFigure[0]}</span>
-                  <b>{totalFigure[1]}</b>
+                  <span className="cur">{(ret !== null && ret.step === "back" ? backFigure : totalFigure)[0]}</span>
+                  <b>{(ret !== null && ret.step === "back" ? backFigure : totalFigure)[1]}</b>
                 </span>
               </div>
+              {/* A Return can be called off from the screen, not only with
+                  Shift+7 (owner, 25 Oct 2026); on both steps. */}
+              {ret !== null && (
+                <button type="button" className="tf-cancel" onClick={() => cancelReturn()}>
+                  Batal return <span className="kbd">{CANCEL_KEY[0]}</span>
+                </button>
+              )}
               <button
                 type="button"
                 className="ds-btn ds-btn--primary t-pay"
                 onClick={pay}
                 disabled={!payEnabled}
-                aria-keyshortcuts="F12"
+                aria-keyshortcuts="Enter"
               >
-                <span>{ret !== null ? (shownTotal > 0 ? "Bayar selisih" : "Selesaikan return") : "Bayar"}</span>
-                <span className="kbd">F12</span>
+                <span>
+                  {ret !== null
+                    ? ret.step === "back"
+                      ? "Pilih pengganti"
+                      : shownTotal > 0
+                        ? "Bayar selisih"
+                        : "Selesaikan return"
+                    : "Bayar"}
+                </span>
+                <span className="kbd">↵</span>
               </button>
             </div>
+            )}
 {/* Kantong is a dialog, not a drop-down (owner, 23 Oct 2026):
-    1–4 picks a bag, Esc or F6 closes it. It sits beside the card, not inside
+    1–4 picks a bag, Esc or ⇧6 closes it. It sits beside the card, not inside
     it: the card is sticky, and a sticky box is a stacking context that would
     keep the dialog's veil under the key row. */}
 {bagPick && (
@@ -3724,10 +4126,11 @@ export function Till({
         <Statusbar
           unsent={outbox.unsent}
           refused={outbox.refused}
+          waiting={outbox.waiting}
+          needsHeadOffice={outbox.needsHeadOffice}
           reader={reader}
           who={session.me?.display_name ?? session.me?.username ?? null}
           till={seat !== null && seat.label !== "" ? seat.label : kasirLabel(terminalId)}
-          receiptNo={pickedSale?.receipt_no ?? null}
         />
       </div>
 
@@ -3746,9 +4149,17 @@ export function Till({
           charges={charges}
           actorId={actorId}
           credit={credit}
+          pointsEarned={quote.pointsEarned}
+          saving={{
+            minor: quote.discountTotalMinor,
+            names: quote.promotions.filter((one) => one.applied).map((one) => one.name),
+          }}
+          noExchange={noExchange}
+          everyFinal={units.length > 0 && units.every((unit) => finalSkus.has(unit.sku_code))}
+          exchange={ret !== null ? runExchange : undefined}
           memberName={memberInfo !== null && memberInfo.member_id === customerId ? memberInfo.display_name : null}
           onHold={
-            ret === null && credit === null
+            !resumed && ret === null && credit === null
               ? () => {
                   void holdBasket().then((done) => {
                     if (!done) return
@@ -3761,7 +4172,6 @@ export function Till({
           onBack={() => onGo("sale")}
           onSold={(sale) => {
             sound.paid()
-            if (sale.saleId !== null) lastSoldId.current = sale.saleId
             setSold(sale)
           }}
         />
@@ -3770,11 +4180,6 @@ export function Till({
       {sold !== null && (
         <Sale
           sold={sold}
-          receiptNo={
-            sold.saleId !== null && lastSales?.[0]?.sale_id === sold.saleId
-              ? lastSales[0].receipt_no
-              : null
-          }
           currency={currency}
           hasMember={customerId !== null}
           extra={soldFor.current}
@@ -3841,50 +4246,10 @@ export function Till({
 
       {approval.sheet}
 
-      {exchanging && (
-        <ReturnPick
-          currency={currency}
-          onClose={() => {
-            setExchanging(false)
-            scan.current?.focus()
-          }}
-          onPick={(receipt, soldTags) => {
-            setExchanging(false)
-            setRet({ receipt, soldTags, back: [], sel: 0, rep: new Map() })
-            setNote({
-              bad: false,
-              text: `Return · ${receipt.receiptNo} — scan tag barang yang dikembalikan, lalu barang penggantinya`,
-            })
-            scan.current?.focus()
-          }}
-        />
-      )}
-
-      {voiding && (
-        <VoidDialog
-          actorId={actorId}
-          currency={currency}
-          onClose={() => setVoiding(false)}
-          onDone={(text) => {
-            setVoiding(false)
-            setNote({ bad: false, text })
-            // The receipts column and Ctrl+P read the shift again.
-            setVoidCount((was) => was + 1)
-          }}
-        />
-      )}
-
-      {panel === "hold" && (
-        <HeldDialog
-          rows={heldRows}
-          currency={currency}
-          onClose={() => {
-            setPanel(null)
-            scan.current?.focus()
-          }}
-          onResume={(id) => void resumeHeld(id)}
-          onDrop={dropHeld}
-        />
+      {/* A Tunda past 30 minutes locks the till; the Kepala toko's finger opens
+          it for that sale. Drawn under the approval sheet that finger opens. */}
+      {locked !== null && (
+        <FreezeOverlay row={locked} currency={currency} onOpen={() => unlockFor(locked)} />
       )}
 
       {laci === "menu" && (
@@ -3923,6 +4288,36 @@ export function Till({
           }}
         />
       )}
+      {laci === "float" && (
+        <SetorModalFromSeat
+          actorId={actorId}
+          onClose={() => setLaci(null)}
+          onDone={(text) => {
+            setLaci(null)
+            setNote({ bad: false, text })
+          }}
+        />
+      )}
+
+      {lessOf !== null && (() => {
+        const group = groups.find((one) => one.key === lessOf)
+        if (group === undefined) return null
+        return (
+          <LessSheet
+            name={unitName(group.units[0])}
+            count={group.units.length}
+            onClose={() => {
+              setLessOf(null)
+              scan.current?.focus()
+            }}
+            onKeep={(keep) => lessTo(group.key, keep)}
+            onRemoveAll={() => {
+              setLessOf(null)
+              askRemove(group.units)
+            }}
+          />
+        )
+      })()}
 
       {panel === "rfid" && (
         <ReaderSessions
@@ -3977,7 +4372,7 @@ export function Till({
         />
       )}
 
-      {/* F5: Daftar member. Registering only registers (who a sale is for is
+      {/* ⇧5: Daftar member. Registering only registers (who a sale is for is
           asked at Bayar); a struk number typed in the form ties the new member
           to that earlier sale, and the node says what it earned. */}
       {panel === "register" && (
@@ -4002,7 +4397,7 @@ export function Till({
           sku={itemGroup.sku}
           name={itemGroup.name}
           row={bySku.get(itemGroup.sku)}
-          division={subOf(itemGroup.sku)}
+          division={divisionOf(itemGroup.sku)}
           tags={tagsOf.get(itemGroup.sku) ?? []}
           quantity={itemGroup.units.length}
           price={itemGroup.price}
@@ -4024,12 +4419,10 @@ export function Till({
           ask="pay"
           onAttach={(member, registered) => {
             attachMember(member, registered)
-            setAsked(true)
             onGo("payment")
           }}
           onSkip={() => {
             setPanel(null)
-            setAsked(true)
             onGo("payment")
           }}
           onClose={() => setPanel(null)}
@@ -4067,7 +4460,9 @@ export function Till({
 /// anything else (a desktop till with its own terminal name) is shown as is.
 export function kasirLabel(terminalId: string): string {
   const seat = /^KASIR-(\d+)$/.exec(terminalId)
-  return seat === null ? terminalId : `Kasir ${seat[1]}`
+  if (seat !== null) return `Kasir ${seat[1]}`
+  const warehouse = /^GUDANG-(\d+)$/.exec(terminalId)
+  return warehouse === null ? terminalId : `Gudang ${warehouse[1]}`
 }
 
 export function Topbar({
@@ -4281,7 +4676,7 @@ function ItemCard({
   sku: string
   name: string | null
   row: api.CatalogRow | undefined
-  /// "Pria · Koko, Lebaran": the division, then the tags, as under the name.
+  /// "Pria": the division alone; the tags sit in their own line below.
   division: string
   tags: readonly string[]
   quantity: number
@@ -4385,15 +4780,15 @@ function Lu({
 /// The prototype's 1024 frame, as a window width.
 const NARROW = "(max-width: 1199px)"
 
-/// F3 · Laci: Buka laci, Tambah modal kasir, Setoran sementara (prototype
-/// `popView` kind 'drawer'). A small menu under the Laci key; 1–3, ↑ ↓ and
-/// Enter pick, Esc closes.
+/// ⇧3 · Laci: Buka laci, Tambah modal kasir, Setoran sementara and Setor modal
+/// (prototype `popView` kind 'drawer'). A small menu under the Laci key; 1–4,
+/// ↑ ↓ and Enter pick, Esc closes.
 function LaciMenu({
   onClose,
   onPick,
 }: {
   onClose: () => void
-  onPick: (what: "open" | "modal" | "setor") => void
+  onPick: (what: "open" | "modal" | "setor" | "float") => void
 }) {
   const [enter] = useState(viaPointer)
   const [at, setAt] = useState(0)
@@ -4402,15 +4797,16 @@ function LaciMenu({
     ["open", "lock", "Buka laci"],
     ["modal", "plus", "Tambah modal kasir"],
     ["setor", "check", "Setoran sementara"],
+    ["float", "down", "Setor modal"],
   ] as const
   useEffect(() => {
-    const tile = document.querySelector<HTMLElement>('.tilld .k7[aria-keyshortcuts="F3"]')
+    const tile = document.querySelector<HTMLElement>(`.tilld .k7[aria-keyshortcuts="${DRAWER_KEY[1]}"]`)
     if (tile !== null) setLeft(Math.max(12, tile.getBoundingClientRect().left))
   }, [])
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       if (event.repeat) return
-      if (event.key === "Escape" || event.key === "F3") {
+      if (event.key === "Escape" || isKey(event, DRAWER_KEY[1])) {
         event.preventDefault()
         onClose()
       } else if (event.key === "ArrowDown") {
@@ -4419,7 +4815,7 @@ function LaciMenu({
       } else if (event.key === "ArrowUp") {
         event.preventDefault()
         setAt((was) => Math.max(0, was - 1))
-      } else if (/^[1-3]$/.test(event.key)) {
+      } else if (/^[1-9]$/.test(event.key) && Number(event.key) <= rows.length) {
         event.preventDefault()
         onPick(rows[Number(event.key) - 1][0])
       } else if (event.key === "Enter") {
@@ -4467,16 +4863,6 @@ function useNarrow(): boolean {
   return narrow
 }
 
-/// "Rp 1.122.000" → ["Rp", "1.122.000"]: the footer draws the currency small
-/// beside the big figure, and the grid shows the figure alone.
-function figureOf(minor: number, currency: string): readonly [string, string] {
-  const text = money(minor, currency).replace(/\s/g, " ")
-  const at = text.search(/\d/)
-  return at <= 0 ? ["", text] : [text.slice(0, at).trim(), text.slice(at)]
-}
-
-const plain = (minor: number, currency: string) => figureOf(minor, currency)[1]
-
 /// A bag on the bill, as a line of the grid.
 const BAG_KEY = "bag:"
 const bagKey = (bag: api.Charge) => `${BAG_KEY}${bag.description}`
@@ -4492,7 +4878,7 @@ function looksLikeCoupon(code: string): boolean {
 }
 
 /// The sale screen's header: the mark, 7Soft's key row, and the person —
-/// version D of the prototype, so the person sits right after F12.
+/// version D of the prototype, so the person sits right after Enter.
 ///
 /// The row is the whole of what a cashier does mid-sale, one keycap over one
 /// word, in keyboard order (`keybar.tsx`); every tile is also a button. The
@@ -4571,7 +4957,7 @@ function SellHeader({
           remove: !hasUnits,
           cancel: !hasUnits && !returning,
           pay: !hasUnits,
-          hold: held === 0,
+          hold: held === 0 && !hasUnits,
         }}
         on={{ bags: bagsOpen, drawer: laciOpen }}
         count={{ hold: held }}
@@ -4607,7 +4993,7 @@ function SellHeader({
               {onLock !== undefined && item("lock", "Kunci", onLock, "Ctrl+L")}
               {onDisplay !== undefined && item("monitor", "Layar pelanggan", onDisplay)}
               <span className="sep" />
-              {item("logout", "Tutup kasir", onFinish, "F4")}
+              {item("logout", "Tutup kasir", onFinish, CLOSE_KEY[0])}
             </div>
           </>
         )}
@@ -4776,33 +5162,50 @@ function ReaderSessions({
 }
 
 const MON = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"]
+/// The long months the paper's terms use ("4 November 2026").
+const MON_LONG = [
+  "Januari",
+  "Februari",
+  "Maret",
+  "April",
+  "Mei",
+  "Juni",
+  "Juli",
+  "Agustus",
+  "September",
+  "Oktober",
+  "November",
+  "Desember",
+]
 const two = (n: number) => String(n).padStart(2, "0")
 const hhmm = (d: Date) => `${two(d.getHours())}:${two(d.getMinutes())}`
 /// "21 Okt 2026, 10:59", as the prototype's status strip writes it.
 const dayTime = (d: Date) => `${d.getDate()} ${MON[d.getMonth()]} ${d.getFullYear()}, ${hhmm(d)}`
 
 /// The strip along the bottom, on the stone: whether every sale has reached
-/// the node and the counter's hardware on the left — never assumed, each
-/// device says for itself — then who is selling, at which till, the last
-/// receipt (what Ctrl+P prints again), since when the shift is open, and the
+/// the node, and head office, and the counter's hardware on the left — never
+/// assumed, each device says for itself — then who is selling, at which till, since when the shift is open, and the
 /// clock.
 function Statusbar({
   unsent,
   refused,
+  waiting,
+  needsHeadOffice,
   reader,
   who,
   till,
-  receiptNo,
 }: {
   unsent?: number
   refused?: number
+  /// Taken by the store server, not at head office yet (`outbox.ts`).
+  waiting?: number
+  /// The store server says it never took them: a replaced server.
+  needsHeadOffice?: number
   /// The R3 as the counter's chip shows it: one source for both.
   reader: ReaderStatus | null
   /// Whose till this is: the cashier, and the seat they hold.
   who?: string | null
   till?: string
-  /// The receipt Ctrl+P would print again: this shift's latest.
-  receiptNo: string | null
 }) {
   const [fingerprint, setFingerprint] = useState<{
     readonly on: boolean
@@ -4896,6 +5299,20 @@ function Statusbar({
           <span className={sync.tone === "on" ? "t-sync" : "t-sync warn"}>{sync.text}</span>
         </>
       )}
+      {waiting !== undefined && waiting > 0 && (
+        <>
+          <span className="dot">·</span>
+          <span className="t-sync">{waiting} penjualan belum sampai kantor pusat</span>
+        </>
+      )}
+      {needsHeadOffice !== undefined && needsHeadOffice > 0 && (
+        <>
+          <span className="dot">·</span>
+          <span className="t-sync warn">
+            {needsHeadOffice} penjualan perlu dicek kantor pusat
+          </span>
+        </>
+      )}
       {devices.map((one) => (
         <Fragment key={one.what}>
           <span className="dot">·</span>
@@ -4915,12 +5332,6 @@ function Statusbar({
       {till !== undefined && till !== "" && (
         <>
           <span>{till}</span>
-          <span className="dot">·</span>
-        </>
-      )}
-      {receiptNo !== null && (
-        <>
-          <span className="num">Struk terakhir {receiptNo}</span>
           <span className="dot">·</span>
         </>
       )}
@@ -5019,6 +5430,9 @@ type PayLine = {
   readonly redeem?: string
   /// What the confirmed ask bought; `code` then holds the voucher's code.
   readonly redeemed?: { readonly points: number | null; readonly value: number } | null
+  /// The voucher's face value when it was checked: all of it is used up, and
+  /// what the bill did not take is lost.
+  readonly face?: number
   /// What a voucher's check answered, for the middle of its row: "Komplimen ·
   /// CODE · saldo 50.000". Set once the code is known; it opens the amount.
   readonly info?: string | null
@@ -5159,17 +5573,6 @@ function Countdown({ until }: { readonly until: string }) {
   return <span className="num">{`${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`}</span>
 }
 
-/// The keypad is for touch; the counter types. Hidden until asked for, and the
-/// till remembers the choice (client, 24 Oct 2026).
-const PAD_KEY = "pos.pad"
-const padKept = () => {
-  try {
-    return localStorage.getItem(PAD_KEY) === "1"
-  } catch {
-    return false
-  }
-}
-
 /// Only a voucher carries a code typed in: a card is the machine and On us /
 /// Off us, never an approval code (owner, 21 Oct 2026), and the node needs no
 /// reference for a card, QRIS or e-wallet (`backend/src/tender.rs`).
@@ -5206,29 +5609,45 @@ const NOTE_LOOK: Readonly<Record<number, readonly [string, boolean]>> = {
   100: ["#c9cbd0", true],
 }
 
-const PAD = ["7", "8", "9", "del", "4", "5", "6", "clr", "1", "2", "3", "000", "0", "00"]
-
 const KIND_WORD: Readonly<Record<string, string>> = {
   GIFT_CARD: "Gift card",
   REFUND: "Refund",
   GOODWILL: "Komplimen",
 }
 
+/// A fingerprint, drawn small for the Diskon karyawan row.
+function FingerGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+      <path d="M7 11a5 5 0 0 1 10 0v2" />
+      <path d="M12 11v4a6 6 0 0 1-1.5 4" />
+      <path d="M9 11.5V14a9 9 0 0 1-1.2 4.5" />
+      <path d="M15 13.5a10 10 0 0 1-.8 4" />
+      <path d="M4.5 9a8 8 0 0 1 15 0" />
+      <path d="M5 14.5a12 12 0 0 0 .3-2" />
+    </svg>
+  )
+}
+
 /// Keep the caret where it is: a tile, a key or a quick amount is pressed, not
 /// focused, so the next key still reaches the dialog.
 const keepFocus = (event: React.MouseEvent) => event.preventDefault()
 
-/// Taking the money — a dialog over the counter, pay look E · Chip EDC of the
-/// prototype (client, 24 Oct 2026).
+/// Taking the money — a dialog over the counter, Bayar R1 "Rapi" of
+/// pos-bayar-prototype.html (client, 28 Oct 2026).
 ///
-/// Every way to pay is a row: Tunai, EDC (one or more), Voucher, Diskon
-/// karyawan and, with a member, Poin. A row takes no amount until it is
-/// verified — the EDC's three answers, the voucher's code, the employee's
-/// finger, the member app's code — and then the amount opens, once, from a
-/// blur. Cash is always open. ↑ ↓ move between rows, the keys beside an answer
-/// change it, and the right side holds the suggested amounts, the keypad when
-/// asked for, Tunda and Pembayaran diterima. That takes every row at once: a
-/// voucher is held and a balance spent first, then the sale is written.
+/// Tunai and one EDC are always there; more EDC, a Voucher, Poin (with a
+/// member) and Diskon karyawan are added with ⇧5 ⇧6 ⇧7 ⇧8 and taken off again
+/// with Delete or ×. A row takes no amount until it is verified — the EDC's
+/// three answers, the voucher's code, the employee's finger, the shopper's
+/// yes — and then the amount opens, once, from a blur. Cash is always open.
+/// ↑ ↓ move between rows, the keys beside an answer change it, the right side
+/// holds the quick amounts (⇧1–4), what is short, Tunda (⇧9) and Pembayaran
+/// diterima (Enter). The counter types: there is no keypad, and no Kembalian
+/// is read here. The blue band at the foot says how many pieces and how much
+/// money came in, with what the shopper is told in one white card above it.
+/// Pembayaran diterima takes every row at once: a voucher is held and a
+/// balance spent first, then the sale is written.
 function Payment({
   units,
   currency,
@@ -5244,6 +5663,11 @@ function Payment({
   actorId,
   credit = null,
   basket,
+  pointsEarned = 0,
+  saving = null,
+  noExchange = [],
+  everyFinal = false,
+  exchange,
   onBack,
   onHold,
   onSold,
@@ -5270,13 +5694,28 @@ function Payment({
   memberName?: string | null
   charges: readonly api.Charge[]
   actorId: string
-  /// F8 Return: what came back pays for the replacements, up to their total.
+  /// ⇧8 Return: what came back pays for the replacements, up to their total.
   credit?: ExchangeCredit | null
+  /// What the member earns on this basket, for the band's "Member … +n poin".
+  pointsEarned?: number
+  /// What the promotions took off and their names, for "Hemat Rp …".
+  saving?: { readonly minor: number; readonly names: readonly string[] } | null
+  /// The articles that may not come back (the node's flag per article, or
+  /// underwear): said to the shopper at Bayar.
+  noExchange?: readonly string[]
+  /// Every piece in the basket is one of them.
+  everyFinal?: boolean
+  /// Return with replacements: records the exchange at the node with these
+  /// tenders (the head's finger is asked inside).
+  exchange?: (tenders: readonly api.SaleTender[]) => Promise<ExchangeOutcome>
   onBack: () => void
   /// Tunda: park the basket and leave Bayar. Not given for a Return.
   onHold?: () => void
   onSold: (sale: Sold) => void
 }) {
+  const exchangeDays = useExchangeDays()
+  // The shop's own cash account, named on the Tunai row as the prototype does.
+  const siteCode = useNodeConfig().config?.joined?.site_code ?? ""
   const fullMinor = totalMinor
   const creditMinor = credit === null ? 0 : Math.max(0, Math.min(credit.capMinor, fullMinor))
   totalMinor = fullMinor - creditMinor
@@ -5285,7 +5724,7 @@ function Payment({
   const machines = useEdcMachines()
   // Head office gives each shop the Poin row or not (0989).
   const pointsOffered = usePointsOffered()
-  // The dialog fades in for a pointer; F12 opens it as if it had always been there.
+  // The dialog fades in for a pointer; Enter opens it as if it had always been there.
   const [enter] = useState(viaPointer)
   // The dialog holds the caret so digits, arrows and Enter reach it; the code
   // field of the row in focus takes it while a code is typed.
@@ -5308,32 +5747,20 @@ function Payment({
   const cardTile = tiles.find((one) => one.wire === "CARD") ?? tiles[0]
   const firstBank = (tile: MethodTile) =>
     tile.choices[0] === undefined ? null : choiceKey(tile.choices[0])
-  /// The rows of a new payment, in the prototype's order.
+  /// The rows of a new payment: Tunai and one EDC. The rest are added (`addWay`).
   const rowsFor = (): PayLine[] => {
     const out: PayLine[] = []
     const cash = tiles.find((one) => one.wire === "CASH")
     if (cash !== undefined) out.push(blank(cash.key, firstBank(cash)))
     if (machines.length > 0) out.push(blank(cardTile.key, null, { edc: null, kind: null }))
-    const voucher = tiles.find((one) => one.wire === "VOUCHER")
-    if (voucher !== undefined) out.push(blank(voucher.key, firstBank(voucher)))
-    const benefit = tiles.find((one) => one.wire === "BENEFIT")
-    if (benefit !== undefined) out.push(blank(benefit.key, firstBank(benefit)))
-    if (customerId !== null && pointsOffered && voucher !== undefined) {
-      out.push(blank(voucher.key, firstBank(voucher), { poin: true, ask: null, redeem: "", redeemed: null }))
-    }
     return out
   }
   const [lines, setLines] = useState<readonly PayLine[]>(() => {
     const starting = rowsFor()
     if (payKept !== null && payKept.basket === basket) {
       const kept = payKept.lines
-      // Kept only while the rows are the same rows: every method still on the
-      // list, and the Poin row there or not as it was.
-      const same =
-        kept.every((one) => tiles.some((tile) => tile.key === one.tile)) &&
-        kept.some((one) => one.poin === true) === starting.some((one) => one.poin === true) &&
-        kept.filter((one) => one.edc === undefined && one.poin !== true).length ===
-          starting.filter((one) => one.edc === undefined && one.poin !== true).length
+      // Kept only while every row is still a method on the list.
+      const same = kept.length > 0 && kept.every((one) => tiles.some((tile) => tile.key === one.tile))
       if (same) {
         nextId.current = Math.max(nextId.current, ...kept.map((one) => one.id + 1))
         return kept
@@ -5353,7 +5780,7 @@ function Payment({
     put(linesRef.current.map((one) => (one.id === id ? { ...one, ...change } : one)))
   }
   const current = (id: number) => linesRef.current.find((one) => one.id === id)
-  // The row in focus: ↑ ↓ or a click moves it; digits, the keypad and F1–F4 are for it.
+  // The row in focus: ↑ ↓ or a click moves it; digits and ⇧1–4 are for it.
   const [focus, setFocus] = useState(0)
   const focusAt = useRef(0)
   // The next digit replaces the amount rather than extending it.
@@ -5380,8 +5807,14 @@ function Payment({
   // The row whose amount has just been opened by a finger or a code: it comes
   // in once from a blur.
   const [reveal, setReveal] = useState<number | null>(null)
-  // F8: the keypad, hidden unless this till last asked for it.
-  const [pad, setPad] = useState(padKept)
+  // The EDC row just answered (or taken back): only the chip picked and the
+  // next question move in, nothing else (160 ms, see pay-d.css `.edc-in`).
+  const [chipNew, setChipNew] = useState<{ readonly id: number; readonly pick: boolean } | null>(null)
+  useEffect(() => {
+    if (chipNew === null) return
+    const timer = window.setTimeout(() => setChipNew(null), 400)
+    return () => window.clearTimeout(timer)
+  }, [chipNew])
   // The member's points, for the middle of the Poin row.
   const [memberPoints, setMemberPoints] = useState<number | null>(null)
   const byFinger = !isWeb && (scanner === true || SIMULATED) && !fingerless
@@ -5418,6 +5851,9 @@ function Payment({
   const isCash = (line: PayLine) => tileOf(line).wire === "CASH"
   const isEdc = (line: PayLine) => line.edc !== undefined
   const isBenefit = (line: PayLine) => tileOf(line).wire === "BENEFIT"
+  /// Every row but Tunai can be taken off (the one EDC row only starts over).
+  const removable = (line: PayLine) =>
+    !isCash(line) && (!isEdc(line) || line.edc != null || line.amount > 0 || linesRef.current.some((one) => isEdc(one) && one.id !== line.id))
   const isVoucher = (line: PayLine) => tileOf(line).wire === "VOUCHER" && line.poin !== true
   const machineOf = (line: PayLine) =>
     line.edc == null ? null : (machines.find((one) => one.id === line.edc) ?? null)
@@ -5449,19 +5885,6 @@ function Payment({
     if (ask === "card") return `Jawab dulu: kartu ${bankOf(line)} atau bank lain? (Y / T)`
     return null
   }
-  /// The line's title: "Debit · BCA", "QRIS · BCA", "Voucher · CODE".
-  const titleOf = (line: PayLine) => {
-    const tile = tileOf(line)
-    if (line.poin) return "Poin"
-    if (tile.wire === "VOUCHER") return line.code.trim() === "" ? "Voucher" : `Voucher · ${line.code.trim().toUpperCase()}`
-    if (tile.wire === "BENEFIT") {
-      const name = line.holder?.full_name ?? line.holder?.employee_code
-      return name === undefined ? "Diskon karyawan" : `Diskon karyawan · ${name}`
-    }
-    if (tile.wire === "CASH") return "Tunai"
-    return `${rowName(tile)} · ${bankOf(line)}`
-  }
-
   const paid = lines.reduce((sum, line) => sum + line.amount, 0)
   const cashIn = lines.filter(isCash).reduce((sum, line) => sum + line.amount, 0)
   const outstanding = Math.max(0, totalMinor - paid)
@@ -5487,7 +5910,7 @@ function Payment({
     // Poin pays what the confirmed code bought, and nothing before it is confirmed.
     if (line.poin) return line.redeemed ? Math.min(rest, line.redeemed.value) : 0
     if (tile.wire !== "BENEFIT") return rest
-    return line.holder === null || basketHasPromotion ? 0 : Math.min(rest, line.holder.balance_minor)
+    return line.holder === null ? 0 : Math.min(rest, line.holder.balance_minor)
   }
   /// A row takes an amount only once it knows whose money it is (client, 24 Oct
   /// 2026): a voucher its code (and then the voucher sets the amount), Diskon
@@ -5501,7 +5924,7 @@ function Payment({
     if (tile.wire === "BENEFIT") {
       return line.holder === null
         ? NEEDS_FINGER
-        : line.holder.balance_minor > 0 && !basketHasPromotion
+        : line.holder.balance_minor > 0
           ? null
           : EMPTY_BALANCE
     }
@@ -5514,7 +5937,7 @@ function Payment({
   const takesCode = (line: PayLine) => {
     if (line.poin) return lockOf(line) === NEEDS_CODE && (line.ask == null || line.ask.sentTo !== null)
     if (isVoucher(line)) return lockOf(line) === NEEDS_CODE
-    return isBenefit(line) && line.holder === null && !basketHasPromotion && benefitCode
+    return isBenefit(line) && line.holder === null && benefitCode
   }
 
   // The row in focus with a code field has the caret in it, so letters type the
@@ -5574,19 +5997,19 @@ function Payment({
     let said: string | null = null
     if (value > cap) {
       value = cap
+      // "… diisi sisanya" is not said: the box already shows the figure
+      // (Hari, 29 Oct 2026). Only what the box cannot say is.
       said = line.poin
         ? line.redeemed && cap === line.redeemed.value
           ? `Poin${first === "" ? "" : ` ${first}`} cukup untuk ${money(cap, currency)}`
-          : `Poin diisi sisanya, ${money(cap, currency)}`
+          : null
         : tile.wire !== "BENEFIT"
-          ? `${titleOf(line)} diisi sisanya, ${money(cap, currency)}`
-          : basketHasPromotion
-            ? "Diskon karyawan tidak bisa dipakai bersama promo."
-            : line.holder === null
+          ? null
+          : line.holder === null
               ? benefitAsk
               : cap === line.holder.balance_minor
                 ? `Saldo ${(line.holder.full_name ?? line.holder.employee_code).split(" ")[0]} ${money(cap, currency)} · sisanya bayar dengan cara lain`
-                : `Diskon karyawan diisi sisanya, ${money(cap, currency)}`
+                : null
     }
     edit(line.id, { amount: value, auto: !typed })
     setNote(said)
@@ -5626,8 +6049,7 @@ function Payment({
       return
     }
     if (isBenefit(line)) {
-      if (basketHasPromotion) setNote("Diskon karyawan tidak bisa dipakai bersama promo.")
-      else if (line.holder !== null) {
+      if (line.holder !== null) {
         setNote(`Saldo diskon karyawan ${line.holder.full_name ?? line.holder.employee_code} kosong`)
       } else if (byFinger) openFinger()
       else {
@@ -5641,8 +6063,8 @@ function Payment({
     const line = linesRef.current[focusAt.current]
     if (line === undefined || busy) return
     const lock = lockOf(line)
-    // A voucher's amount is the voucher's: Backspace or Delete takes the voucher off.
-    if (lock === FIXED && (key === "del" || key === "clr")) {
+    // A voucher's amount is the voucher's: Backspace takes the voucher off.
+    if (lock === FIXED && key === "del") {
       void clearRow(line)
       return
     }
@@ -5655,34 +6077,14 @@ function Payment({
       fresh.current = false
       return
     }
-    if (key === "clr") {
-      edit(line.id, { amount: 0, auto: false })
-      fresh.current = true
-      clearSaid()
-      return
-    }
     const value = Number(`${fresh.current ? "" : String(line.amount || "")}${key}`)
     if (String(value).length > 11) return
     setAmount(line, value, true)
     fresh.current = false
   }
 
-  /// 7Soft's Ribuan keys: each adds that many thousand to the amount.
-  function plus(thousands: number) {
-    const line = linesRef.current[focusAt.current]
-    if (line === undefined || busy) return
-    const lock = lockOf(line)
-    if (lock !== null) {
-      locked(line, lock)
-      return
-    }
-    setAmount(line, line.amount + thousands, true)
-    fresh.current = false
-  }
-
-  /// The amounts on F1–F4 for the row in focus. Cash: "Uang pas" — what is
-  /// still due — then the round amounts above it, each with the change it
-  /// leaves. Every other method: just the rest, since nothing but cash can be
+  /// The amounts on ⇧1–4 for the row in focus. Cash: "Uang pas" — what is
+  /// still due — then the round amounts above it; no change is read out. Every other method: just the rest, since nothing but cash can be
   /// more than is due; a balance or points, all of them when that is the rest.
   const quick: readonly { readonly value: number; readonly word: string }[] = (() => {
     if (focused === undefined || lockOf(focused) !== null) return []
@@ -5693,7 +6095,7 @@ function Payment({
         { value: due, word: "Uang pas" },
         ...cashQuick(due).map((value) => ({
           value,
-          word: `Kembali ${plain(value - due, currency)}`,
+          word: "",
         })),
       ].slice(0, 4)
     }
@@ -5733,6 +6135,7 @@ function Payment({
   }
   /// The line as it now is, answered and filled, back on the list.
   function answered(next: PayLine) {
+    setChipNew({ id: next.id, pick: true })
     const all = linesRef.current
     const done = filled(all, next)
     put(all.map((one) => (one.id === done.id ? done : one)))
@@ -5741,6 +6144,7 @@ function Payment({
   function edcUndo(id: number, from: "bank" | "kind" | "card") {
     const line = current(id)
     if (line === undefined) return
+    setChipNew({ id, pick: false })
     let next: PayLine = { ...line, onus: null, amount: 0, auto: false }
     if (from === "bank") next = { ...next, edc: null, kind: null, tile: cardTile.key, bank: null }
     if (from === "kind") next = { ...next, kind: null, tile: cardTile.key, bank: null }
@@ -5823,31 +6227,82 @@ function Payment({
     focusRow(at + 1)
   }
 
-  /// + (or =) from any row: an EDC still unasked is the one to answer;
-  /// otherwise one more EDC under the last.
-  function edcPlus() {
+  // ── The ways added with ⇧5–⇧8, and taken off again ────────────────────────
+
+  /// What may still be added, in the order of the buttons: another EDC, a paper
+  /// voucher, the member's points, an employee's balance.
+  const voucherTile = tiles.find((one) => one.wire === "VOUCHER")
+  const benefitTile = tiles.find((one) => one.wire === "BENEFIT")
+  const hasVoucher = lines.some(isVoucher)
+  const hasPoin = lines.some((one) => one.poin === true)
+  const hasBenefit = lines.some(isBenefit)
+  const canEdc = machines.length > 0
+  const canVoucher = voucherTile !== undefined && !hasVoucher && credit === null
+  const canPoin = voucherTile !== undefined && customerId !== null && pointsOffered && !hasPoin && credit === null
+  const canBenefit = benefitTile !== undefined && !hasBenefit && credit === null
+
+  /// One more way to pay, under the last row, with the focus on it.
+  function addWay(way: "edc" | "voucher" | "poin" | "emp") {
+    if (busy) return
     const all = linesRef.current
-    const at = focusAt.current
-    const line = all[at]
-    if (line === undefined) return
-    if (isEdc(line) && askOf(line) !== null) {
-      setMiss(line.id)
+    if (way === "edc") {
+      if (!canEdc) return
+      let last = -1
+      all.forEach((one, n) => {
+        if (isEdc(one)) last = n
+      })
+      edcMore(last < 0 ? all.length - 1 : last)
+      return
+    }
+    let more: PayLine | null = null
+    if (way === "voucher" && canVoucher && voucherTile !== undefined) more = blank(voucherTile.key, firstBank(voucherTile))
+    if (way === "poin" && canPoin && voucherTile !== undefined) {
+      more = blank(voucherTile.key, firstBank(voucherTile), { poin: true, ask: null, redeem: "", redeemed: null })
+    }
+    if (way === "emp" && canBenefit && benefitTile !== undefined) more = blank(benefitTile.key, firstBank(benefitTile))
+    if (more === null) return
+    clearSaid()
+    put([...all, more])
+    focusRow(all.length)
+    if (way === "emp" && byFinger) openFinger()
+  }
+
+  /// Delete or × on a row: the way goes. Tunai only empties; the last EDC row
+  /// asks its questions again; a voucher hold, a spent balance or a waiting
+  /// ask goes back first. Points already approved stay on the row.
+  async function dropRow(line: PayLine) {
+    if (busy) return
+    if (isCash(line)) {
+      edit(line.id, { amount: 0, auto: false })
+      fresh.current = true
+      clearSaid()
       return
     }
     if (isEdc(line)) {
-      edcMore(at)
-      return
+      const others = linesRef.current.filter((one) => isEdc(one) && one.id !== line.id).length
+      if (others === 0) {
+        edit(line.id, { edc: null, kind: null, onus: null, tile: cardTile.key, bank: null, amount: 0, auto: false })
+        clearSaid()
+        return
+      }
+    } else if (line.poin === true) {
+      if (line.ask != null) await clearAsk(line.id)
+      if (current(line.id)?.redeemed) {
+        setNote("Poin sudah ditukar · sisanya dipakai di transaksi ini")
+        return
+      }
+    } else if (line.secured !== null) {
+      await clearRow(line)
     }
-    const open = all.findIndex((one) => isEdc(one) && one.edc === null)
-    if (open >= 0) {
-      focusRow(open)
-      return
-    }
-    let last = -1
-    all.forEach((one, n) => {
-      if (isEdc(one)) last = n
-    })
-    if (last >= 0) edcMore(last)
+    const all = linesRef.current
+    const at = all.findIndex((one) => one.id === line.id)
+    if (at < 0) return
+    put(all.filter((one) => one.id !== line.id))
+    clearSaid()
+    const to = Math.max(0, Math.min(all.length - 2, at - (at >= focusAt.current ? 1 : 0)))
+    focusAt.current = to
+    setFocus(to)
+    fresh.current = true
   }
 
   // ── Voucher ──────────────────────────────────────────────────────────────
@@ -5857,7 +6312,7 @@ function Payment({
   /// more than is still owed, and the rest stays for another method — no
   /// surprise at Pembayaran diterima.
   function setVoucherCode(id: number, raw: string) {
-    edit(id, { code: raw, info: null, bad: false, amount: 0, auto: false })
+    edit(id, { code: raw, info: null, face: undefined, bad: false, amount: 0, auto: false })
     clearSaid()
     const wanted = raw.trim().toUpperCase()
     if (wanted.length < 8) return
@@ -5890,8 +6345,11 @@ function Payment({
         return
       }
       clearSaid()
+      // A paper voucher is used once, at its face value: what it leaves over
+      // is lost, never given back as change.
       const take = Math.min(v.balance_minor, restIn(linesRef.current, now))
       edit(id, {
+        face: v.single_use === false ? undefined : v.balance_minor,
         amount: take,
         auto: false,
         bad: false,
@@ -5935,7 +6393,7 @@ function Payment({
     else if (isBenefit(line)) {
       edit(line.id, { holder: null, finger: null, code: "", amount: 0, auto: false, secured: null })
     } else {
-      edit(line.id, { code: "", info: null, bad: false, amount: 0, auto: false, secured: null })
+      edit(line.id, { code: "", info: null, face: undefined, bad: false, amount: 0, auto: false, secured: null })
     }
     setReveal(null)
     clearSaid()
@@ -5976,7 +6434,7 @@ function Payment({
             : "Tagihan sudah tertutup oleh cara bayar lain"
           : memberPoints !== null && cap === memberPoints
             ? `Poin member hanya ${grouped(cap)}`
-            : `Poin diisi sisanya, ${money(cap, currency)}`
+            : null
     }
     edit(id, { points: value, bad: false })
     clearSaid()
@@ -6287,10 +6745,6 @@ function Payment({
         return
       }
       if (tile.wire === "BENEFIT") {
-        if (basketHasPromotion) {
-          fail(line, "Diskon karyawan tidak bisa dipakai bersama promo.", {})
-          return
-        }
         if (line.holder === null) {
           fail(line, benefitAsk, {})
           return
@@ -6420,30 +6874,61 @@ function Payment({
     await complete(tenders, change, cashIn)
   }
 
+  /// A tender as the node takes it on the wire. Cash is sent as handed over,
+  /// not as applied: the node works the change out.
+  const wireTender = (one: Tender): api.SaleTender => ({
+    method: one.method,
+    amount_minor: one.method === "CASH" ? Math.max(one.tenderedMinor, one.amountMinor) : one.amountMinor,
+    reference: one.reference,
+    // The hold head office granted, on the voucher that needed one.
+    voucher_authorization_id: one.voucherAuthorizationId,
+    acquirer: one.acquirer,
+    card_kind: one.cardKind,
+    payment_method_code: one.code,
+  })
+
+  /// Return with replacements: the Kepala toko's finger, then one call that
+  /// records the pieces back, the replacements and the tenders. Online only.
+  async function completeExchange(paidWith: readonly Tender[], _changeMinor: number, cashMinor: number) {
+    if (exchange === undefined || completing.current) return
+    completing.current = true
+    setBusy(true)
+    setProblem(null)
+    const done = await exchange(paidWith.map(wireTender))
+    setBusy(false)
+    if (!done.ok) {
+      completing.current = false
+      if (!done.cancelled) setProblem(done.problem)
+      return
+    }
+    payKept = null
+    onSold({
+      id: done.saleId ?? done.receiptNo,
+      localId: done.saleId ?? done.receiptNo,
+      saleId: done.saleId,
+      totalMinor: fullMinor,
+      changeMinor: done.changeMinor,
+      cashMinor,
+      accepted: true,
+      refused: false,
+      problem: null,
+      tags: units.map(unitName),
+    })
+  }
+
   async function complete(paidWith: readonly Tender[], changeMinor: number, cashMinor: number) {
     // The reason is already on screen beside the money (`holdBack`).
     if (holdBack !== null) {
       setBusy(false)
       return
     }
-    // F8 Return: the credit for what came back is the first tender.
-    const tenders: readonly Tender[] =
-      credit === null || creditMinor <= 0
-        ? paidWith
-        : [
-            {
-              method: credit.method,
-              acquirer: null,
-              cardKind: null,
-              code: null,
-              amountMinor: creditMinor,
-              tenderedMinor: creditMinor,
-              reference: credit.reference,
-              voucherAuthorizationId: null,
-              voucherCheckoutId: null,
-            },
-            ...paidWith,
-          ]
+    // ⇧8 Return: the pieces back, the replacements and the tenders for the
+    // difference go to the node in one call; what came back is its own credit.
+    if (credit !== null) {
+      await completeExchange(paidWith, changeMinor, cashMinor)
+      return
+    }
+    const tenders: readonly Tender[] = paidWith
     // One sale per press: the write below comes first now, so a second press
     // landing before the button greys out would write the sale twice.
     if (completing.current) return
@@ -6465,21 +6950,7 @@ function Payment({
       // The pieces with no tag, as the quote saw them: the node writes each
       // down for head office to match.
       untagged: sent.untagged,
-      tenders: tenders.map((one) => ({
-        method: one.method,
-        amount_minor:
-          one.method === "CASH"
-            ? Math.max(one.tenderedMinor, one.amountMinor)
-            : one.amountMinor,
-        reference: one.reference,
-        // The hold head office granted, on the voucher that needed one. It is
-        // carried on the tender because head office commits it against THIS
-        // sale when the sale reaches it — the till does not call commit at all.
-        voucher_authorization_id: one.voucherAuthorizationId,
-        acquirer: one.acquirer,
-        card_kind: one.cardKind,
-        payment_method_code: one.code,
-      })),
+      tenders: tenders.map(wireTender),
       actor_id: actorId,
       coupon_codes: coupons,
       // The holds go with the sale: the node prices it as the screen did, and
@@ -6534,7 +7005,7 @@ function Payment({
     })
   }
 
-  // F8 Return that the credit covers whole: nothing to pay, so the sale is
+  // ⇧8 Return that the credit covers whole: nothing to pay, so the sale is
   // written the moment the node has priced the replacements.
   useEffect(() => {
     if (credit === null || creditMinor <= 0 || totalMinor > 0) return
@@ -6631,16 +7102,12 @@ function Payment({
 
   /// The balance found — by finger or by code — on the Diskon karyawan row. The
   /// amount box opens empty (client, 24 Oct 2026): the cashier types how much
-  /// of it pays, or F1 "Semua saldo".
+  /// of it pays, or ⇧1 "Semua saldo".
   function takeHolder(holder: BenefitHolder, grant: string | null) {
     const line = linesRef.current.find(isBenefit)
     if (line === undefined) return
     const name = holder.full_name ?? holder.employee_code
-    const said = basketHasPromotion
-      ? "Diskon karyawan tidak bisa dipakai bersama promo."
-      : holder.balance_minor <= 0
-        ? `Saldo diskon karyawan ${name} kosong`
-        : null
+    const said = holder.balance_minor <= 0 ? `Saldo diskon karyawan ${name} kosong` : null
     edit(line.id, { holder, finger: grant, amount: 0, auto: false })
     setReveal(line.id)
     setNote(said)
@@ -6683,10 +7150,6 @@ function Payment({
   function openFinger() {
     const line = linesRef.current.find(isBenefit)
     if (line === undefined || busy || fingerAsk) return
-    if (basketHasPromotion) {
-      setNote("Diskon karyawan tidak bisa dipakai bersama promo.")
-      return
-    }
     clearSaid()
     focusRow(linesRef.current.indexOf(line))
     setFingerAsk(true)
@@ -6733,24 +7196,15 @@ function Payment({
     void pay()
   }
 
-  function togglePad() {
-    const next = !pad
-    setPad(next)
-    try {
-      localStorage.setItem(PAD_KEY, next ? "1" : "0")
-    } catch {
-      // No storage: it stays hidden next time.
-    }
-  }
-
-  // The keys of the dialog, as the prototype's `pay2Key`: ↑ ↓ (or Tab) move
-  // between rows; digits type into the row in focus — or, while an EDC asks
-  // Mesin, pick the machine; ← → another machine, D K Q another kind and Y T the
-  // card on an EDC; + (or =) another EDC; Space asks for the employee's finger;
-  // F1–F4 a suggested amount; F8 the keypad; F9 Tunda; Enter takes the money;
-  // Esc leaves. A code field keeps its own typing — only Enter, Esc, ↑ ↓, F9,
-  // F8 and F1–F4 reach past it. Bound once, reading this render's handler when
-  // a key arrives.
+  // The keys of the dialog (pos-bayar-prototype.html), all from the keyboard:
+  // ↑ ↓ (or Tab) move between rows; digits type into the row in focus — or,
+  // while an EDC asks Mesin, pick the machine; ← → another machine, D K Q
+  // another kind and Y T the card on an EDC; Backspace takes the last answer
+  // back and Delete (or ×) takes the row off; Space asks for the employee's
+  // finger; ⇧1–4 a quick amount, ⇧5 + EDC, ⇧6 + Voucher, ⇧7 + Poin, ⇧8 + Diskon
+  // karyawan, ⇧9 Tunda; Enter takes the money; Esc leaves. A code field keeps
+  // its own typing — only Enter, Esc, ↑ ↓ and ⇧ and a digit reach past it.
+  // Bound once, reading this render's handler when a key arrives.
   const onKey = (event: KeyboardEvent) => {
     const key = event.key
     const target = event.target
@@ -6761,26 +7215,22 @@ function Payment({
     // The employee's finger card has the keys while it is up.
     if (fingerAsk) return
     if (event.repeat && key !== "Backspace" && !/^\d$/.test(key)) return
-    if (key === "F9") {
-      if (!canHold) return
+    const shifted = event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey
+      ? /^Digit([0-9])$/.exec(event.code)
+      : null
+    if (shifted !== null) {
       event.preventDefault()
-      void hold()
-      return
-    }
-    if (key === "F8") {
-      event.preventDefault()
-      togglePad()
+      const n = Number(shifted[1])
+      if (n === 9) {
+        if (canHold) void hold()
+      } else if (n >= 1 && n <= 4) applyQuick(n - 1)
+      else if (n >= 5 && n <= 8) addWay((["edc", "voucher", "poin", "emp"] as const)[n - 5])
       return
     }
     if (key === "Escape") {
       event.preventDefault()
       if (field) dialog.current?.focus()
       else if (!busy) void leavePayment()
-      return
-    }
-    if (/^F[1-4]$/.test(key)) {
-      event.preventDefault()
-      applyQuick(Number(key[1]) - 1)
       return
     }
     if (busy) return
@@ -6816,7 +7266,7 @@ function Payment({
           ask === "card" ? "kind" : ask === "kind" ? "bank" : line.kind !== "qris" ? "card" : "kind",
         )
       } else digit("del")
-    } else if (key === "Delete") digit("clr")
+    } else if (key === "Delete") void dropRow(line)
     else if (key === "ArrowDown" || (key === "Tab" && !event.shiftKey)) focusRow(at + 1)
     else if (key === "ArrowUp" || (key === "Tab" && event.shiftKey)) focusRow(at - 1)
     else if ((key === "ArrowLeft" || key === "ArrowRight") && isEdc(line)) {
@@ -6827,7 +7277,6 @@ function Payment({
       if (to !== undefined && to.id !== line.edc) edcSetBank(line.id, to.id)
     } else if (isEdc(line) && /^[dkq]$/i.test(key)) edcSetKind(line.id, KEY_KIND[key.toLowerCase()], true)
     else if (isEdc(line) && /^[yt]$/i.test(key)) edcSetCard(line.id, /y/i.test(key) ? "On us" : "Off us", true)
-    else if (key === "+" || key === "=") edcPlus()
     // Diskon karyawan takes no amount before a finger: Space asks for one
     // (client, 24 Oct 2026); digits do the same through `locked`.
     else if (key === " " && isBenefit(line) && line.holder === null && byFinger) openFinger()
@@ -6868,101 +7317,44 @@ function Payment({
       </p>
     ) : null
 
+  // Quick amounts are plain rows, the key at the end (⇧1–4); no keypad.
   const quickView =
     quick.length > 0 ? (
-      <div className="q2" role="group" aria-label="Jumlah cepat">
+      <div className="qk" role="group" aria-label="Jumlah cepat">
         {quick.map((one, index) => (
           <button
             key={one.value}
             type="button"
             tabIndex={-1}
-            className="q2b"
-            aria-keyshortcuts={`F${index + 1}`}
+            className={`qrow${index === 0 && one.word ? " lead" : ""}`}
+            aria-keyshortcuts={`Shift+${index + 1}`}
             disabled={busy}
             onMouseDown={keepFocus}
             onClick={() => applyQuick(index)}
           >
-            <span className="k7-k" aria-hidden="true">
-              F{index + 1}
-            </span>
             <b className="num">{plain(one.value, currency)}</b>
-            <span className="q2s">{one.word}</span>
+            <span className="l">{one.word}</span>
+            <span className="kbd">Shift+{index + 1}</span>
           </button>
         ))}
       </div>
     ) : null
 
-  const padView = (
-    <>
-      <div className="keys">
-        {PAD.map((key) => (
-          <button
-            key={key}
-            type="button"
-            tabIndex={-1}
-            className={key === "del" || key === "clr" ? "key fn" : "key"}
-            aria-label={key === "del" ? "Hapus satu digit" : key === "clr" ? "Kosongkan" : key}
-            aria-keyshortcuts={key === "000" ? "." : undefined}
-            disabled={busy}
-            onMouseDown={keepFocus}
-            onClick={() => digit(key)}
-          >
-            {key === "del" ? (
-              <Icon name="del" />
-            ) : key === "clr" ? (
-              "C"
-            ) : key === "000" ? (
-              <>
-                000<span className="kh" aria-hidden="true">.</span>
-              </>
-            ) : (
-              key
-            )}
-          </button>
-        ))}
-      </div>
-      {/* 7Soft's Ribuan: each key adds that many thousand to the amount. */}
-      <div className="rib" role="group" aria-label="Ribuan">
-        <span className="rib-l">Ribuan</span>
-        {[500, 100, 50, 10, 5, 1].map((thousands) => (
-          <button
-            key={thousands}
-            type="button"
-            tabIndex={-1}
-            className="key rib-k"
-            aria-label={`Tambah ${thousands} ribu`}
-            disabled={busy}
-            onMouseDown={keepFocus}
-            onClick={() => plus(thousands * 1000)}
-          >
-            +{thousands}
-          </button>
-        ))}
-      </div>
-    </>
-  )
-
   /// The EDC row asks one question at a time (Hari picked "Satu per satu",
   /// 24 Oct 2026): Mesin, then Jenis, then Kartu. An answer shrinks to the chip
-  /// picked, and on the row in focus the keys beside it change it.
+  /// picked, its × takes it back.
   const edcMid = (line: PayLine, i: number) => {
-    const on = i === focus
     const ask = askOf(line)
     const machine = machineOf(line)
     const bank = machine?.bank ?? line.edc ?? null
     const kinds = kindsOf(machine)
-    const label = { bank: "Mesin", kind: "Jenis", card: "Kartu" } as const
-    const keys: Readonly<Record<"bank" | "kind" | "card", readonly string[]>> = {
-      bank: ["←", "→"],
-      kind: kinds.map(([, , key]) => key),
-      card: ["Y", "T"],
-    }
+    const label: Record<"bank" | "kind" | "card", string> = { bank: "Mesin", kind: "Jenis", card: "Kartu" }
     const chip = (id: string, selected: boolean, run: () => void, word: string, key: string) => (
       <button
         key={id}
         type="button"
         tabIndex={-1}
-        className={`mchip${selected ? " on" : ""}`}
+        className={`mchip${selected ? " on" : ""}${chipNew?.id === line.id ? " edc-in" : ""}`}
         role="radio"
         aria-checked={selected}
         disabled={busy}
@@ -6973,13 +7365,7 @@ function Payment({
           focusRow(i)
         }}
       >
-        {word}
-        {on && (
-          <>
-            {" "}
-            <span className="kbd">{key}</span>
-          </>
-        )}
+        {word} <span className="kbd">{key}</span>
       </button>
     )
     const choices =
@@ -7000,67 +7386,45 @@ function Payment({
     const kindWord = KINDS.find(([kind]) => kind === line.kind)?.[1] ?? ""
     const picked = (q: "bank" | "kind" | "card") =>
       q === "bank" ? (bank ?? "") : q === "kind" ? kindWord : line.onus === "On us" ? `Kartu ${bank ?? ""}` : "Bank lain"
-    const answer = (q: "bank" | "kind" | "card") => (
-      <>
-        <button
-          type="button"
-          tabIndex={-1}
-          className="edc-tok"
-          aria-label={`Batalkan ${picked(q)}`}
-          disabled={busy}
-          onMouseDown={keepFocus}
-          onClick={(event) => {
-            event.stopPropagation()
-            edcUndo(line.id, q)
-            focusRow(i)
-          }}
-        >
-          {picked(q)}
-          <Icon name="x" />
-        </button>
-        {on && (
-          <span className="edc-keys" aria-hidden="true">
-            {keys[q].map((key) => (
-              <span key={key} className="kbd">
-                {key}
-              </span>
-            ))}
-          </span>
-        )}
-      </>
+    const answer = (q: "bank" | "kind" | "card", latest: boolean) => (
+      <button
+        key={q}
+        type="button"
+        tabIndex={-1}
+        className={`edc-tok${latest && chipNew?.id === line.id && chipNew.pick ? " edc-in" : ""}`}
+        aria-label={`Batalkan ${picked(q)}`}
+        disabled={busy}
+        onMouseDown={keepFocus}
+        onClick={(event) => {
+          event.stopPropagation()
+          edcUndo(line.id, q)
+          focusRow(i)
+        }}
+      >
+        {picked(q)}
+        <Icon name="x" />
+      </button>
     )
     const order: ("bank" | "kind" | "card")[] =
       line.kind === "qris" ? ["bank", "kind"] : ["bank", "kind", "card"]
     const done = order.slice(0, ask === null ? order.length : order.indexOf(ask))
-    const asked = (q: "bank" | "kind" | "card", inner: React.ReactNode) => (
-      <Fragment key={q}>
-        <span className={`edc-k${q === ask ? (miss === line.id ? " bad" : " need") : ""}`}>{label[q]}</span>
-        <span className="mchips" role="radiogroup" aria-label={label[q]}>
-          {inner}
-        </span>
-      </Fragment>
-    )
+    // One line, as pos-bayar-prototype.html draws it (Hari, 29 Oct 2026): the
+    // answers so far as solid chips with ×, then the one question still open —
+    // its word and its choices — beside them, never under them.
     return (
-      <div className="edc-grid">
-        {done.map((q) => asked(q, answer(q)))}
-        {ask !== null && asked(ask, choices)}
-        {ask === null && on && (
+      <div className="edc-line">
+        {done.map((q, n) => answer(q, n === done.length - 1))}
+        {ask !== null && (
           <>
-            <span />
-            <span className="mchips">
-              <button
-                type="button"
-                tabIndex={-1}
-                className="ds-btn ds-btn--tint ds-btn--sm"
-                disabled={busy}
-                onMouseDown={keepFocus}
-                onClick={(event) => {
-                  event.stopPropagation()
-                  edcMore(i)
-                }}
+            {label[ask] !== "" && (
+              <span
+                className={`edc-k${miss === line.id ? " bad" : " need"}${chipNew?.id === line.id ? " edc-in" : ""}`}
               >
-                Tambah EDC <span className="kbd">+</span>
-              </button>
+                {label[ask]}
+              </span>
+            )}
+            <span className="mchips" role="radiogroup" aria-label={ask === "bank" ? "Mesin EDC" : label[ask]}>
+              {choices}
             </span>
           </>
         )}
@@ -7077,22 +7441,6 @@ function Payment({
     const lock = lockOf(line)
     const bad = miss === line.id || line.bad === true
     const take = (event: React.MouseEvent) => event.stopPropagation()
-    const cross = (words: string, run: () => void) => (
-      <button
-        type="button"
-        tabIndex={-1}
-        className="t-x"
-        aria-label={words}
-        disabled={busy}
-        onMouseDown={keepFocus}
-        onClick={(event) => {
-          take(event)
-          run()
-        }}
-      >
-        <Icon name="x" />
-      </button>
-    )
     const field = (props: React.InputHTMLAttributes<HTMLInputElement>) => (
       <input
         ref={on ? code : undefined}
@@ -7123,13 +7471,10 @@ function Payment({
         ? `${line.redeemed.points === null ? "" : `${grouped(line.redeemed.points)} poin = `}${money(line.redeemed.value, currency)}`
         : ask !== null
           ? `${grouped(ask.points)} poin = ${money(ask.valueMinor, currency)}`
-          : memberPoints === null
-            ? ""
-            : `Saldo ${grouped(memberPoints)} poin`
+          : ""
       mid = (
         <div className="mmid">
           {words !== "" && <span className="vinfo">{words}</span>}
-          {ask !== null && cross("Batalkan permintaan poin", () => void clearAsk(line.id))}
           {ask === null && !line.redeemed && (
             <button
               type="button"
@@ -7143,7 +7488,7 @@ function Payment({
                 void askPoints(line.id)
               }}
             >
-              Minta persetujuan
+              Kirim permintaan
               {on && (
                 <>
                   {" "}
@@ -7155,48 +7500,51 @@ function Payment({
         </div>
       )
     } else if (tile.wire === "VOUCHER") {
-      // The code goes where the money goes; once it is a voucher, the voucher
-      // fills the amount, and × takes it off again.
+      // The code goes where the money goes, typed or scanned into the one
+      // field; once it is a voucher, the voucher fills the amount, and × takes
+      // it off again. A paper voucher, used once: nothing is given back.
       mid = (
         <div className="mmid">
-          {line.info != null && (
+          {lock === NEEDS_CODE ? (
+            field({
+              className: "minput",
+              value: voucherBusy === line.id ? "Memeriksa…" : line.code,
+              readOnly: voucherBusy === line.id,
+              "aria-busy": voucherBusy === line.id,
+              onChange: (event) => setVoucherCode(line.id, event.target.value),
+              placeholder: "Ketik atau scan kode voucher",
+              "aria-label": "Kode voucher",
+            })
+          ) : (
             <>
               <span className="vinfo">{line.info}</span>
-              {/* A word, not a faint ×, so it reads as the button it is
-                  (owner, 25 Oct 2026). */}
-              <button
-                type="button"
-                tabIndex={-1}
-                className="vcancel"
-                aria-label={`Batalkan voucher ${line.code.trim().toUpperCase()}`}
-                disabled={busy}
-                onMouseDown={keepFocus}
-                onClick={(event) => {
-                  take(event)
-                  void clearRow(line)
-                }}
-              >
-                Batalkan
-              </button>
+              <span className="vinfo ok">Voucher kertas</span>
             </>
           )}
         </div>
       )
     } else if (tile.wire === "BENEFIT") {
       const holder = line.holder
+      // The fingerprint wobbles while the reader reads (about 1.8 s), then
+      // settles green with the name and what is left.
       mid = (
         <div className="mmid">
           {holder !== null ? (
             <>
-              <span className="vinfo">
-                {holder.full_name ?? holder.employee_code} · saldo {plain(holder.balance_minor, currency)}
+              <span className="rfp done" aria-hidden="true">
+                <FingerGlyph />
               </span>
-              {cross("Ganti karyawan", () => void clearRow(line))}
+              <span className="vinfo">
+                {holder.full_name ?? holder.employee_code} · <span className="ok-t">saldo {plain(holder.balance_minor, currency)}</span>
+              </span>
             </>
-          ) : basketHasPromotion ? (
-            // Said on the row rather than leaving it blank: the shop's rule,
-            // not a missing finger or code.
-            <span className="vinfo">Tidak bisa bersama promo</span>
+          ) : fingerAsk ? (
+            <>
+              <span className="rfp reading" aria-hidden="true">
+                <FingerGlyph />
+              </span>
+              <span className="vinfo wait">Membaca jari…</span>
+            </>
           ) : (
             <>
               {takesCode(line) &&
@@ -7212,7 +7560,13 @@ function Payment({
           )}
         </div>
       )
-    } else mid = <div className="mmid" />
+    } else if (tile.wire === "CASH")
+      mid = (
+        <div className="mmid">
+          <span className="acct-static">Cash on Hand{siteCode === "" ? "" : ` ${siteCode}`}</span>
+        </div>
+      )
+    else mid = <div className="mmid" />
     let amount: React.ReactNode
     if (lock === NEEDS_CODE && line.poin) {
       // The cashier's points first; once asked, the shopper's six digits —
@@ -7247,7 +7601,7 @@ function Payment({
         ) : (
           <span className="amt-none" aria-hidden="true" />
         )
-    } else if (tile.wire === "BENEFIT" && byFinger && line.holder === null && !basketHasPromotion) {
+    } else if (tile.wire === "BENEFIT" && byFinger && line.holder === null) {
       // Verifikasi sits where the voucher's code field sits, the same size
       // (owner, 25 Oct 2026 sketch): the employee's finger.
       amount = (
@@ -7271,16 +7625,13 @@ function Payment({
           )}
         </button>
       )
-    } else if (lock === NEEDS_CODE) {
-      amount = field({
-        className: "minput amt-code amt-vcode",
-        value: voucherBusy === line.id ? "Memeriksa…" : line.code,
-        readOnly: voucherBusy === line.id,
-        "aria-busy": voucherBusy === line.id,
-        onChange: (event) => setVoucherCode(line.id, event.target.value),
-        placeholder: "Kode voucher",
-        "aria-label": "Kode voucher",
-      })
+    } else if (lock !== null && lock !== FIXED && isEdc(line)) {
+      // An EDC still being answered shows its empty box, as the prototype does.
+      amount = (
+        <span className="amt zero" aria-hidden="true">
+          <span className="cur">Rp</span>0
+        </span>
+      )
     } else if (lock !== null && lock !== FIXED) {
       amount = <span className="amt-none" aria-hidden="true" />
     } else {
@@ -7289,7 +7640,7 @@ function Payment({
           className={`amt${line.amount > 0 ? "" : " zero"}${on && lock === null ? " on" : ""}${line.auto ? " auto" : ""}${lock === FIXED ? " fixed" : ""}${reveal === line.id ? " reveal" : ""}`}
         >
           <span className="cur">{currency === "IDR" ? "Rp" : currency}</span>
-          <span className="n">{plain(line.amount, currency)}</span>
+          <span className="n">{figureOf(line.amount, currency)[1]}</span>
         </span>
       )
     }
@@ -7302,7 +7653,26 @@ function Payment({
         }}
       >
         <span className="ml">{name}</span>
-        {mid}
+        <div className="mwrap">
+          {mid}
+          {removable(line) && (
+            <button
+              type="button"
+              tabIndex={-1}
+              className="mdrop"
+              aria-label={`Hapus baris ${name}`}
+              disabled={busy}
+              onMouseDown={keepFocus}
+              onClick={(event) => {
+                take(event)
+                void dropRow(line)
+              }}
+            >
+              <Icon name="x" />
+              {on && <span className="kbd">Del</span>}
+            </button>
+          )}
+        </div>
         {amount}
         {line.poin === true && line.ask != null && (
           <p className="pwait">
@@ -7314,44 +7684,81 @@ function Payment({
     )
   }
 
-  /// The right side: the suggested amounts, the keypad when asked for, Tunda and
-  /// Pembayaran diterima.
+
+  /// Said to the shopper, in one white card inside the blue band: most
+  /// serious first, each a line the cashier reads out.
+  const tells: { readonly tone: "bad" | "ok" | "info"; readonly main: string; readonly sub?: string }[] = []
+  // What may come back, in the band itself (Hari, 30 Oct 2026): names only,
+  // white on the blue. Everything final: one sentence. A few final pieces:
+  // one line each; many: a count that opens. Anything that may come back: the
+  // window, in weeks when it is whole weeks.
+  const finalNames = credit !== null ? [] : noExchange
+  const allFinal = units.length > 0 && (credit !== null || everyFinal)
+  const someBack = units.length > 0 && !allFinal
+  const windowWords =
+    exchangeDays === null
+      ? null
+      : exchangeDays % 7 === 0
+        ? `${exchangeDays / 7} minggu`
+        : `${exchangeDays} hari`
+  const voucherLine = lines.find((one) => isVoucher(one) && one.amount > 0)
+  if (voucherLine !== undefined) {
+    const lost = Math.max(0, (voucherLine.face ?? voucherLine.amount) - voucherLine.amount)
+    tells.push({
+      tone: "bad",
+      main: `Voucher tidak ada kembalian${lost > 0 ? ` · sisa ${plain(lost, currency)} hangus` : ""}`,
+    })
+  }
+  if (saving !== null && saving.minor > 0) {
+    tells.push({
+      tone: "info",
+      main: `Hemat ${money(saving.minor, currency)}${saving.names.length > 0 ? ` · ${saving.names.join(", ")}` : ""}`,
+    })
+  }
+  if (memberName !== null) {
+    tells.push({
+      tone: "info",
+      main: `Member ${memberName}${pointsEarned > 0 ? ` · +${grouped(pointsEarned)} poin` : ""}`,
+    })
+  }
+
+  /// The right side: the quick amounts as rows, what came in by way, what is
+  /// still short in a red box, Tunda small beside Pembayaran diterima.
   const right = (
     <>
       {quickView}
-      <button
-        type="button"
-        tabIndex={-1}
-        className="ds-btn ds-btn--tint pad-tog"
-        aria-keyshortcuts="F8"
-        onMouseDown={keepFocus}
-        onClick={togglePad}
-      >
-        {pad ? "Sembunyikan keypad" : "Tampilkan keypad"} <span className="kbd">F8</span>
-      </button>
-      {pad && padView}
+      {/* No "Total …" lines under the quick amounts: the rows on the left say
+          what each way took (Hari, 29 Oct 2026). */}
       <div className="pay-acts">
-        {canHold && (
+        {!ok && paid < totalMinor && totalMinor > 0 && (
+          <p className="due-box" role="status">
+            <span>Kurang bayar</span>
+            <b className="num">{money(outstanding, currency)}</b>
+          </p>
+        )}
+        <div className="act-row">
+          {canHold && (
+            <button
+              type="button"
+              className="ds-btn ds-btn--tint hold-red"
+              disabled={busy}
+              onMouseDown={keepFocus}
+              onClick={() => void hold()}
+            >
+              Tunda <span className="kbd">{HOLD_KEY[0]}</span>
+            </button>
+          )}
           <button
             type="button"
-            className="ds-btn ds-btn--tint hold-red"
-            disabled={busy}
+            className="ds-btn ds-btn--primary pay-go"
+            disabled={busy || holdBack !== null || !ok}
             onMouseDown={keepFocus}
-            onClick={() => void hold()}
+            onClick={() => void pay()}
           >
-            Tunda <span className="kbd">F9</span>
+            <span>{busy ? "Memproses…" : "Pembayaran diterima"}</span>
+            <span className="kbd">↵</span>
           </button>
-        )}
-        <button
-          type="button"
-          className="ds-btn ds-btn--primary pay-go"
-          disabled={busy || holdBack !== null || !ok}
-          onMouseDown={keepFocus}
-          onClick={() => void pay()}
-        >
-          <span>{busy ? "Memproses…" : "Pembayaran diterima"}</span>
-          <span className="kbd">Enter</span>
-        </button>
+        </div>
       </div>
     </>
   )
@@ -7371,9 +7778,7 @@ function Payment({
         <div className="pay-head">
           <div>
             <p className="ttl">Bayar</p>
-            <p className="cap num">
-              {units.length} pcs{memberName !== null && ` · ${memberName}`}
-            </p>
+            {memberName !== null && <p className="cap">{memberName}</p>}
           </div>
           <button
             type="button"
@@ -7403,15 +7808,86 @@ function Payment({
             </span>
             <span className="gv">{money(totalMinor, currency)}</span>
           </div>
-          <div className="methods m2">{lines.map(rowView)}</div>
-          <div className="paybox">
-            <span className="k">Dibayar</span>
-            <span className="v">{money(paid, currency)}</span>
-            <span className="ck">{paid >= totalMinor && paid > 0 ? "Kembalian" : "Kurang"}</span>
-            <span className={paid >= totalMinor && paid > 0 ? "cv" : "cv due"}>
-              {money(paid >= totalMinor && paid > 0 ? change : outstanding, currency)}
-            </span>
-            {said}
+          <div className="methods m2 rows">
+            {lines.map(rowView)}
+            <div className="adds">
+              {canEdc && (
+                <button type="button" tabIndex={-1} className="more" disabled={busy} onMouseDown={keepFocus} onClick={() => addWay("edc")}>
+                  + EDC <span className="kbd">Shift+5</span>
+                </button>
+              )}
+              {canVoucher && (
+                <button type="button" tabIndex={-1} className="more" disabled={busy} onMouseDown={keepFocus} onClick={() => addWay("voucher")}>
+                  + Voucher <span className="kbd">Shift+6</span>
+                </button>
+              )}
+              {canPoin && (
+                <button type="button" tabIndex={-1} className="more" disabled={busy} onMouseDown={keepFocus} onClick={() => addWay("poin")}>
+                  + Poin <span className="kbd">Shift+7</span>
+                </button>
+              )}
+              {benefitTile !== undefined && !hasBenefit && credit === null && (
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  className="more"
+                  disabled={busy}
+                  onMouseDown={keepFocus}
+                  onClick={() => addWay("emp")}
+                >
+                  + Diskon karyawan
+                  <span className="kbd">Shift+8</span>
+                </button>
+              )}
+            </div>
+          </div>
+          {said !== null && <div className="paybox">{said}</div>}
+          <div className="foot">
+            <div className="band">
+              {allFinal ? (
+                <p className="xg">Barang tidak bisa ditukar</p>
+              ) : finalNames.length > 3 ? (
+                <details className="xg-more">
+                  <summary className="xg">{finalNames.length} barang tidak bisa ditukar</summary>
+                  {finalNames.map((name) => (
+                    <p className="xg" key={name}>
+                      {name} tidak bisa ditukar
+                    </p>
+                  ))}
+                </details>
+              ) : (
+                finalNames.map((name) => (
+                  <p className="xg" key={name}>
+                    {name} tidak bisa ditukar
+                  </p>
+                ))
+              )}
+              {someBack && windowWords !== null && (
+                <p className="xg">Maksimal penukaran barang {windowWords} setelah pembelian.</p>
+              )}
+              {tells.length > 0 && (
+                <div className="tells">
+                  {tells.map((one) => (
+                    <div key={one.main} className="tell card">
+                      <p className={`ln ${one.tone}`}>
+                        <span>{one.main}</span>
+                        {one.sub !== undefined && <span className="tk-s">{one.sub}</span>}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <span className="k">Total Belanja</span>
+              <span className="v">{grouped(units.length)} Pcs</span>
+              {/* Only the cash in the drawer is money received; EDC, voucher
+                  and points are not (Hari, 30 Oct 2026). */}
+              {cashIn > 0 && (
+                <>
+                  <span className="k">Uang Diterima</span>
+                  <span className="v">{plain(cashIn, currency)}</span>
+                </>
+              )}
+            </div>
           </div>
         </div>
 
@@ -7431,6 +7907,14 @@ function Payment({
   )
 }
 
+/// A promotion as the struk prints it: `bySku` is what it took off each SKU
+/// (empty for a coupon or an offer on the whole sale, which has no piece).
+type Promo = {
+  readonly name: string
+  readonly cutMinor: number
+  readonly bySku?: readonly (readonly [string, number])[]
+}
+
 /// What the struk on Transaksi selesai reads out of the node's receipt: the node
 /// says what was sold and how it was paid, and the till adds what that document
 /// does not carry (the promotions by name, the member, the points).
@@ -7441,18 +7925,48 @@ type Struk = {
   readonly no: string | null
   readonly at: Date | null
   readonly cashier: string | null
-  /// One per article and price: the node's receipt lists every tag.
-  readonly items: readonly { readonly name: string; readonly quantity: number; readonly priceMinor: number }[]
+  /// One per article and price: the node's receipt lists every tag. A piece
+  /// that came back in a return has a negative quantity; `final` is one that
+  /// may not be exchanged (it wears a star).
+  readonly items: readonly {
+    readonly sku: string
+    readonly name: string
+    readonly quantity: number
+    /// What one was charged, after a markdown; the price on the tag is
+    /// `wasMinor`, when it was higher.
+    readonly priceMinor: number
+    readonly wasMinor?: number | null
+    /// What the line came to in the end, a promotion taken off (negative on a
+    /// piece that came back); null when the node does not say.
+    readonly totalMinor?: number | null
+    readonly final: boolean
+    /// The return policy that keeps it, by name, when the node says.
+    readonly refusedBy?: string | null
+  }[]
+  /// The last day a piece may come back, when the node says (a sale, not a return).
+  readonly exchangeUntil: Date | null
+  /// A return's struk: the one it was made from.
+  readonly returnOf: string | null
   readonly subtotalMinor: number
   readonly totalMinor: number
   readonly tenders: readonly { readonly word: string; readonly amountMinor: number }[]
   readonly changeMinor: number
+  /// The promise the node prints at the foot: the last day and the two
+  /// conditions (postgres 1005). Null on a sale whose policy has no sentence.
+  readonly footer: string | null
+}
+
+/// A bag's code on the paper, so it reads like a piece (pos-thermal-prototype.html BAG-*).
+const BAG_CODES: Readonly<Record<string, string>> = {
+  "Tas kertas kecil": "BAG-PS",
+  "Tas kertas besar": "BAG-PL",
+  "Kantong plastik kecil": "BAG-XS",
+  "Kantong plastik besar": "BAG-XL",
 }
 
 /// How a tender is named on the paper.
 const TENDER_WORDS: Readonly<Record<string, string>> = {
   CASH: "Tunai",
-  CARD: "Kartu",
   QRIS: "QRIS",
   EWALLET: "E-Wallet",
   VOUCHER: "Voucher",
@@ -7460,22 +7974,55 @@ const TENDER_WORDS: Readonly<Record<string, string>> = {
   POINTS: "Poin",
 }
 
+function dateOf(text: string | null): Date | null {
+  if (text === null) return null
+  const at = new Date(text)
+  return Number.isNaN(at.getTime()) ? null : at
+}
+
 function readStruk(body: unknown): Struk | null {
   const doc = asMap(body)
   const total = doc === null ? null : asCount(doc.total_minor)
   if (doc === null || total === null) return null
-  const items: { name: string; quantity: number; priceMinor: number }[] = []
+  const items: {
+    sku: string
+    name: string
+    quantity: number
+    priceMinor: number
+    wasMinor: number | null
+    totalMinor: number | null
+    final: boolean
+    refusedBy: string | null
+  }[] = []
   for (const row of Array.isArray(doc.lines) ? doc.lines : []) {
     const line = asMap(row)
     if (line === null) continue
-    const quantity = Math.max(1, asCount(line.quantity) ?? 1)
-    // The price on the tag; what a markdown or a promotion took off is
-    // itemised under the lines, as the prototype's paper does.
-    const priceMinor = asCount(line.base_unit_price_minor) ?? asCount(line.unit_price_minor) ?? 0
+    // A return's struk has the pieces that came back in minus.
+    const raw = typeof line.quantity === "number" && Number.isFinite(line.quantity) ? Math.trunc(line.quantity) : 1
+    const quantity = raw === 0 ? 1 : raw
+    // The price charged is the one on the line (pos-thermal-prototype.html);
+    // the tag price shows under it as "harga awal" only when a markdown made it
+    // lower, and a promotion is itemised under the piece by name.
+    const priceMinor = asCount(line.unit_price_minor) ?? asCount(line.base_unit_price_minor) ?? 0
+    const baseMinor = asCount(line.base_unit_price_minor)
+    const wasMinor = baseMinor !== null && baseMinor > priceMinor ? baseMinor : null
+    // The node writes a returned piece's total in minus; keep its sign by the
+    // quantity in case an older node wrote it positive.
+    const rawTotal = asCount(line.line_total_minor)
+    const totalMinor = rawTotal === null ? null : Math.abs(rawTotal) * Math.sign(quantity)
     const name = asText(line.name) ?? asText(line.sku_code) ?? "—"
-    const same = items.findIndex((one) => one.name === name && one.priceMinor === priceMinor)
-    if (same >= 0) items[same] = { ...items[same], quantity: items[same].quantity + quantity }
-    else items.push({ name, quantity, priceMinor })
+    const sku = asText(line.sku_code) ?? ""
+    const final = line.exchangeable === false
+    const refusedBy = asText(line.no_exchange_by) ?? null
+    const same = items.findIndex((one) => one.sku === sku && one.name === name && one.priceMinor === priceMinor && one.wasMinor === wasMinor && Math.sign(one.quantity) === Math.sign(quantity))
+    if (same >= 0) {
+      const one = items[same]
+      items[same] = {
+        ...one,
+        quantity: one.quantity + quantity,
+        totalMinor: one.totalMinor === null || totalMinor === null ? null : one.totalMinor + totalMinor,
+      }
+    } else items.push({ sku, name, quantity, priceMinor, wasMinor, totalMinor, final, refusedBy })
   }
   const tenders: { word: string; amountMinor: number }[] = []
   for (const row of Array.isArray(doc.tenders) ? doc.tenders : []) {
@@ -7484,7 +8031,22 @@ function readStruk(body: unknown): Struk | null {
     if (one === null || amountMinor === null) continue
     const method = (asText(one.method) ?? "").toUpperCase()
     const credit = /^return\b/i.test(asText(one.reference) ?? "")
-    tenders.push({ word: credit ? "Return" : (TENDER_WORDS[method] ?? "Lainnya"), amountMinor })
+    // A card is "EDC BCA" on the paper, QRIS "QRIS BRI", a voucher with the
+    // code the customer reads back (pos-thermal-prototype.html, 28 Oct 2026).
+    const bank = asText(one.acquirer)
+    const reference = asText(one.reference)
+    const word =
+      method === "CARD"
+        ? `EDC${bank === null ? "" : ` ${bank.toUpperCase()}`}`
+        : method === "QRIS"
+          ? `QRIS${bank === null ? "" : ` ${bank.toUpperCase()}`}`
+          : method === "VOUCHER" && reference !== null && reference.trim() !== ""
+            ? `Voucher ${reference.trim()}`
+            : // A point is a rupiah: "Poin 50.000", the points spent.
+              method === "POINTS"
+              ? `Poin ${grouped(amountMinor)}`
+              : (TENDER_WORDS[method] ?? "Lainnya")
+    tenders.push({ word: credit ? "Return" : word, amountMinor })
   }
   const at = new Date(asText(doc.completed_at) ?? "")
   return {
@@ -7495,10 +8057,13 @@ function readStruk(body: unknown): Struk | null {
     at: Number.isNaN(at.getTime()) ? null : at,
     cashier: asText(doc.cashier),
     items,
-    subtotalMinor: asCount(doc.subtotal_minor) ?? items.reduce((sum, one) => sum + one.priceMinor * one.quantity, 0),
+    subtotalMinor: items.reduce((sum, one) => sum + one.priceMinor * one.quantity, 0),
     totalMinor: total,
     tenders,
     changeMinor: asCount(doc.change_minor) ?? 0,
+    footer: asText(doc.footer),
+    exchangeUntil: dateOf(asText(doc.exchange_until)),
+    returnOf: asText(doc.returned_from),
   }
 }
 
@@ -7514,15 +8079,12 @@ function readStruk(body: unknown): Struk | null {
 /// node has not heard of has no receipt to read, so it has no struk either.
 function Sale({
   sold,
-  receiptNo,
   currency,
   hasMember,
   extra,
   onNext,
 }: {
   sold: Sold
-  /// The number the customer reads back, once the node has given it.
-  receiptNo: string | null
   currency: string
   /// Whether a member is already on this sale.
   hasMember: boolean
@@ -7530,7 +8092,7 @@ function Sale({
   /// promotions by name, its bags (the receipt is the goods alone), its member
   /// and what they earned — as they were when the sale was rung.
   extra: {
-    readonly promos: readonly { readonly name: string; readonly cutMinor: number }[]
+    readonly promos: readonly Promo[]
     readonly bags: readonly { readonly name: string; readonly quantity: number; readonly priceMinor: number }[]
     readonly member: string | null
     readonly points: number
@@ -7540,8 +8102,7 @@ function Sale({
 }) {
   const { config } = useNodeConfig()
   const session = useSession()
-  const seat = useSeat()
-  // Kembalian pops in after a tap on Bayar; after Enter it is simply there.
+  // Kembali pops in after a tap on Bayar; after Enter it is simply there.
   const [enter] = useState(viaPointer)
   // Where the receipt goes is this till's peripheral setting: a printer the
   // node recorded, the address in Setelan terminal, the USB printer this till
@@ -7566,31 +8127,27 @@ function Sale({
       alive = false
     }
   }, [sold.saleId])
-  const no = receiptNo ?? (struk === null || struk === false ? null : struk.no)
+  const no = struk === null || struk === false ? null : struk.no
 
   /// Print once, and do not wait for it.
   ///
-  /// A printer out of paper must not hold up the next customer, and the receipt
-  /// can be reprinted from the sale at any time. `copy` stamps every print after
-  /// the first, so a duplicate can never be mistaken for a second sale. The
-  /// drawer is kicked with the first print only, and only when this till's
-  /// drawer is opened by the printer (`sendReceipt`).
-  const print = useCallback(
-    async (copy: boolean) => {
-      if (sold.saleId === null) return
-      const sent = await sendReceipt(config, sold.saleId, copy)
-      if (sent !== null) setPrinted(sent)
-    },
-    [config, sold.saleId],
-  )
+  /// A printer out of paper must not hold up the next customer. A struk is
+  /// printed this once and never again (client, 28 Oct 2026): there is no
+  /// reprint and no copy. The drawer is kicked with this print, and only when
+  /// this till's drawer is opened by the printer (`sendReceipt`).
+  const print = useCallback(async () => {
+    if (sold.saleId === null) return
+    const sent = await sendReceipt(config, sold.saleId)
+    if (sent !== null) setPrinted(sent)
+  }, [config, sold.saleId])
 
   useEffect(() => {
     if (asked.current) return
     asked.current = true
-    void print(false)
+    void print()
   }, [print])
 
-  // Tambah member: F5 opens the member sheet for this sale. A node that cannot
+  // Tambah member: ⇧5 opens the member sheet for this sale. A node that cannot
   // add a member to a sale says so here rather than failing silently.
   const [memberOpen, setMemberOpen] = useState(false)
   const [added, setAdded] = useState<{ readonly name: string; readonly points: number | null } | null>(null)
@@ -7600,7 +8157,7 @@ function Sale({
   memberRef.current = { canMember, memberOpen }
   useEffect(() => {
     const listen = (event: KeyboardEvent) => {
-      if (event.key !== "F5" || event.repeat) return
+      if (!(event.shiftKey && event.code === "Digit5") || event.repeat) return
       if (!memberRef.current.canMember || memberRef.current.memberOpen) return
       event.preventDefault()
       setMemberOpen(true)
@@ -7639,64 +8196,203 @@ function Sale({
   const memberName = added !== null ? added.name : (extra?.member ?? null)
   const memberPoints = added !== null ? (added.points ?? 0) : (extra?.points ?? 0)
 
-  /// The paper, as the printer prints it: monospace, the store, the number, the
-  /// time, who rang it, each item, the sums, how it was paid, the member.
+  /// The paper, as the printer prints it (pos-thermal-prototype.html): the
+  /// client's header, the 7Soft middle (No Nota / Kasir, "sku NAME" then
+  /// qty x price, Total Item … Kembali), the terms of exchange in a box and the
+  /// client's thanks. A return is the same format, its pieces in minus.
   const paper = (doc: Struk) => {
     const row = (left: string, right: React.ReactNode, bold = false, key?: string) => (
-      <div className={bold ? "sk-row sk-b" : "sk-row"} key={key}>
+      <p className={bold ? "th-r th-b" : "th-r"} key={key}>
         <span>{left}</span>
         <span>{right}</span>
-      </div>
+      </p>
     )
     const promos = (extra?.promos ?? []).filter((one) => one.cutMinor > 0)
     const bags = extra?.bags ?? []
-    const items = [...doc.items, ...bags]
+    const items = [
+      ...doc.items,
+      ...bags.map((one) => ({ final: false, wasMinor: null, totalMinor: null, ...one, sku: BAG_CODES[one.name] ?? "" })),
+    ]
     const bagsMinor = bags.reduce((sum, one) => sum + one.priceMinor * one.quantity, 0)
+    // Every price on a sale or return paper says Rp (Hari, 29 Oct 2026).
+    // A figure keeps its minus: the currency is read off the absolute value,
+    // so a piece that came back would not print as if it had been sold.
+    const signed = (minor: number) => `${minor < 0 ? "-" : ""}${money(Math.abs(minor), currency)}`
+    const returning = items.some((one) => one.quantity < 0) || doc.returnOf !== null
     const subtotalMinor = doc.subtotalMinor + bagsMinor
     const totalMinor = doc.totalMinor + bagsMinor
-    // What the lines and the promotions leave of the difference to the total:
-    // a markdown, a discount on the whole sale.
-    const other = subtotalMinor - promos.reduce((sum, one) => sum + one.cutMinor, 0) - totalMinor
+    // A return's note owes nothing below 0: the pieces back and the ones that
+    // replace them cancel, and the promotions are inside the lines already
+    // (pos-thermal-prototype.html, ret()).
+    const due = Math.max(0, totalMinor)
+    // A promotion sits right under the piece it hit; one on the whole sale (a
+    // member's, a coupon) stays a named line above Total Disc. A piece whose
+    // line came to less than its price x quantity was cut by something: the
+    // promotion that says it hit this SKU, else the only one there is, else
+    // "Diskon" (Hari, 29 Oct 2026).
+    const printed = new Set<string>()
+    let onPieces = 0
+    const under = items.map((one) => {
+      const gross = Math.abs(one.priceMinor * one.quantity)
+      const cut = typeof one.totalMinor !== "number" ? 0 : Math.max(0, gross - Math.abs(one.totalMinor))
+      // A piece that came back gives its promotion back: the minus line turns plus.
+      const sign = one.quantity < 0 ? 1 : -1
+      const lines: { name: string; minor: number }[] = []
+      let left = cut
+      if (one.sku !== "" && cut > 0)
+        for (const promo of promos) {
+          const hit = promo.bySku?.find(([sku]) => sku === one.sku)
+          const key = `${promo.name}|${one.sku}`
+          if (hit === undefined || printed.has(key) || left <= 0) continue
+          printed.add(key)
+          printed.add(promo.name)
+          const minor = Math.min(hit[1], left)
+          lines.push({ name: promo.name, minor: sign * minor })
+          left -= minor
+        }
+      if (left > 0) {
+        const only = promos.length === 1 ? promos[0] : null
+        if (only !== null) printed.add(only.name)
+        lines.push({ name: only?.name ?? "Diskon", minor: sign * left })
+      }
+      onPieces += cut
+      return lines
+    })
+    const aboveDisc = promos.filter((one) => !printed.has(one.name))
+    // What is left of the difference to the total after the pieces and the
+    // named offers: a discount on the whole sale the node did not name.
+    const cutMinor = returning ? 0 : Math.max(0, subtotalMinor - totalMinor)
+    const other = returning ? 0 : cutMinor - onPieces - aboveDisc.reduce((sum, one) => sum + one.cutMinor, 0)
     const who = (session.me?.display_name ?? session.me?.username ?? doc.cashier ?? "").split(/\s+/)[0]
-    const till = seat !== null && seat.label !== "" ? seat.label : kasirLabel(session.terminalId)
+    // No store code on the paper (Hari, 30 Oct 2026).
+    const code = ""
+    // A bag is no piece: not in Total Item, not in the exchange terms
+    // (pos-thermal-prototype.html, sale()). Only the receipt's own lines count.
+    const pcs = doc.items.reduce((sum, one) => sum + Math.abs(one.quantity), 0)
+    const anyFinal = doc.items.some((one) => one.final)
+    const allFinal = doc.items.length > 0 && doc.items.every((one) => one.final)
+    // A replacement that went out on a return never comes back.
+    const goingOut = doc.items.filter((one) => one.quantity > 0)
+    // "SKU NAME", exactly as the rows above name a piece (Hari, 30 Oct 2026).
+    const named = (one: { readonly sku: string; readonly name: string }) =>
+      `${one.sku} ${one.name.toUpperCase()}`.trim()
+    const dmy = (at: Date) =>
+      `${String(at.getDate()).padStart(2, "0")}/${String(at.getMonth() + 1).padStart(2, "0")}/${String(at.getFullYear()).slice(2)}`
     return (
-      <div className="sk-paper" aria-label={no === null ? "Struk" : `Struk ${no}`}>
-        {doc.shop !== null && <p className="sk-c sk-b">{doc.shop}</p>}
-        {doc.site !== null && <p className="sk-c">{doc.site}</p>}
-        {doc.shopLines.map((text) => (
-          <p className="sk-c" key={text}>
-            {text}
+      <div className="sk-paper thermal" aria-label={no === null ? "Struk" : `Struk ${no}`}>
+        <ShopHead
+          shop={{
+            // "C001 · Cikupa" → "Cikupa": no store code on the paper.
+            name: (doc.shop ?? "Fashion Store").replace(/^[A-Za-z][A-Za-z0-9-]{0,9}\s*·\s*/, ""),
+            lines: doc.shopLines,
+          }}
+        />
+        {no !== null && (
+          <p className="th-r">
+            <span>
+              No Nota  <b>{no}</b>
+            </span>
+            <span>{doc.at !== null ? dmy(doc.at) : ""}</span>
           </p>
-        ))}
+        )}
+        {row(`Kasir    ${who.toUpperCase()} ${code}`.trimEnd(), doc.at !== null ? hhmm(doc.at) : "")}
+        {doc.returnOf !== null && <p className="th-mute">Return dari {doc.returnOf}</p>}
         <hr />
-        {no !== null && row("No.", <b>{no}</b>)}
-        {doc.at !== null && row(`${doc.at.getDate()} ${MON[doc.at.getMonth()]} ${doc.at.getFullYear()}`, hhmm(doc.at))}
-        {row("Kasir", `${who} · ${till}`)}
-        <hr />
-        {items.map((one) => (
-          <div className="sk-item" key={`${one.name}|${one.priceMinor}`}>
-            <span className="sk-name">{one.name}</span>
-            {row(`${one.quantity} × ${plain(one.priceMinor, currency)}`, plain(one.priceMinor * one.quantity, currency))}
+        {items.map((one, at) => (
+          <div className="sk-item" key={`${one.sku}|${one.name}|${one.priceMinor}|${at}`}>
+            <p className="th-nm">
+              {one.sku !== "" ? `${one.sku} ` : ""}
+              {one.name.toUpperCase()}
+            </p>
+            {row(`  ${one.quantity} x ${money(one.priceMinor, currency)}`, signed(one.priceMinor * one.quantity))}
+            {/* The tag price, only when a markdown made the price lower. */}
+            {one.wasMinor != null && (
+              <p className="th-r th-mute">
+                <span>{"  harga awal"}</span>
+                <span>{money(one.wasMinor, currency)}</span>
+              </p>
+            )}
+            {under[at].map((line) => row(`  ${line.name}`, signed(line.minor), false, line.name))}
           </div>
         ))}
         <hr />
-        {row(
-          `Subtotal · ${items.reduce((sum, one) => sum + one.quantity, 0)} pcs`,
-          plain(subtotalMinor, currency),
-        )}
-        {promos.map((one) => row(one.name, `−${plain(one.cutMinor, currency)}`, false, one.name))}
-        {other > 0 && row("Diskon", `−${plain(other, currency)}`)}
-        {row("Total", plain(totalMinor, currency), true)}
-        {doc.tenders.map((one, at) => row(one.word, plain(one.amountMinor, currency), false, `${at}`))}
-        {row("Kembalian", plain(doc.changeMinor, currency))}
+        {row(`Total Item: ${pcs} Pcs`, returning ? signed(due) : signed(subtotalMinor))}
+        {!returning && aboveDisc.map((one) => row(one.name, `-${money(one.cutMinor, currency)}`, false, one.name))}
+        {other > 0 && row("Diskon", `-${money(other, currency)}`)}
+        {/* No discount, no discount lines: Total Item already says the
+            total (Hari, 30 Oct 2026). */}
+        {cutMinor > 0 && row("Total Disc", money(cutMinor, currency))}
+        {cutMinor > 0 && row("Setelah Disc.", returning ? signed(due) : signed(totalMinor), true)}
+        <hr />
+        {doc.tenders.map((one, at) => row(one.word, money(one.amountMinor, currency), false, `${at}`))}
+        {row("Kembali", money(returning && due <= 0 ? 0 : doc.changeMinor, currency))}
         {memberName !== null && (
           <>
             <hr />
-            {row(memberName, memberPoints > 0 ? `+${grouped(memberPoints)} poin` : "")}
+            {row("Member point", `${memberPoints < 0 ? "" : "+"}${grouped(memberPoints)} poin`)}
           </>
         )}
+        {/* Terms at the foot of every sale and every return: a struk with a
+            return on it never comes back again, replacements included. What
+            never comes back is named SKU first, as the rows above do. */}
+        {returning ? (
+          goingOut.length > 0 && (
+            <div className="th-box">
+              {goingOut.map((one, at) => (
+                <p className="th-b" key={`${one.sku}|${one.name}|${at}`}>
+                  {named(one)} tidak bisa ditukar
+                </p>
+              ))}
+            </div>
+          )
+        ) : allFinal ? (
+          <div className="th-box">
+            {doc.items.map((one, at) => (
+              <p className="th-b" key={`${one.sku}|${one.name}|${at}`}>
+                {named(one)} tidak bisa ditukar
+              </p>
+            ))}
+          </div>
+        ) : (
+          (doc.exchangeUntil !== null || anyFinal) && (
+            <div className="th-box">
+              {doc.exchangeUntil !== null && (
+                <>
+                  <p className="th-b">Ketentuan penukaran barang:</p>
+                  <p className="li">
+                    - Penukaran paling lambat tgl {doc.exchangeUntil.getDate()}{" "}
+                    {MON_LONG[doc.exchangeUntil.getMonth()]} {doc.exchangeUntil.getFullYear()}
+                  </p>
+                  {/* Every term on every sale (Hari, 30 Oct 2026). */}
+                  <p className="li">- Nota penjualan wajib dibawa saat penukaran</p>
+                  <p className="li">
+                    - Hang tag dan label harga barang tidak boleh terlepas, rusak, atau hilang
+                  </p>
+                  <p className="li">
+                    - Barang hanya dapat ditukar dengan barang yang sama atau lebih mahal
+                  </p>
+                  <p className="li">
+                    - Penukaran barang dengan barang yang lebih murah tidak ada pengembalian uang
+                  </p>
+                </>
+              )}
+              {anyFinal &&
+                doc.items
+                  .filter((one) => one.final)
+                  .map((one, at) => (
+                    <p className="li th-b" key={`${one.sku}|${one.name}|${at}`}>
+                      - {named(one)} tidak bisa ditukar
+                    </p>
+                  ))}
+            </div>
+          )
+        )}
         <hr />
-        <p className="sk-c">Terima kasih</p>
+        {doc.footer !== null && doc.exchangeUntil === null && <p className="th-c">{doc.footer}</p>}
+        <p className="th-c">Terima Kasih atas Kunjungan Anda</p>
+        {/* The client's own foot, as on the struk it handed us (29 Oct 2026). */}
+        <p className="th-c">Kritik dan saran hubungi</p>
+        <p className="th-c">TLP. (0289) 4403336</p>
       </div>
     )
   }
@@ -7718,7 +8414,7 @@ function Sale({
       )}
       {owed ? (
         <>
-          <p className="chg-k">Kembalian</p>
+          <p className="chg-k">Kembali</p>
           <p className="chg-v num">{money(sold.changeMinor, currency)}</p>
           <div className="chg-notes">
             {countOut(sold.changeMinor).map(([many, note]) => {
@@ -7768,30 +8464,17 @@ function Sale({
         noPrint !== null && <p className="chg-print">{noPrint}</p>
       )}
       {memberProblem !== null && <p className="chg-warn">{memberProblem}</p>}
-      {(prints || sold.refused) && (
+      {sold.refused && (
         <div className="chg-acts">
-          {prints && (
-            <button
-              type="button"
-              className="ds-btn ds-btn--tint"
-              disabled={sold.saleId === null}
-              onClick={() => void print(true)}
-            >
-              <Icon name="print" />
-              Cetak ulang
-            </button>
-          )}
-          {sold.refused && (
-            <button type="button" className="ds-btn ds-btn--tint" onClick={() => onNext(true)}>
-              Selesaikan
-            </button>
-          )}
+          <button type="button" className="ds-btn ds-btn--tint" onClick={() => onNext(true)}>
+            Selesaikan
+          </button>
         </div>
       )}
       <div className="chg-acts final">
         {canMember && (
           <button type="button" className="ds-btn ds-btn--tint" onClick={() => setMemberOpen(true)}>
-            Tambah member <span className="kbd">F5</span>
+            Tambah member <span className="kbd">{MEMBER_KEY[0]}</span>
           </button>
         )}
         {added !== null && (
@@ -8345,74 +9028,68 @@ function ResolveSale({
   )
 }
 
-/// Whether text that matched no item could be a voucher's code: six to thirty-
-/// two letters and digits once the spaces and dashes a printed card is read
-/// with are taken out (`normalize_code` in `backend/src/cloud/domain/voucher.rs`).
-function looksLikeVoucher(text: string): boolean {
-  if (!/^[A-Za-z0-9 _-]+$/.test(text)) return false
-  const squeezed = text.replace(/[ _-]/g, "")
-  return squeezed.length >= 6 && squeezed.length <= 32
-}
-
-/// "31 Dec 2026".
-function shortDate(iso: string): string {
-  const at = new Date(iso)
-  return Number.isNaN(at.getTime())
-    ? iso
-    : at.toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" })
-}
-
-/// "GIFT_CARD" → "Gift card".
-const VOUCHER_WORDS: Readonly<Record<string, string>> = {
-  GIFT_CARD: "Gift card",
-  REFUND: "Refund",
-  GOODWILL: "Komplimen",
-  SPENT: "Terpakai",
-  VOIDED: "Void",
-}
-
-function wordsOf(code: string): string {
-  const known = VOUCHER_WORDS[code.toUpperCase()]
-  if (known !== undefined) return known
-  const text = code.replace(/_/g, " ").toLowerCase()
-  return text.charAt(0).toUpperCase() + text.slice(1)
-}
-
-/// One voucher as F2 shows it: what it is, what is left, until when, and — when
-/// it cannot be spent — why not.
-function VoucherCard({
-  voucher,
-  currency,
+/// − Kurangi on a line of several pieces: the number it becomes, typed once
+/// (Hari, 30 Oct 2026). 1 to the count, no finger; "Hapus semua" takes the
+/// line off and asks the Kepala toko, as a line leaving the sale always did.
+function LessSheet({
+  name,
+  count,
+  onClose,
+  onKeep,
+  onRemoveAll,
 }: {
-  voucher: api.VoucherCheck
-  currency: string
+  name: string
+  count: number
+  onClose: () => void
+  onKeep: (keep: number) => void
+  onRemoveAll: () => void
 }) {
-  const live = voucher.status.toUpperCase() === "ACTIVE" && !voucher.expired
-  const standing = voucher.expired
-    ? "Kedaluwarsa"
-    : voucher.status.toUpperCase() === "ACTIVE"
-      ? null
-      : wordsOf(voucher.status)
+  const [text, setText] = useState(String(Math.max(1, count - 1)))
+  const keep = Number(text)
+  const valid = Number.isInteger(keep) && keep >= 1 && keep <= count
+  const go = () => {
+    if (valid) onKeep(keep)
+  }
   return (
-    <div className="pick-list">
-      <div className="pick">
-        <div className="grow">
-          <strong>
-            {wordsOf(voucher.kind)} · <span className="num">{voucher.code}</span>
-          </strong>
-          <small className="num">
-            {voucher.expires_at === null
-              ? "Tanpa batas waktu"
-              : `${voucher.expired ? "Kedaluwarsa" : "Berlaku s.d."} ${shortDate(voucher.expires_at)}`}
-            {voucher.member_name !== null && <> · {voucher.member_name}</>}
-          </small>
-        </div>
-        {standing !== null && <span className="badge bad">{standing}</span>}
-        <strong className="num" aria-label={live ? "Saldo" : "Saldo, tidak bisa dipakai"}>
-          {money(voucher.balance_minor, currency)}
-        </strong>
-      </div>
-    </div>
+    <Sheet
+      title="Kurangi jumlah"
+      onClose={onClose}
+      foot={
+        <>
+          <button type="button" className="btn danger" onClick={onRemoveAll}>
+            Hapus semua
+          </button>
+          <button type="button" className="btn primary" disabled={!valid} onClick={go}>
+            Kurangi <span className="kbd">Enter</span>
+          </button>
+        </>
+      }
+    >
+      <p className="less-name">
+        {name} · <span className="num">{count} pcs</span>
+      </p>
+      <label className="field">
+        Jumlah jadi
+        <input
+          className="less-qty num"
+          inputMode="numeric"
+          autoComplete="off"
+          value={text}
+          onFocus={(event) => event.currentTarget.select()}
+          onChange={(event) => setText(event.target.value.replace(/\D/g, "").slice(0, 5))}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault()
+              go()
+            }
+          }}
+        />
+      </label>
+      {!valid && text !== "" && (
+        <p className="notice warn">
+          {keep === 0 ? "Sampai 0 pakai Hapus semua (perlu Kepala toko)." : `Paling banyak ${count}.`}
+        </p>
+      )}
+    </Sheet>
   )
 }
-

@@ -18,7 +18,7 @@ import {
   Users,
   type LucideIcon,
 } from "lucide-react"
-import { Suspense, useDeferredValue, useMemo, useState } from "react"
+import { Suspense, useDeferredValue, useEffect, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
@@ -69,6 +69,7 @@ import {
   type LetterGroup,
 } from "@/screens/letters/forms"
 import { NewLetterSheet } from "@/screens/letters/new-letter"
+import { takeLetterPreset, type LetterPreset } from "@/screens/letters/preset"
 import { WrittenLetter } from "@/screens/letters/writer"
 import {
   CardFigure,
@@ -180,6 +181,14 @@ function Register({ onOpen }: { onOpen: (id: string) => void }) {
   const [status, setStatus] = useState("ANY")
   const [search, setSearch] = useState("")
   const [writing, setWriting] = useState(false)
+  const [preset, setPreset] = useState<LetterPreset | null>(null)
+  // Another screen asked for a letter (the contract on a person's page).
+  useEffect(() => {
+    const asked = takeLetterPreset()
+    if (asked === null) return
+    setPreset(asked)
+    setWriting(true)
+  }, [])
   const phone = useLayout() === "phone"
   // The search is the server's, so it waits for the typing to stop.
   const needle = useDebounced(search.trim(), 300)
@@ -274,7 +283,11 @@ function Register({ onOpen }: { onOpen: (id: string) => void }) {
 
       <NewLetterSheet
         open={writing}
-        onClose={() => setWriting(false)}
+        preset={preset}
+        onClose={() => {
+          setWriting(false)
+          setPreset(null)
+        }}
         onDrafted={(id) => {
           setWriting(false)
           onOpen(id)

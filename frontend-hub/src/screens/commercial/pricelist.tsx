@@ -918,7 +918,7 @@ export function Pricelist() {
                             action={
                               <Button
                                 variant="ghost"
-                                onClick={() => setKinds(new Set())}
+                                onClick={() => filters.clear()}
                               >
                                 Show every article
                               </Button>
@@ -2318,7 +2318,7 @@ function PriceGrid({
                 {shopMeta.pending_publication && (
                   <span
                     className="mt-0.5 flex items-center justify-end gap-1.5 text-[0.9375rem] text-warn-fg"
-                    title={`${shopMeta.pending_publication.name} — published ${ago(shopMeta.pending_publication.published_at)}, not yet at the till`}
+                    title={`${shopMeta.pending_publication.name} — published ${ago(shopMeta.pending_publication.published_at)}, not yet at the POS`}
                   >
                     <span className="size-1.5 shrink-0 rounded-full bg-warn" />
                     Behind
@@ -3168,7 +3168,7 @@ function CellSheet({
           ) : (
             <>
               <div>
-                <SubHead>At the till</SubHead>
+                <SubHead>At the POS</SubHead>
                 {queryState(products, {
                   loading: "Loading…",
                   render: () =>

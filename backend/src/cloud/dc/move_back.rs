@@ -79,9 +79,7 @@ pub struct MoveBackToPickList {
 }
 
 /// The moves back to the picklist of the last two days, newest first.
-async fn list_to_pick(
-    State(state): State<AppState>,
-) -> Result<Json<MoveBackToPickList>, AppError> {
+async fn list_to_pick(State(state): State<AppState>) -> Result<Json<MoveBackToPickList>, AppError> {
     common::require_hosted()?;
     let since = state.clock.now() - chrono::Duration::days(2);
     let rows = sqlx::query(
@@ -290,8 +288,7 @@ pub(super) async fn run(
             None => return Err(AppError::NotFound(format!("allotment {allotment_id}"))),
             Some(Some(_)) => {
                 return Err(AppError::Conflict(
-                    "Edge-owned allotment: the DC server that runs it moves its pieces back"
-                        .into(),
+                    "Edge-owned allotment: the DC server that runs it moves its pieces back".into(),
                 ))
             }
             Some(None) => {}
@@ -430,9 +427,9 @@ fn normalise(request: &mut MoveBackRequest) -> Result<(Option<Uuid>, Option<Uuid
     };
     request.allotment_id = allotment_id.map(|id| id.to_string());
     let koli_id = match trimmed(request.koli_id.take()) {
-        Some(id) => Some(
-            Uuid::parse_str(&id).map_err(|_| AppError::NotFound(format!("koli {id}")))?,
-        ),
+        Some(id) => {
+            Some(Uuid::parse_str(&id).map_err(|_| AppError::NotFound(format!("koli {id}")))?)
+        }
         None => None,
     };
     request.koli_id = koli_id.map(|id| id.to_string());

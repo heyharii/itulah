@@ -255,6 +255,24 @@ export function useReceipt(saleId: string | null) {
   })
 }
 
+/// A receipt by its number (`GET /receipts/{receipt_no}`): how a return
+/// opens, one with no replacement having no sale behind it.
+export function useReceiptByNumber(receiptNo: string | null) {
+  return useQuery({
+    queryKey: ["till", "receipt-no", receiptNo ?? ""] as const,
+    queryFn: async ({ signal }) =>
+      (
+        await node.get<{ readonly receipt: ReceiptDocument }>(
+          `/api/v1/store/receipts/${encodeURIComponent(receiptNo ?? "")}`,
+          { signal },
+        )
+      ).receipt,
+    enabled: receiptNo !== null && receiptNo !== "",
+    staleTime: Infinity,
+    retry: false,
+  })
+}
+
 export function useVoidSale(): UseMutationResult<
   VoidResult,
   Error,

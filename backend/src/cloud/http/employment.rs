@@ -253,6 +253,15 @@ pub(super) fn current_unit(record: &EmployeeRecord) -> Option<&str> {
         .map(|span| span.unit_id().as_str())
 }
 
+/// One employment record, for a sibling surface that gates on it the way
+/// this one does (`http::dossier`).
+pub(super) async fn load_record(
+    state: &AppState,
+    employee_id: &str,
+) -> Result<EmployeeRecord, AppError> {
+    record(state, employee_id).await
+}
+
 async fn record(state: &AppState, employee_id: &str) -> Result<EmployeeRecord, AppError> {
     infrastructure::load_employee(&state.db, employee_id)
         .await?
@@ -486,7 +495,7 @@ fn employee_view(record: &EmployeeRecord) -> EmployeeView {
     }
 }
 
-fn personal_data_view(employee_id: &str, profile: &Profile) -> PersonalDataView {
+pub(super) fn personal_data_view(employee_id: &str, profile: &Profile) -> PersonalDataView {
     PersonalDataView {
         employee_id: employee_id.to_owned(),
         full_name: profile.name().as_str().to_owned(),

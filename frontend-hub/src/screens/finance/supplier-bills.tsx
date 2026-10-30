@@ -18,8 +18,10 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input, Money, Select, Textarea } from "@/components/ui/field"
+import { FilterChips } from "@/components/ui/filter-chips"
 import { Switch } from "@/components/ui/form"
 import { FilterPanel } from "@/components/ui/filter-panel"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import {
   MiniCell,
   MiniRow,
@@ -55,6 +57,7 @@ import {
   listBills,
   listPayments,
   postBill,
+  projectionBillsQuery,
   recordBill,
   releaseBill,
   returnBill,
@@ -74,8 +77,12 @@ import {
   todayIso,
 } from "@/screens/finance/chart"
 import { useSupplierName } from "@/screens/finance/hooks"
+import { addDays } from "@/screens/finance/stores-grid"
 import {
   billStatus,
+  LUNAS,
+  NEW,
+  PART_PAID,
   ppnCode,
   SERVER_STATUS_OF_WORD,
   termOf,
@@ -117,8 +124,11 @@ import type {
 
 /// `days_overdue` is negative until the due date passes, and is derived on
 /// every read — a stored age would be wrong by morning.
+///
+/// Late is "still owed and past its date", which is 7Soft's reading too: a
+/// bill already paid has no reason to be red, whatever day its paper fell on.
 function isLate(bill: SupplierBill): boolean {
-  return bill.status.toUpperCase() !== "POSTED" && bill.days_overdue > 0
+  return bill.outstanding_minor > 0 && bill.days_overdue > 0
 }
 
 /// The site: its name in comfortable rows, its code in compact ones ("HO",
@@ -133,11 +143,10 @@ function BillSite({ id }: { id: string | null | undefined }) {
   return <span title={full}>{full.split(" · ")[0]}</span>
 }
 
-/// When it falls due. Compact rows have no Overdue column, so a late bill's
-/// date is drawn red and its days late are on hover.
+/// When it falls due. A late bill's date is drawn red, as 7Soft draws it,
+/// with its days late on hover.
 function BillDue({ bill }: { bill: SupplierBill }) {
-  const compact = useCompactRows()
-  if (compact && isLate(bill))
+  if (isLate(bill))
     return (
       <span
         className="text-bad-fg"
@@ -194,40 +203,6 @@ const deskBillColumns: ColumnDef<TableSetup, SupplierBill>[] = [
     ),
   },
   {
-    accessorKey: "site_id",
-    // The site the goods came in at is 7Soft's Gudang.
-    header: "Gudang",
-    size: 130,
-    // The client's own name for it. The id stays in `title`, because that is
-    // what the account codes carry and what a support call will be about.
-    enableSorting: false,
-    // The first to step out of compact rows short of room (`onGiveUp`).
-    meta: { priority: 3 },
-    cell: ({ row }) => <BillSite id={row.original.site_id} />,
-  },
-  {
-    // 7Soft's own words once a bill is in the books — New, Part paid, Lunas —
-    // and the hub's for the two states the paper never had (Draft, Matched).
-    // See `billStatus`.
-    id: "status",
-    accessorFn: (row) => billStatus(row).word,
-    header: "Status",
-    size: 130,
-    enableSorting: false,
-    meta: { filter: { kind: "option" } },
-    cell: ({ row }) => {
-      const state = billStatus(row.original)
-      return <Status tone={state.tone}>{state.word}</Status>
-    },
-  },
-  {
-    accessorKey: "invoice_date",
-    header: "Tanggal",
-    size: 120,
-    meta: { filter: { kind: "date" }, priority: 2 },
-    cell: ({ row }) => day(row.original.invoice_date),
-  },
-  {
     accessorKey: "due_date",
     header: "JTempo",
     size: 120,
@@ -238,24 +213,7 @@ const deskBillColumns: ColumnDef<TableSetup, SupplierBill>[] = [
     cell: ({ row }) => <BillDue bill={row.original} />,
   },
   {
-    // The payment term, as 7Soft names it: T21 is twenty-one days. Read off
-    // the invoice and due dates — the bill carries no term of its own.
-    id: "term",
-    accessorFn: (row) => termOf(row),
-    header: "Jangka",
-    size: 90,
-    enableSorting: false,
-    meta: { priority: 3 },
-    cell: ({ row }) => {
-      const term = termOf(row.original)
-      return term === null ? (
-        <span className="text-faint">—</span>
-      ) : (
-        <span className="text-body tabular-nums">{term}</span>
-      )
-    },
-  },
-  {
+    // 7Soft's Amount: what the paper came to, before anything was paid.
     accessorKey: "total_minor",
     header: "Total",
     size: 150,
@@ -265,36 +223,6 @@ const deskBillColumns: ColumnDef<TableSetup, SupplierBill>[] = [
         <CellMoney minor={row.original.total_minor} />
       </span>
     ),
-  },
-  {
-    // PPN as 7Soft's list prints it: the tax code the rate implies.
-    id: "ppn",
-    accessorFn: (row) => ppnCode(row),
-    header: "PPN",
-    size: 90,
-    enableSorting: false,
-    meta: { priority: 3 },
-    cell: ({ row }) => (
-      <span className="text-body tabular-nums">{ppnCode(row.original)}</span>
-    ),
-  },
-  {
-    accessorKey: "paid_minor",
-    header: "Bayar",
-    size: 140,
-    enableSorting: false,
-    meta: { align: "right" },
-    // What has actually left the bank against this bill — POSTED payments
-    // only, summed on read. A bill nobody has paid draws a dash rather than
-    // "Rp 0" fourteen rows in a row.
-    cell: ({ row }) =>
-      row.original.paid_minor === 0 ? (
-        <span className="text-faint">—</span>
-      ) : (
-        <span className="text-body tabular-nums">
-          <CellMoney minor={row.original.paid_minor} />
-        </span>
-      ),
   },
   {
     accessorKey: "outstanding_minor",
@@ -328,6 +256,88 @@ const deskBillColumns: ColumnDef<TableSetup, SupplierBill>[] = [
         </span>
       )
     },
+  },
+  {
+    // 7Soft's own words once a bill is in the books — New, Part paid, Lunas —
+    // and the hub's for the two states the paper never had (Draft, Matched).
+    // See `billStatus`.
+    id: "status",
+    accessorFn: (row) => billStatus(row).word,
+    header: "Status",
+    size: 130,
+    enableSorting: false,
+    meta: { filter: { kind: "option" } },
+    cell: ({ row }) => {
+      const state = billStatus(row.original)
+      return <Status tone={state.tone}>{state.word}</Status>
+    },
+  },
+  {
+    accessorKey: "site_id",
+    // The site the goods came in at is 7Soft's Gudang.
+    header: "Gudang",
+    size: 130,
+    // The client's own name for it. The id stays in `title`, because that is
+    // what the account codes carry and what a support call will be about.
+    enableSorting: false,
+    // The first to step out of compact rows short of room (`onGiveUp`).
+    meta: { priority: 3 },
+    cell: ({ row }) => <BillSite id={row.original.site_id} />,
+  },
+  {
+    accessorKey: "invoice_date",
+    header: "Tanggal",
+    size: 120,
+    meta: { filter: { kind: "date" }, priority: 2 },
+    cell: ({ row }) => day(row.original.invoice_date),
+  },
+  {
+    // The payment term, as 7Soft names it: T21 is twenty-one days. Read off
+    // the invoice and due dates — the bill carries no term of its own.
+    id: "term",
+    accessorFn: (row) => termOf(row),
+    header: "Jangka",
+    size: 90,
+    enableSorting: false,
+    meta: { priority: 3 },
+    cell: ({ row }) => {
+      const term = termOf(row.original)
+      return term === null ? (
+        <span className="text-faint">—</span>
+      ) : (
+        <span className="text-body tabular-nums">{term}</span>
+      )
+    },
+  },
+  {
+    // PPN as 7Soft's list prints it: the tax code the rate implies.
+    id: "ppn",
+    accessorFn: (row) => ppnCode(row),
+    header: "PPN",
+    size: 90,
+    enableSorting: false,
+    meta: { priority: 3 },
+    cell: ({ row }) => (
+      <span className="text-body tabular-nums">{ppnCode(row.original)}</span>
+    ),
+  },
+  {
+    accessorKey: "paid_minor",
+    header: "Bayar",
+    size: 140,
+    enableSorting: false,
+    meta: { align: "right" },
+    // What has actually left the bank against this bill — POSTED payments
+    // only, summed on read. A bill nobody has paid draws a dash rather than
+    // "Rp 0" fourteen rows in a row.
+    cell: ({ row }) =>
+      row.original.paid_minor === 0 ? (
+        <span className="text-faint">—</span>
+      ) : (
+        <span className="text-body tabular-nums">
+          <CellMoney minor={row.original.paid_minor} />
+        </span>
+      ),
   },
   {
     accessorKey: "days_overdue",
@@ -525,7 +535,7 @@ function LineSource({ line }: { line: SupplierBillLine }) {
 /// reader compares — what it was for, and what it came to — are not at opposite
 /// ends of a wide row.
 const deskExpenseColumns: ColumnDef<TableSetup, SupplierBill>[] = [
-  ...deskBillColumns.slice(0, 3),
+  ...deskBillColumns.slice(0, 5),
   {
     id: "lines",
     header: "Lines",
@@ -534,7 +544,7 @@ const deskExpenseColumns: ColumnDef<TableSetup, SupplierBill>[] = [
     meta: { align: "right" },
     cell: ({ row }) => <LineCount id={row.original.invoice_id} />,
   },
-  ...deskBillColumns.slice(3),
+  ...deskBillColumns.slice(5),
 ]
 
 /// A phone draws each row as a card (`cardLead`), made of the columns below
@@ -843,6 +853,40 @@ const unbilledColumns = [
 /// hand. It is a fourth tab and not a filter on Expenses for that reason.
 type BillTab = "merchandise" | "expenses" | "ga" | "unbilled"
 
+/// 7Soft's bill chips, in its order: every bill, the two payment words the
+/// paper carries, the late ones, and the settled ones.
+///
+/// 7Soft's sixth chip, **Giro bounced**, is not drawn: a bill read carries no
+/// bounced-giro state, so a chip that could never match would be a dead
+/// control (the gap is on the backend list in the report). The counts 7Soft
+/// prints after each word are not drawn either — the register pages on the
+/// server and there is no per-word count on the wire.
+type BillChip = "all" | "new" | "part" | "overdue" | "lunas"
+
+const BILL_CHIPS: readonly {
+  readonly value: BillChip
+  readonly label: string
+}[] = [
+  { value: "all", label: "All" },
+  { value: "new", label: NEW },
+  { value: "part", label: PART_PAID },
+  { value: "overdue", label: "Overdue" },
+  { value: "lunas", label: LUNAS },
+]
+
+/// Does this bill answer the chip? "Overdue" is 7Soft's own test — still owed
+/// and past its date — and not one of the payment words.
+function matchesChip(bill: SupplierBill, chip: BillChip): boolean {
+  if (chip === "all") return true
+  if (chip === "overdue") return isLate(bill)
+  const word = billStatus(bill).word
+  return chip === "new"
+    ? word === NEW
+    : chip === "part"
+      ? word === PART_PAID
+      : word === LUNAS
+}
+
 /// How many bills one page of a register tab asks for. A step, not a
 /// ceiling: the table asks for the next page as its last rows scroll into
 /// view. The unbilled tab does not page — `GET /finance/unbilled` takes no
@@ -913,6 +957,10 @@ export function SupplierBills() {
     []
   )
   const [tab, setTab] = useState<BillTab>("merchandise")
+  /// 7Soft's bill chips — one question, every answer on view. They narrow the
+  /// pages in hand; the server keeps ordering by due date, so the late bills
+  /// are the first ones read either way.
+  const [chip, setChip] = useState<BillChip>("all")
   const [query, setQuery] = useState("")
   const [unit, setUnit] = useState("")
   const [recording, setRecording] = useState(false)
@@ -1027,6 +1075,27 @@ export function SupplierBills() {
     queryFn: ({ signal }) => unbilledReceipts(signal),
   })
 
+  /// 7Soft's four bill figures, over the posted book the register draws from.
+  ///
+  /// The list pages, so a sum of the pages in hand would be a figure that
+  /// grows as somebody scrolls — the four cards read the open invoices whole,
+  /// once, the way the Payment Projection already does.
+  const book = useQuery(
+    projectionBillsQuery("POSTED", site === "" ? undefined : site)
+  )
+  const openBills = useMemo(
+    () => (book.data ?? []).filter((one) => one.outstanding_minor > 0),
+    [book.data]
+  )
+  const today = todayIso()
+  const dueBy = addDays(today, 7)
+  const owed = openBills.reduce((sum, one) => sum + one.outstanding_minor, 0)
+  const dueWeek = openBills.filter((one) => {
+    const due = one.next_due_date ?? one.due_date
+    return due !== null && due >= today && due <= dueBy
+  })
+  const lateBills = openBills.filter(isLate)
+
   /// Each bill's supplier written in full, "Maju Jaya, UD" — the cell, the
   /// search and the supplier facet all read the row's name.
   const written = (row: SupplierBill): SupplierBill => ({
@@ -1037,6 +1106,16 @@ export function SupplierBills() {
     () => bills.data?.pages.flatMap((page) => page.rows.map(written)) ?? [],
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [bills.data, supplierName]
+  )
+  /// The chip narrows the pages in hand. "Nothing recorded" and "nothing
+  /// matches the chip" are different answers, so the empty states below ask
+  /// both questions.
+  const visibleBills = useMemo(
+    () =>
+      chip === "all"
+        ? billRows
+        : billRows.filter((one) => matchesChip(one, chip)),
+    [billRows, chip]
   )
   const expenseRows = useMemo(
     () => expenses.data?.pages.flatMap((page) => page.rows.map(written)) ?? [],
@@ -1062,10 +1141,12 @@ export function SupplierBills() {
 
   /// Whether the search or a column clause is narrowing a bill tab —
   /// "nothing recorded" and "nothing matches" have different fixes.
-  const billNarrowed = needle !== "" || billFilters.filters.length > 0
+  const billNarrowed =
+    needle !== "" || billFilters.filters.length > 0 || chip !== "all"
   const expenseNarrowed = needle !== "" || expenseFilters.filters.length > 0
   const clearBills = () => {
     setQuery("")
+    setChip("all")
     billFilters.clear()
   }
   const clearExpenses = () => {
@@ -1091,7 +1172,7 @@ export function SupplierBills() {
     useMemo(
       () => ({
         features: tableSetup,
-        data: billRows,
+        data: visibleBills,
         columns: billFilters.columns,
         getRowId: (row: SupplierBill) => row.invoice_id,
         state: {
@@ -1103,7 +1184,7 @@ export function SupplierBills() {
         onSortingChange: setBillSort,
       }),
       [
-        billRows,
+        visibleBills,
         billFilters.columns,
         billFilters.columnFilters,
         billSort,
@@ -1213,7 +1294,7 @@ export function SupplierBills() {
           round + over the bottom bar. */}
       <PageHeader
         crumb="Finance · Payables"
-        title="Faktur Pembelian"
+        title="Bills"
         actions={
           phone ? undefined : (
             <Button variant="primary" onClick={() => setRecording(true)}>
@@ -1254,6 +1335,17 @@ export function SupplierBills() {
           />
         }
       >
+        {tab === "merchandise" && (
+          <FilterChips
+            label="Status"
+            value={chip === "all" ? null : chip}
+            options={BILL_CHIPS.map((one) => ({
+              value: one.value === "all" ? null : one.value,
+              label: one.label,
+            }))}
+            onChange={(next) => setChip((next ?? "all") as BillChip)}
+          />
+        )}
         <UnitSelect
           value={unit}
           onChange={setUnit}
@@ -1285,6 +1377,41 @@ export function SupplierBills() {
         />
       </Toolbar>
 
+      {/* 7Soft's four bill figures, in its order, over every open bill. The
+          first three press through to the list they count; "To check" reads
+          "—" because nothing on the wire says which bills Finance flagged
+          (see the backend list in the report) — it is drawn rather than left
+          out so the gap is visible. */}
+      {tab === "merchandise" && (
+        <KpiStrip className="xl:grid-cols-4">
+          <Kpi
+            label="Owed"
+            value={money(owed)}
+            onClick={() => setChip("all")}
+          />
+          <Kpi
+            label="Due this week"
+            value={`${count(dueWeek.length)} · ${money(
+              dueWeek.reduce((sum, one) => sum + one.outstanding_minor, 0)
+            )}`}
+          />
+          <Kpi
+            label="Overdue"
+            value={
+              <span
+                className={lateBills.length > 0 ? "text-bad-fg" : undefined}
+              >
+                {`${count(lateBills.length)} · ${money(
+                  lateBills.reduce((sum, one) => sum + one.outstanding_minor, 0)
+                )}`}
+              </span>
+            }
+            onClick={() => setChip("overdue")}
+          />
+          <Kpi label="To check" value="—" />
+        </KpiStrip>
+      )}
+
       {tab === "merchandise" ? (
         <>
           <Card
@@ -1295,9 +1422,9 @@ export function SupplierBills() {
               loading: "Loading the bills…",
               refused,
               render: () =>
-                billRows.length === 0 && billNarrowed ? (
+                visibleBills.length === 0 && billNarrowed ? (
                   <NoMatch what="bills" onClear={clearBills} />
-                ) : billRows.length === 0 ? (
+                ) : visibleBills.length === 0 ? (
                   <EmptyState
                     action={
                       // Those deliveries are owed already (Total payables

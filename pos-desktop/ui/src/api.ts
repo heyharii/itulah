@@ -318,6 +318,8 @@ export type CatalogRow = {
   readonly barcode: string | null
   /// The node holds a photograph for it (`/api/v1/catalog/image?sku=`).
   readonly has_image?: boolean
+  /// Merchandising's words for the article ("BORDIR", "KOKO").
+  readonly tags?: readonly string[]
   readonly name: string
   readonly unit_price_minor: number
   readonly base_unit_price_minor: number
@@ -364,6 +366,19 @@ export type CatalogueState = {
 export const catalogueState = () =>
   edge<CatalogueState>("GET", "/api/v1/catalog/snapshot")
 
+/// `GET /api/v1/inventory/sku-stock` — every SKU with spendable units here, split
+/// by room. `floor` is the selling floor: what a shopper can be sold now (F2's
+/// Stok). A SKU with none has no row.
+export type SkuStockRow = {
+  readonly sku_code: string
+  readonly floor: number
+  readonly warehouse: number
+  readonly total: number
+}
+
+export const skuStock = () =>
+  edge<{ readonly items?: readonly SkuStockRow[] }>("GET", "/api/v1/inventory/sku-stock")
+
 /// One SKU as head office names it — `CatalogIdentity` in
 /// `backend/src/edge/contracts.rs`. The grid reads `tags` from it (Merchandising's
 /// words under the article's name: "Koko, Lebaran"); prices never come from here.
@@ -374,6 +389,9 @@ export type CatalogIdentity = {
   readonly division_code: string | null
   readonly tags: readonly string[]
   readonly active: boolean
+  /// Where head office keeps its photograph; absent or null for none.
+  readonly image_url?: string | null
+  readonly barcode?: string | null
 }
 
 /// `GET /api/v1/catalog/identities?skus=a,b,c` — `{ items }`, one row for each
@@ -417,6 +435,22 @@ export async function wholeCatalogue(): Promise<
     cursor = next
   }
   return { ok: false, problem: "The price book has more pages than this till will read." }
+}
+
+/// The price book read ahead: the door starts it as the welcome plays, and the
+/// screen behind the door takes it instead of reading again. Signing in felt
+/// slow when every read waited for the welcome to end (owner, 30 Oct 2026).
+let warmBook: ReturnType<typeof wholeCatalogue> | null = null
+
+export function warmCatalogue() {
+  warmBook ??= wholeCatalogue()
+}
+
+/// The book read ahead if there is one, else a fresh read. Taken once.
+export function takeCatalogue(): ReturnType<typeof wholeCatalogue> {
+  const warm = warmBook
+  warmBook = null
+  return warm ?? wholeCatalogue()
 }
 
 // ── pricing a basket ────────────────────────────────────────────────────
@@ -520,6 +554,10 @@ export type QuotedLine = {
   readonly base_unit_price_minor?: number
   /// What this line comes to after its promotions.
   readonly line_total_minor?: number
+  /// False for an article that may not come back (head office's flag per
+  /// article, underwear): Bayar tells the shopper. Absent from a node that
+  /// predates it — then nothing is claimed either way.
+  readonly exchangeable?: boolean
 }
 
 /// A tag the node will not sell from this shop's floor, and why.
@@ -667,6 +705,19 @@ export const sell = (body: {
   taken_at?: string
 }) => edge<SaleReply>("POST", "/api/v1/store/sales", body)
 
+/// For each idempotency key, whether head office holds that sale yet, it waits
+/// on the store server, or the store server never took it (a replaced one).
+/// Every key asked lands in one list. An older server has no such route.
+export type AtHeadOffice = {
+  readonly at_head_office: readonly string[]
+  readonly waiting: readonly string[]
+  readonly unknown: readonly string[]
+}
+
+/// At most 200 keys a question (`backend/src/edge/at_head_office.rs`).
+export const atHeadOffice = (keys: readonly string[]) =>
+  edge<AtHeadOffice>("POST", "/api/v1/store/sales/at-head-office", { keys })
+
 /// A voucher as head office reports it, read-only — what F2 shows.
 export type VoucherCheck = {
   readonly code: string
@@ -679,6 +730,9 @@ export type VoucherCheck = {
   /// Past its expiry, whatever its status says.
   readonly expired: boolean
   readonly member_name: string | null
+  /// A paper voucher is used once: what the bill does not take is forfeited,
+  /// never given back. False for a gift card that keeps its rest.
+  readonly single_use?: boolean
 }
 
 /// `POST /api/v1/store/vouchers/{code}/check` (no body) — what the voucher is
@@ -821,13 +875,25 @@ export const holdSaleOnNode = (body: { basket: unknown; total_minor: number; pcs
   edge<{ id: string; held_by_name: string; held_at: string }>("POST", "/api/v1/store/held", body)
 
 /// `POST /api/v1/store/held/{id}/resume` — removes it and answers the basket.
-export const resumeHeldSale = (id: string) =>
-  edge<HeldSale>("POST", `/api/v1/store/held/${encodeURIComponent(id)}/resume`)
+/// Only the person who held it continues it: someone else's answers 403 "Hanya
+/// <name> yang bisa melanjutkan tunda ini" unless a Kepala toko's `supervisor`
+/// rides along (a till opened after a Tunda ran past 30 minutes).
+export const resumeHeldSale = (id: string, supervisor?: Supervisor) =>
+  edge<HeldSale>(
+    "POST",
+    `/api/v1/store/held/${encodeURIComponent(id)}/resume`,
+    supervisor === undefined ? undefined : { supervisor },
+  )
 
-/// `DELETE /api/v1/store/held/{id}` with `{ supervisor }` — the Kepala toko's
-/// finger (or password).
-export const dropHeldSale = (id: string, supervisor: Supervisor) =>
-  edge<HeldSale>("DELETE", `/api/v1/store/held/${encodeURIComponent(id)}`, { supervisor })
+/// `DELETE /api/v1/store/held/{id}` with `{ supervisor, checked }` — the Kepala
+/// toko's finger (or password), and every piece of the Tunda as she ticked it,
+/// by SKU. A piece left out answers 422 "Supervisor wajib cek semua barang".
+export const dropHeldSale = (
+  id: string,
+  supervisor: Supervisor,
+  checked: readonly { readonly sku: string; readonly quantity: number }[],
+) =>
+  edge<HeldSale>("DELETE", `/api/v1/store/held/${encodeURIComponent(id)}`, { supervisor, checked })
 
 /// The slip a drawer movement prints: `PICKUP` (Tambah modal kasir) and `DROP`
 /// (Setoran sementara) both answer one.
@@ -908,51 +974,50 @@ export type Supervisor = {
   readonly authorization?: string | null
 }
 
-/// `POST /api/v1/store/sales/{id}/void` — `VoidSaleRequest { reason,
-/// supervisor, actor_id, idempotency_key }`.
-///
-/// A void is not a return: it cancels a sale that should not have happened,
-/// and the node asks for a supervisor because it moves stock back and money
-/// out in one step.
-export const voidSale = (
-  saleId: string,
-  body: {
-    reason: string
-    supervisor: Supervisor
-    actor_id: string
-    idempotency_key: string
-  },
-) =>
-  edge<Record<string, unknown>>(
-    "POST",
-    `/api/v1/store/sales/${encodeURIComponent(saleId)}/void`,
-    body,
-  )
+/// `POST /api/v1/store/returns` — the exchange, in one call: the pieces that
+/// came back (`returned_epcs` for a sold tag, `returned_skus` one entry per
+/// piece sold without a tag), the replacements (`replacement_epcs`, optional),
+/// and `tenders` for the difference of a dearer replacement only. No money is
+/// ever paid out. The Kepala toko's `supervisor` proof is spent here.
+export type ExchangeBody = {
+  readonly sale_id: string
+  readonly returned_epcs: readonly string[]
+  readonly returned_skus: readonly string[]
+  readonly replacement_epcs: readonly string[]
+  /// Replacements typed instead of read off a tag (30 Oct 2026).
+  readonly replacement_untagged: readonly UntaggedLine[]
+  readonly tenders: readonly SaleTender[]
+  readonly reason: string | null
+  readonly supervisor: Supervisor
+  readonly idempotency_key: string
+}
 
-/// `POST /api/v1/store/returns` — `ReturnRequest { sale_id, lines, refund_method,
-/// refund_reference, reason, supervisor, actor_id, idempotency_key }`, where a
-/// line is `{ epc, disposition }`.
-///
-/// Returns name the tags coming back, the same way a sale names the tags going
-/// out. `disposition` is where the garment goes, and the node accepts exactly
-/// two words: `RESALEABLE` puts it back on the floor, `DAMAGED` routes it to
-/// the reject pool (`return_sale` refuses anything else by name). It is never
-/// defaulted on screen, because a returned item that silently re-entered floor
-/// stock is a shop selling a damaged garment twice.
-/// A piece sold without a tag comes back by its SKU: `epc` empty and
-/// `sku_code` set (owner, 25 Oct 2026).
-export type ReturnLine = { readonly epc: string; readonly sku_code?: string; readonly disposition: string }
+/// What the node answers (`ExchangeResult`): the return's own struk number.
+export type ExchangeResult = {
+  /// The replacement sale; null when nothing went out.
+  readonly sale_id: string | null
+  readonly receipt_no: string
+  readonly return_id: string
+  readonly original_receipt_no: string
+  readonly returned_minor: number
+  readonly replacement_minor: number
+  /// Value of pieces back that no replacement used: forfeited, never paid out.
+  readonly unused_credit_minor: number
+  readonly paid_minor: number
+  readonly change_minor: number
+}
 
-export const returnSale = (body: {
-  sale_id: string
-  lines: readonly ReturnLine[]
-  refund_method: string
-  refund_reference: string | null
-  reason: string
-  supervisor: Supervisor
-  actor_id: string
-  idempotency_key: string
-}) => edge<Record<string, unknown>>("POST", "/api/v1/store/returns", body)
+export const exchange = (body: ExchangeBody) => edge<ExchangeResult>("POST", "/api/v1/store/returns", body)
+
+/// `POST /api/v1/store/receipts/{receipt_no}/print` — a struk by its number,
+/// for a return that has no sale id. It prints once; a second try is 409.
+export const printReceiptNo = (
+  receiptNo: string,
+  body: (
+    | { printer_host: string; printer_port: number }
+    | { printer_id: string }
+  ) & { paper: string; drawer: string; copy: false },
+) => edge<Record<string, unknown>>("POST", `/api/v1/store/receipts/${encodeURIComponent(receiptNo)}/print`, body)
 
 // ── the cash session ────────────────────────────────────────────────────
 
@@ -1002,6 +1067,10 @@ export const closeShift = (
     /// The count sheet, one line per note or coin. When sent, the node refuses
     /// it unless it adds up to `declared_cash_minor`.
     counted?: readonly { value_minor: number; pieces: number }[]
+    /// How many slips each EDC machine printed, as the cashier counted them.
+    edc_slips?: readonly { machine_id: string; slips: number }[]
+    /// Paper vouchers counted off the drawer (Hari, 30 Oct 2026).
+    vouchers?: number
     note: string | null
     actor_id: string
     idempotency_key: string
@@ -1036,6 +1105,8 @@ export const takeOver = (body: {
   opening_float_minor: number
   actor_id: string
   idempotency_key: string
+  /// The Kepala toko who opened the till for this cashier (MODAL AWAL).
+  handed_by?: string | null
 }) => edge<TakeOverOutcome>("POST", "/api/v1/store/shifts/take-over", body)
 
 /// `POST /api/v1/store/shifts/{id}/count` — the same body as a close
@@ -1047,6 +1118,9 @@ export const countShift = (
   body: {
     declared_cash_minor: number
     counted?: readonly { value_minor: number; pieces: number }[]
+    edc_slips?: readonly { machine_id: string; slips: number }[]
+    /// Paper vouchers counted off the drawer (Hari, 30 Oct 2026).
+    vouchers?: number
     note: string | null
     actor_id: string
     idempotency_key: string
@@ -1056,6 +1130,15 @@ export const countShift = (
     "POST",
     `/api/v1/store/shifts/${encodeURIComponent(shiftId)}/count`,
     body,
+  )
+
+/// `GET /api/v1/store/shifts/{id}/edc-machines` — the EDC machines that took a
+/// payment on this shift (QRIS counts on the bank's machine). Closing asks the
+/// cashier how many slips each one printed. Empty: nothing to count.
+export const edcMachines = (shiftId: string) =>
+  edge<{ readonly items: readonly { readonly machine_id: string; readonly machine_name: string }[] }>(
+    "GET",
+    `/api/v1/store/shifts/${encodeURIComponent(shiftId)}/edc-machines`,
   )
 
 /// `GET /api/v1/store/shifts/{id}` — what this session took, by tender.
@@ -1078,14 +1161,19 @@ export type ShiftSale = {
   readonly change_minor: number
   /// Refunded against this sale since.
   readonly returned_minor: number
-  readonly tenders: readonly {
-    readonly method: string
-    readonly amount_minor: number
-    /// `DEBIT` or `CREDIT` on a card; null on every other tender.
-    readonly card_kind: string | null
-    readonly acquirer: string | null
-    readonly reference: string | null
-  }[]
+  /// How many pieces it sold. Absent from a node that predates it.
+  readonly pcs?: number
+  readonly tenders: readonly SaleTenderRow[]
+}
+
+/// How one tender of a sale was paid, as the node lists it.
+export type SaleTenderRow = {
+  readonly method: string
+  readonly amount_minor: number
+  /// `DEBIT` or `CREDIT` on a card; null on every other tender.
+  readonly card_kind: string | null
+  readonly acquirer: string | null
+  readonly reference: string | null
 }
 
 /// `GET /api/v1/store/shifts/{id}/sales` — the sales rung on one drawer, with
@@ -1098,6 +1186,60 @@ export const shiftSales = (shiftId: string) =>
     "GET",
     `/api/v1/store/shifts/${encodeURIComponent(shiftId)}/sales`,
   )
+
+/// One piece a struk sold, as `GET /store/receipts/{no}` lists it.
+export type ReceiptPiece = {
+  /// The tag it was sold with; null for a piece sold without one.
+  readonly epc: string | null
+  readonly sku_code: string
+  readonly name: string
+  readonly charged_minor: number
+  /// Already came back against this struk.
+  readonly returned: boolean
+  /// False for goods that never come back (head office's return policy).
+  readonly exchangeable: boolean
+}
+
+/// `GET /api/v1/store/receipts/{receipt_no}` — a struk found by its whole
+/// number, nothing less (404 `Struk <NO> tidak ada`; a list of receipts is never
+/// shown, 28 Oct 2026). Also says whether it can be returned and why not.
+export type ReceiptLookup = {
+  readonly kind: "SALE" | "RETURN"
+  /// Null for a return that rang no replacement.
+  readonly sale_id: string | null
+  readonly return_id: string | null
+  /// `RETURNED` is shown "Di-return"; `RETURN` is a return's own struk.
+  readonly status: "PAID" | "VOIDED" | "RETURNED" | "RETURN"
+  /// The paper as the node wrote it (`ReceiptDocument`).
+  readonly receipt: Record<string, unknown>
+  readonly returnable: boolean
+  /// The sentence when it cannot be returned.
+  readonly refusal: string | null
+  /// The last day a piece may come back, `YYYY-MM-DD`.
+  readonly return_by: string | null
+  readonly returned_in: readonly { readonly return_id: string; readonly receipt_no: string | null; readonly occurred_at: string }[]
+  readonly pieces: readonly ReceiptPiece[]
+}
+
+export const receiptLookup = (receiptNo: string) =>
+  edge<ReceiptLookup>("GET", `/api/v1/store/receipts/${encodeURIComponent(receiptNo.trim())}`)
+
+/// `GET /api/v1/store/coupons/{code}` — what a coupon is at this store, read
+/// only. An unknown code is a 200 with `valid: false` and `reason` "Kupon tidak
+/// dikenal di toko ini"; a known one may carry a `reason` too ("Khusus member")
+/// that is a note, not a refusal.
+export type CouponInfo = {
+  readonly code: string
+  readonly name: string
+  /// What it gives, in a line.
+  readonly what: string
+  readonly valid_until: string | null
+  readonly valid: boolean
+  readonly reason?: string | null
+}
+
+export const couponInfo = (code: string) =>
+  edge<CouponInfo>("GET", `/api/v1/store/coupons/${encodeURIComponent(code.trim().toUpperCase())}`)
 
 /// `POST /api/v1/store/shifts/{id}/movements` — `CashMovementRequest { kind,
 /// amount_minor, reason, actor_id, idempotency_key }`. Money in or out of the
@@ -1118,6 +1260,9 @@ export const cashMovement = (
     /// and a figure being rewritten after the fact, are the two movements a
     /// shop cannot let one person make alone.
     supervisor?: Supervisor
+    /// The notes and coins the amount was counted from. When sent it must add
+    /// up to `amount_minor` exactly.
+    counted?: readonly { value_minor: number; pieces: number }[]
   },
 ) =>
   edge<Record<string, unknown>>(
@@ -1211,13 +1356,17 @@ export type TillStanding = {
   readonly store: PosStop | null
   readonly till: TillStop | null
   readonly open_shift: OpenDrawer | null
+  /// Whether the node knows the pairing asked about; absent when not asked,
+  /// and from a node older than 30 Oct 2026.
+  readonly paired?: boolean
 }
 
 /// `GET /api/v1/till/standing` — open on purpose, like `authMethods`: the
 /// door asks it before anybody has signed in. `till_standing` in
 /// `backend/src/edge/http.rs`.
-export const tillStanding = (terminalId: string) =>
+export const tillStanding = (terminalId: string, pairingId?: string | null) =>
   edge<TillStanding>(
     "GET",
-    `/api/v1/till/standing?terminal_id=${encodeURIComponent(terminalId)}`,
+    `/api/v1/till/standing?terminal_id=${encodeURIComponent(terminalId)}` +
+      (pairingId ? `&pairing_id=${encodeURIComponent(pairingId)}` : ""),
   )

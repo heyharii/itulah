@@ -867,7 +867,13 @@ async fn compute_control_status(
         last_replay_run(pool),
         last_repost_run(pool),
     )?;
-    assemble_control_status(fact_count, differences, outbound_rollup_rows, replay, repost)
+    assemble_control_status(
+        fact_count,
+        differences,
+        outbound_rollup_rows,
+        replay,
+        repost,
+    )
 }
 
 /// The same answer on one connection, serially, for the pass that refreshes
@@ -933,11 +939,13 @@ async fn last_repost_run<'e, E>(executor: E) -> Result<Option<sqlx::postgres::Pg
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
-    Ok(sqlx::query(
-        "SELECT id,projection_rows,ran_at FROM repost_run ORDER BY ran_at DESC LIMIT 1",
+    Ok(
+        sqlx::query(
+            "SELECT id,projection_rows,ran_at FROM repost_run ORDER BY ran_at DESC LIMIT 1",
+        )
+        .fetch_optional(executor)
+        .await?,
     )
-    .fetch_optional(executor)
-    .await?)
 }
 
 /// The five reads turned into the answer — the half both executions share,

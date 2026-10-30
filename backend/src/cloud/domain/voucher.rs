@@ -130,6 +130,9 @@ pub enum VoucherMovementKind {
     Issue,
     Redeem,
     Void,
+    /// What a single-use paper voucher had left after its one redemption:
+    /// no change, the rest gone (postgres 1006).
+    Forfeit,
 }
 
 impl VoucherMovementKind {
@@ -138,6 +141,7 @@ impl VoucherMovementKind {
             Self::Issue => "ISSUE",
             Self::Redeem => "REDEEM",
             Self::Void => "VOID",
+            Self::Forfeit => "FORFEIT",
         }
     }
 }
@@ -156,6 +160,7 @@ impl FromStr for VoucherMovementKind {
             "ISSUE" => Ok(Self::Issue),
             "REDEEM" => Ok(Self::Redeem),
             "VOID" => Ok(Self::Void),
+            "FORFEIT" => Ok(Self::Forfeit),
             _ => Err(VoucherError::InvalidMovementKind(value.into())),
         }
     }
@@ -296,6 +301,7 @@ mod tests {
             VoucherMovementKind::Issue,
             VoucherMovementKind::Redeem,
             VoucherMovementKind::Void,
+            VoucherMovementKind::Forfeit,
         ] {
             assert_eq!(VoucherMovementKind::from_str(kind.as_str()).unwrap(), kind);
         }

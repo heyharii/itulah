@@ -186,9 +186,10 @@ pub fn validate_transition(cause: MovementCause, line: &MovementLine) -> Result<
                 )
         }
         MovementCause::PlacementCorrection => on_hand(&line.from) && on_hand(&line.to),
-        // Four causes only a NODE writes, and the centre's routes never do:
+        // Five causes only a NODE writes, and the centre's routes never do:
         // booking a shop's delivery in, telling an anonymous quantity apart,
-        // tagging it, and letting go of goods another site counted in. They
+        // tagging it, letting go of goods another site counted in, and a
+        // replacement booking the stock it was handed. They
         // are in this vocabulary because they travel (a fact carries one), and
         // they are refused here rather than given rules, because a rule the
         // centre never applies is a second answer to a question only a node
@@ -197,7 +198,8 @@ pub fn validate_transition(cause: MovementCause, line: &MovementLine) -> Result<
         MovementCause::StoreReceive
         | MovementCause::Identification
         | MovementCause::Tagging
-        | MovementCause::HandedOver => false,
+        | MovementCause::HandedOver
+        | MovementCause::StockHandover => false,
         MovementCause::NormalMove => match (&line.from, &line.to) {
             (
                 Place::Operational {
@@ -400,8 +402,14 @@ mod tests {
         }
         let refused = [
             // Only an unsent carton is opened again, never a later stage.
-            ("dc.outbound.shipment:on_hand", "dc.outbound.picking:on_hand"),
-            ("dc.outbound.in-transit:on_hand", "dc.outbound.picking:on_hand"),
+            (
+                "dc.outbound.shipment:on_hand",
+                "dc.outbound.picking:on_hand",
+            ),
+            (
+                "dc.outbound.in-transit:on_hand",
+                "dc.outbound.picking:on_hand",
+            ),
             // Nothing goes back into, or out of, a legacy per-store leaf.
             (
                 "dc.outbound.packed.store-07:on_hand",

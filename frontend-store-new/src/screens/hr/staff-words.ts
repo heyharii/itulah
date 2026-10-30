@@ -107,3 +107,18 @@ export function answerOf(proposal: HireProposalView): string | null {
   const said = currentTerms(proposal)?.decided_reason?.trim() ?? ""
   return said === "" ? null : said
 }
+
+/// Who is on the books: working, or suspended and still employed, in name
+/// order. Somebody who has not started, or has left, is not staff — and a
+/// person being asked for is not an employee yet.
+export function onTheBooks(team: EmployeeList | undefined): EmployeeSummary[] {
+  return (team?.rows ?? [])
+    .filter(
+      (person) => person.status === "ACTIVE" || person.status === "SUSPENDED",
+    )
+    .sort((left, right) =>
+      (left.full_name ?? left.employee_code).localeCompare(
+        right.full_name ?? right.employee_code,
+      ),
+    )
+}

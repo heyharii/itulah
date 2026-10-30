@@ -7,9 +7,11 @@
 //! store's People tab in the hub, where head office approves it — it becomes
 //! the person's template, and every server they sign in at takes it
 //! (`pos_fingers_for_origin`) — or refuses it, and the bytes are dropped.
-//! A finger the head records for somebody else she approves herself: it is
-//! approved here on arrival, under her name, and head office can withdraw it
-//! from the person's Fingerprints like any other.
+//! A finger the head records she approves herself — her team's, and since
+//! 25 Oct 2026 her own (owner): it is approved here on arrival, under her
+//! name, and head office can withdraw it from the person's Fingerprints like
+//! any other. What still waits here is a recording from a server that does
+//! not say so (`approved_by_head`), or one that was already waiting.
 //! An approved finger is the person's everywhere: every POS of their store,
 //! attendance, and the next store if they are moved.
 
@@ -36,9 +38,10 @@ pub struct PosFingerSubmission {
     pub quality: Option<i64>,
     pub recorded_by: String,
     pub recorded_at: DateTime<Utc>,
-    /// Somebody else's finger, which the store head approved by recording
-    /// it (owner, 24 Oct 2026: the head or head office approves). It is the
-    /// person's at once; head office can still withdraw it.
+    /// A finger the store head approved by recording it — somebody else's
+    /// (owner, 24 Oct 2026: the head or head office approves) or her own
+    /// (25 Oct 2026). It is the person's at once; head office can still
+    /// withdraw it.
     #[serde(default)]
     pub approved_by_head: bool,
 }

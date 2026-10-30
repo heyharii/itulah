@@ -91,7 +91,7 @@ type Form =
 /// filed against it, in the order a person asks: its papers, its contracts, its
 /// schedule and inspections, its repairs, what it costs to run, and what has
 /// happened to it. Each section reads from the list that owns the records
-/// (Files, Contracts, Service Schedule, Repairs), filtered to this asset, and a
+/// (Files, Contracts, Routine Service, Repairs), filtered to this asset, and a
 /// row opens the same record those screens open, as a layer over this one. The
 /// `+` at a section's heading opens that screen's own form with this asset
 /// already chosen.

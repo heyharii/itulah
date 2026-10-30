@@ -129,6 +129,11 @@ function TillsPage({ store, pos }: { store: StoreSummary; pos: StorePos }) {
   })
 
   const live = pos.tills.filter((till) => till.status !== "REVOKED")
+  // Central Gudang PCs: no seat, no drawer. A server older than them sends
+  // none.
+  const warehouses = (pos.warehouses ?? []).filter(
+    (till) => till.status !== "REVOKED"
+  )
   const gone = pos.tills.filter((till) => till.status === "REVOKED")
   const now = Date.now()
   const online = live.filter(
@@ -176,7 +181,11 @@ function TillsPage({ store, pos }: { store: StoreSummary; pos: StorePos }) {
         <Section
           title={
             <>
-              New POS asking to join{" "}
+              {pos.waiting.every((join) => join.kind === "WAREHOUSE")
+                ? "Warehouse PC asking to join"
+                : pos.waiting.some((join) => join.kind === "WAREHOUSE")
+                  ? "Asking to join"
+                  : "New POS asking to join"}{" "}
               <span className="font-normal text-mute tabular-nums">
                 {pos.waiting.length}
               </span>
@@ -253,6 +262,16 @@ function TillsPage({ store, pos }: { store: StoreSummary; pos: StorePos }) {
             )}
           </Card>
         </Section>
+
+        {warehouses.length > 0 && (
+          <Section title="Warehouse PCs">
+            <Card className="overflow-clip px-4 pt-3.5 pb-1">
+              <MiniTable head={[{ label: "Warehouse PC", align: "left" } as const, ...head.slice(1)]}>
+                {warehouses.map(tillRow)}
+              </MiniTable>
+            </Card>
+          </Section>
+        )}
 
         {gone.length > 0 && (
           <Collapsible.Root>
@@ -381,7 +400,9 @@ function JoinRow({
   onRefuse: () => void
   onReplace: () => void
 }) {
-  const full = live >= seats
+  // A Central Gudang PC takes no seat: it never sells.
+  const warehouse = join.kind === "WAREHOUSE"
+  const full = !warehouse && live >= seats
   const decided = join.decision !== null && join.error === null
 
   let action: React.ReactNode = null
@@ -442,14 +463,21 @@ function JoinRow({
 
   const detail = [
     join.os,
-    join.version === null ? null : `Central POS ${join.version}`,
+    join.version === null
+      ? null
+      : `${warehouse ? "Central Gudang" : "Central POS"} ${join.version}`,
   ]
     .filter((part): part is string => part !== null && part !== "")
     .join(" · ")
 
   return (
     <MiniRow>
-      <MiniCell className="font-medium text-ink">{join.code}</MiniCell>
+      <MiniCell className="font-medium text-ink">
+        {join.code}
+        {warehouse && (
+          <span className="block font-normal text-mute">Warehouse PC</span>
+        )}
+      </MiniCell>
       <MiniCell className="tabular-nums">
         {verificationOf(join.verification)}
       </MiniCell>
