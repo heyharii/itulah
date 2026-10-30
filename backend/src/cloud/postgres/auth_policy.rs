@@ -1373,6 +1373,11 @@ pub async fn publish_auth_policy(
     let return_policy = super::return_policy::snapshot(pool).await?;
     let point_policy = super::point_policy::point_policy_snapshot(pool).await?;
     let receipt_header = super::stores::receipt_header_for_site(pool, node.site_id.as_str()).await?;
+    let receipt_slices = if node.role == EdgeRole::Store {
+        Some(super::stores::receipt_slices_for(pool, origin_id).await?)
+    } else {
+        None
+    };
 
     let mut snapshot = AuthPolicySnapshot {
         snapshot_id: Uuid::new_v4(),
@@ -1399,6 +1404,7 @@ pub async fn publish_auth_policy(
         return_policy: Some(return_policy),
         point_policy: Some(point_policy),
         receipt_header: Some(receipt_header),
+        receipt_slices,
     };
     snapshot.content_hash = auth_policy_content_hash(&snapshot);
     let payload = serde_json::to_value(&snapshot)?;

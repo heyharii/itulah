@@ -4429,8 +4429,87 @@ fn receipt_seat(connection: &Connection, shift_id: Option<&str>) -> Result<Strin
     Ok(seat.unwrap_or_else(|| format!("{SEAT_PREFIX}1")))
 }
 
+/// Replace this store's slices of the transaction numbers with the ones head
+/// office just sent (postgres 1010); the count numbered from them stays.
+pub(crate) fn apply_receipt_slices(
+    tx: &Transaction<'_>,
+    slices: &[crate::cloud::domain::receipt_number::ReceiptSlice],
+) -> Result<(), rusqlite::Error> {
+    tx.execute("DELETE FROM receipt_slice_state", [])?;
+    for slice in slices {
+        tx.prepare_cached("INSERT INTO receipt_slice_state (start,size) VALUES (?1,?2)")?
+            .execute(params![slice.start, slice.size])?;
+    }
+    Ok(())
+}
+
+/// The next code from this store's slices — counted as used when `take` —
+/// `None` when it holds none or has spent them, and the old number stands in.
+fn next_slice_code(connection: &Connection, take: bool) -> Result<Option<String>, EdgeError> {
+    use crate::cloud::domain::receipt_number::{code_at, ReceiptSlice};
+    let slices: Vec<ReceiptSlice> = {
+        // Head office grants them in rising order, so `start` is grant order.
+        let mut statement = connection
+            .prepare_cached("SELECT start,size FROM receipt_slice_state ORDER BY start")
+            .map_err(db)?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok(ReceiptSlice {
+                    start: row.get(0)?,
+                    size: row.get(1)?,
+                })
+            })
+            .map_err(db)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(db)?
+    };
+    if slices.is_empty() {
+        return Ok(None);
+    }
+    let mut used: i64 = connection
+        .prepare_cached("SELECT used FROM receipt_slice_counter WHERE singleton=1")
+        .map_err(db)?
+        .query_row([], |row| row.get(0))
+        .optional()
+        .map_err(db)?
+        .unwrap_or(0);
+    // A code an older number already printed is passed over, never reused.
+    let found = loop {
+        let Some(code) = code_at(&slices, used) else {
+            break None;
+        };
+        used += 1;
+        let taken: i64 = connection
+            .prepare_cached(
+                "SELECT (SELECT COUNT(*) FROM sale_receipt WHERE receipt_no=?1)
+                      + (SELECT COUNT(*) FROM return_receipt WHERE receipt_no=?1)",
+            )
+            .map_err(db)?
+            .query_row([&code], |row| row.get(0))
+            .map_err(db)?;
+        if taken == 0 {
+            break Some(code);
+        }
+    };
+    if take {
+        connection
+            .prepare_cached(
+                "INSERT INTO receipt_slice_counter (singleton,used) VALUES (1,?1)
+                 ON CONFLICT(singleton) DO UPDATE SET used=excluded.used",
+            )
+            .map_err(db)?
+            .execute([used])
+            .map_err(db)?;
+    }
+    Ok(found)
+}
+
 /// The next number at a seat, and what it reads as — not yet taken.
 fn next_receipt(connection: &Connection, seat: &str) -> Result<(i64, String), EdgeError> {
+    numbered(connection, seat, true)
+}
+
+/// The number a seat would give next, or gives now when `take`.
+fn numbered(connection: &Connection, seat: &str, take: bool) -> Result<(i64, String), EdgeError> {
     // A return with no replacement numbers itself from the same run (0102),
     // so the sales and the returns at a seat never share a number.
     let last: i64 = connection
@@ -4443,6 +4522,11 @@ fn next_receipt(connection: &Connection, seat: &str) -> Result<(i64, String), Ed
         .map_err(db)?
         .query_row([seat], |row| row.get(0))
         .map_err(db)?;
+    // Seven random-looking letters from head office's slice (postgres 1010);
+    // the seat's own run below only while the store holds none.
+    if let Some(code) = next_slice_code(connection, take)? {
+        return Ok((last + 1, code));
+    }
     let prefix = format!("{}{}", store_letters(connection), till_letter(seat));
     let mut n = last + 1;
     // On a clash take the next n — at most once round the four letters.
@@ -4501,7 +4585,7 @@ pub(crate) fn peek_receipt(
         return Ok(None);
     };
     let seat = receipt_seat(connection, Some(&shift_id))?;
-    next_receipt(connection, &seat).map(|(_, receipt_no)| Some(receipt_no))
+    numbered(connection, &seat, false).map(|(_, receipt_no)| Some(receipt_no))
 }
 
 /// A sale's number: the one it was given, or — for a sale from before

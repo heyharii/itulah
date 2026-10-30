@@ -60,6 +60,7 @@ mod record;
 /// How long a piece may come back and what "the same item" means. Pure, so
 /// head office's publication and a till's sale resolve one answer.
 pub mod receipt_header;
+pub mod receipt_number;
 pub mod return_policy;
 mod sales;
 mod settlement_report;

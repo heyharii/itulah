@@ -1615,6 +1615,11 @@ pub struct AuthPolicySnapshot {
     /// node held — an empty one clears it; absent keeps it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub receipt_header: Option<ReceiptHeader>,
+    /// This store's slices of the 7-letter transaction numbers (postgres
+    /// 1010), outside `content_hash` for the same reason. `Some` replaces
+    /// what the node held; absent keeps it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub receipt_slices: Option<Vec<super::receipt_number::ReceiptSlice>>,
 }
 
 /// What head office has stopped on one node's POS (postgres 0990). A till

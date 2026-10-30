@@ -2305,6 +2305,10 @@ fn apply_auth_policy(tx: &Transaction<'_>, snapshot: &AuthPolicySnapshot) -> Res
     if let Some(header) = snapshot.receipt_header.as_ref() {
         crate::edge::receipt_header::apply(tx, header, snapshot.version).map_err(err)?;
     }
+    // This store's slices of the transaction numbers (postgres 1010).
+    if let Some(slices) = snapshot.receipt_slices.as_ref() {
+        crate::edge::till::apply_receipt_slices(tx, slices).map_err(err)?;
+    }
     // What head office says about this node's site and the others (0049).
     // Only when it said something: a policy from an older centre carries
     // neither, and must not wipe what a newer one sent.
@@ -4926,6 +4930,7 @@ mod tests {
             return_policy: None,
             point_policy: None,
             receipt_header: None,
+            receipt_slices: None,
         };
         snapshot.content_hash = auth_policy_content_hash(&snapshot);
         let version_one = snapshot.clone();
@@ -5102,6 +5107,7 @@ mod tests {
             return_policy: None,
             point_policy: None,
             receipt_header: None,
+            receipt_slices: None,
         };
         // What an older node hashes: everything it knows, no finger lease.
         let older_hash = auth_policy_content_hash(&snapshot);

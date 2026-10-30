@@ -373,6 +373,12 @@ pub(crate) const RECEIPT_HEADER_SCHEMA: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/migrations/sqlite/0106_a_store_prints_its_own_picture_at_the_top_of_a_receipt.sql"
 ));
+/// This store's slices of the 7-letter transaction numbers (`0107`, Hari
+/// 30 Oct 2026). Creates only.
+pub(crate) const RECEIPT_SLICE_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0107_a_store_numbers_its_transactions_from_its_own_slice.sql"
+));
 pub(crate) const SALE_PROMOTION_SCHEMA: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/migrations/sqlite/0104_a_sale_keeps_its_promotions_for_the_paper.sql"
@@ -1758,6 +1764,8 @@ impl SqliteEdge {
         connection
             .execute_batch(RECEIPT_HEADER_SCHEMA)
             .map_err(db)?;
+        // The store's slices of the transaction numbers (`0107`). Creates only.
+        connection.execute_batch(RECEIPT_SLICE_SCHEMA).map_err(db)?;
         // The shop's EDC machines (`0100`). Creates only; after `0093`.
         connection.execute_batch(EDC_MACHINE_SCHEMA).map_err(db)?;
         // The return promise and each sale's last day (`0101`). The state table

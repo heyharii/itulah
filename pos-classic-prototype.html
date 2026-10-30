@@ -1493,6 +1493,16 @@ tr.rc-row td{padding-top:12px;padding-bottom:12px;vertical-align:top}
 .bag-row .thumb svg{width:28px;height:28px}
 .bag-row .p{color:var(--body);font-variant-numeric:tabular-nums}
 .pop-menu{width:240px}
+.kx{width:560px}
+.kx .dlg-body{display:flex;flex-direction:column;gap:2px}
+.kx-row{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:16px;min-height:44px;padding:0 4px;border-bottom:1px solid var(--hairline)}
+.kx-row.on{background:var(--accent-bg);border-radius:8px}
+.kx-l{font-weight:600}
+.kx-k{display:inline-flex;align-items:center;gap:10px}
+.kx-cap{font-size:15px;min-width:64px;justify-content:center}
+.kx-was{color:var(--body);font-size:15px}
+.kx-wait{color:var(--accent);font-weight:600}
+.kx-err{margin-top:12px;color:var(--bad-fg);font-weight:600}
 .menu-row{display:flex;align-items:center;gap:10px;width:100%;height:40px;padding:0 10px;border-radius:8px;text-align:left}
 .menu-row svg{color:var(--line-ico)}
 .menu-row .kbd{margin-left:auto}
@@ -2282,12 +2292,50 @@ const KEYMAP = [
   ['⇧5', 'Member', 'member'], ['⇧7', 'Batal', 'cancel'], ['⇧8', 'Return', 'return'],
   ['⇧9', 'Tunda', 'hold'], ['⇧0', 'Struk', 'receipts'],
 ];
+/* Keys per cashier (Hari, 30 Oct 2026): each cashier sets their own keys on
+   the till, from the menu under their name; the keys follow them, not the
+   till. Enter stays Bayar, Esc stays back, letters and digits stay for the
+   scan field. */
+const KEY_ACTIONS = [['new', 'Tambah', '+'], ['minus', 'Kurangi', '−'], ['check', 'Cek', 'Shift+2'], ['drawer', 'Laci', 'Shift+3'], ['close', 'Tutup kasir', 'Shift+4'],
+  ['member', 'Member', 'Shift+5'], ['bags', 'Kantong', 'Shift+6'], ['cancel', 'Batal', 'Shift+7'], ['return', 'Return', 'Shift+8'], ['hold', 'Tunda', 'Shift+9'], ['receipts', 'Struk', 'Shift+0']];
+S.keys = {};
+const keyOf = id => (S.keys[S.who && S.who.id] || {})[id] || KEY_ACTIONS.find(a => a[0] === id)[2];
+const keyShort = k => k.replace(/^Shift\+/, '⇧');
+function comboOf(e) {
+  if (e.key === '+' || e.code === 'NumpadAdd') return '+';
+  if (e.key === '-' || e.key === '−' || e.code === 'NumpadSubtract') return '−';
+  const base = /^F\d{1,2}$/.test(e.key) ? e.key : e.code.startsWith('Digit') ? e.code.slice(5) : e.code.startsWith('Key') ? e.code.slice(3) : null;
+  if (!base) return null;
+  return [e.ctrlKey && 'Ctrl', e.altKey && 'Alt', e.shiftKey && 'Shift', base].filter(Boolean).join('+');
+}
+/* why a key can't be a till key, or null when it can */
+function keyRefusal(combo, id) {
+  if (/^[A-Z0-9]$/.test(combo)) return 'Huruf dan angka untuk mengetik SKU';
+  if (combo === 'Ctrl+L') return 'Ctrl+L untuk Kunci';
+  const other = KEY_ACTIONS.find(a => a[0] !== id && keyOf(a[0]) === combo);
+  return other ? `Sudah dipakai ${other[1]}` : null;
+}
+function keysView() {
+  const k = S.keyEdit, mine = S.keys[S.who.id] || {}
+  const rows = KEY_ACTIONS.map(([id, label, def]) => {
+    const on = k.cap === id, changed = mine[id] && mine[id] !== def
+    return `<div class="kx-row${on ? ' on' : ''}"><span class="kx-l">${label}</span>
+      <span class="kx-k">${on ? '<span class="kx-wait">Tekan tombol…</span>' : `<span class="kbd kx-cap">${keyOf(id)}</span>${changed ? `<span class="kx-was">awal ${def}</span>` : ''}`}</span>
+      <button class="ds-btn ${on ? 'ds-btn--ghost' : 'ds-btn--primary'} ds-btn--sm" data-act="${on ? 'keyCancel' : 'keyCap'}" data-arg="${id}">${on ? 'Batal' : 'Ubah'}</button></div>`
+  }).join('')
+  return `<div class="veil${A('ov', 'm-veil')}" data-act="veil">
+    <div class="dlg kx${A('ov', 'm-pop')}" data-act="stop" role="dialog" aria-label="Tombol keyboard">
+      <div class="dlg-head"><div><p class="ttl">Tombol keyboard</p><p class="cap">${esc(S.who.name)}</p></div><button class="x-btn" data-act="closeOv" aria-label="Tutup">${I.x17}</button></div>
+      <div class="dlg-body">${rows}${k.err ? `<p class="kx-err" role="alert">${esc(k.err)}</p>` : ''}</div>
+      <div class="dlg-foot"><button class="ds-btn ds-btn--ghost" data-act="keyReset"${Object.keys(mine).length ? '' : ' disabled'}>Kembalikan ke awal</button><span class="sp"></span><button class="ds-btn ds-btn--primary" data-act="closeOv">Selesai</button></div>
+    </div></div>`
+}
 function keyTiles() {
   const none = !S.lines.length;
   const off = { new: none || !S.lines[S.sel], minus: none || !S.lines[S.sel], cancel: none, discount: none, hold: !S.held.length };
   const tone = { void: ' bad', cancel: ' bad', pay: ' go' };
   const pop = { bags: ' data-pop="bags"', discount: ' data-pop="promos"', drawer: ' data-pop="drawer"' };
-  return `<div class="t-keys7" role="toolbar" aria-label="Tombol">${KEYMAP.map(([k, label, id], i) => `${i === 2 || i === 6 || i === 9 ? '<span class="k7-gap"></span>' : ''}<button class="k7${tone[id] || ''}" data-act="key7" data-arg="${id}"${pop[id] || ''}${off[id] ? ' disabled' : ''} aria-keyshortcuts="${k === '+' ? 'Add' : k === '−' ? 'Subtract' : k}"><span class="k7-k">${k}</span><span class="k7-l">${label}</span></button>`).join('')}</div>`;
+  return `<div class="t-keys7" role="toolbar" aria-label="Tombol">${KEYMAP.map(([, label, id], i) => [keyShort(keyOf(id)), label, id]).map(([k, label, id], i) => `${i === 2 || i === 6 || i === 9 ? '<span class="k7-gap"></span>' : ''}<button class="k7${tone[id] || ''}" data-act="key7" data-arg="${id}"${pop[id] || ''}${off[id] ? ' disabled' : ''} aria-keyshortcuts="${k === '+' ? 'Add' : k === '−' ? 'Subtract' : k}"><span class="k7-k">${k}</span><span class="k7-l">${label}</span></button>`).join('')}</div>`;
 }
 /* A and C: who the sale is for, at the head of the side, then the last receipts. */
 function memberCard() {
@@ -2691,6 +2739,7 @@ function receiptsView() {
 function ovView() {
   switch (S.ov) {
     case 'pay': return S.pay2 ? pay2View() : payView();
+    case 'keys': return keysView();
     case 'change': return changeView();
     case 'discount': return discountView();
     case 'held': return heldView();
@@ -4026,6 +4075,7 @@ function popView() {
   if (p.kind === 'person') {
     return `<div class="pop pop-menu right${anim}" data-act="stop" role="menu" aria-label="${S.who.name}">
       <button class="menu-row" data-act="lock">${I.lock}<span>Kunci</span></button>
+      <button class="menu-row" data-act="keysOpen">${I.search}<span>Tombol keyboard</span></button>
       <button class="menu-row" data-act="tool" data-arg="close">${I.banknote}<span>Tutup kasir</span><span class="kbd">⇧4</span></button>
     </div>`;
   }
@@ -4520,6 +4570,10 @@ function act(name, arg, ptr, el) {
     case 'retNew': if (S.ret) S.ret.sel = -1; break;
     case 'retStep': if (arg === 'back') retBack(); else retNext(); break;
     case 'retNext': retNext(); break;
+    case 'keysOpen': S.pop = null; S.keyEdit = { cap: null, err: null }; S.ov = 'keys'; S.anim.ov = ptr; break;
+    case 'keyCap': S.keyEdit = { cap: arg, err: null }; break;
+    case 'keyCancel': S.keyEdit = { cap: null, err: null }; break;
+    case 'keyReset': delete S.keys[S.who.id]; S.keyEdit = { cap: null, err: null }; toast('ok', 'Tombol kembali ke awal'); break;
     case 'rqSel': { const x = S.ret && retLines()[Number(arg)]; if (x) { S.ret.sel = Number(arg); S.focus = 'rq' + x.li; S.selectAll = true; } break; }
     case 'rqQty': {
       const [li, d] = String(arg).split(':').map(Number), R = S.ret; if (!R) break;
@@ -4739,6 +4793,31 @@ frame.addEventListener('input', e => {
 const FKEYS = ['F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12'];
 window.addEventListener('keydown', e => {
   if (e.target.closest && e.target.closest('#chrome')) return;
+  /* setting a key: the next press is the key */
+  if (S.ov === 'keys' && S.keyEdit && S.keyEdit.cap) {
+    if (['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) return;
+    e.preventDefault();
+    const k = S.keyEdit, combo = comboOf(e)
+    if (e.key === 'Escape') { S.keyEdit = { cap: null, err: null }; render(); return; }
+    if (!combo) { k.err = `${e.key} tidak bisa dipakai`; render(); return; }
+    const no = keyRefusal(combo, k.cap)
+    if (no) { k.err = `${combo}: ${no}`; render(); return; }
+    const def = KEY_ACTIONS.find(a => a[0] === k.cap)[2], mine = S.keys[S.who.id] = S.keys[S.who.id] || {}
+    if (combo === def) delete mine[k.cap]; else mine[k.cap] = combo
+    if (!Object.keys(mine).length) delete S.keys[S.who.id]
+    toast('ok', `${KEY_ACTIONS.find(a => a[0] === k.cap)[1]} · ${combo}`)
+    S.keyEdit = { cap: null, err: null }; render(); return;
+  }
+  /* the cashier's own keys, on the sale screen */
+  if (S.screen === 'sell' && !S.ov && !S.pop && !S.sup && !S.dlg2 && S.keys[S.who && S.who.id]) {
+    const combo = comboOf(e), typed = e.target.matches && e.target.matches('input') && e.target.value
+    if (combo && !((combo === '+' || combo === '−') && typed)) {
+      const mine = KEY_ACTIONS.find(a => keyOf(a[0]) === combo)
+      if (mine) { e.preventDefault(); keyAct(mine[0], false); render(); return; }
+      /* a key the cashier moved away does nothing any more */
+      if (KEY_ACTIONS.some(a => a[2] === combo)) { e.preventDefault(); return; }
+    }
+  }
   /* Ctrl+L lock, Ctrl+M the menu. A struk is never printed again (Hari, 28 Oct 2026). */
   if (e.ctrlKey && !e.altKey && !e.metaKey && S.screen === 'sell' && !S.ov && !S.sup && !S.dlg2) {
     const c = e.key.toLowerCase();

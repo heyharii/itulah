@@ -1749,7 +1749,6 @@ pub async fn disconnect_store_server(
     install_store_server(pool, unit_id, actor).await.map(Some)
 }
 
-
 // ── the picture at the top of the receipt (1009) ─────────────────────────
 
 use crate::cloud::domain::receipt_header::{
@@ -1822,10 +1821,11 @@ pub async fn read_receipt_header(
     use sqlx::Row;
     let site_id = site_of_unit(pool, unit_id).await?;
     let header = receipt_header_for_site(pool, &site_id).await?;
-    let meta = sqlx::query("SELECT updated_by,updated_at FROM store_receipt_header WHERE site_id=$1")
-        .bind(&site_id)
-        .fetch_optional(pool)
-        .await?;
+    let meta =
+        sqlx::query("SELECT updated_by,updated_at FROM store_receipt_header WHERE site_id=$1")
+            .bind(&site_id)
+            .fetch_optional(pool)
+            .await?;
     Ok(ReceiptHeaderView {
         present: header.wide.is_some(),
         wide: header.wide,
@@ -2151,4 +2151,80 @@ mod tests {
         assert_eq!(app_address_of(&store, "SYNCING"), None);
         assert_eq!(app_address_of(&store, "OFFLINE"), None);
     }
+}
+
+/// One slice of the transaction numbers (postgres 1010): four million.
+const RECEIPT_SLICE_SIZE: i64 = 4_000_000;
+
+/// This store install's slices of the 7-letter transaction numbers, oldest
+/// first — a first one when it has none, and the next once the sales it has
+/// synced reach 80% of what it holds. Slices are cut from the end of the run
+/// under one lock, so no two stores ever share a number.
+pub async fn receipt_slices_for(
+    pool: &PgPool,
+    origin_id: &str,
+) -> Result<Vec<crate::cloud::domain::receipt_number::ReceiptSlice>, AppError> {
+    use crate::cloud::domain::receipt_number::{ReceiptSlice, SPACE};
+    let mut tx = pool.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(1010)")
+        .execute(&mut *tx)
+        .await?;
+    let generation: i64 = sqlx::query_scalar(
+        "SELECT active_generation FROM sync_origin_credential WHERE origin_id=$1",
+    )
+    .bind(origin_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .unwrap_or(1);
+    let held = |rows: Vec<(i64, i64)>| {
+        rows.into_iter()
+            .map(|(start, size)| ReceiptSlice { start, size })
+            .collect::<Vec<_>>()
+    };
+    let mut slices = held(
+        sqlx::query_as::<_, (i64, i64)>(
+            "SELECT start,size FROM receipt_slice
+              WHERE origin_id=$1 AND generation=$2 ORDER BY issued_at,start",
+        )
+        .bind(origin_id)
+        .bind(generation)
+        .fetch_all(&mut *tx)
+        .await?,
+    );
+    let granted: i64 = slices.iter().map(|slice| slice.size).sum();
+    // Sales since this install was first given a slice: a store set up
+    // again does not count what its old database numbered.
+    let used: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM edge_sale
+          WHERE origin_id=$1
+            AND occurred_at >= COALESCE((SELECT MIN(issued_at) FROM receipt_slice
+                                          WHERE origin_id=$1 AND generation=$2), now())",
+    )
+    .bind(origin_id)
+    .bind(generation)
+    .fetch_one(&mut *tx)
+    .await?;
+    if granted == 0 || used * 5 >= granted * 4 {
+        let next: i64 =
+            sqlx::query_scalar("SELECT COALESCE(MAX(start + size), 0) FROM receipt_slice")
+                .fetch_one(&mut *tx)
+                .await?;
+        let size = RECEIPT_SLICE_SIZE.min(i64::try_from(SPACE).unwrap_or(i64::MAX) - next);
+        if size > 0 {
+            sqlx::query(
+                "INSERT INTO receipt_slice (start,size,origin_id,generation) VALUES ($1,$2,$3,$4)",
+            )
+            .bind(next)
+            .bind(size)
+            .bind(origin_id)
+            .bind(generation)
+            .execute(&mut *tx)
+            .await?;
+            slices.push(ReceiptSlice { start: next, size });
+        } else {
+            tracing::warn!(origin_id, "every 7-letter transaction number is handed out");
+        }
+    }
+    tx.commit().await?;
+    Ok(slices)
 }
